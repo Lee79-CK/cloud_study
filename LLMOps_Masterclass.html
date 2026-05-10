@@ -1,0 +1,2331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMOps 마스터클래스 — DGX Spark × ThinkStation 2-Node Cluster</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+
+<style>
+  :root {
+    --bg-0: #0b0b0c;
+    --bg-1: #131315;
+    --bg-2: #1a1a1d;
+    --bg-3: #232328;
+    --line: #2a2a2f;
+    --line-soft: #1f1f23;
+    --ink-0: #f4f1e8;
+    --ink-1: #d9d6cc;
+    --ink-2: #9a978d;
+    --ink-3: #6b6962;
+    --amber: #e8b04f;
+    --amber-soft: rgba(232, 176, 79, 0.12);
+    --cyan: #6ad7d2;
+    --cyan-soft: rgba(106, 215, 210, 0.10);
+    --rose: #e06b75;
+    --green: #8fb96e;
+    --serif: 'Instrument Serif', 'Noto Serif KR', serif;
+    --sans: 'Pretendard Variable', Pretendard, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-0);
+    color: var(--ink-1);
+    font-family: var(--sans);
+    font-feature-settings: "ss05", "ss06";
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* Subtle grain overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ===== Layout ===== */
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ===== Sidebar ===== */
+  aside.nav {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    background: var(--bg-1);
+    border-right: 1px solid var(--line-soft);
+    overflow-y: auto;
+    padding: 32px 28px 40px;
+  }
+  aside.nav::-webkit-scrollbar { width: 6px; }
+  aside.nav::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
+
+  .brand {
+    display: flex; align-items: baseline; gap: 10px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--line-soft);
+    margin-bottom: 24px;
+  }
+  .brand .mark {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 32px;
+    color: var(--amber);
+    line-height: 1;
+  }
+  .brand .meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+  }
+
+  .nav-section { margin-bottom: 28px; }
+  .nav-section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding-left: 4px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+    color: var(--ink-2);
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s ease;
+    border-left: 2px solid transparent;
+  }
+  .nav-item:hover { color: var(--ink-0); background: var(--bg-2); }
+  .nav-item.active {
+    color: var(--amber);
+    background: var(--amber-soft);
+    border-left-color: var(--amber);
+  }
+  .nav-item .num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    min-width: 24px;
+  }
+  .nav-item.active .num { color: var(--amber); }
+
+  /* ===== Main ===== */
+  main.content {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 80px 64px 120px;
+  }
+
+  .section { display: none; animation: fade 0.4s ease; }
+  .section.visible { display: block; }
+  @keyframes fade {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ===== Typography ===== */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    color: var(--amber);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(44px, 5vw, 68px);
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+    color: var(--ink-0);
+    margin-bottom: 20px;
+  }
+  h1 em {
+    font-style: italic;
+    color: var(--amber);
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 38px;
+    line-height: 1.15;
+    color: var(--ink-0);
+    margin: 64px 0 20px;
+    letter-spacing: -0.01em;
+  }
+  h2::before {
+    content: attr(data-num);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--amber);
+    display: block;
+    margin-bottom: 8px;
+    letter-spacing: 0.2em;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--ink-0);
+    margin: 36px 0 14px;
+    letter-spacing: -0.005em;
+  }
+  h4 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--ink-0);
+    margin: 24px 0 10px;
+  }
+  p { margin-bottom: 16px; color: var(--ink-1); }
+  p strong { color: var(--ink-0); font-weight: 600; }
+  p em { color: var(--amber); font-style: normal; font-weight: 500; }
+
+  ul, ol { margin: 14px 0 20px 22px; }
+  li { margin-bottom: 8px; color: var(--ink-1); }
+  li::marker { color: var(--amber); }
+
+  a { color: var(--cyan); text-decoration: none; border-bottom: 1px dashed var(--cyan-soft); }
+  a:hover { border-bottom-style: solid; }
+
+  /* ===== Lede / intro ===== */
+  .lede {
+    font-family: var(--serif);
+    font-size: 24px;
+    line-height: 1.45;
+    color: var(--ink-1);
+    margin: 24px 0 48px;
+    padding: 24px 0 28px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* ===== Callouts ===== */
+  .callout {
+    margin: 24px 0;
+    padding: 20px 24px;
+    border-radius: 4px;
+    border-left: 3px solid var(--amber);
+    background: var(--bg-1);
+  }
+  .callout.tip { border-color: var(--cyan); }
+  .callout.warn { border-color: var(--rose); }
+  .callout.lab { border-color: var(--green); }
+  .callout-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    color: var(--amber);
+  }
+  .callout.tip .callout-label { color: var(--cyan); }
+  .callout.warn .callout-label { color: var(--rose); }
+  .callout.lab .callout-label { color: var(--green); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* ===== Code ===== */
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--bg-2);
+    color: var(--amber);
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--line-soft);
+  }
+  pre {
+    font-family: var(--mono);
+    background: var(--bg-1);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 20px 24px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 16px 0;
+    position: relative;
+  }
+  pre code {
+    background: transparent;
+    color: var(--ink-1);
+    padding: 0;
+    border: none;
+    font-size: inherit;
+  }
+  pre::-webkit-scrollbar { height: 6px; }
+  pre::-webkit-scrollbar-thumb { background: var(--bg-3); }
+
+  /* Syntax-ish coloring via spans */
+  .k { color: var(--rose); }     /* keyword */
+  .s { color: var(--green); }    /* string */
+  .c { color: var(--ink-3); font-style: italic; } /* comment */
+  .n { color: var(--cyan); }     /* number/identifier */
+  .y { color: var(--amber); }    /* yaml key */
+
+  /* Code header (language label + copy button) */
+  .code-block { margin: 20px 0; }
+  .code-head {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--bg-2);
+    border: 1px solid var(--line-soft);
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.1em;
+  }
+  .code-head .lang { text-transform: uppercase; }
+  .code-head .copy {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .code-head .copy:hover { color: var(--amber); border-color: var(--amber); }
+  .code-block pre { border-radius: 0 0 4px 4px; margin: 0; }
+
+  /* ===== Tabs (code variants) ===== */
+  .tabs {
+    margin: 24px 0;
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .tab-buttons {
+    display: flex;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 12px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { color: var(--ink-0); }
+  .tab-btn.active {
+    color: var(--amber);
+    border-bottom-color: var(--amber);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .tab-panel pre { border: none; border-radius: 0; margin: 0; }
+
+  /* ===== Tables ===== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }
+  th {
+    color: var(--amber);
+    font-weight: 600;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+  td code { font-size: 12px; }
+
+  /* ===== Comparison Cards ===== */
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .comp-card {
+    padding: 24px;
+    background: var(--bg-1);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    position: relative;
+  }
+  .comp-card .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .comp-card.left .label { color: var(--ink-2); }
+  .comp-card.right .label { color: var(--amber); }
+  .comp-card h4 { margin-top: 0; font-size: 18px; }
+  .comp-card ul { margin-left: 18px; }
+  .comp-card li { font-size: 14px; }
+
+  /* ===== Topology diagram container ===== */
+  .topo {
+    background: var(--bg-1);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 32px;
+    margin: 24px 0;
+  }
+  .topo-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  /* ===== Quiz / checkpoint ===== */
+  .checkpoint {
+    background: var(--bg-1);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 24px 28px;
+    margin: 32px 0;
+  }
+  .checkpoint-head {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--green);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .checkpoint-head::before {
+    content: '✓';
+    width: 18px; height: 18px;
+    border: 1px solid var(--green);
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    font-size: 11px;
+  }
+  .quiz-q { font-weight: 600; color: var(--ink-0); margin-bottom: 12px; }
+  .quiz-options { list-style: none; margin: 0; padding: 0; }
+  .quiz-options li {
+    padding: 10px 14px;
+    margin-bottom: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  .quiz-options li:hover { border-color: var(--amber); }
+  .quiz-options li.correct { border-color: var(--green); background: rgba(143, 185, 110, 0.08); color: var(--green); }
+  .quiz-options li.wrong { border-color: var(--rose); background: rgba(224, 107, 117, 0.08); color: var(--rose); }
+  .quiz-explain {
+    margin-top: 12px;
+    padding: 12px 16px;
+    background: var(--bg-2);
+    border-left: 2px solid var(--green);
+    font-size: 14px;
+    color: var(--ink-1);
+    display: none;
+  }
+  .quiz-explain.visible { display: block; }
+
+  /* ===== Step list ===== */
+  .steps { counter-reset: step; margin: 24px 0; }
+  .step {
+    counter-increment: step;
+    padding: 20px 0 20px 60px;
+    border-top: 1px solid var(--line-soft);
+    position: relative;
+  }
+  .step:first-child { border-top: none; }
+  .step::before {
+    content: counter(step, decimal-leading-zero);
+    position: absolute;
+    left: 0; top: 22px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--amber);
+    letter-spacing: 0.1em;
+  }
+  .step h4 { margin-top: 0; }
+
+  /* ===== Architecture cards ===== */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 20px 0;
+  }
+  .arch-card {
+    background: var(--bg-1);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 18px 20px;
+    transition: border-color 0.15s;
+  }
+  .arch-card:hover { border-color: var(--amber); }
+  .arch-card .layer {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--amber);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .arch-card .name {
+    font-weight: 600;
+    color: var(--ink-0);
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+  .arch-card .desc { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+
+  /* ===== Footer mini ===== */
+  .section-footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: 0.15em;
+  }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 8px 16px;
+    border-radius: 3px;
+    cursor: pointer;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  .nav-btn:hover { color: var(--amber); border-color: var(--amber); }
+
+  /* ===== Hero figure ===== */
+  .hero-fig {
+    margin: 40px 0;
+    background: var(--bg-1);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 28px;
+  }
+
+  /* ===== Mobile ===== */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    aside.nav { position: relative; height: auto; }
+    main.content { padding: 40px 24px 80px; }
+    .comparison, .arch-grid { grid-template-columns: 1fr; }
+    h1 { font-size: 40px; }
+    h2 { font-size: 28px; }
+  }
+
+  /* selection */
+  ::selection { background: var(--amber); color: var(--bg-0); }
+</style>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- ============== SIDEBAR ============== -->
+  <aside class="nav">
+    <div class="brand">
+      <span class="mark">L</span>
+      <div>
+        <div style="font-weight:700; color:var(--ink-0); font-size:14px; line-height:1.2;">LLMOps Masterclass</div>
+        <div class="meta">DGX Spark × ThinkStation</div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Part I — 개념</div>
+      <div class="nav-item active" data-target="s1"><span class="num">01</span> LLMOps란 무엇인가</div>
+      <div class="nav-item" data-target="s2"><span class="num">02</span> MLOps vs LLMOps</div>
+      <div class="nav-item" data-target="s3"><span class="num">03</span> 핵심 구성요소</div>
+      <div class="nav-item" data-target="s4"><span class="num">04</span> 참조 아키텍처</div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Part II — 환경</div>
+      <div class="nav-item" data-target="s5"><span class="num">05</span> 2-노드 클러스터 구성</div>
+      <div class="nav-item" data-target="s6"><span class="num">06</span> 이종 아키텍처 전략</div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Part III — 실습</div>
+      <div class="nav-item" data-target="s7"><span class="num">07</span> Lab 1 · vLLM 모델 서빙</div>
+      <div class="nav-item" data-target="s8"><span class="num">08</span> Lab 2 · LoRA 파인튜닝</div>
+      <div class="nav-item" data-target="s9"><span class="num">09</span> Lab 3 · RAG 파이프라인</div>
+      <div class="nav-item" data-target="s10"><span class="num">10</span> Lab 4 · 관찰성</div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Part IV — 운영</div>
+      <div class="nav-item" data-target="s11"><span class="num">11</span> 운영 모범 사례</div>
+      <div class="nav-item" data-target="s12"><span class="num">12</span> 마무리 · 학습 로드맵</div>
+    </div>
+  </aside>
+
+  <!-- ============== MAIN ============== -->
+  <main class="content">
+
+    <!-- ========== SECTION 01 ========== -->
+    <section id="s1" class="section visible">
+      <div class="eyebrow">Lecture 01 · Foundations</div>
+      <h1><em>LLMOps</em>란 무엇인가</h1>
+      <p class="lede">
+        LLMOps는 <em>대규모 언어 모델(LLM)을 운영 가능한 형태로 만드는 모든 일</em>이다.
+        모델을 학습시키는 것은 시작에 불과하며, 진짜 어려운 일은 그것을 안정적으로,
+        예측 가능하게, 그리고 비용 효율적으로 <em>서비스</em>하는 데 있다.
+      </p>
+
+      <h2 data-num="1.1">LLMOps의 정의</h2>
+      <p>
+        <strong>LLMOps(Large Language Model Operations)</strong>는 LLM의 전체 라이프사이클
+        — 데이터 준비, 사전학습/파인튜닝, 평가, 배포, 모니터링, 개선 — 을
+        <em>자동화·표준화·관찰가능</em>하게 만드는 엔지니어링 분야입니다.
+        MLOps의 하위 분야로 출발했지만, LLM 고유의 특성 때문에 별도의 학문으로 분화되었습니다.
+      </p>
+
+      <div class="callout tip">
+        <div class="callout-label">한 줄 정의</div>
+        <p>LLMOps = MLOps + 프롬프트 엔지니어링 + RAG + 토큰 경제학 + GPU 인프라 운영</p>
+      </div>
+
+      <h2 data-num="1.2">왜 LLMOps인가</h2>
+      <p>전통적 ML 모델과 비교했을 때 LLM이 운영자에게 주는 새로운 도전들은 다음과 같습니다.</p>
+
+      <ul>
+        <li><strong>크기와 비용</strong> — 7B 모델만 해도 fp16 기준 14GB의 GPU 메모리를 소비합니다. 70B 모델은 단일 GPU로 서빙이 불가능합니다.</li>
+        <li><strong>비결정성</strong> — 동일한 입력에 다른 출력이 나옵니다. 회귀 테스트, A/B 테스트, 평가 자체가 어려운 문제가 됩니다.</li>
+        <li><strong>프롬프트 = 코드</strong> — 프롬프트의 작은 변화가 출력 품질을 좌우합니다. 프롬프트 버전 관리는 새로운 형태의 형상관리입니다.</li>
+        <li><strong>토큰 단위 과금</strong> — 비용이 입출력 토큰 길이에 비례합니다. 컨텍스트 윈도우, 캐시 히트율, 모델 라우팅이 운영 KPI가 됩니다.</li>
+        <li><strong>환각(Hallucination)</strong> — 모델은 자신 있게 거짓말을 합니다. RAG, 가드레일, 사실성 평가가 필수입니다.</li>
+        <li><strong>지연시간 제약</strong> — 챗봇 UX는 첫 토큰까지 200~500ms를 요구합니다. TTFT(Time-To-First-Token)가 새로운 SLO 지표입니다.</li>
+      </ul>
+
+      <div class="callout warn">
+        <div class="callout-label">현장의 함정</div>
+        <p>
+          "LLM API 한 줄 호출"은 데모에는 충분하지만, 사내 시스템에 통합되는 순간
+          버전 고정, 폴백 모델, 비용 가드, PII 마스킹, 프롬프트 인젝션 방어 등
+          <strong>10가지 이상의 운영 관심사</strong>가 한꺼번에 등장합니다.
+          LLMOps는 이를 체계적으로 처리하기 위한 청사진입니다.
+        </p>
+      </div>
+
+      <h2 data-num="1.3">LLMOps의 5가지 활동</h2>
+      <p>현장에서 LLMOps 엔지니어가 실제로 하는 일은 다음 다섯 가지로 요약됩니다.</p>
+
+      <div class="arch-grid">
+        <div class="arch-card">
+          <div class="layer">활동 1</div>
+          <div class="name">모델 서빙 (Serving)</div>
+          <div class="desc">vLLM, TGI, TensorRT-LLM 등으로 추론 엔드포인트를 운영하고, 오토스케일링·배치·캐싱을 관리합니다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">활동 2</div>
+          <div class="name">파인튜닝 (Fine-tuning)</div>
+          <div class="desc">LoRA, QLoRA, DPO 등으로 도메인 특화 모델을 만들고, 학습 파이프라인을 자동화합니다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">활동 3</div>
+          <div class="name">검색 증강 (RAG)</div>
+          <div class="desc">벡터 DB, 임베딩 서비스, 청킹 전략을 구축해 모델에 외부 지식을 연결합니다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">활동 4</div>
+          <div class="name">평가 (Evaluation)</div>
+          <div class="desc">자동 평가 지표(LLM-as-Judge, BLEU, ROUGE), 휴먼 평가, 회귀 테스트 스위트를 운영합니다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">활동 5</div>
+          <div class="name">관찰성 (Observability)</div>
+          <div class="desc">프롬프트 트레이싱, 토큰 사용량, 지연시간, 비용, 환각률을 측정하고 알람을 설정합니다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">활동 ⊕</div>
+          <div class="name">거버넌스 (Governance)</div>
+          <div class="desc">EU AI Act, 사내 정책, PII/민감정보 처리, 가드레일, 감사 로그를 책임집니다.</div>
+        </div>
+      </div>
+
+      <div class="checkpoint">
+        <div class="checkpoint-head">Checkpoint 01</div>
+        <div class="quiz-q">Q. LLMOps가 기존 MLOps와 가장 크게 다른 점은 무엇일까요?</div>
+        <ul class="quiz-options" data-correct="2">
+          <li>모델 서빙에 GPU가 필요하다</li>
+          <li>학습에 데이터셋이 필요하다</li>
+          <li>출력이 비결정적이며 토큰 단위 과금·프롬프트 관리·환각 대응이 필수다</li>
+          <li>Kubernetes 위에서 동작한다</li>
+        </ul>
+        <div class="quiz-explain">
+          정답: ③ — GPU·데이터셋·K8s는 전통 MLOps에서도 동일합니다. <strong>비결정성, 토큰 경제, 프롬프트, 환각</strong>이 LLMOps를 별도 분야로 만든 핵심 차별점입니다.
+        </div>
+      </div>
+
+      <div class="section-footer">
+        <span>01 / 12</span>
+        <button class="nav-btn next-btn" data-next="s2">다음 → MLOps vs LLMOps</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 02 ========== -->
+    <section id="s2" class="section">
+      <div class="eyebrow">Lecture 02 · Comparison</div>
+      <h1><em>MLOps</em> vs <em>LLMOps</em></h1>
+      <p class="lede">
+        둘은 사촌이지만 형제는 아니다. MLOps에서 출발한 엔지니어가 LLMOps로 넘어올 때
+        놓치기 쉬운 <em>관점의 차이</em>를 짚어본다.
+      </p>
+
+      <h2 data-num="2.1">두 분야의 동시 비교</h2>
+
+      <table>
+        <thead><tr><th>차원</th><th>MLOps</th><th>LLMOps</th></tr></thead>
+        <tbody>
+          <tr><td>모델 출처</td><td>주로 자체 학습</td><td>주로 사전학습 모델 + 파인튜닝/프롬프팅</td></tr>
+          <tr><td>모델 크기</td><td>MB ~ 수 GB</td><td>수 GB ~ 수 백 GB</td></tr>
+          <tr><td>학습 시간</td><td>분 ~ 시간</td><td>일 ~ 주 (사전학습) / 시간 (파인튜닝)</td></tr>
+          <tr><td>추론 단위</td><td>요청당 ms 단위</td><td>토큰당 ms, 응답당 초 단위</td></tr>
+          <tr><td>비용 모델</td><td>인스턴스 시간</td><td>토큰 수 + GPU 메모리 점유</td></tr>
+          <tr><td>출력 결정성</td><td>결정적 (분류/회귀)</td><td>비결정적 (생성)</td></tr>
+          <tr><td>평가 지표</td><td>Accuracy, F1, AUC</td><td>BLEU, ROUGE, LLM-as-Judge, Pass@K, Faithfulness</td></tr>
+          <tr><td>주요 아티팩트</td><td>모델 파일, Feature Store</td><td>모델 + 프롬프트 + 벡터 인덱스 + 평가셋</td></tr>
+          <tr><td>실패 모드</td><td>예측 오류, 데이터 드리프트</td><td>환각, 인젝션, 유해 출력, 비용 폭주</td></tr>
+          <tr><td>핵심 도구</td><td>MLflow, Kubeflow, Seldon</td><td>vLLM, LangChain, LlamaIndex, Langfuse, Ragas</td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-num="2.2">관점의 전환</h2>
+      <div class="comparison">
+        <div class="comp-card left">
+          <div class="label">MLOps 마인드셋</div>
+          <h4>모델은 결과물이다</h4>
+          <ul>
+            <li>학습 → 검증 → 배포의 일방향 파이프라인</li>
+            <li>데이터 품질이 결과를 결정</li>
+            <li>모델 버전 = 가중치 해시</li>
+            <li>SLO = 정확도 + 지연시간</li>
+          </ul>
+        </div>
+        <div class="comp-card right">
+          <div class="label">LLMOps 마인드셋</div>
+          <h4>모델은 컴포넌트다</h4>
+          <ul>
+            <li>모델·프롬프트·검색·도구가 결합된 시스템</li>
+            <li>데이터 + 프롬프트 + 평가셋이 모두 자산</li>
+            <li>모델 버전 = 모델 + 프롬프트 + 시스템 메시지</li>
+            <li>SLO = TTFT + 비용/요청 + 환각률 + 거부율</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 data-num="2.3">중복되는 영역</h2>
+      <p>
+        그럼에도 불구하고 두 분야는 많은 것을 공유합니다. <em>Kubernetes, GPU 스케줄링,
+        파이프라인 자동화, 컨테이너 이미지 관리, 모니터링 스택, GitOps</em>는
+        그대로 통용됩니다. KT 환경에서 이미 운영 중인 Kubeflow Training Operator,
+        Argo Workflows, Volcano 같은 도구들은 LLMOps에서도 그대로 쓰입니다.
+        다만 <strong>그 위에 LLM 특화 레이어가 한 겹 더 올라간다</strong>고 이해하면 됩니다.
+      </p>
+
+      <div class="callout">
+        <div class="callout-label">실무 조언</div>
+        <p>
+          기존 MLOps 플랫폼을 가진 조직이라면 <em>처음부터 새로 짜지 말고</em>
+          기존 컴포넌트(Argo, MLflow, KServe) 위에 LLM 전용 레이어
+          (vLLM, Langfuse, 벡터 DB)를 얹는 점진적 진화 전략을 권장합니다.
+        </p>
+      </div>
+
+      <div class="checkpoint">
+        <div class="checkpoint-head">Checkpoint 02</div>
+        <div class="quiz-q">Q. LLM 시스템에서 모델 버전을 정의할 때 가장 정확한 표현은?</div>
+        <ul class="quiz-options" data-correct="3">
+          <li>모델 가중치 해시 하나로 충분하다</li>
+          <li>모델 + 학습 데이터 버전</li>
+          <li>모델 + 프롬프트 + 시스템 메시지의 조합</li>
+          <li>모델 + 프롬프트 + 시스템 메시지 + 검색 인덱스 + 도구 정의의 조합</li>
+        </ul>
+        <div class="quiz-explain">
+          정답: ④ — LLM 시스템은 가중치만으로 동작이 결정되지 않습니다. 프롬프트, 시스템 지시, RAG 인덱스, 함수 호출 정의가 모두 출력에 영향을 주므로 <strong>이 모든 것의 조합이 곧 "버전"</strong>입니다.
+        </div>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s1">← 이전</button>
+        <span>02 / 12</span>
+        <button class="nav-btn next-btn" data-next="s3">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 03 ========== -->
+    <section id="s3" class="section">
+      <div class="eyebrow">Lecture 03 · Components</div>
+      <h1>핵심 <em>구성요소</em></h1>
+      <p class="lede">
+        LLMOps 스택을 처음 그려야 한다면 어디서부터 시작할까. 7개의 필수 레이어와
+        각 레이어를 채울 대표 도구들을 살펴본다.
+      </p>
+
+      <h2 data-num="3.1">7-레이어 스택</h2>
+
+      <div class="arch-grid">
+        <div class="arch-card">
+          <div class="layer">Layer 7</div>
+          <div class="name">Application</div>
+          <div class="desc">챗봇, 코파일럿, 에이전트 — 최종 사용자가 만나는 인터페이스. LangChain·LangGraph·LlamaIndex가 핵심.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Layer 6</div>
+          <div class="name">Orchestration</div>
+          <div class="desc">프롬프트 관리, 도구 호출, 에이전트 루프, 가드레일. NeMo Guardrails, Guidance.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Layer 5</div>
+          <div class="name">Retrieval</div>
+          <div class="desc">임베딩 모델, 벡터 DB(Milvus, Qdrant, Weaviate), 하이브리드 검색, 리랭커.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Layer 4</div>
+          <div class="name">Inference Engine</div>
+          <div class="desc">vLLM, TGI, TensorRT-LLM, SGLang. PagedAttention·Continuous Batching·KV 캐시.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Layer 3</div>
+          <div class="name">Model Registry</div>
+          <div class="desc">모델 가중치 저장(S3, MinIO), 메타데이터(MLflow), 버전·태그·승격 흐름.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Layer 2</div>
+          <div class="name">Training/Tuning</div>
+          <div class="desc">PEFT(LoRA, QLoRA), DeepSpeed, FSDP, Kubeflow Training Operator.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Layer 1</div>
+          <div class="name">Infrastructure</div>
+          <div class="desc">Kubernetes, GPU Operator, NCCL, RDMA, 스토리지(NFS, CSI), 네트워킹.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Cross</div>
+          <div class="name">Observability & Eval</div>
+          <div class="desc">Langfuse, Phoenix, Ragas, Prometheus, Grafana, OpenTelemetry. 모든 레이어를 관통.</div>
+        </div>
+      </div>
+
+      <h2 data-num="3.2">각 레이어 깊이 보기</h2>
+
+      <h3>Inference Engine: vLLM이 표준이 된 이유</h3>
+      <p>
+        2023년까지 LLM 추론은 Hugging Face Transformers + FastAPI 조합이 흔했지만,
+        2024년 이후 사실상의 표준은 <em>vLLM</em>이 되었습니다. 핵심 이유는 두 가지입니다.
+      </p>
+      <ul>
+        <li><strong>PagedAttention</strong> — KV 캐시를 페이지 단위로 관리해 메모리 단편화를 제거. 동일 GPU에서 2~4배 더 많은 동시 요청 처리.</li>
+        <li><strong>Continuous Batching</strong> — 정적 배치 대신 토큰 단위로 배치를 재구성. GPU 활용률 60% → 90%+ 상승.</li>
+      </ul>
+
+      <h3>Retrieval: RAG의 심장</h3>
+      <p>
+        RAG(Retrieval-Augmented Generation)는 LLM의 환각과 지식 한계를 해결하는 가장 보편적 패턴입니다.
+        파이프라인은 단순합니다: <em>문서 → 청킹 → 임베딩 → 벡터 인덱스 → 질의 시 검색 → 프롬프트에 주입</em>.
+        그러나 운영에 들어가면 청크 크기, 오버랩, 임베딩 모델 선택, 리랭커 사용 여부, 인덱스 갱신 주기 등
+        수십 개의 튜닝 파라미터가 등장합니다.
+      </p>
+
+      <h3>Observability: LLM은 블랙박스다, 그러나 추적은 가능하다</h3>
+      <p>
+        전통 모니터링이 CPU·메모리·QPS를 봤다면, LLMOps는 거기에
+        <em>토큰 사용량, TTFT, ITL(Inter-Token Latency), 캐시 히트율, 평가 점수,
+        프롬프트 변경 이력</em>을 추가합니다. Langfuse·Phoenix 같은 도구는
+        프롬프트별 트레이스를 저장해 "어떤 프롬프트가 어떤 출력을 냈는지"를 기록합니다.
+      </p>
+
+      <div class="callout tip">
+        <div class="callout-label">도구 선택 가이드</div>
+        <p>
+          오픈소스 우선 스택을 구성한다면: <strong>vLLM(서빙) + Milvus 또는 Qdrant(벡터)
+          + Langfuse(관찰성) + Ragas(평가) + Argo Workflows(오케스트레이션)</strong>의
+          조합이 KT 환경에서 가장 자연스럽게 안착합니다.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s2">← 이전</button>
+        <span>03 / 12</span>
+        <button class="nav-btn next-btn" data-next="s4">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 04 ========== -->
+    <section id="s4" class="section">
+      <div class="eyebrow">Lecture 04 · Reference Architecture</div>
+      <h1>참조 <em>아키텍처</em></h1>
+      <p class="lede">
+        실제 운영 환경에서 컴포넌트들이 어떻게 연결되는지, 데이터와 트래픽이 어떤 경로로
+        흐르는지 한 장의 그림으로 정리한다.
+      </p>
+
+      <h2 data-num="4.1">엔드투엔드 데이터 흐름</h2>
+
+      <div class="topo">
+        <div class="topo-title">Reference Architecture · 12-Box View</div>
+        <svg viewBox="0 0 800 540" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto;">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#e8b04f"/>
+            </marker>
+            <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#6ad7d2"/>
+            </marker>
+          </defs>
+
+          <!-- background grid -->
+          <g opacity="0.06">
+            <path d="M0 0 L800 0 M0 60 L800 60 M0 120 L800 120 M0 180 L800 180 M0 240 L800 240 M0 300 L800 300 M0 360 L800 360 M0 420 L800 420 M0 480 L800 480" stroke="#e8b04f" stroke-width="0.5"/>
+          </g>
+
+          <!-- User -->
+          <g>
+            <rect x="20" y="240" width="100" height="50" rx="3" fill="#1a1a1d" stroke="#e8b04f" stroke-width="1.2"/>
+            <text x="70" y="263" text-anchor="middle" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">USER</text>
+            <text x="70" y="278" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">웹/앱</text>
+          </g>
+
+          <!-- API Gateway -->
+          <g>
+            <rect x="160" y="240" width="120" height="50" rx="3" fill="#1a1a1d" stroke="#6ad7d2"/>
+            <text x="220" y="263" text-anchor="middle" fill="#6ad7d2" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">API GATEWAY</text>
+            <text x="220" y="278" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">인증·레이트리밋</text>
+          </g>
+
+          <!-- Orchestrator -->
+          <g>
+            <rect x="320" y="240" width="140" height="50" rx="3" fill="#232328" stroke="#e8b04f" stroke-width="1.5"/>
+            <text x="390" y="263" text-anchor="middle" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">ORCHESTRATOR</text>
+            <text x="390" y="278" text-anchor="middle" fill="#d9d6cc" font-family="Pretendard" font-size="10">LangGraph / 가드레일</text>
+          </g>
+
+          <!-- Inference -->
+          <g>
+            <rect x="500" y="240" width="140" height="50" rx="3" fill="#1a1a1d" stroke="#e8b04f"/>
+            <text x="570" y="263" text-anchor="middle" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">vLLM / KSERVE</text>
+            <text x="570" y="278" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">DGX Spark · ARM64</text>
+          </g>
+
+          <!-- Model Registry -->
+          <g>
+            <rect x="680" y="240" width="100" height="50" rx="3" fill="#1a1a1d" stroke="#6ad7d2"/>
+            <text x="730" y="263" text-anchor="middle" fill="#6ad7d2" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">REGISTRY</text>
+            <text x="730" y="278" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">MLflow + S3</text>
+          </g>
+
+          <!-- Vector DB -->
+          <g>
+            <rect x="320" y="340" width="140" height="50" rx="3" fill="#1a1a1d" stroke="#6ad7d2"/>
+            <text x="390" y="363" text-anchor="middle" fill="#6ad7d2" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">VECTOR DB</text>
+            <text x="390" y="378" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">Milvus / Qdrant</text>
+          </g>
+
+          <!-- Embedder -->
+          <g>
+            <rect x="500" y="340" width="140" height="50" rx="3" fill="#1a1a1d" stroke="#6ad7d2"/>
+            <text x="570" y="363" text-anchor="middle" fill="#6ad7d2" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">EMBEDDER</text>
+            <text x="570" y="378" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">bge-m3 · GPU</text>
+          </g>
+
+          <!-- Observability -->
+          <g>
+            <rect x="160" y="440" width="160" height="60" rx="3" fill="#131315" stroke="#8fb96e"/>
+            <text x="240" y="464" text-anchor="middle" fill="#8fb96e" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">OBSERVABILITY</text>
+            <text x="240" y="480" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">Langfuse · Prometheus</text>
+            <text x="240" y="494" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">Grafana · OpenTelemetry</text>
+          </g>
+
+          <!-- Training -->
+          <g>
+            <rect x="380" y="440" width="160" height="60" rx="3" fill="#131315" stroke="#e8b04f"/>
+            <text x="460" y="464" text-anchor="middle" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">TRAINING PIPELINE</text>
+            <text x="460" y="480" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">Argo + Kubeflow</text>
+            <text x="460" y="494" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">LoRA / QLoRA · GPU</text>
+          </g>
+
+          <!-- Eval -->
+          <g>
+            <rect x="600" y="440" width="160" height="60" rx="3" fill="#131315" stroke="#8fb96e"/>
+            <text x="680" y="464" text-anchor="middle" fill="#8fb96e" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">EVALUATION</text>
+            <text x="680" y="480" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">Ragas · LLM-as-Judge</text>
+            <text x="680" y="494" text-anchor="middle" fill="#9a978d" font-family="Pretendard" font-size="10">회귀 테스트 스위트</text>
+          </g>
+
+          <!-- Top labels -->
+          <g>
+            <text x="80" y="40" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="2">SERVING PATH</text>
+            <line x1="20" y1="50" x2="800" y2="50" stroke="#e8b04f" stroke-width="0.4" opacity="0.4"/>
+          </g>
+          <g>
+            <text x="160" y="420" fill="#8fb96e" font-family="JetBrains Mono" font-size="10" letter-spacing="2">OFFLINE / OPS PATH</text>
+            <line x1="20" y1="430" x2="800" y2="430" stroke="#8fb96e" stroke-width="0.4" opacity="0.4"/>
+          </g>
+
+          <!-- Arrows top row -->
+          <line x1="120" y1="265" x2="158" y2="265" stroke="#e8b04f" stroke-width="1.4" marker-end="url(#arrow)"/>
+          <line x1="280" y1="265" x2="318" y2="265" stroke="#e8b04f" stroke-width="1.4" marker-end="url(#arrow)"/>
+          <line x1="460" y1="265" x2="498" y2="265" stroke="#e8b04f" stroke-width="1.4" marker-end="url(#arrow)"/>
+          <line x1="640" y1="265" x2="678" y2="265" stroke="#e8b04f" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+          <!-- Orchestrator down to vector/embedder -->
+          <path d="M 390 290 L 390 340" fill="none" stroke="#6ad7d2" stroke-width="1.2" marker-end="url(#arrow2)"/>
+          <path d="M 460 305 Q 530 320 555 340" fill="none" stroke="#6ad7d2" stroke-width="1.2" marker-end="url(#arrow2)"/>
+
+          <!-- Vector to embedder -->
+          <line x1="460" y1="365" x2="498" y2="365" stroke="#6ad7d2" stroke-width="1.2" marker-end="url(#arrow2)"/>
+
+          <!-- Training to Registry -->
+          <path d="M 540 440 Q 700 360 730 290" fill="none" stroke="#e8b04f" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+          <!-- Observability dashed up to all top boxes -->
+          <path d="M 240 440 L 240 380 L 220 290" fill="none" stroke="#8fb96e" stroke-width="1" stroke-dasharray="3 4" opacity="0.6"/>
+          <path d="M 280 440 Q 360 380 390 290" fill="none" stroke="#8fb96e" stroke-width="1" stroke-dasharray="3 4" opacity="0.6"/>
+          <path d="M 320 440 Q 480 360 570 290" fill="none" stroke="#8fb96e" stroke-width="1" stroke-dasharray="3 4" opacity="0.6"/>
+        </svg>
+      </div>
+
+      <h2 data-num="4.2">두 가지 경로</h2>
+
+      <h3>① Serving Path (실시간 추론)</h3>
+      <p>
+        사용자 요청은 <strong>Gateway → Orchestrator → Inference Engine</strong> 순으로 흐릅니다.
+        Orchestrator는 프롬프트를 조립하면서 필요하면 Vector DB와 Embedder를 호출해
+        관련 문서를 가져와 컨텍스트에 주입합니다(RAG). Inference Engine(vLLM)은
+        Model Registry에서 가져온 가중치로 토큰을 생성합니다.
+      </p>
+
+      <h3>② Offline / Ops Path (학습·평가·관찰)</h3>
+      <p>
+        새 모델은 <strong>Training Pipeline</strong>에서 학습되어 <strong>Registry</strong>에 등록되고,
+        <strong>Evaluation</strong>을 통과한 뒤에야 서빙으로 승격됩니다. 모든 레이어의 텔레메트리는
+        <strong>Observability</strong>로 흘러 단일 대시보드에서 조회됩니다.
+      </p>
+
+      <div class="callout">
+        <div class="callout-label">설계 원칙</div>
+        <p>
+          <strong>"Serving Path는 stateless, Ops Path는 stateful로 설계하라."</strong>
+          서빙 경로는 어떤 노드에서든 동일하게 동작해야 하며, 상태(모델·인덱스·프롬프트)는
+          외부 저장소에 위임합니다. 이 원칙이 깨지면 카나리 배포·롤백·스케일아웃이 모두 어려워집니다.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s3">← 이전</button>
+        <span>04 / 12</span>
+        <button class="nav-btn next-btn" data-next="s5">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 05 ========== -->
+    <section id="s5" class="section">
+      <div class="eyebrow">Lecture 05 · Lab Environment</div>
+      <h1>2-노드 <em>클러스터</em> 구성</h1>
+      <p class="lede">
+        강의의 모든 실습은 NVIDIA DGX Spark(ARM64) 1대와 Lenovo ThinkStation
+        Workstation(x86_64) 1대로 구성된 로컬 K8s 클러스터에서 진행한다. 각 노드의
+        역할과 토폴로지를 명확히 하자.
+      </p>
+
+      <h2 data-num="5.1">물리적 구성</h2>
+
+      <div class="topo">
+        <div class="topo-title">Two-Node Topology</div>
+        <svg viewBox="0 0 800 360" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto;">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#9a978d"/>
+            </marker>
+          </defs>
+
+          <!-- Title bar -->
+          <text x="400" y="30" text-anchor="middle" fill="#9a978d" font-family="JetBrains Mono" font-size="11" letter-spacing="2">LOCAL KUBERNETES CLUSTER · v1.30</text>
+
+          <!-- Node 1: ThinkStation (Control Plane) -->
+          <g>
+            <rect x="60" y="80" width="300" height="220" rx="4" fill="#131315" stroke="#6ad7d2" stroke-width="1.5"/>
+            <text x="80" y="110" fill="#6ad7d2" font-family="JetBrains Mono" font-size="11" letter-spacing="1.5">NODE 1 · CONTROL PLANE</text>
+            <text x="80" y="130" fill="#f4f1e8" font-family="Pretendard" font-size="15" font-weight="600">Lenovo ThinkStation</text>
+            <text x="80" y="150" fill="#9a978d" font-family="Pretendard" font-size="12">x86_64 / amd64 · Linux</text>
+
+            <!-- pills -->
+            <rect x="80" y="170" width="90" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="125" y="185" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">kube-apiserver</text>
+            <rect x="180" y="170" width="80" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="220" y="185" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">scheduler</text>
+            <rect x="80" y="200" width="80" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="120" y="215" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">etcd</text>
+            <rect x="170" y="200" width="100" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="220" y="215" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">controller-mgr</text>
+
+            <!-- workloads -->
+            <text x="80" y="245" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="1">WORKLOADS</text>
+            <text x="80" y="262" fill="#d9d6cc" font-family="Pretendard" font-size="11">• Argo Workflows · Server</text>
+            <text x="80" y="278" fill="#d9d6cc" font-family="Pretendard" font-size="11">• MLflow · PostgreSQL · MinIO</text>
+            <text x="80" y="294" fill="#d9d6cc" font-family="Pretendard" font-size="11">• Prometheus · Grafana · Langfuse</text>
+          </g>
+
+          <!-- Node 2: DGX Spark (GPU) -->
+          <g>
+            <rect x="440" y="80" width="300" height="220" rx="4" fill="#131315" stroke="#e8b04f" stroke-width="1.5"/>
+            <text x="460" y="110" fill="#e8b04f" font-family="JetBrains Mono" font-size="11" letter-spacing="1.5">NODE 2 · GPU WORKER</text>
+            <text x="460" y="130" fill="#f4f1e8" font-family="Pretendard" font-size="15" font-weight="600">NVIDIA DGX Spark</text>
+            <text x="460" y="150" fill="#9a978d" font-family="Pretendard" font-size="12">aarch64 / arm64 · GB10 Grace Blackwell</text>
+
+            <rect x="460" y="170" width="120" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="520" y="185" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">128GB unified mem</text>
+            <rect x="590" y="170" width="100" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="640" y="185" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">GPU Operator</text>
+            <rect x="460" y="200" width="100" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="510" y="215" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">kubelet</text>
+            <rect x="570" y="200" width="120" height="22" rx="11" fill="#1a1a1d" stroke="#2a2a2f"/>
+            <text x="630" y="215" text-anchor="middle" fill="#d9d6cc" font-family="JetBrains Mono" font-size="10">containerd · NVRM</text>
+
+            <text x="460" y="245" fill="#e8b04f" font-family="JetBrains Mono" font-size="10" letter-spacing="1">WORKLOADS</text>
+            <text x="460" y="262" fill="#d9d6cc" font-family="Pretendard" font-size="11">• vLLM · LLM 서빙 (추론)</text>
+            <text x="460" y="278" fill="#d9d6cc" font-family="Pretendard" font-size="11">• LoRA 파인튜닝 Job</text>
+            <text x="460" y="294" fill="#d9d6cc" font-family="Pretendard" font-size="11">• Embedder · Vector 인덱싱</text>
+          </g>
+
+          <!-- Network -->
+          <line x1="360" y1="190" x2="440" y2="190" stroke="#9a978d" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
+          <line x1="440" y1="200" x2="360" y2="200" stroke="#9a978d" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
+          <text x="400" y="180" text-anchor="middle" fill="#9a978d" font-family="JetBrains Mono" font-size="9" letter-spacing="1.5">10 GbE</text>
+
+          <!-- Bottom label -->
+          <text x="400" y="335" text-anchor="middle" fill="#6b6962" font-family="JetBrains Mono" font-size="10" letter-spacing="1.5">CNI: Calico  ·  CSI: local-path  ·  Ingress: NGINX</text>
+        </svg>
+      </div>
+
+      <h2 data-num="5.2">노드 사양 요약</h2>
+
+      <table>
+        <thead><tr><th>항목</th><th>Node 1 · ThinkStation</th><th>Node 2 · DGX Spark</th></tr></thead>
+        <tbody>
+          <tr><td>아키텍처</td><td><code>amd64 (x86_64)</code></td><td><code>arm64 (aarch64)</code></td></tr>
+          <tr><td>역할</td><td>Control Plane + 일반 워크로드</td><td>GPU Worker</td></tr>
+          <tr><td>GPU</td><td>없음 (또는 보조용)</td><td>GB10 Grace Blackwell SoC</td></tr>
+          <tr><td>메모리</td><td>일반 DDR5</td><td>128GB Unified (CPU·GPU 공유)</td></tr>
+          <tr><td>주 용도</td><td>오케스트레이션, DB, UI</td><td>학습·추론·임베딩</td></tr>
+          <tr><td>K8s 노드 라벨</td><td><code>node-role/control-plane</code><br><code>kubernetes.io/arch=amd64</code></td><td><code>node-role/gpu</code><br><code>kubernetes.io/arch=arm64</code><br><code>nvidia.com/gpu.present=true</code></td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-num="5.3">노드 라벨링과 테인트</h2>
+      <p>
+        2-노드 환경에서 가장 먼저 해야 할 일은 <em>각 노드의 정체성을 K8s에 알려주는 것</em>입니다.
+        라벨은 "이 노드는 무엇이다"를, 테인트는 "이 노드에는 아무나 못 들어온다"를 의미합니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Bash · Node Labels & Taints</span><button class="copy">Copy</button></div>
+<pre><code><span class="c"># DGX Spark 노드에 GPU 라벨과 테인트 부여</span>
+kubectl label node dgx-spark node-role=gpu workload=llm
+kubectl taint node dgx-spark dedicated=gpu:NoSchedule
+
+<span class="c"># ThinkStation은 컨트롤 플레인이지만 워크로드도 받게</span>
+kubectl label node thinkstation node-role=control-plane workload=ops
+kubectl taint node thinkstation node-role.kubernetes.io/control-plane- <span class="c"># 테인트 제거</span>
+
+<span class="c"># 확인</span>
+kubectl get nodes -o custom-columns=\
+NAME:.metadata.name,\
+ARCH:.status.nodeInfo.architecture,\
+ROLE:.metadata.labels.node-role,\
+GPU:.status.allocatable.nvidia\\.com/gpu</code></pre>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-label">중요 · 컨트롤 플레인에 워크로드 허용</div>
+        <p>
+          노드가 두 대뿐이므로 컨트롤 플레인 테인트를 제거해 ThinkStation에서도 일반
+          워크로드(Argo, MLflow, Prometheus)가 돌도록 합니다. 운영 환경에서는 권장하지 않지만,
+          실습·소규모 클러스터에서는 표준 패턴입니다.
+        </p>
+      </div>
+
+      <h2 data-num="5.4">GPU Operator 설치</h2>
+      <p>
+        DGX Spark에서 GPU를 K8s 리소스로 노출하려면 NVIDIA GPU Operator가 필수입니다.
+        ARM64에서도 GPU Operator는 정식 지원됩니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Helm · GPU Operator</span><button class="copy">Copy</button></div>
+<pre><code>helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+helm repo update
+
+helm install --wait gpu-operator \
+  -n gpu-operator --create-namespace \
+  nvidia/gpu-operator \
+  --set driver.enabled=false \
+  <span class="c"># DGX Spark는 드라이버가 OS에 미리 설치되어 있음</span>
+  --set toolkit.enabled=true \
+  --set devicePlugin.enabled=true \
+  --set nodeSelector."kubernetes\.io/arch"=arm64</code></pre>
+      </div>
+
+      <div class="callout tip">
+        <div class="callout-label">검증</div>
+        <p>설치 후 <code>kubectl get nodes -o yaml | grep nvidia.com/gpu</code> 명령으로 GPU가 할당 가능한 리소스로 노출되었는지 확인하세요. <code>nvidia.com/gpu: 1</code> 이상이 보이면 성공입니다.</p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s4">← 이전</button>
+        <span>05 / 12</span>
+        <button class="nav-btn next-btn" data-next="s6">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 06 ========== -->
+    <section id="s6" class="section">
+      <div class="eyebrow">Lecture 06 · Heterogeneous Strategy</div>
+      <h1>이종 <em>아키텍처</em> 전략</h1>
+      <p class="lede">
+        ARM64와 x86_64가 한 클러스터에 섞여 있을 때 가장 자주 깨지는 것은 <em>이미지</em>다.
+        이 문제를 어떻게 시스템적으로 해결할지 살펴본다.
+      </p>
+
+      <h2 data-num="6.1">왜 이종 클러스터가 어려운가</h2>
+      <p>
+        K8s 자체는 노드 아키텍처를 알지만, <em>컨테이너 이미지</em>는 빌드 시점에
+        특정 아키텍처로 고정됩니다. <code>python:3.11</code>처럼 보이는 태그도 실제로는
+        <code>linux/amd64</code> 매니페스트만 있을 수 있고, 그 이미지를 ARM64 노드에서 풀하면
+        <em>exec format error</em>로 실패합니다.
+      </p>
+
+      <h3>3가지 흔한 실패 모드</h3>
+      <ul>
+        <li><strong>Pull은 되지만 실행 실패</strong> — 이미지 매니페스트가 단일 아키텍처. <code>exec /usr/local/bin/python: exec format error</code>.</li>
+        <li><strong>일부 노드에서만 Pending</strong> — <code>nodeSelector</code>가 없어 ARM64 노드에 amd64-only 이미지가 스케줄됨.</li>
+        <li><strong>성능 저하</strong> — qemu 에뮬레이션으로는 돌지만 GPU 성능을 절반 이하로 사용.</li>
+      </ul>
+
+      <h2 data-num="6.2">해결책 1 · Multi-Arch 이미지 빌드</h2>
+      <p>
+        Docker Buildx를 사용하면 단일 명령으로 amd64와 arm64 이미지를 동시에 빌드해
+        하나의 매니페스트로 묶을 수 있습니다. 이후 K8s는 노드 아키텍처에 맞는 변형을
+        자동으로 선택합니다.
+      </p>
+
+      <div class="tabs">
+        <div class="tab-buttons">
+          <button class="tab-btn active" data-tab="t1a">Buildx 셋업</button>
+          <button class="tab-btn" data-tab="t1b">Dockerfile</button>
+          <button class="tab-btn" data-tab="t1c">CI 자동화</button>
+        </div>
+        <div class="tab-panel active" id="t1a">
+<pre><code><span class="c"># buildx 빌더 생성 (한 번만)</span>
+docker buildx create --name multi --driver docker-container --use
+docker buildx inspect --bootstrap
+
+<span class="c"># 멀티아키 빌드 + 푸시</span>
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t registry.kt.local/llmops/preprocess:v1.2 \
+  --push .</code></pre>
+        </div>
+        <div class="tab-panel" id="t1b">
+<pre><code><span class="c"># 멀티아키를 의식한 Dockerfile</span>
+<span class="k">FROM</span> --platform=$BUILDPLATFORM python:3.11-slim <span class="k">AS</span> base
+<span class="k">ARG</span> TARGETARCH
+<span class="k">RUN</span> echo <span class="s">"Building for $TARGETARCH"</span>
+
+<span class="c"># 아키텍처별 분기가 필요한 경우</span>
+<span class="k">RUN</span> if [ <span class="s">"$TARGETARCH"</span> = <span class="s">"arm64"</span> ]; then \
+        pip install torch --index-url https://download.pytorch.org/whl/cu124; \
+    else \
+        pip install torch; \
+    fi
+
+<span class="k">COPY</span> requirements.txt .
+<span class="k">RUN</span> pip install -r requirements.txt
+<span class="k">COPY</span> . /app
+<span class="k">WORKDIR</span> /app
+<span class="k">CMD</span> [<span class="s">"python"</span>, <span class="s">"main.py"</span>]</code></pre>
+        </div>
+        <div class="tab-panel" id="t1c">
+<pre><code><span class="c"># GitHub Actions 예시</span>
+<span class="y">name:</span> build-multiarch
+<span class="y">on:</span> [push]
+<span class="y">jobs:</span>
+  <span class="y">build:</span>
+    <span class="y">runs-on:</span> ubuntu-latest
+    <span class="y">steps:</span>
+      - <span class="y">uses:</span> actions/checkout@v4
+      - <span class="y">uses:</span> docker/setup-qemu-action@v3
+      - <span class="y">uses:</span> docker/setup-buildx-action@v3
+      - <span class="y">uses:</span> docker/build-push-action@v6
+        <span class="y">with:</span>
+          <span class="y">platforms:</span> linux/amd64,linux/arm64
+          <span class="y">push:</span> <span class="n">true</span>
+          <span class="y">tags:</span> registry.kt.local/llmops/app:${{ github.sha }}</code></pre>
+        </div>
+      </div>
+
+      <h2 data-num="6.3">해결책 2 · 명시적 nodeSelector</h2>
+      <p>
+        멀티아키 이미지가 없거나 GPU 워크로드처럼 특정 노드에만 가야 한다면 <code>nodeSelector</code>와
+        <code>tolerations</code>로 위치를 강제합니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">YAML · GPU 전용 Pod</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">apiVersion:</span> v1
+<span class="y">kind:</span> Pod
+<span class="y">metadata:</span>
+  <span class="y">name:</span> vllm-server
+<span class="y">spec:</span>
+  <span class="y">nodeSelector:</span>
+    <span class="y">kubernetes.io/arch:</span> arm64       <span class="c"># DGX Spark 강제</span>
+    <span class="y">node-role:</span> gpu
+  <span class="y">tolerations:</span>
+    - <span class="y">key:</span> dedicated
+      <span class="y">operator:</span> Equal
+      <span class="y">value:</span> gpu
+      <span class="y">effect:</span> NoSchedule
+  <span class="y">containers:</span>
+    - <span class="y">name:</span> vllm
+      <span class="y">image:</span> vllm/vllm-openai:latest      <span class="c"># 멀티아키 매니페스트</span>
+      <span class="y">resources:</span>
+        <span class="y">limits:</span>
+          <span class="y">nvidia.com/gpu:</span> <span class="s">"1"</span></code></pre>
+      </div>
+
+      <h2 data-num="6.4">해결책 3 · Affinity로 더 풍부한 표현</h2>
+      <p>
+        조건이 복잡해지면 <code>nodeAffinity</code>가 필요합니다. "ARM64 GPU 노드 우선,
+        없으면 x86_64 GPU 노드"와 같은 부드러운 선호를 표현할 수 있습니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">YAML · Node Affinity</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">spec:</span>
+  <span class="y">affinity:</span>
+    <span class="y">nodeAffinity:</span>
+      <span class="y">requiredDuringSchedulingIgnoredDuringExecution:</span>
+        <span class="y">nodeSelectorTerms:</span>
+          - <span class="y">matchExpressions:</span>
+              - <span class="y">key:</span> nvidia.com/gpu.present
+                <span class="y">operator:</span> In
+                <span class="y">values:</span> [<span class="s">"true"</span>]
+      <span class="y">preferredDuringSchedulingIgnoredDuringExecution:</span>
+        - <span class="y">weight:</span> <span class="n">100</span>
+          <span class="y">preference:</span>
+            <span class="y">matchExpressions:</span>
+              - <span class="y">key:</span> kubernetes.io/arch
+                <span class="y">operator:</span> In
+                <span class="y">values:</span> [<span class="s">"arm64"</span>]</code></pre>
+      </div>
+
+      <div class="callout">
+        <div class="callout-label">현장 체크리스트</div>
+        <p>
+          이종 클러스터를 운영할 때 매번 점검할 4가지: ① 이미지 매니페스트가 멀티아키인가
+          (<code>docker manifest inspect</code>), ② 모든 GPU Pod에 <code>nodeSelector</code>가 있는가,
+          ③ Helm 차트의 <code>image.repository</code>가 멀티아키 레지스트리를 가리키는가,
+          ④ Init/Sidecar 컨테이너도 ARM64를 지원하는가.
+        </p>
+      </div>
+
+      <div class="checkpoint">
+        <div class="checkpoint-head">Checkpoint 06</div>
+        <div class="quiz-q">Q. ARM64 노드에 amd64-only 이미지를 스케줄했을 때 가장 흔한 증상은?</div>
+        <ul class="quiz-options" data-correct="1">
+          <li>Pod가 ImagePullBackOff로 멈춘다</li>
+          <li>Pull은 성공하지만 컨테이너가 <code>exec format error</code>로 즉시 종료된다</li>
+          <li>K8s가 자동으로 호환 이미지를 찾아준다</li>
+          <li>네트워크 정책이 차단한다</li>
+        </ul>
+        <div class="quiz-explain">
+          정답: ② — 매니페스트에 amd64만 있어도 pull은 됩니다(다른 아키 매니페스트가 없으면 그것을 받음). 실행 단계에서 바이너리 형식 불일치로 <strong>exec format error</strong>가 발생하는 게 전형적인 증상입니다.
+        </div>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s5">← 이전</button>
+        <span>06 / 12</span>
+        <button class="nav-btn next-btn" data-next="s7">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 07 ========== -->
+    <section id="s7" class="section">
+      <div class="eyebrow">Lab 1 · Model Serving</div>
+      <h1>Lab 1 · <em>vLLM</em> 모델 서빙</h1>
+      <p class="lede">
+        첫 실습은 가장 가시적이다. DGX Spark 위에 vLLM을 올려 OpenAI 호환 엔드포인트로
+        Qwen2.5-7B 모델을 서빙하고, ThinkStation에서 호출해본다.
+      </p>
+
+      <h2 data-num="7.1">목표와 결과물</h2>
+      <ul>
+        <li>DGX Spark에 <code>vllm-openai</code> 컨테이너를 Deployment로 배포</li>
+        <li>OpenAI 호환 <code>/v1/chat/completions</code> 엔드포인트 제공</li>
+        <li>ClusterIP 서비스로 클러스터 내부에 노출, NGINX Ingress로 외부 노출</li>
+        <li>ThinkStation에서 <code>curl</code>로 검증</li>
+      </ul>
+
+      <h2 data-num="7.2">단계별 진행</h2>
+
+      <div class="steps">
+        <div class="step">
+          <h4>모델 가중치 사전 다운로드</h4>
+          <p>vLLM이 시작 시 Hugging Face에서 받게 두면 첫 기동이 길어집니다. PVC를 만들어 미리 캐시합니다.</p>
+          <div class="code-block">
+            <div class="code-head"><span class="lang">YAML · PVC + Download Job</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">apiVersion:</span> v1
+<span class="y">kind:</span> PersistentVolumeClaim
+<span class="y">metadata:</span>
+  <span class="y">name:</span> hf-cache
+  <span class="y">namespace:</span> llm-serving
+<span class="y">spec:</span>
+  <span class="y">accessModes:</span> [ReadWriteOnce]
+  <span class="y">resources:</span>
+    <span class="y">requests:</span>
+      <span class="y">storage:</span> 100Gi
+  <span class="y">storageClassName:</span> local-path
+---
+<span class="y">apiVersion:</span> batch/v1
+<span class="y">kind:</span> Job
+<span class="y">metadata:</span>
+  <span class="y">name:</span> download-qwen
+  <span class="y">namespace:</span> llm-serving
+<span class="y">spec:</span>
+  <span class="y">template:</span>
+    <span class="y">spec:</span>
+      <span class="y">nodeSelector:</span> { kubernetes.io/arch: arm64 }
+      <span class="y">restartPolicy:</span> OnFailure
+      <span class="y">containers:</span>
+        - <span class="y">name:</span> dl
+          <span class="y">image:</span> python:3.11-slim
+          <span class="y">command:</span> [<span class="s">"sh"</span>, <span class="s">"-c"</span>]
+          <span class="y">args:</span>
+            - pip install -q huggingface_hub &amp;&amp;
+              huggingface-cli download Qwen/Qwen2.5-7B-Instruct
+              --local-dir /cache/qwen --local-dir-use-symlinks False
+          <span class="y">volumeMounts:</span>
+            - { name: cache, mountPath: /cache }
+      <span class="y">volumes:</span>
+        - <span class="y">name:</span> cache
+          <span class="y">persistentVolumeClaim:</span> { claimName: hf-cache }</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <h4>vLLM Deployment 작성</h4>
+          <p>OpenAI 호환 서버 모드로 기동. <code>--gpu-memory-utilization</code>은 다른 GPU 워크로드와 공존을 고려해 설정합니다.</p>
+          <div class="code-block">
+            <div class="code-head"><span class="lang">YAML · vLLM Deployment</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">apiVersion:</span> apps/v1
+<span class="y">kind:</span> Deployment
+<span class="y">metadata:</span>
+  <span class="y">name:</span> vllm-qwen
+  <span class="y">namespace:</span> llm-serving
+<span class="y">spec:</span>
+  <span class="y">replicas:</span> <span class="n">1</span>
+  <span class="y">selector:</span> { matchLabels: { app: vllm-qwen } }
+  <span class="y">template:</span>
+    <span class="y">metadata:</span>
+      <span class="y">labels:</span> { app: vllm-qwen }
+    <span class="y">spec:</span>
+      <span class="y">nodeSelector:</span>
+        <span class="y">kubernetes.io/arch:</span> arm64
+        <span class="y">node-role:</span> gpu
+      <span class="y">tolerations:</span>
+        - { key: dedicated, operator: Equal, value: gpu, effect: NoSchedule }
+      <span class="y">containers:</span>
+        - <span class="y">name:</span> vllm
+          <span class="y">image:</span> vllm/vllm-openai:latest
+          <span class="y">args:</span>
+            - <span class="s">"--model"</span>
+            - <span class="s">"/cache/qwen"</span>
+            - <span class="s">"--served-model-name"</span>
+            - <span class="s">"qwen2.5-7b"</span>
+            - <span class="s">"--gpu-memory-utilization"</span>
+            - <span class="s">"0.85"</span>
+            - <span class="s">"--max-model-len"</span>
+            - <span class="s">"8192"</span>
+            - <span class="s">"--port"</span>
+            - <span class="s">"8000"</span>
+          <span class="y">ports:</span>
+            - { containerPort: <span class="n">8000</span> }
+          <span class="y">resources:</span>
+            <span class="y">limits:</span>
+              <span class="y">nvidia.com/gpu:</span> <span class="s">"1"</span>
+              <span class="y">memory:</span> 32Gi
+          <span class="y">volumeMounts:</span>
+            - { name: cache, mountPath: /cache }
+          <span class="y">readinessProbe:</span>
+            <span class="y">httpGet:</span> { path: /health, port: <span class="n">8000</span> }
+            <span class="y">initialDelaySeconds:</span> <span class="n">120</span>
+            <span class="y">periodSeconds:</span> <span class="n">10</span>
+      <span class="y">volumes:</span>
+        - <span class="y">name:</span> cache
+          <span class="y">persistentVolumeClaim:</span> { claimName: hf-cache }
+---
+<span class="y">apiVersion:</span> v1
+<span class="y">kind:</span> Service
+<span class="y">metadata:</span>
+  <span class="y">name:</span> vllm-qwen
+  <span class="y">namespace:</span> llm-serving
+<span class="y">spec:</span>
+  <span class="y">selector:</span> { app: vllm-qwen }
+  <span class="y">ports:</span>
+    - { port: <span class="n">8000</span>, targetPort: <span class="n">8000</span> }</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <h4>배포와 확인</h4>
+          <div class="code-block">
+            <div class="code-head"><span class="lang">Bash</span><button class="copy">Copy</button></div>
+<pre><code>kubectl create namespace llm-serving
+kubectl apply -f vllm-deployment.yaml
+
+<span class="c"># 모델 로딩 진행 상황 확인 (1~3분 소요)</span>
+kubectl logs -f -n llm-serving deploy/vllm-qwen | grep -E <span class="s">"INFO|model"</span>
+
+<span class="c"># 준비 완료 확인</span>
+kubectl get pod -n llm-serving -l app=vllm-qwen</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <h4>호출 테스트</h4>
+          <p>OpenAI Python SDK가 그대로 동작합니다. 이것이 vLLM의 가장 강력한 매력 포인트입니다.</p>
+          <div class="tabs">
+            <div class="tab-buttons">
+              <button class="tab-btn active" data-tab="t2a">curl</button>
+              <button class="tab-btn" data-tab="t2b">Python (OpenAI SDK)</button>
+            </div>
+            <div class="tab-panel active" id="t2a">
+<pre><code>kubectl port-forward -n llm-serving svc/vllm-qwen 8000:8000 &amp;
+
+curl http://localhost:8000/v1/chat/completions \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d '{
+    <span class="s">"model"</span>: <span class="s">"qwen2.5-7b"</span>,
+    <span class="s">"messages"</span>: [
+      {<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: <span class="s">"LLMOps를 한 문장으로?"</span>}
+    ],
+    <span class="s">"temperature"</span>: <span class="n">0.7</span>
+  }'</code></pre>
+            </div>
+            <div class="tab-panel" id="t2b">
+<pre><code><span class="k">from</span> openai <span class="k">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="s">"http://vllm-qwen.llm-serving:8000/v1"</span>,
+    api_key=<span class="s">"not-needed"</span>,    <span class="c"># 사내 환경이므로</span>
+)
+
+resp = client.chat.completions.create(
+    model=<span class="s">"qwen2.5-7b"</span>,
+    messages=[{<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: <span class="s">"LLMOps를 한 문장으로?"</span>}],
+)
+<span class="k">print</span>(resp.choices[<span class="n">0</span>].message.content)</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <h4>오토스케일링과 한계</h4>
+          <p>
+            vLLM 자체는 KEDA 또는 HPA로 스케일아웃이 가능하지만, <em>모델 로딩에 분 단위 시간</em>이
+            걸리므로 traffic burst에 즉시 대응하긴 어렵습니다. 운영에서는
+            <strong>1) 항상 N개의 warm replica 유지, 2) 큐잉으로 burst 흡수, 3) 작은 모델로 fallback</strong>
+            의 3단 방어를 권장합니다.
+          </p>
+        </div>
+      </div>
+
+      <div class="callout lab">
+        <div class="callout-label">실습 완료 체크</div>
+        <p>
+          ① Deployment가 Ready 1/1 상태 ② <code>/v1/models</code> 호출 시 qwen2.5-7b 노출
+          ③ 채팅 요청 시 한국어 응답 ④ <code>kubectl top pod</code>에서 GPU 메모리 사용량 확인
+          — 네 가지가 모두 통과하면 Lab 1 성공입니다.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s6">← 이전</button>
+        <span>07 / 12</span>
+        <button class="nav-btn next-btn" data-next="s8">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 08 ========== -->
+    <section id="s8" class="section">
+      <div class="eyebrow">Lab 2 · Fine-tuning</div>
+      <h1>Lab 2 · <em>LoRA</em> 파인튜닝 파이프라인</h1>
+      <p class="lede">
+        Argo Workflows로 데이터 준비 → 학습 → 평가 → 모델 등록을 한 번에 수행하는
+        파이프라인을 만든다. 학습은 DGX Spark에서, 메타데이터는 ThinkStation의 MLflow에서 관리한다.
+      </p>
+
+      <h2 data-num="8.1">왜 LoRA인가</h2>
+      <p>
+        Full Fine-tuning은 7B 모델 기준으로 약 84GB의 GPU 메모리가 필요합니다(가중치 14GB + 옵티마이저 28GB + 그라디언트 14GB + 활성화 ~28GB).
+        <em>LoRA</em>는 모델 가중치를 동결하고 작은 어댑터(보통 0.1~1%)만 학습하므로
+        같은 모델을 16~24GB GPU 메모리로 파인튜닝 가능하게 만들어줍니다.
+      </p>
+
+      <table>
+        <thead><tr><th>방식</th><th>메모리(7B)</th><th>학습 속도</th><th>품질</th></tr></thead>
+        <tbody>
+          <tr><td>Full FT</td><td>~84GB</td><td>1×</td><td>최고</td></tr>
+          <tr><td>LoRA</td><td>~24GB</td><td>1.5~2×</td><td>Full의 95~99%</td></tr>
+          <tr><td>QLoRA (4bit)</td><td>~10GB</td><td>1×</td><td>Full의 90~98%</td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-num="8.2">파이프라인 구조</h2>
+
+      <div class="topo">
+        <div class="topo-title">Argo DAG · LoRA Pipeline</div>
+        <svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
+          <defs>
+            <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#e8b04f"/>
+            </marker>
+          </defs>
+          <g font-family="Pretendard" font-size="11">
+            <rect x="20" y="70" width="120" height="50" rx="3" fill="#1a1a1d" stroke="#6ad7d2"/>
+            <text x="80" y="92" text-anchor="middle" fill="#6ad7d2" font-family="JetBrains Mono" font-size="10">PREP DATA</text>
+            <text x="80" y="108" text-anchor="middle" fill="#9a978d">ThinkStation</text>
+
+            <rect x="180" y="70" width="120" height="50" rx="3" fill="#1a1a1d" stroke="#e8b04f"/>
+            <text x="240" y="92" text-anchor="middle" fill="#e8b04f" font-family="JetBrains Mono" font-size="10">TRAIN LoRA</text>
+            <text x="240" y="108" text-anchor="middle" fill="#9a978d">DGX Spark · GPU</text>
+
+            <rect x="340" y="70" width="120" height="50" rx="3" fill="#1a1a1d" stroke="#e8b04f"/>
+            <text x="400" y="92" text-anchor="middle" fill="#e8b04f" font-family="JetBrains Mono" font-size="10">MERGE</text>
+            <text x="400" y="108" text-anchor="middle" fill="#9a978d">DGX Spark</text>
+
+            <rect x="500" y="70" width="120" height="50" rx="3" fill="#1a1a1d" stroke="#8fb96e"/>
+            <text x="560" y="92" text-anchor="middle" fill="#8fb96e" font-family="JetBrains Mono" font-size="10">EVAL</text>
+            <text x="560" y="108" text-anchor="middle" fill="#9a978d">DGX Spark</text>
+
+            <rect x="660" y="70" width="120" height="50" rx="3" fill="#1a1a1d" stroke="#6ad7d2"/>
+            <text x="720" y="92" text-anchor="middle" fill="#6ad7d2" font-family="JetBrains Mono" font-size="10">REGISTER</text>
+            <text x="720" y="108" text-anchor="middle" fill="#9a978d">MLflow</text>
+          </g>
+          <line x1="140" y1="95" x2="178" y2="95" stroke="#e8b04f" marker-end="url(#ar4)"/>
+          <line x1="300" y1="95" x2="338" y2="95" stroke="#e8b04f" marker-end="url(#ar4)"/>
+          <line x1="460" y1="95" x2="498" y2="95" stroke="#e8b04f" marker-end="url(#ar4)"/>
+          <line x1="620" y1="95" x2="658" y2="95" stroke="#e8b04f" marker-end="url(#ar4)"/>
+        </svg>
+      </div>
+
+      <h2 data-num="8.3">Argo Workflow 정의</h2>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">YAML · LoRA Pipeline</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">apiVersion:</span> argoproj.io/v1alpha1
+<span class="y">kind:</span> Workflow
+<span class="y">metadata:</span>
+  <span class="y">generateName:</span> qwen-lora-
+<span class="y">spec:</span>
+  <span class="y">entrypoint:</span> pipeline
+  <span class="y">arguments:</span>
+    <span class="y">parameters:</span>
+      - { name: base-model, value: <span class="s">"Qwen/Qwen2.5-7B-Instruct"</span> }
+      - { name: dataset,    value: <span class="s">"s3://datasets/customer-support-ko"</span> }
+      - { name: epochs,     value: <span class="s">"3"</span> }
+
+  <span class="y">templates:</span>
+    - <span class="y">name:</span> pipeline
+      <span class="y">dag:</span>
+        <span class="y">tasks:</span>
+          - { name: prep,     template: prep-data }
+          - { name: train,    template: train-lora,  dependencies: [prep] }
+          - { name: merge,    template: merge-adapter, dependencies: [train] }
+          - { name: eval,     template: evaluate,    dependencies: [merge] }
+          - { name: register, template: mlflow-register, dependencies: [eval],
+              when: <span class="s">"{{tasks.eval.outputs.parameters.score}} >= 0.7"</span> }
+
+    <span class="c"># --- 데이터 전처리 (ThinkStation) ---</span>
+    - <span class="y">name:</span> prep-data
+      <span class="y">nodeSelector:</span> { kubernetes.io/arch: amd64 }
+      <span class="y">container:</span>
+        <span class="y">image:</span> registry.kt.local/llmops/dataprep:v1.2
+        <span class="y">command:</span> [python, prep.py]
+        <span class="y">args:</span> [--src, <span class="s">"{{workflow.parameters.dataset}}"</span>, --dst, /out]
+
+    <span class="c"># --- LoRA 학습 (DGX Spark) ---</span>
+    - <span class="y">name:</span> train-lora
+      <span class="y">nodeSelector:</span> { kubernetes.io/arch: arm64, node-role: gpu }
+      <span class="y">tolerations:</span>
+        - { key: dedicated, operator: Equal, value: gpu, effect: NoSchedule }
+      <span class="y">container:</span>
+        <span class="y">image:</span> registry.kt.local/llmops/trainer:v1.2
+        <span class="y">command:</span> [python, train_lora.py]
+        <span class="y">args:</span>
+          - --base={{workflow.parameters.base-model}}
+          - --data=/data
+          - --epochs={{workflow.parameters.epochs}}
+          - --rank=<span class="n">16</span>
+          - --alpha=<span class="n">32</span>
+          - --output=/adapters
+        <span class="y">resources:</span>
+          <span class="y">limits:</span> { nvidia.com/gpu: <span class="s">"1"</span> }
+
+    <span class="c"># --- 어댑터 머지 + 평가 + 등록은 동일한 패턴 ---</span></code></pre>
+      </div>
+
+      <h2 data-num="8.4">학습 스크립트의 핵심</h2>
+      <p>
+        Hugging Face PEFT 라이브러리를 쓰면 LoRA는 놀랄 만큼 단순해집니다.
+        실제 학습 코드의 본질은 다음 30줄에 모두 담겨 있습니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Python · train_lora.py</span><button class="copy">Copy</button></div>
+<pre><code><span class="k">from</span> peft <span class="k">import</span> LoraConfig, get_peft_model
+<span class="k">from</span> transformers <span class="k">import</span> AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
+<span class="k">from</span> datasets <span class="k">import</span> load_from_disk
+
+base = <span class="s">"Qwen/Qwen2.5-7B-Instruct"</span>
+tok = AutoTokenizer.from_pretrained(base)
+model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=<span class="s">"bfloat16"</span>, device_map=<span class="s">"auto"</span>)
+
+lora = LoraConfig(
+    r=<span class="n">16</span>, lora_alpha=<span class="n">32</span>, lora_dropout=<span class="n">0.05</span>,
+    target_modules=[<span class="s">"q_proj"</span>, <span class="s">"k_proj"</span>, <span class="s">"v_proj"</span>, <span class="s">"o_proj"</span>],
+    bias=<span class="s">"none"</span>, task_type=<span class="s">"CAUSAL_LM"</span>,
+)
+model = get_peft_model(model, lora)
+model.print_trainable_parameters()  <span class="c"># typical: 0.3% trainable</span>
+
+ds = load_from_disk(<span class="s">"/data"</span>)
+args = TrainingArguments(
+    output_dir=<span class="s">"/adapters"</span>,
+    per_device_train_batch_size=<span class="n">2</span>,
+    gradient_accumulation_steps=<span class="n">8</span>,
+    num_train_epochs=<span class="n">3</span>,
+    learning_rate=<span class="n">2e-4</span>,
+    bf16=<span class="n">True</span>,
+    logging_steps=<span class="n">10</span>,
+    save_strategy=<span class="s">"epoch"</span>,
+    report_to=[<span class="s">"mlflow"</span>],     <span class="c"># MLflow에 자동 로깅</span>
+)
+Trainer(model=model, tokenizer=tok, args=args, train_dataset=ds[<span class="s">"train"</span>]).train()
+model.save_pretrained(<span class="s">"/adapters/final"</span>)</code></pre>
+      </div>
+
+      <div class="callout tip">
+        <div class="callout-label">DGX Spark 활용 팁</div>
+        <p>
+          GB10의 <strong>128GB 통합 메모리</strong>는 LoRA 학습에서 진가를 발휘합니다.
+          CPU↔GPU 데이터 복사가 사실상 무료이므로 <code>bitsandbytes</code> 4bit 양자화를 쓰면
+          <em>13B~14B 모델</em>까지도 무리 없이 파인튜닝 가능합니다. 일반 24GB GPU라면 LoRA여도
+          7B가 한계입니다.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s7">← 이전</button>
+        <span>08 / 12</span>
+        <button class="nav-btn next-btn" data-next="s9">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 09 ========== -->
+    <section id="s9" class="section">
+      <div class="eyebrow">Lab 3 · RAG</div>
+      <h1>Lab 3 · <em>RAG</em> 파이프라인</h1>
+      <p class="lede">
+        파인튜닝된 모델만으로는 사내 최신 정보에 접근할 수 없다. RAG로 외부 지식 베이스를
+        연결해 환각을 줄이고 사실성을 높인다.
+      </p>
+
+      <h2 data-num="9.1">RAG의 두 단계</h2>
+
+      <div class="comparison">
+        <div class="comp-card left">
+          <div class="label">Stage 1 · Indexing (오프라인)</div>
+          <h4>지식을 벡터로 변환</h4>
+          <ul>
+            <li>문서 수집 (PDF, Confluence, DB)</li>
+            <li>청킹: 200~500 토큰, 50 토큰 오버랩</li>
+            <li>임베딩 모델로 벡터화</li>
+            <li>벡터 DB(Milvus)에 저장</li>
+            <li>주기적 재인덱싱</li>
+          </ul>
+        </div>
+        <div class="comp-card right">
+          <div class="label">Stage 2 · Retrieval (실시간)</div>
+          <h4>질문에 맞는 청크 찾기</h4>
+          <ul>
+            <li>질문 → 임베딩</li>
+            <li>벡터 DB에서 top-k 유사 청크 조회</li>
+            <li>(옵션) 리랭커로 재정렬</li>
+            <li>프롬프트에 컨텍스트 주입</li>
+            <li>LLM 호출 → 인용 포함 응답</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2 data-num="9.2">Milvus 설치</h2>
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Helm · Milvus Standalone</span><button class="copy">Copy</button></div>
+<pre><code>helm repo add milvus https://zilliztech.github.io/milvus-helm
+helm install milvus milvus/milvus \
+  -n vector --create-namespace \
+  --set cluster.enabled=false \           <span class="c"># 2-노드 환경은 standalone</span>
+  --set etcd.replicaCount=<span class="n">1</span> \
+  --set minio.mode=standalone \
+  --set nodeSelector."kubernetes\.io/arch"=amd64   <span class="c"># ThinkStation에 배치</span></code></pre>
+      </div>
+
+      <h2 data-num="9.3">임베딩 서비스를 K8s 위에</h2>
+      <p>
+        한국어 임베딩 모델(<code>BAAI/bge-m3</code>)을 GPU에서 서빙하면 인덱싱 속도가
+        CPU 대비 10~30배 빨라집니다. <code>text-embeddings-inference</code> 컨테이너를 사용합니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">YAML · TEI on DGX Spark</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">apiVersion:</span> apps/v1
+<span class="y">kind:</span> Deployment
+<span class="y">metadata:</span> { name: tei-bge, namespace: rag }
+<span class="y">spec:</span>
+  <span class="y">replicas:</span> <span class="n">1</span>
+  <span class="y">selector:</span> { matchLabels: { app: tei-bge } }
+  <span class="y">template:</span>
+    <span class="y">metadata:</span> { labels: { app: tei-bge } }
+    <span class="y">spec:</span>
+      <span class="y">nodeSelector:</span> { kubernetes.io/arch: arm64, node-role: gpu }
+      <span class="y">tolerations:</span>
+        - { key: dedicated, operator: Equal, value: gpu, effect: NoSchedule }
+      <span class="y">containers:</span>
+        - <span class="y">name:</span> tei
+          <span class="y">image:</span> ghcr.io/huggingface/text-embeddings-inference:latest
+          <span class="y">args:</span> [--model-id, BAAI/bge-m3, --port, <span class="s">"8080"</span>]
+          <span class="y">resources:</span> { limits: { nvidia.com/gpu: <span class="s">"1"</span> } }
+          <span class="y">ports:</span> [{ containerPort: <span class="n">8080</span> }]</code></pre>
+      </div>
+
+      <h2 data-num="9.4">인덱싱 Job</h2>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Python · index.py</span><button class="copy">Copy</button></div>
+<pre><code><span class="k">from</span> pymilvus <span class="k">import</span> connections, Collection, FieldSchema, CollectionSchema, DataType
+<span class="k">import</span> requests, glob, json
+
+connections.connect(host=<span class="s">"milvus.vector"</span>, port=<span class="n">19530</span>)
+
+<span class="c"># 컬렉션 정의 (한 번만)</span>
+fields = [
+    FieldSchema(<span class="s">"id"</span>, DataType.INT64, is_primary=<span class="n">True</span>, auto_id=<span class="n">True</span>),
+    FieldSchema(<span class="s">"vector"</span>, DataType.FLOAT_VECTOR, dim=<span class="n">1024</span>),
+    FieldSchema(<span class="s">"text"</span>, DataType.VARCHAR, max_length=<span class="n">2000</span>),
+    FieldSchema(<span class="s">"source"</span>, DataType.VARCHAR, max_length=<span class="n">200</span>),
+]
+coll = Collection(<span class="s">"kt_docs"</span>, CollectionSchema(fields))
+coll.create_index(<span class="s">"vector"</span>, {<span class="s">"index_type"</span>: <span class="s">"HNSW"</span>, <span class="s">"metric_type"</span>: <span class="s">"COSINE"</span>,
+                              <span class="s">"params"</span>: {<span class="s">"M"</span>: <span class="n">16</span>, <span class="s">"efConstruction"</span>: <span class="n">200</span>}})
+
+<span class="c"># 임베딩 + 적재</span>
+<span class="k">def</span> embed(texts):
+    r = requests.post(<span class="s">"http://tei-bge.rag:8080/embed"</span>, json={<span class="s">"inputs"</span>: texts})
+    <span class="k">return</span> r.json()
+
+<span class="k">for</span> path <span class="k">in</span> glob.glob(<span class="s">"/docs/*.md"</span>):
+    chunks = chunk_text(open(path).read(), size=<span class="n">400</span>, overlap=<span class="n">50</span>)
+    vecs = embed(chunks)
+    coll.insert([vecs, chunks, [path]*len(chunks)])
+coll.flush()</code></pre>
+      </div>
+
+      <h2 data-num="9.5">검색 + 답변 (LangChain)</h2>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Python · rag_query.py</span><button class="copy">Copy</button></div>
+<pre><code><span class="k">from</span> langchain_openai <span class="k">import</span> ChatOpenAI
+<span class="k">from</span> langchain_core.prompts <span class="k">import</span> ChatPromptTemplate
+
+llm = ChatOpenAI(
+    base_url=<span class="s">"http://vllm-qwen.llm-serving:8000/v1"</span>,
+    api_key=<span class="s">"x"</span>, model=<span class="s">"qwen2.5-7b"</span>,
+)
+
+prompt = ChatPromptTemplate.from_template(<span class="s">"""
+다음 컨텍스트를 활용해 질문에 답하세요. 컨텍스트에 없는 내용은 모른다고 답하세요.
+출처를 인용하세요.
+
+[컨텍스트]
+{context}
+
+[질문]
+{question}
+"""</span>)
+
+<span class="k">def</span> rag(question):
+    qvec = embed([question])[<span class="n">0</span>]
+    hits = coll.search([qvec], <span class="s">"vector"</span>, {<span class="s">"metric_type"</span>: <span class="s">"COSINE"</span>},
+                       limit=<span class="n">5</span>, output_fields=[<span class="s">"text"</span>, <span class="s">"source"</span>])
+    ctx = <span class="s">"\n---\n"</span>.join(f<span class="s">"[{h.entity.source}] {h.entity.text}"</span> <span class="k">for</span> h <span class="k">in</span> hits[<span class="n">0</span>])
+    <span class="k">return</span> llm.invoke(prompt.format(context=ctx, question=question)).content</code></pre>
+      </div>
+
+      <div class="callout">
+        <div class="callout-label">RAG 운영의 함정</div>
+        <p>
+          <strong>RAG 품질 = 검색 품질</strong>입니다. 모델을 아무리 큰 것으로 바꿔도
+          잘못된 청크가 컨텍스트에 들어오면 답이 망가집니다. 우선순위는
+          ① 청킹 전략 → ② 임베딩 모델 선택 → ③ 리랭커 도입 → ④ 모델 업그레이드입니다.
+          ④번부터 시도하는 흔한 실수를 피하세요.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s8">← 이전</button>
+        <span>09 / 12</span>
+        <button class="nav-btn next-btn" data-next="s10">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 10 ========== -->
+    <section id="s10" class="section">
+      <div class="eyebrow">Lab 4 · Observability</div>
+      <h1>Lab 4 · <em>관찰성</em></h1>
+      <p class="lede">
+        측정할 수 없으면 개선할 수 없다. LLM 시스템에서 측정해야 할 지표는 일반 마이크로서비스보다
+        한 층 더 풍부하다.
+      </p>
+
+      <h2 data-num="10.1">3종 텔레메트리</h2>
+
+      <div class="arch-grid">
+        <div class="arch-card">
+          <div class="layer">Metrics</div>
+          <div class="name">Prometheus + Grafana</div>
+          <div class="desc">QPS, GPU 사용률, 토큰/초, TTFT, 큐 길이. 시계열 집계와 알람.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Logs</div>
+          <div class="name">Loki + Promtail</div>
+          <div class="desc">vLLM·Argo·앱 로그. PII 마스킹 후 저장. 필요 시 7일/30일 보관 정책.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Traces</div>
+          <div class="name">Langfuse</div>
+          <div class="desc">프롬프트 단위 추적. 입력·출력·토큰·지연시간·평가 점수를 한 트레이스에 묶음.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">Eval</div>
+          <div class="name">Ragas + 회귀셋</div>
+          <div class="desc">Faithfulness, Answer Relevance, Context Precision. 매일 회귀 측정.</div>
+        </div>
+      </div>
+
+      <h2 data-num="10.2">vLLM 메트릭</h2>
+      <p>vLLM은 기본적으로 <code>/metrics</code> 엔드포인트로 Prometheus 포맷을 노출합니다. ServiceMonitor를 추가하면 자동 수집됩니다.</p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">YAML · ServiceMonitor</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">apiVersion:</span> monitoring.coreos.com/v1
+<span class="y">kind:</span> ServiceMonitor
+<span class="y">metadata:</span>
+  <span class="y">name:</span> vllm-qwen
+  <span class="y">namespace:</span> llm-serving
+  <span class="y">labels:</span> { release: kube-prom-stack }
+<span class="y">spec:</span>
+  <span class="y">selector:</span>
+    <span class="y">matchLabels:</span> { app: vllm-qwen }
+  <span class="y">endpoints:</span>
+    - { port: http, path: /metrics, interval: 15s }</code></pre>
+      </div>
+
+      <h3>핵심 PromQL</h3>
+      <div class="code-block">
+        <div class="code-head"><span class="lang">PromQL</span><button class="copy">Copy</button></div>
+<pre><code><span class="c"># 초당 토큰 생성률</span>
+rate(vllm:generation_tokens_total[<span class="n">1m</span>])
+
+<span class="c"># 평균 TTFT (p95)</span>
+histogram_quantile(<span class="n">0.95</span>, sum(rate(vllm:time_to_first_token_seconds_bucket[<span class="n">5m</span>])) by (le))
+
+<span class="c"># GPU KV 캐시 사용률</span>
+vllm:gpu_cache_usage_perc
+
+<span class="c"># 대기 중인 요청 수</span>
+vllm:num_requests_waiting</code></pre>
+      </div>
+
+      <h2 data-num="10.3">Langfuse로 프롬프트 트레이스</h2>
+      <p>
+        Langfuse는 OpenAI SDK 호출을 자동으로 가로채 모든 프롬프트·응답·메타데이터를
+        기록합니다. 단 3줄로 시작 가능합니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">Python · Langfuse 연동</span><button class="copy">Copy</button></div>
+<pre><code><span class="k">from</span> langfuse.openai <span class="k">import</span> openai   <span class="c"># drop-in</span>
+
+client = openai.OpenAI(
+    base_url=<span class="s">"http://vllm-qwen.llm-serving:8000/v1"</span>,
+    api_key=<span class="s">"x"</span>,
+)
+
+<span class="c"># 평소 호출 그대로</span>
+resp = client.chat.completions.create(
+    model=<span class="s">"qwen2.5-7b"</span>,
+    messages=[...],
+    metadata={<span class="s">"user_id"</span>: <span class="s">"u_123"</span>, <span class="s">"session"</span>: <span class="s">"abc"</span>},
+)
+<span class="c"># → Langfuse UI에서 입력·출력·토큰·지연시간·비용 자동 기록</span></code></pre>
+      </div>
+
+      <h2 data-num="10.4">Grafana 대시보드 골격</h2>
+
+      <table>
+        <thead><tr><th>패널</th><th>지표</th><th>경고 임계값(예시)</th></tr></thead>
+        <tbody>
+          <tr><td>요청량</td><td>QPS, 동시 요청 수</td><td>&gt; 90% 용량</td></tr>
+          <tr><td>지연시간</td><td>TTFT p50/p95/p99, ITL p95</td><td>p95 TTFT &gt; 1s</td></tr>
+          <tr><td>처리량</td><td>tokens/sec (input·output)</td><td>baseline -30%</td></tr>
+          <tr><td>GPU</td><td>utilization, memory, temperature</td><td>util &lt; 30% (낭비) / temp &gt; 80°C</td></tr>
+          <tr><td>큐</td><td>num_waiting, num_running</td><td>waiting &gt; 0 지속 5분</td></tr>
+          <tr><td>품질</td><td>Ragas faithfulness 일별</td><td>&lt; 0.7</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="callout-label">반드시 측정해야 할 한 가지</div>
+        <p>
+          전통적 인프라 모니터링이 빠뜨리는 가장 중요한 LLM 지표는 <em>품질</em>입니다.
+          시스템이 "정상"으로 보이는데 응답 품질만 조용히 떨어지는 사례
+          (모델 업데이트, 프롬프트 변경, RAG 인덱스 손상)는 흔합니다. <strong>매일 동일한
+          평가셋으로 자동 평가하는 회귀 테스트</strong>를 반드시 운영하세요.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s9">← 이전</button>
+        <span>10 / 12</span>
+        <button class="nav-btn next-btn" data-next="s11">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 11 ========== -->
+    <section id="s11" class="section">
+      <div class="eyebrow">Lecture 11 · Best Practices</div>
+      <h1>운영 <em>모범 사례</em></h1>
+      <p class="lede">
+        실습을 넘어 실제 운영 환경에서 LLMOps를 안정적으로 굴리려면 무엇을 더 챙겨야 하는가.
+        체크리스트로 정리한다.
+      </p>
+
+      <h2 data-num="11.1">비용 최적화</h2>
+      <ul>
+        <li><strong>모델 라우팅</strong> — 쉬운 질문은 작은 모델(1B~3B), 어려운 질문만 큰 모델로. 평균 비용 60~80% 절감 가능.</li>
+        <li><strong>프롬프트 캐시</strong> — 시스템 프롬프트가 길면 prefix caching으로 TTFT와 비용을 동시에 줄임.</li>
+        <li><strong>구조화 출력</strong> — JSON 스키마 강제로 후처리 비용과 재시도 감소.</li>
+        <li><strong>스트리밍</strong> — 사용자에게 첫 토큰을 빨리 보여줘 체감 지연을 절반으로.</li>
+      </ul>
+
+      <h2 data-num="11.2">신뢰성</h2>
+      <ul>
+        <li><strong>다중 모델 폴백</strong> — 주 모델 실패 시 보조 모델로 자동 전환.</li>
+        <li><strong>회로 차단기</strong> — 외부 API 호출 시 연속 실패 임계값 도달 시 일시 차단.</li>
+        <li><strong>타임아웃 명시</strong> — 무한 생성을 막는 max_tokens, 요청 단위 timeout.</li>
+        <li><strong>모델 워밍업</strong> — 배포 직후 더미 요청으로 KV 캐시·CUDA 그래프 미리 빌드.</li>
+      </ul>
+
+      <h2 data-num="11.3">보안</h2>
+      <ul>
+        <li><strong>프롬프트 인젝션 방어</strong> — 사용자 입력과 시스템 지시를 명확히 분리. NeMo Guardrails로 정책 강제.</li>
+        <li><strong>PII 마스킹</strong> — 입력 단계에서 주민번호·이메일·전화번호 자동 식별·마스킹.</li>
+        <li><strong>출력 필터</strong> — 유해 콘텐츠 분류기로 응답 사후 검사.</li>
+        <li><strong>감사 로그</strong> — 누가, 언제, 어떤 프롬프트로, 어떤 출력을 받았는지 90일 이상 보관.</li>
+      </ul>
+
+      <h2 data-num="11.4">CI/CD for LLM</h2>
+      <p>
+        프롬프트 변경도 코드 변경입니다. PR 단위로 평가셋을 돌려 회귀를 막아야 합니다.
+      </p>
+
+      <div class="code-block">
+        <div class="code-head"><span class="lang">YAML · GitHub Actions · Prompt Eval</span><button class="copy">Copy</button></div>
+<pre><code><span class="y">name:</span> prompt-regression
+<span class="y">on:</span> { pull_request: { paths: [<span class="s">"prompts/**"</span>] } }
+<span class="y">jobs:</span>
+  <span class="y">eval:</span>
+    <span class="y">runs-on:</span> [self-hosted, k8s]
+    <span class="y">steps:</span>
+      - <span class="y">uses:</span> actions/checkout@v4
+      - <span class="y">name:</span> Run eval suite
+        <span class="y">run:</span> |
+          python -m eval.run \
+            --prompts prompts/ \
+            --dataset eval/regression-set.jsonl \
+            --baseline main \
+            --threshold 0.95
+      - <span class="y">name:</span> Comment results
+        <span class="y">uses:</span> actions/github-script@v7</code></pre>
+      </div>
+
+      <h2 data-num="11.5">이종 클러스터 운영 체크리스트</h2>
+      <table>
+        <thead><tr><th>항목</th><th>점검 포인트</th><th>도구</th></tr></thead>
+        <tbody>
+          <tr><td>이미지</td><td>모든 배포 이미지가 amd64 + arm64 매니페스트인가</td><td><code>docker manifest inspect</code></td></tr>
+          <tr><td>스케줄링</td><td>GPU Pod에 nodeSelector·toleration이 있는가</td><td>OPA Gatekeeper / Kyverno 정책</td></tr>
+          <tr><td>리소스</td><td>GPU 한도가 명시되어 있는가</td><td>LimitRange · ResourceQuota</td></tr>
+          <tr><td>스토리지</td><td>모델 캐시 PVC가 충분히 큰가 (≥ 100GB)</td><td>monitoring</td></tr>
+          <tr><td>네트워크</td><td>두 노드 간 10GbE 이상 확보됐는가</td><td>iperf3</td></tr>
+        </tbody>
+      </table>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s10">← 이전</button>
+        <span>11 / 12</span>
+        <button class="nav-btn next-btn" data-next="s12">다음 →</button>
+      </div>
+    </section>
+
+    <!-- ========== SECTION 12 ========== -->
+    <section id="s12" class="section">
+      <div class="eyebrow">Lecture 12 · Wrap-up</div>
+      <h1>마무리와 <em>학습 로드맵</em></h1>
+      <p class="lede">
+        12장의 강의를 통해 LLMOps의 개념·아키텍처·실습·운영을 한 번에 훑었다. 이제 어디로 더 깊이 들어가야 할까.
+      </p>
+
+      <h2 data-num="12.1">강의 요약 — 한 페이지 정리</h2>
+
+      <div class="arch-grid">
+        <div class="arch-card">
+          <div class="layer">기억 1</div>
+          <div class="name">LLMOps ≠ MLOps</div>
+          <div class="desc">비결정성·토큰 경제·프롬프트·환각이 LLMOps를 별도 분야로 만든다. 기존 MLOps 위에 LLM 레이어를 쌓는 점진적 전략을 권장.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 2</div>
+          <div class="name">7-레이어 스택</div>
+          <div class="desc">Infra → Train → Registry → Inference → Retrieval → Orchestration → App. 관찰성과 평가는 모든 레이어를 관통한다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 3</div>
+          <div class="name">이종 클러스터</div>
+          <div class="desc">멀티아키 이미지 + nodeSelector/toleration의 두 축으로 ARM64/x86_64 혼재 환경을 안정적으로 운영.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 4</div>
+          <div class="name">vLLM 우선</div>
+          <div class="desc">OpenAI 호환 + PagedAttention + Continuous Batching. 추론 표준으로 자리잡음.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 5</div>
+          <div class="name">LoRA · QLoRA</div>
+          <div class="desc">DGX Spark 128GB 통합 메모리는 LoRA에 이상적. 학습 비용을 1/10로 낮추면서 품질은 95%+ 유지.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 6</div>
+          <div class="name">RAG 품질 = 검색 품질</div>
+          <div class="desc">청킹 → 임베딩 → 리랭커 → 모델 순으로 개선. 모델부터 키우는 실수를 피할 것.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 7</div>
+          <div class="name">3+1 텔레메트리</div>
+          <div class="desc">Metrics·Logs·Traces에 Eval(품질 회귀)을 더한다. LLM에서는 품질이 가장 조용히 망가진다.</div>
+        </div>
+        <div class="arch-card">
+          <div class="layer">기억 8</div>
+          <div class="name">프롬프트 = 코드</div>
+          <div class="desc">PR마다 평가셋 회귀를 돌려라. 프롬프트 변경은 모델 변경만큼 영향이 크다.</div>
+        </div>
+      </div>
+
+      <h2 data-num="12.2">다음 학습 단계</h2>
+
+      <h3>단기 (1~2주)</h3>
+      <ul>
+        <li>본 강의 4개 Lab을 모두 클러스터에 직접 배포하고, 각 단계의 메트릭을 Grafana에서 확인</li>
+        <li>vLLM의 다른 모델(Llama 3.1 8B, Mistral, EXAONE 등)로 교체 실험</li>
+        <li>Langfuse에 일주일치 트레이스를 쌓아 사용 패턴 분석</li>
+      </ul>
+
+      <h3>중기 (1~2개월)</h3>
+      <ul>
+        <li>KServe 기반 카나리/롤백 워크플로우 구축</li>
+        <li>Ragas로 RAG 회귀 평가 파이프라인 자동화</li>
+        <li>NeMo Guardrails로 PII·인젝션·유해성 가드 추가</li>
+        <li>vLLM의 분산 추론(Tensor Parallelism) — 단, 2-노드에서는 단일 노드 내부 GPU 분할까지가 현실적</li>
+      </ul>
+
+      <h3>장기 (3~6개월)</h3>
+      <ul>
+        <li>에이전트 패턴(ReAct, Multi-Agent, HITL) 도입과 LangGraph로 워크플로우 작성</li>
+        <li>DPO, ORPO 등 선호 정렬 학습으로 사내 톤매너 반영</li>
+        <li>멀티모달(VLM, VLA)로 확장 — Qwen2.5-VL, InternVL3, NVIDIA Cosmos</li>
+        <li>EU AI Act, NIST AI RMF에 맞춘 거버넌스 체계 수립</li>
+      </ul>
+
+      <h2 data-num="12.3">참고 자료</h2>
+      <ul>
+        <li><strong>vLLM 공식 문서</strong> — <code>docs.vllm.ai</code> · 신기능과 성능 튜닝의 1차 출처</li>
+        <li><strong>Hugging Face PEFT/TRL</strong> — LoRA·DPO 등 최신 파인튜닝 기법</li>
+        <li><strong>NVIDIA NGC Catalog</strong> — DGX Spark 최적화 컨테이너</li>
+        <li><strong>Argo Workflows / Kubeflow</strong> — 파이프라인 표준</li>
+        <li><strong>Langfuse · Phoenix · Ragas</strong> — 관찰성·평가 도구의 빠른 진화</li>
+      </ul>
+
+      <div class="callout lab">
+        <div class="callout-label">마지막 한 마디</div>
+        <p>
+          LLMOps의 본질은 새로운 도구를 외우는 것이 아니라 <em>"불확실한 시스템을
+          어떻게 운영 가능한 시스템으로 만들 것인가"</em>라는 오래된 엔지니어링 질문에
+          답하는 것입니다. 측정하고, 회귀를 막고, 작은 단위로 변경하고, 비용을 추적하고,
+          사용자에게 빠르게 전달하는 — 결국 우리가 늘 해 오던 일입니다.
+          새로운 옷을 입고 있을 뿐이죠.
+        </p>
+      </div>
+
+      <div class="section-footer">
+        <button class="nav-btn next-btn" data-next="s11">← 이전</button>
+        <span>12 / 12 · 完</span>
+        <button class="nav-btn next-btn" data-next="s1">처음으로 ↻</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // ===== Section navigation =====
+  const items = document.querySelectorAll('.nav-item');
+  const sections = document.querySelectorAll('.section');
+
+  function show(id) {
+    sections.forEach(s => s.classList.toggle('visible', s.id === id));
+    items.forEach(i => i.classList.toggle('active', i.dataset.target === id));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  items.forEach(i => i.addEventListener('click', () => show(i.dataset.target)));
+  document.querySelectorAll('.next-btn').forEach(b =>
+    b.addEventListener('click', () => show(b.dataset.next))
+  );
+
+  // ===== Tabs =====
+  document.querySelectorAll('.tabs').forEach(group => {
+    const btns = group.querySelectorAll('.tab-btn');
+    const panels = group.querySelectorAll('.tab-panel');
+    btns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        btns.forEach(b => b.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const panel = group.querySelector('#' + btn.dataset.tab);
+        if (panel) panel.classList.add('active');
+      });
+    });
+  });
+
+  // ===== Copy buttons =====
+  document.querySelectorAll('.copy').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const block = btn.closest('.code-block');
+      const code = block ? block.querySelector('pre code') : null;
+      if (!code) return;
+      const txt = code.innerText;
+      navigator.clipboard.writeText(txt).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied';
+        btn.style.color = 'var(--green)';
+        btn.style.borderColor = 'var(--green)';
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+        }, 1500);
+      });
+    });
+  });
+
+  // ===== Quiz =====
+  document.querySelectorAll('.quiz-options').forEach(ul => {
+    const correct = parseInt(ul.dataset.correct, 10);
+    const options = Array.from(ul.children);
+    const explain = ul.parentElement.querySelector('.quiz-explain');
+    options.forEach((li, idx) => {
+      li.addEventListener('click', () => {
+        if (ul.dataset.answered) return;
+        ul.dataset.answered = '1';
+        if (idx === correct) {
+          li.classList.add('correct');
+        } else {
+          li.classList.add('wrong');
+          options[correct].classList.add('correct');
+        }
+        if (explain) explain.classList.add('visible');
+      });
+    });
+  });
+</script>
+</body>
+</html>
