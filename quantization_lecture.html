@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM 양자화 완전 정복 · Quantization 101</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&family=Noto+Serif+KR:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --bg-2: #0f1422;
+    --surface: #131a2b;
+    --surface-2: #1a2238;
+    --border: #232c47;
+    --border-strong: #354063;
+    --text: #e8ecf3;
+    --text-2: #a1abc4;
+    --text-3: #6b768f;
+    --accent: #00E5D1;
+    --accent-dim: #008c80;
+    --amber: #FFB547;
+    --magenta: #FF5577;
+    --green: #4ADE80;
+    --violet: #A78BFA;
+    --grid-line: rgba(255,255,255,0.03);
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Pretendard', 'IBM Plex Sans KR', -apple-system, sans-serif;
+    --serif: 'Noto Serif KR', serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 400;
+    line-height: 1.7;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(at 15% 0%, rgba(0, 229, 209, 0.08), transparent 50%),
+      radial-gradient(at 85% 100%, rgba(255, 85, 119, 0.06), transparent 50%),
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: auto, auto, 48px 48px, 48px 48px;
+    background-attachment: fixed;
+  }
+
+  /* ====== Layout ====== */
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  /* ====== Nav ====== */
+  .nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    backdrop-filter: blur(20px);
+    background: rgba(10, 14, 26, 0.7);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: 1180px; margin: 0 auto; padding: 14px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .logo {
+    font-family: var(--mono); font-weight: 800; font-size: 14px;
+    letter-spacing: -0.02em; color: var(--accent);
+  }
+  .logo span { color: var(--text); font-weight: 400; }
+  .nav-links { display: flex; gap: 24px; font-family: var(--mono); font-size: 12px; }
+  .nav-links a { color: var(--text-2); text-decoration: none; transition: color 0.2s; }
+  .nav-links a:hover { color: var(--accent); }
+  @media (max-width: 720px) { .nav-links { display: none; } }
+
+  /* ====== Hero ====== */
+  .hero {
+    min-height: 100vh; display: flex; align-items: center;
+    padding: 120px 0 80px; position: relative;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 28px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .hero-eyebrow::before {
+    content: ''; display: inline-block; width: 32px; height: 1px;
+    background: var(--accent);
+  }
+  .hero h1 {
+    font-family: var(--serif); font-weight: 700;
+    font-size: clamp(40px, 7vw, 88px);
+    line-height: 1.05; letter-spacing: -0.03em;
+    margin-bottom: 32px;
+  }
+  .hero h1 .accent { color: var(--accent); font-style: italic; }
+  .hero h1 .strike {
+    position: relative; display: inline-block;
+  }
+  .hero h1 .strike::after {
+    content: ''; position: absolute; left: 0; right: 0; top: 52%;
+    height: 4px; background: var(--magenta);
+    transform: scaleX(0); transform-origin: left;
+    animation: strike 1.2s ease-out 0.8s forwards;
+  }
+  @keyframes strike { to { transform: scaleX(1); } }
+  .hero-sub {
+    font-size: clamp(16px, 1.8vw, 20px); color: var(--text-2);
+    max-width: 640px; margin-bottom: 56px;
+  }
+  .hero-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1px; background: var(--border);
+    border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  }
+  .hero-stat { background: var(--surface); padding: 24px; }
+  .hero-stat .num {
+    font-family: var(--mono); font-weight: 800;
+    font-size: 32px; color: var(--accent); letter-spacing: -0.02em;
+  }
+  .hero-stat .label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;
+  }
+  .hero-stat .desc { font-size: 14px; color: var(--text-2); margin-top: 8px; }
+
+  /* ====== Section base ====== */
+  section { padding: 100px 0; position: relative; }
+  .section-num {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    letter-spacing: 0.2em; margin-bottom: 16px;
+  }
+  .section-title {
+    font-family: var(--serif); font-weight: 700;
+    font-size: clamp(32px, 5vw, 56px);
+    line-height: 1.1; letter-spacing: -0.02em; margin-bottom: 24px;
+  }
+  .section-lead {
+    font-size: 18px; color: var(--text-2);
+    max-width: 720px; margin-bottom: 56px;
+  }
+
+  /* ====== Why card grid ====== */
+  .why-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .why-card {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 32px; border-radius: 4px; position: relative; overflow: hidden;
+    transition: transform 0.3s, border-color 0.3s;
+  }
+  .why-card:hover { transform: translateY(-4px); border-color: var(--accent-dim); }
+  .why-card .icon {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    letter-spacing: 0.15em; margin-bottom: 16px;
+  }
+  .why-card h3 {
+    font-family: var(--serif); font-weight: 700; font-size: 22px;
+    line-height: 1.3; margin-bottom: 12px;
+  }
+  .why-card p { color: var(--text-2); font-size: 15px; }
+  .why-card .big {
+    font-family: var(--mono); font-weight: 800; font-size: 48px;
+    color: var(--amber); margin-top: 16px; line-height: 1;
+  }
+  .why-card .big small { font-size: 16px; color: var(--text-3); font-weight: 400; }
+
+  /* ====== Bit visualizer ====== */
+  .bit-viz {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 40px; margin-top: 32px;
+  }
+  .bit-tabs {
+    display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .bit-tab {
+    font-family: var(--mono); font-size: 13px; font-weight: 500;
+    padding: 14px 20px; background: transparent; border: none; cursor: pointer;
+    color: var(--text-3); border-bottom: 2px solid transparent;
+    transition: all 0.2s; letter-spacing: 0.02em;
+  }
+  .bit-tab:hover { color: var(--text); }
+  .bit-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .bit-display { display: grid; gap: 24px; }
+  .bit-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .bit-cell {
+    width: 28px; height: 38px; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    transition: all 0.3s;
+  }
+  .bit-cell.sign { background: var(--magenta); color: white; }
+  .bit-cell.exp  { background: var(--amber); color: #1a1206; }
+  .bit-cell.mant { background: var(--accent); color: #06302b; }
+  .bit-cell.int  { background: var(--violet); color: white; }
+  .bit-cell.empty { background: var(--surface-2); color: var(--text-3); border: 1px dashed var(--border-strong); }
+
+  .bit-legend {
+    display: flex; flex-wrap: wrap; gap: 24px; margin-top: 28px;
+    padding-top: 24px; border-top: 1px solid var(--border);
+  }
+  .legend-item { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 2px; }
+
+  .bit-meta {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 24px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border);
+  }
+  .bit-meta-item .k {
+    font-family: var(--mono); font-size: 10px; color: var(--text-3);
+    letter-spacing: 0.15em; text-transform: uppercase;
+  }
+  .bit-meta-item .v {
+    font-family: var(--mono); font-size: 18px; font-weight: 700;
+    color: var(--text); margin-top: 4px;
+  }
+  .bit-meta-item .v.accent { color: var(--accent); }
+
+  .bit-explain {
+    background: var(--bg-2); border-left: 3px solid var(--accent);
+    padding: 20px 24px; margin-top: 28px; font-size: 15px;
+    color: var(--text-2); border-radius: 0 4px 4px 0;
+  }
+  .bit-explain strong { color: var(--text); }
+
+  /* ====== Memory calculator ====== */
+  .calc {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+    border: 1px solid var(--border); border-radius: 6px; padding: 40px;
+    margin-top: 56px;
+  }
+  .calc h3 {
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 24px;
+  }
+  .calc-input {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    margin-bottom: 32px;
+  }
+  .calc-input label {
+    font-family: var(--serif); font-size: 22px; color: var(--text);
+  }
+  .calc-input select {
+    font-family: var(--mono); font-size: 16px; font-weight: 600;
+    background: var(--bg); color: var(--accent);
+    border: 1px solid var(--border-strong); padding: 10px 14px;
+    border-radius: 4px; cursor: pointer;
+  }
+  .calc-input select:focus { outline: 2px solid var(--accent); }
+
+  .calc-results {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .calc-card {
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 20px; border-radius: 4px; text-align: center;
+  }
+  .calc-card .fmt {
+    font-family: var(--mono); font-size: 11px; color: var(--text-3);
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .calc-card .size {
+    font-family: var(--mono); font-size: 28px; font-weight: 800;
+    color: var(--accent); margin: 8px 0 4px;
+  }
+  .calc-card .unit {
+    font-family: var(--mono); font-size: 12px; color: var(--text-3);
+  }
+  .calc-card.highlight { border-color: var(--amber); }
+  .calc-card.highlight .size { color: var(--amber); }
+  .calc-card.danger { border-color: var(--magenta); }
+  .calc-card.danger .size { color: var(--magenta); }
+
+  /* ====== Two-column blocks ====== */
+  .two-col {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+    margin-top: 32px;
+  }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+  .col-card {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 32px; border-radius: 4px;
+  }
+  .col-card h4 {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 16px;
+  }
+  .col-card h3 {
+    font-family: var(--serif); font-weight: 700; font-size: 26px;
+    margin-bottom: 16px; line-height: 1.2;
+  }
+  .col-card.alt h4 { color: var(--amber); }
+  .col-card p { color: var(--text-2); margin-bottom: 12px; }
+  .col-card ul { list-style: none; padding: 0; }
+  .col-card ul li {
+    padding: 8px 0 8px 24px; position: relative; color: var(--text-2);
+    font-size: 15px;
+  }
+  .col-card ul li::before {
+    content: '▸'; position: absolute; left: 4px;
+    color: var(--accent); font-family: var(--mono);
+  }
+  .col-card.alt ul li::before { color: var(--amber); }
+
+  /* ====== Algo cards (AWQ etc.) ====== */
+  .algo-list { display: grid; gap: 16px; margin-top: 32px; }
+  .algo-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; overflow: hidden; transition: border-color 0.2s;
+  }
+  .algo-card:hover { border-color: var(--accent-dim); }
+  .algo-head {
+    padding: 24px 28px; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+  }
+  .algo-head-left { display: flex; align-items: center; gap: 20px; flex: 1; }
+  .algo-name {
+    font-family: var(--mono); font-weight: 800; font-size: 22px;
+    color: var(--accent); letter-spacing: -0.01em;
+  }
+  .algo-tag {
+    font-family: var(--mono); font-size: 10px; padding: 4px 10px;
+    border: 1px solid var(--border-strong); border-radius: 2px;
+    color: var(--text-2); letter-spacing: 0.1em;
+  }
+  .algo-summary { color: var(--text-2); font-size: 15px; flex: 1; min-width: 200px; }
+  .algo-toggle {
+    font-family: var(--mono); font-size: 20px; color: var(--text-3);
+    transition: transform 0.3s;
+  }
+  .algo-card.open .algo-toggle { transform: rotate(45deg); color: var(--accent); }
+  .algo-body {
+    max-height: 0; overflow: hidden; transition: max-height 0.4s ease;
+  }
+  .algo-card.open .algo-body { max-height: 800px; }
+  .algo-inner {
+    padding: 0 28px 28px; color: var(--text-2); font-size: 15px;
+    border-top: 1px solid var(--border); padding-top: 24px;
+  }
+  .algo-inner p { margin-bottom: 14px; }
+  .algo-inner code {
+    font-family: var(--mono); background: var(--bg);
+    padding: 2px 8px; border-radius: 3px; color: var(--accent);
+    font-size: 13px;
+  }
+  .algo-inner .formula {
+    background: var(--bg); padding: 18px 22px; border-radius: 4px;
+    font-family: var(--mono); margin: 16px 0; font-size: 14px;
+    border-left: 3px solid var(--amber); color: var(--text);
+  }
+
+  /* ====== Format comparison table ====== */
+  .fmt-table {
+    margin-top: 32px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  .fmt-grid {
+    display: grid;
+    grid-template-columns: 1.4fr repeat(4, 1fr);
+    font-size: 14px;
+  }
+  .fmt-grid > div {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  .fmt-grid > div:nth-child(5n) { border-right: none; }
+  .fmt-grid > div:nth-last-child(-n+5) { border-bottom: none; }
+  .fmt-grid .head {
+    background: var(--bg-2); font-family: var(--mono); font-size: 12px;
+    color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase;
+    font-weight: 700;
+  }
+  .fmt-grid .row-head {
+    font-family: var(--mono); font-size: 12px; color: var(--text-3);
+    letter-spacing: 0.05em; text-transform: uppercase;
+    background: var(--bg-2);
+  }
+  .fmt-grid .cell {
+    color: var(--text-2); display: flex; align-items: center;
+  }
+  .fmt-grid .cell strong { color: var(--text); display: block; }
+  @media (max-width: 800px) {
+    .fmt-grid { grid-template-columns: 1fr 1fr; font-size: 13px; }
+    .fmt-grid > div { border-right: 1px solid var(--border); }
+  }
+
+  /* ====== Comparison: Quantization vs other techniques ====== */
+  .compare-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px; margin-top: 32px;
+  }
+  .compare-card {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 28px; border-radius: 4px; position: relative;
+    transition: all 0.3s;
+  }
+  .compare-card:hover { transform: translateY(-3px); border-color: var(--violet); }
+  .compare-card .tag {
+    display: inline-block; font-family: var(--mono); font-size: 10px;
+    padding: 3px 10px; border-radius: 2px; letter-spacing: 0.1em;
+    margin-bottom: 16px;
+  }
+  .compare-card .tag.compress { background: rgba(0,229,209,0.1); color: var(--accent); }
+  .compare-card .tag.train { background: rgba(255,181,71,0.1); color: var(--amber); }
+  .compare-card .tag.infer { background: rgba(167,139,250,0.15); color: var(--violet); }
+  .compare-card .tag.arch { background: rgba(255,85,119,0.1); color: var(--magenta); }
+  .compare-card h3 {
+    font-family: var(--serif); font-weight: 700; font-size: 22px;
+    margin-bottom: 10px;
+  }
+  .compare-card p { color: var(--text-2); font-size: 14px; margin-bottom: 14px; }
+  .compare-card .meta {
+    display: flex; gap: 12px; padding-top: 14px;
+    border-top: 1px solid var(--border); font-family: var(--mono);
+    font-size: 11px; color: var(--text-3); flex-wrap: wrap;
+  }
+  .compare-card .meta span { letter-spacing: 0.05em; }
+
+  /* ====== Decision matrix ====== */
+  .matrix {
+    margin-top: 32px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  .matrix-row {
+    display: grid; grid-template-columns: 1fr 1.5fr 2fr;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+  .matrix-row:hover { background: var(--bg-2); }
+  .matrix-row:last-child { border-bottom: none; }
+  .matrix-row.head {
+    background: var(--bg-2); font-family: var(--mono);
+    font-size: 11px; color: var(--accent); letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .matrix-row > div {
+    padding: 18px 22px; border-right: 1px solid var(--border);
+    display: flex; align-items: center;
+  }
+  .matrix-row > div:last-child { border-right: none; }
+  .matrix-row .pick {
+    font-family: var(--mono); font-weight: 700; color: var(--accent);
+  }
+  .matrix-row .why { color: var(--text-2); font-size: 14px; }
+  @media (max-width: 720px) {
+    .matrix-row { grid-template-columns: 1fr; }
+    .matrix-row > div { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+
+  /* ====== Ecosystem cards ====== */
+  .eco-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px; margin-top: 32px;
+  }
+  .eco-card {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 22px; border-radius: 4px; transition: all 0.2s;
+  }
+  .eco-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .eco-card .name {
+    font-family: var(--mono); font-weight: 700; font-size: 16px;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  .eco-card .role {
+    font-family: var(--mono); font-size: 10px; color: var(--text-3);
+    letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px;
+  }
+  .eco-card .desc { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+
+  /* ====== Quiz ====== */
+  .quiz {
+    margin-top: 56px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 40px;
+  }
+  .quiz-q {
+    font-family: var(--serif); font-size: 22px; font-weight: 700;
+    margin-bottom: 24px; line-height: 1.4;
+  }
+  .quiz-q::before {
+    content: 'Q.'; font-family: var(--mono); color: var(--accent);
+    margin-right: 12px;
+  }
+  .quiz-opts { display: grid; gap: 10px; }
+  .quiz-opt {
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 16px 20px; border-radius: 4px; cursor: pointer;
+    text-align: left; color: var(--text); font-family: var(--sans);
+    font-size: 15px; transition: all 0.2s;
+  }
+  .quiz-opt:hover { border-color: var(--accent-dim); background: var(--surface-2); }
+  .quiz-opt.correct { border-color: var(--green); background: rgba(74,222,128,0.08); }
+  .quiz-opt.wrong { border-color: var(--magenta); background: rgba(255,85,119,0.08); }
+  .quiz-feedback {
+    margin-top: 20px; padding: 16px 20px; border-radius: 4px;
+    font-size: 14px; display: none;
+  }
+  .quiz-feedback.show { display: block; }
+  .quiz-feedback.ok { background: rgba(74,222,128,0.08); color: var(--green); border-left: 3px solid var(--green); }
+  .quiz-feedback.no { background: rgba(255,85,119,0.08); color: var(--magenta); border-left: 3px solid var(--magenta); }
+
+  /* ====== Footer ====== */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 56px 0; margin-top: 80px; text-align: center;
+  }
+  footer .sig {
+    font-family: var(--mono); font-size: 12px; color: var(--text-3);
+    letter-spacing: 0.15em;
+  }
+  footer .sig .accent { color: var(--accent); }
+
+  /* ====== Utility ====== */
+  .highlight-text { color: var(--accent); font-weight: 600; }
+  .amber-text { color: var(--amber); font-weight: 600; }
+
+  /* ====== Scroll reveal ====== */
+  .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.8s, transform 0.8s; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="logo">QUANT<span>/101</span></div>
+    <div class="nav-links">
+      <a href="#why">왜</a>
+      <a href="#bits">비트</a>
+      <a href="#algo">알고리즘</a>
+      <a href="#formats">포맷</a>
+      <a href="#compare">비교</a>
+      <a href="#decide">결정</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ====================== HERO ====================== -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-eyebrow">LECTURE · LLMOps 101 · #QUANTIZATION</div>
+    <h1>
+      거대한 모델을<br>
+      <span class="strike">손바닥 위</span>에<br>
+      <span class="accent">압축</span>하는 기술.
+    </h1>
+    <p class="hero-sub">
+      FP4 · FP8 · INT4 · INT8 · AWQ · GGUF —
+      LLM의 메모리·속도·비용을 한 번에 줄이는 양자화(Quantization)의 모든 것.
+      초보 AI 엔지니어를 위한 시각적 입문 강의.
+    </p>
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="num">140<small> GB</small></div>
+        <div class="label">Llama-70B · FP16</div>
+        <div class="desc">단일 GPU에 안 들어감</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">35<small> GB</small></div>
+        <div class="label">Llama-70B · INT4</div>
+        <div class="desc">RTX 4090 24GB ×2 가능</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">4×</div>
+        <div class="label">메모리 절감</div>
+        <div class="desc">FP16 → INT4 전환 시</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">~1%</div>
+        <div class="label">품질 손실</div>
+        <div class="desc">잘 만든 INT4 기준</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== WHY ====================== -->
+<section id="why">
+  <div class="container">
+    <div class="section-num">/ 01 · WHY QUANTIZE?</div>
+    <h2 class="section-title">왜 우리는 모델을 <span class="highlight-text">압축</span>해야 하는가</h2>
+    <p class="section-lead">
+      현대 LLM은 너무 크다. 그리고 GPU는 비싸고, 메모리는 부족하고, 사용자는 빠른 응답을 원한다.
+      양자화는 이 세 가지 제약을 한꺼번에 푸는 가장 가성비 높은 도구다.
+    </p>
+
+    <div class="why-grid">
+      <div class="why-card">
+        <div class="icon">/ 01 · MEMORY</div>
+        <h3>메모리 절벽</h3>
+        <p>FP16의 70B 모델은 140GB. H100 80GB 한 장으로는 절대 못 올린다.
+        양자화는 이 벽을 절반, 또는 1/4로 낮춘다.</p>
+        <div class="big">140 → 35<small> GB</small></div>
+      </div>
+      <div class="why-card">
+        <div class="icon">/ 02 · LATENCY</div>
+        <h3>추론 속도</h3>
+        <p>LLM 추론은 대부분 <span class="amber-text">메모리 대역폭</span> 병목이다.
+        가중치를 작게 만들면 GPU가 읽어들이는 속도가 빨라져 처리량이 늘어난다.</p>
+        <div class="big">2~4×<small> 더 빠르게</small></div>
+      </div>
+      <div class="why-card">
+        <div class="icon">/ 03 · COST</div>
+        <h3>운영 비용</h3>
+        <p>같은 모델을 더 작은 GPU에 올리면, 시간당 인스턴스 비용이 직접적으로 줄어든다.
+        엣지/온디바이스 배포의 핵심 전제 조건.</p>
+        <div class="big">−60%<small> infra cost</small></div>
+      </div>
+      <div class="why-card">
+        <div class="icon">/ 04 · ACCESSIBILITY</div>
+        <h3>접근성</h3>
+        <p>맥북, 게이밍 GPU, 심지어 라즈베리파이에서도 LLM이 돈다.
+        오픈소스 생태계의 폭발은 양자화가 만든 가능성이다.</p>
+        <div class="big">Edge<small>-ready</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== BIT VISUALIZER ====================== -->
+<section id="bits">
+  <div class="container">
+    <div class="section-num">/ 02 · NUMBER REPRESENTATION</div>
+    <h2 class="section-title">숫자 하나에 <span class="highlight-text">몇 비트</span>를 쓸 것인가</h2>
+    <p class="section-lead">
+      양자화의 본질은 단순하다. 가중치(weight)를 표현하는 비트 수를 줄이는 것.
+      아래에서 각 포맷이 32비트짜리 실수를 어떻게 잘게 나누어 표현하는지 직접 클릭해서 비교해 보자.
+    </p>
+
+    <div class="bit-viz">
+      <div class="bit-tabs" id="bitTabs">
+        <button class="bit-tab active" data-fmt="fp32">FP32</button>
+        <button class="bit-tab" data-fmt="fp16">FP16</button>
+        <button class="bit-tab" data-fmt="bf16">BF16</button>
+        <button class="bit-tab" data-fmt="fp8e4m3">FP8 (E4M3)</button>
+        <button class="bit-tab" data-fmt="fp8e5m2">FP8 (E5M2)</button>
+        <button class="bit-tab" data-fmt="fp4">FP4 (E2M1)</button>
+        <button class="bit-tab" data-fmt="int8">INT8</button>
+        <button class="bit-tab" data-fmt="int4">INT4</button>
+      </div>
+
+      <div class="bit-display">
+        <div class="bit-row" id="bitRow"></div>
+      </div>
+
+      <div class="bit-legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--magenta)"></span> Sign · 부호</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span> Exponent · 지수</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--accent)"></span> Mantissa · 가수</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--violet)"></span> Integer · 정수</div>
+      </div>
+
+      <div class="bit-meta">
+        <div class="bit-meta-item">
+          <div class="k">Total Bits</div>
+          <div class="v accent" id="metaBits">32</div>
+        </div>
+        <div class="bit-meta-item">
+          <div class="k">Bytes / Param</div>
+          <div class="v" id="metaBytes">4.0</div>
+        </div>
+        <div class="bit-meta-item">
+          <div class="k">Dynamic Range</div>
+          <div class="v" id="metaRange">±3.4e38</div>
+        </div>
+        <div class="bit-meta-item">
+          <div class="k">7B 모델 크기</div>
+          <div class="v" id="metaModel">28 GB</div>
+        </div>
+      </div>
+
+      <div class="bit-explain" id="bitExplain"></div>
+    </div>
+
+    <!-- Memory calculator -->
+    <div class="calc">
+      <h3>/ 메모리 계산기</h3>
+      <div class="calc-input">
+        <label>모델 크기를</label>
+        <select id="modelSel">
+          <option value="1.3">1.3B (Phi-1.5)</option>
+          <option value="3">3B (Phi-3 mini)</option>
+          <option value="7" selected>7B (Llama-3 8B / Qwen-7B)</option>
+          <option value="13">13B</option>
+          <option value="34">34B (Yi-34B)</option>
+          <option value="70">70B (Llama-3 70B)</option>
+          <option value="120">120B</option>
+          <option value="405">405B (Llama-3.1)</option>
+        </select>
+        <label>로 골랐을 때, 가중치 메모리는 →</label>
+      </div>
+      <div class="calc-results" id="calcResults"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== PTQ vs QAT ====================== -->
+<section>
+  <div class="container">
+    <div class="section-num">/ 03 · WHEN TO QUANTIZE</div>
+    <h2 class="section-title">학습 <span class="highlight-text">후</span>냐, 학습 <span class="amber-text">중</span>이냐</h2>
+    <p class="section-lead">
+      양자화는 적용 시점에 따라 두 가지로 나뉜다.
+      대부분의 오픈 LLM 사용자는 PTQ만 알면 충분하지만, 두 차이를 알아두면 트레이드오프가 명확해진다.
+    </p>
+
+    <div class="two-col">
+      <div class="col-card">
+        <h4>/ PTQ · Post-Training Quantization</h4>
+        <h3>학습 후 양자화</h3>
+        <p>이미 학습된 모델의 가중치를 그대로 양자화한다. 추가 학습 없이 GPU 한두 장으로 몇 시간 내 끝난다.
+        Hugging Face에 올라오는 대부분의 양자화 모델이 이 방식이다.</p>
+        <ul>
+          <li>속도: 분~시간 단위로 빠름</li>
+          <li>비용: 매우 낮음 (단일 GPU OK)</li>
+          <li>품질: INT8까지는 거의 무손실, INT4부터 살짝 손실</li>
+          <li>대표: GPTQ, AWQ, bitsandbytes, llama.cpp</li>
+        </ul>
+      </div>
+      <div class="col-card alt">
+        <h4>/ QAT · Quantization-Aware Training</h4>
+        <h3>학습 중 양자화 시뮬레이션</h3>
+        <p>학습 과정에서 양자화로 인한 오차를 미리 시뮬레이션하며 학습한다.
+        모델이 양자화에 "익숙해진" 상태로 수렴하므로 INT4·INT2 같은 극단적 압축에서 PTQ보다 강하다.</p>
+        <ul>
+          <li>속도: 일~주 단위 학습 필요</li>
+          <li>비용: 매우 높음 (멀티 GPU)</li>
+          <li>품질: 저비트(2~3bit) 영역에서 PTQ보다 우위</li>
+          <li>대표: LLM-QAT, BitNet</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== ALGORITHMS ====================== -->
+<section id="algo">
+  <div class="container">
+    <div class="section-num">/ 04 · CORE ALGORITHMS</div>
+    <h2 class="section-title">양자화 <span class="highlight-text">알고리즘</span>의 안쪽</h2>
+    <p class="section-lead">
+      "FP16을 INT4로 바꿔라" 자체는 단순한 산수다. 진짜 문제는 <strong>품질을 어떻게 지킬 것인가</strong>.
+      각 카드를 열어 핵심 아이디어를 확인해 보자.
+    </p>
+
+    <div class="algo-list" id="algoList">
+      <!-- GPTQ -->
+      <div class="algo-card">
+        <div class="algo-head">
+          <div class="algo-head-left">
+            <div class="algo-name">GPTQ</div>
+            <div class="algo-tag">PTQ · 2022</div>
+            <div class="algo-summary">레이어 단위로, 오차를 다음 가중치로 흘려보내며 보정</div>
+          </div>
+          <div class="algo-toggle">+</div>
+        </div>
+        <div class="algo-body"><div class="algo-inner">
+          <p><strong>핵심 아이디어.</strong> 가중치 행렬을 한 번에 양자화하지 않고, 한 컬럼씩 양자화하면서 발생한 오차를 <code>Hessian</code>(2차 미분 정보)을 이용해 아직 양자화되지 않은 컬럼들에 보정으로 흘려보낸다. 결과적으로 단순 반올림보다 훨씬 작은 출력 오차를 얻는다.</p>
+          <div class="formula">W_quantized = round(W) → 오차 ε → 다음 컬럼 W' ← W' + correction(ε, H⁻¹)</div>
+          <p><strong>특징.</strong> 빠르고(한 모델 1~2시간), 4bit에서 잘 동작. 다만 calibration 데이터셋이 필요하며, 데이터 분포가 안 맞으면 품질이 흔들린다.</p>
+          <p><strong>대표 도구.</strong> <code>AutoGPTQ</code>, <code>ExLlamaV2</code></p>
+        </div></div>
+      </div>
+
+      <!-- AWQ -->
+      <div class="algo-card">
+        <div class="algo-head">
+          <div class="algo-head-left">
+            <div class="algo-name">AWQ</div>
+            <div class="algo-tag">PTQ · 2023 · MIT</div>
+            <div class="algo-summary">"중요한 1%의 가중치"만 보호하면 품질을 지킨다</div>
+          </div>
+          <div class="algo-toggle">+</div>
+        </div>
+        <div class="algo-body"><div class="algo-inner">
+          <p><strong>핵심 아이디어.</strong> AWQ(Activation-aware Weight Quantization)는 <strong>모든 가중치가 동등하지 않다</strong>는 관찰에서 출발한다. 활성화(activation)의 크기가 큰 채널과 곱해지는 가중치 채널은 모델 성능에 큰 영향을 준다.</p>
+          <p>핵심 트릭: 중요한 채널의 가중치에 <code>scale</code>을 곱해서 키워두고(양자화 오차의 상대적 비중을 줄임), 활성화 쪽에서 동일한 값으로 나누어 수학적 등가성을 유지한다.</p>
+          <div class="formula">Y = (W · s) · (X / s) = W · X &nbsp;&nbsp;//&nbsp;&nbsp; s는 채널별 scale (activation 통계 기반)</div>
+          <p><strong>장점.</strong> calibration 데이터 의존도가 GPTQ보다 낮고, 일반화 성능이 안정적이다. 4bit에서 PPL(perplexity) 손실이 0.1~0.3 수준.</p>
+          <p><strong>대표 도구.</strong> <code>AutoAWQ</code>, <code>vLLM</code>, <code>TGI</code>가 네이티브 지원</p>
+        </div></div>
+      </div>
+
+      <!-- SmoothQuant -->
+      <div class="algo-card">
+        <div class="algo-head">
+          <div class="algo-head-left">
+            <div class="algo-name">SmoothQuant</div>
+            <div class="algo-tag">PTQ · W8A8</div>
+            <div class="algo-summary">활성화의 outlier를 가중치 쪽으로 옮겨 양쪽을 동시에 양자화</div>
+          </div>
+          <div class="algo-toggle">+</div>
+        </div>
+        <div class="algo-body"><div class="algo-inner">
+          <p><strong>문제 인식.</strong> LLM의 활성화 텐서에는 가끔 매우 큰 outlier가 나타난다. 이 때문에 활성화(A)를 INT8로 양자화하면 다른 값들이 모두 0에 가까워져 정보가 손실된다. 반면 가중치(W)는 분포가 균일해 양자화하기 쉽다.</p>
+          <p><strong>해법.</strong> 수학적 등가 변환을 이용해 activation의 "양자화 어려움"을 weight 쪽으로 일부 이전(smooth)시켜 양쪽 모두 양자화 가능하게 만든다. 결과는 <code>W8A8</code> (가중치·활성화 모두 INT8) inference.</p>
+          <p><strong>왜 중요한가.</strong> AWQ/GPTQ는 weight만 양자화(W4A16)하는 반면, SmoothQuant는 activation도 양자화해 추론 연산 자체를 INT8 텐서코어에서 돌릴 수 있다 — 진짜 속도 이득의 핵심.</p>
+        </div></div>
+      </div>
+
+      <!-- bitsandbytes / NF4 -->
+      <div class="algo-card">
+        <div class="algo-head">
+          <div class="algo-head-left">
+            <div class="algo-name">bitsandbytes</div>
+            <div class="algo-tag">PTQ · NF4 / FP4 / INT8</div>
+            <div class="algo-summary">HF Transformers와 가장 잘 통합되는 "그냥 쓰는" 양자화</div>
+          </div>
+          <div class="algo-toggle">+</div>
+        </div>
+        <div class="algo-body"><div class="algo-inner">
+          <p><strong>특징.</strong> Tim Dettmers의 라이브러리. <code>load_in_8bit=True</code> 또는 <code>load_in_4bit=True</code> 한 줄로 끝난다. LLM.int8()(outlier-aware INT8), NF4(Normal Float 4)를 제공.</p>
+          <p><strong>NF4 = Normal Float 4.</strong> 가중치 분포가 대략 정규분포라는 점을 이용해, 4bit이 표현하는 16개 값을 정규분포의 16분위수에 맞춘다. 균등 분할 INT4보다 정보 손실이 작다.</p>
+          <p><strong>Double Quantization.</strong> 양자화에 필요한 scale 값 자체도 한번 더 양자화해 모델당 0.4bit/param을 추가로 절감 — QLoRA의 핵심 트릭.</p>
+          <p><strong>주된 용도.</strong> 빠른 프로토타이핑, QLoRA 기반 파인튜닝. 추론 속도는 AWQ/GPTQ보다 살짝 느린 편.</p>
+        </div></div>
+      </div>
+
+      <!-- FP8 -->
+      <div class="algo-card">
+        <div class="algo-head">
+          <div class="algo-head-left">
+            <div class="algo-name">FP8</div>
+            <div class="algo-tag">Hopper / Ada · H100·H200·B200</div>
+            <div class="algo-summary">NVIDIA가 학습·추론 모두 밀고 있는 차세대 표준</div>
+          </div>
+          <div class="algo-toggle">+</div>
+        </div>
+        <div class="algo-body"><div class="algo-inner">
+          <p><strong>두 가지 변종.</strong> <code>E4M3</code>은 정밀도(mantissa)가 더 많아 forward용으로, <code>E5M2</code>는 동적 범위(exponent)가 더 넓어 backward(gradient)용으로 사용한다.</p>
+          <p><strong>장점.</strong> H100/H200의 FP8 텐서코어는 FP16 대비 2배의 처리량을 낸다. 학습에도 쓸 수 있어 INT8 대비 큰 변화 없이 도입 가능.</p>
+          <p><strong>실전.</strong> vLLM, TensorRT-LLM, NeMo가 FP8 추론을 본격 지원. NVIDIA Transformer Engine이 학습 측 표준 도구.</p>
+          <p><strong>참고.</strong> 4bit(FP4)는 Blackwell(B100/B200) 세대에서 본격적인 텐서코어 가속이 들어오면서 추론 표준 후보로 부상 중.</p>
+        </div></div>
+      </div>
+
+      <!-- GGUF / k-quants -->
+      <div class="algo-card">
+        <div class="algo-head">
+          <div class="algo-head-left">
+            <div class="algo-name">GGUF · k-quants</div>
+            <div class="algo-tag">Format · llama.cpp</div>
+            <div class="algo-summary">CPU/Apple Silicon에서 LLM을 돌리는 사실상의 표준</div>
+          </div>
+          <div class="algo-toggle">+</div>
+        </div>
+        <div class="algo-body"><div class="algo-inner">
+          <p><strong>정체.</strong> GGUF는 알고리즘이라기보다 <strong>파일 포맷 + 양자화 방식 모음</strong>이다. llama.cpp 생태계의 표준이며, Mac/Linux/Windows의 CPU/Metal/CUDA에서 동일한 파일로 동작한다.</p>
+          <p><strong>k-quants.</strong> 블록 단위로 가중치를 묶어 양자화하되, 중요한 블록은 더 많은 비트로 표현한다. <code>Q2_K</code>부터 <code>Q8_0</code>까지 단계별 옵션 제공.</p>
+          <div class="formula">Q4_K_M ≈ 4.84 bits/weight · 품질/크기 균형 좋아 가장 인기</div>
+          <p><strong>왜 인기인가.</strong> CPU 추론에 최적화된 SIMD 커널, mmap을 통한 즉시 로딩, 메타데이터 내장. Ollama, LM Studio, Jan 같은 데스크톱 도구가 전부 GGUF 기반.</p>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== FORMATS COMPARISON ====================== -->
+<section id="formats">
+  <div class="container">
+    <div class="section-num">/ 05 · FILE FORMATS</div>
+    <h2 class="section-title">실전에서 만나는 <span class="highlight-text">파일 포맷</span></h2>
+    <p class="section-lead">
+      Hugging Face에서 같은 모델이 <code>-GGUF</code>, <code>-AWQ</code>, <code>-GPTQ</code> 등 여러 버전으로 올라와 있는 걸 본 적 있을 것이다.
+      어떤 환경에 무엇을 받아야 하는지 한눈에 정리.
+    </p>
+
+    <div class="fmt-table">
+      <div class="fmt-grid">
+        <div class="head"></div>
+        <div class="head">GGUF</div>
+        <div class="head">AWQ</div>
+        <div class="head">GPTQ</div>
+        <div class="head">bitsandbytes</div>
+
+        <div class="row-head">주 타깃</div>
+        <div class="cell"><strong>CPU / Mac / 임베디드</strong> 데스크톱 추론</div>
+        <div class="cell"><strong>GPU 프로덕션</strong> 서빙·고처리량</div>
+        <div class="cell"><strong>GPU 프로덕션</strong> 서빙</div>
+        <div class="cell"><strong>연구·실험</strong> 파인튜닝</div>
+
+        <div class="row-head">비트 옵션</div>
+        <div class="cell">2 / 3 / 4 / 5 / 6 / 8 bit · k-quants</div>
+        <div class="cell">4bit 위주</div>
+        <div class="cell">2 / 3 / 4 / 8 bit</div>
+        <div class="cell">4bit (NF4/FP4), 8bit</div>
+
+        <div class="row-head">대표 엔진</div>
+        <div class="cell">llama.cpp · Ollama · LM Studio · LocalAI</div>
+        <div class="cell">vLLM · TGI · TensorRT-LLM</div>
+        <div class="cell">vLLM · ExLlamaV2 · TGI</div>
+        <div class="cell">HF Transformers · PEFT/QLoRA</div>
+
+        <div class="row-head">속도 (GPU)</div>
+        <div class="cell">중 (CUDA 빌드 시)</div>
+        <div class="cell"><strong style="color:var(--green)">매우 빠름</strong></div>
+        <div class="cell"><strong style="color:var(--green)">매우 빠름</strong></div>
+        <div class="cell">보통</div>
+
+        <div class="row-head">설치 난도</div>
+        <div class="cell">매우 쉬움 (단일 바이너리)</div>
+        <div class="cell">보통 (kernel 컴파일)</div>
+        <div class="cell">보통</div>
+        <div class="cell">가장 쉬움 (pip 한 줄)</div>
+
+        <div class="row-head">언제 쓰나</div>
+        <div class="cell">로컬 데모, 노트북, RAG 서버, 엣지 디바이스</div>
+        <div class="cell">서비스 운영, 다중 사용자, 저지연 요구</div>
+        <div class="cell">서비스 운영, 모델별 호환성 확인</div>
+        <div class="cell">QLoRA, 한 줄로 일단 띄워보기</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== COMPARE WITH OTHER OPTIMIZATIONS ====================== -->
+<section id="compare">
+  <div class="container">
+    <div class="section-num">/ 06 · BEYOND QUANTIZATION</div>
+    <h2 class="section-title">양자화 <span class="highlight-text">vs</span> 다른 최적화 기법들</h2>
+    <p class="section-lead">
+      양자화는 LLM 최적화의 한 축일 뿐이다. 실제 프로덕션에서는 여러 기법을 조합한다.
+      각 기법이 무엇을 줄이는지, 양자화와 어떻게 다른지 비교해 보자.
+    </p>
+
+    <div class="compare-grid">
+      <div class="compare-card">
+        <span class="tag compress">압축 · 가중치</span>
+        <h3>Quantization</h3>
+        <p>가중치/활성화의 <strong>비트 수</strong>를 줄임. 모델 구조는 그대로 유지하고 표현만 압축.</p>
+        <div class="meta"><span>📉 메모리 ↓</span><span>⚡ 속도 ↑</span><span>🎯 품질 ~유지</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag compress">압축 · 가중치</span>
+        <h3>Pruning · 가지치기</h3>
+        <p>중요도가 낮은 가중치를 <strong>0으로 만들어</strong> 제거. structured(채널 단위)와 unstructured(개별 가중치)로 나뉨.</p>
+        <div class="meta"><span>📉 메모리 ↓</span><span>⚡ 속도 ↑*</span><span>⚠ 재학습 필요</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag train">압축 · 모델 자체</span>
+        <h3>Knowledge Distillation</h3>
+        <p>큰 <strong>teacher</strong> 모델의 출력을 작은 <strong>student</strong>가 흉내내며 학습. 더 작은 새 모델을 만드는 접근.</p>
+        <div class="meta"><span>📦 모델 ↓</span><span>🧠 학습 비용 ↑</span><span>🎓 도메인 특화 강함</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag train">학습 효율</span>
+        <h3>LoRA · QLoRA</h3>
+        <p>전체가 아니라 <strong>저랭크 어댑터</strong>만 학습. QLoRA는 베이스를 4bit로 양자화 + LoRA 결합 = 메모리 미친 절감.</p>
+        <div class="meta"><span>💾 학습 메모리 ↓</span><span>🔧 fine-tune 전용</span><span>🤝 양자화와 결합</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag infer">추론 엔진</span>
+        <h3>FlashAttention</h3>
+        <p>Attention 연산을 <strong>SRAM-aware</strong>하게 재작성. 메모리 I/O를 줄여 같은 모델을 더 빠르게.</p>
+        <div class="meta"><span>⚡ 속도 ↑</span><span>📉 활성화 메모리 ↓</span><span>🎯 무손실</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag infer">추론 엔진</span>
+        <h3>PagedAttention · KV Cache 최적화</h3>
+        <p>KV cache를 OS 가상 메모리처럼 페이지 단위로 관리. vLLM의 핵심으로 처리량을 수 배 끌어올림.</p>
+        <div class="meta"><span>📈 throughput ↑</span><span>🎯 무손실</span><span>🤝 양자화와 결합</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag infer">추론 알고리즘</span>
+        <h3>Speculative Decoding</h3>
+        <p>작은 draft 모델이 토큰 후보를 빠르게 만들면, 큰 모델이 한 번에 검증. 평균 latency 2~3배 단축.</p>
+        <div class="meta"><span>⚡ latency ↓</span><span>🎯 무손실</span><span>🤝 양자화와 결합</span></div>
+      </div>
+
+      <div class="compare-card">
+        <span class="tag arch">모델 구조</span>
+        <h3>MoE · Mixture of Experts</h3>
+        <p>전체 파라미터 중 일부 expert만 활성화. 큰 모델의 "용량"은 유지하며 "연산"은 작게 가는 구조 선택.</p>
+        <div class="meta"><span>💪 capacity ↑</span><span>⚙ 연산 ↓</span><span>🚧 구조적 변경</span></div>
+      </div>
+    </div>
+
+    <div class="bit-explain" style="margin-top:40px">
+      <strong>한 줄 요약.</strong>
+      양자화는 <strong>"표현 비트 수"</strong>를, Pruning은 <strong>"가중치 개수"</strong>를, Distillation은 <strong>"모델 자체"</strong>를,
+      LoRA는 <strong>"학습할 파라미터 수"</strong>를, FlashAttention/PagedAttention은 <strong>"메모리 접근 패턴"</strong>을, MoE는 <strong>"활성 파라미터 비율"</strong>을 줄인다.
+      실전에서는 보통 <span class="highlight-text">양자화(AWQ/GGUF) + 추론 엔진 최적화(vLLM/llama.cpp) + 필요시 Speculative</span> 조합으로 간다.
+    </div>
+  </div>
+</section>
+
+<!-- ====================== DECISION MATRIX ====================== -->
+<section id="decide">
+  <div class="container">
+    <div class="section-num">/ 07 · DECISION MATRIX</div>
+    <h2 class="section-title">언제 <span class="highlight-text">무엇</span>을 선택할 것인가</h2>
+    <p class="section-lead">
+      현실 시나리오별 의사결정 표. 100% 정답은 없지만, 시작점으로는 충분하다.
+    </p>
+
+    <div class="matrix">
+      <div class="matrix-row head">
+        <div>시나리오</div>
+        <div>추천 양자화</div>
+        <div>이유</div>
+      </div>
+      <div class="matrix-row">
+        <div>맥북에서 7B 모델 돌리기</div>
+        <div class="pick">GGUF · Q4_K_M</div>
+        <div class="why">Apple Silicon Metal 가속, 단일 파일, Ollama·LM Studio로 즉시 사용 가능</div>
+      </div>
+      <div class="matrix-row">
+        <div>단일 RTX 4090에 70B 올리기</div>
+        <div class="pick">AWQ · 4bit (or GPTQ)</div>
+        <div class="why">35GB로 떨어져 24GB ×2 또는 48GB GPU에 fit, vLLM이 네이티브로 빠르게 서빙</div>
+      </div>
+      <div class="matrix-row">
+        <div>프로덕션 서비스 (저지연 + 다중사용자)</div>
+        <div class="pick">AWQ + vLLM (or FP8 on H100)</div>
+        <div class="why">텐서코어 활용, continuous batching, PagedAttention과 자연 결합</div>
+      </div>
+      <div class="matrix-row">
+        <div>QLoRA로 13B 모델 파인튜닝</div>
+        <div class="pick">bitsandbytes · NF4</div>
+        <div class="why">HF Trainer + PEFT 통합, 단일 24GB GPU로 학습 가능, double quantization</div>
+      </div>
+      <div class="matrix-row">
+        <div>품질 최우선·여유 GPU 있음</div>
+        <div class="pick">FP16 / BF16 그대로</div>
+        <div class="why">양자화는 "어쩔 수 없을 때" 쓰는 도구. 자원이 충분하면 원본이 정답</div>
+      </div>
+      <div class="matrix-row">
+        <div>최신 H100/H200 데이터센터</div>
+        <div class="pick">FP8 (E4M3) · TensorRT-LLM</div>
+        <div class="why">Hopper FP8 텐서코어로 FP16 대비 2배 처리량, 품질 손실 최소</div>
+      </div>
+      <div class="matrix-row">
+        <div>ARM64 + x86_64 혼합 클러스터</div>
+        <div class="pick">GGUF (CPU) + AWQ (GPU)</div>
+        <div class="why">아키텍처 비종속 GGUF로 노드별 유연 배포, GPU 노드는 AWQ로 처리량 확보</div>
+      </div>
+      <div class="matrix-row">
+        <div>엣지 디바이스 / 모바일</div>
+        <div class="pick">GGUF Q4 / Q3 + llama.cpp</div>
+        <div class="why">CPU-only 동작, mmap 즉시 로딩, 메모리 풋프린트 최소화</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== ECOSYSTEM ====================== -->
+<section>
+  <div class="container">
+    <div class="section-num">/ 08 · TOOLING ECOSYSTEM</div>
+    <h2 class="section-title">알아두면 좋은 <span class="highlight-text">주요 컴포넌트</span></h2>
+    <p class="section-lead">
+      양자화 생태계는 "모델을 만드는 도구"와 "양자화된 모델을 돌리는 엔진"으로 크게 나뉜다.
+    </p>
+
+    <div class="eco-grid">
+      <div class="eco-card">
+        <div class="name">AutoAWQ</div>
+        <div class="role">Quantizer</div>
+        <div class="desc">AWQ 양자화를 Python 몇 줄로 적용. 캘리브레이션 → 변환 → save_pretrained.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">AutoGPTQ</div>
+        <div class="role">Quantizer</div>
+        <div class="desc">GPTQ 양자화 표준 구현. ExLlama 백엔드와 연결.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">llama.cpp</div>
+        <div class="role">Engine · CPU/GPU</div>
+        <div class="desc">GGUF 표준의 본가. C++로 작성된 SIMD·Metal·CUDA 다중 백엔드.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">vLLM</div>
+        <div class="role">Engine · GPU 서빙</div>
+        <div class="desc">PagedAttention + continuous batching. AWQ/GPTQ/FP8 네이티브.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">TGI</div>
+        <div class="role">Engine · HF 공식</div>
+        <div class="desc">Text Generation Inference. HF Hub 모델 한 줄 배포.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">TensorRT-LLM</div>
+        <div class="role">Engine · NVIDIA</div>
+        <div class="desc">FP8/INT8/INT4 + 커널 융합. 최대 throughput, 다소 무거운 빌드 과정.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">bitsandbytes</div>
+        <div class="role">Library · HF 통합</div>
+        <div class="desc">load_in_4bit=True. QLoRA의 기반.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">Ollama / LM Studio</div>
+        <div class="role">App · 로컬</div>
+        <div class="desc">GGUF 기반 데스크톱 LLM 런처. 비개발자도 사용 가능.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">LMDeploy</div>
+        <div class="role">Engine · 중국 OS</div>
+        <div class="desc">TurboMind 백엔드. INT4 + KV cache 양자화.</div>
+      </div>
+      <div class="eco-card">
+        <div class="name">Optimum</div>
+        <div class="role">Library · HF</div>
+        <div class="desc">ONNX·TensorRT·OpenVINO·Intel Neural Compressor 통합 인터페이스.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================== QUIZ ====================== -->
+<section>
+  <div class="container">
+    <div class="section-num">/ 09 · CHECK YOURSELF</div>
+    <h2 class="section-title">간단한 <span class="highlight-text">자기 점검</span></h2>
+    <p class="section-lead">강의 내용을 잘 따라왔다면 어렵지 않을 것이다.</p>
+
+    <div class="quiz" id="quiz1">
+      <div class="quiz-q">맥북 M3 Pro에서 Llama-3 8B를 직접 돌리려고 한다. 가장 합리적인 선택은?</div>
+      <div class="quiz-opts">
+        <button class="quiz-opt" data-correct="false">FP32 원본 모델</button>
+        <button class="quiz-opt" data-correct="true">GGUF Q4_K_M (Ollama / llama.cpp)</button>
+        <button class="quiz-opt" data-correct="false">AWQ 4bit + vLLM</button>
+        <button class="quiz-opt" data-correct="false">QLoRA로 다시 학습</button>
+      </div>
+      <div class="quiz-feedback ok">정답. GGUF는 Apple Silicon의 Metal을 통해 가속되고, 단일 파일·즉시 로딩으로 데스크톱에 최적이다.</div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <div class="quiz-q">"AWQ의 핵심 아이디어"를 가장 잘 설명한 것은?</div>
+      <div class="quiz-opts">
+        <button class="quiz-opt" data-correct="false">가중치를 무작위로 0으로 만들어 압축한다</button>
+        <button class="quiz-opt" data-correct="false">학습 중 양자화를 시뮬레이션하며 모델을 적응시킨다</button>
+        <button class="quiz-opt" data-correct="true">활성화의 크기를 보고 중요한 가중치 채널을 더 잘 보존한다</button>
+        <button class="quiz-opt" data-correct="false">작은 모델이 큰 모델의 출력을 흉내내며 학습한다</button>
+      </div>
+      <div class="quiz-feedback ok">정답. AWQ = Activation-aware Weight Quantization. 활성화 크기를 단서로 중요한 가중치 채널을 식별·보호한다.</div>
+    </div>
+
+    <div class="quiz" id="quiz3">
+      <div class="quiz-q">QLoRA에서 베이스 모델에 사용되는 양자화는?</div>
+      <div class="quiz-opts">
+        <button class="quiz-opt" data-correct="false">FP8</button>
+        <button class="quiz-opt" data-correct="false">GGUF Q4_K_M</button>
+        <button class="quiz-opt" data-correct="true">NF4 (Normal Float 4) — bitsandbytes</button>
+        <button class="quiz-opt" data-correct="false">INT2</button>
+      </div>
+      <div class="quiz-feedback ok">정답. NF4는 가중치 분포가 정규분포에 가깝다는 점을 이용한 4bit 부동소수 표현이다.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="sig">
+    <span class="accent">⊹</span> LLM QUANTIZATION 101 · INTERACTIVE LECTURE <span class="accent">⊹</span><br>
+    by Claude · for AI Engineers ·  fp32 → 4bit
+  </div>
+</footer>
+
+<script>
+// ============================================================
+//  BIT FORMAT DATA
+// ============================================================
+const FORMATS = {
+  fp32: {
+    name: 'FP32 · IEEE 754 Single Precision',
+    sign: 1, exp: 8, mant: 23, int: 0, total: 32,
+    bytes: 4.0, range: '±3.4 × 10³⁸',
+    model7b: 28,
+    explain: '<strong>학습의 기본 표준.</strong> 모델 학습 시 가장 많이 사용된다. 추론에는 과도하게 정밀해서 잘 쓰지 않는다. 부동소수점 = 부호(1) + 지수(8) + 가수(23)로 구성.'
+  },
+  fp16: {
+    name: 'FP16 · Half Precision',
+    sign: 1, exp: 5, mant: 10, int: 0, total: 16,
+    bytes: 2.0, range: '±6.5 × 10⁴',
+    model7b: 14,
+    explain: '<strong>추론의 기본 표준.</strong> 메모리 절반, 텐서코어 가속. 다만 학습 시 동적 범위가 좁아 gradient underflow 위험이 있어 mixed precision으로 사용.'
+  },
+  bf16: {
+    name: 'BF16 · Brain Float 16',
+    sign: 1, exp: 8, mant: 7, int: 0, total: 16,
+    bytes: 2.0, range: '±3.4 × 10³⁸',
+    model7b: 14,
+    explain: '<strong>FP32와 같은 동적 범위, 절반 메모리.</strong> Google이 TPU용으로 제안. 가수 정밀도는 낮지만 범위가 넓어 학습 안정성이 좋다. 요즘 LLM 학습의 표준.'
+  },
+  fp8e4m3: {
+    name: 'FP8 · E4M3 (forward용)',
+    sign: 1, exp: 4, mant: 3, int: 0, total: 8,
+    bytes: 1.0, range: '±448',
+    model7b: 7,
+    explain: '<strong>H100/H200의 FP8 추론 표준.</strong> 정밀도(mantissa 3비트)를 더 많이 가져가는 forward 패스용. FP16 대비 메모리 절반, 처리량 2배.'
+  },
+  fp8e5m2: {
+    name: 'FP8 · E5M2 (backward용)',
+    sign: 1, exp: 5, mant: 2, int: 0, total: 8,
+    bytes: 1.0, range: '±57344',
+    model7b: 7,
+    explain: '<strong>학습의 gradient용.</strong> 동적 범위(exponent 5비트)를 더 많이 가져가 작은 gradient도 표현 가능. NVIDIA Transformer Engine이 자동으로 E4M3/E5M2를 섞어 쓴다.'
+  },
+  fp4: {
+    name: 'FP4 · E2M1',
+    sign: 1, exp: 2, mant: 1, int: 0, total: 4,
+    bytes: 0.5, range: '±6',
+    model7b: 3.5,
+    explain: '<strong>Blackwell(B100/B200) 세대의 추론 가속 대상.</strong> 4bit이지만 부동소수점 구조라 단순 INT4보다 분포 표현이 유연하다. NF4와 함께 4bit 영역의 양대 산맥.'
+  },
+  int8: {
+    name: 'INT8 · 부호있는 8비트 정수',
+    sign: 1, exp: 0, mant: 0, int: 7, total: 8,
+    bytes: 1.0, range: '−128 ~ 127',
+    model7b: 7,
+    explain: '<strong>가장 오래된 양자화 표준.</strong> scale·zero-point로 실수 분포를 −128~127에 매핑. CV 모델에서 출발해 LLM에도 SmoothQuant 등으로 확장. 텐서코어 가속 광범위 지원.'
+  },
+  int4: {
+    name: 'INT4 · 부호있는 4비트 정수',
+    sign: 1, exp: 0, mant: 0, int: 3, total: 4,
+    bytes: 0.5, range: '−8 ~ 7',
+    model7b: 3.5,
+    explain: '<strong>LLM 양자화의 sweet spot.</strong> AWQ/GPTQ/GGUF 4bit 변종이 모두 여기 속한다. FP16 대비 메모리 1/4, 품질 손실은 1% 안팎 — 가성비 최강.'
+  }
+};
+
+// ============================================================
+//  BIT VISUALIZER
+// ============================================================
+function renderBits(fmt) {
+  const data = FORMATS[fmt];
+  const row = document.getElementById('bitRow');
+  row.innerHTML = '';
+  // sign
+  for (let i=0; i<data.sign; i++) {
+    const c = document.createElement('div');
+    c.className = 'bit-cell sign'; c.textContent = 'S'; row.appendChild(c);
+  }
+  // exp
+  for (let i=0; i<data.exp; i++) {
+    const c = document.createElement('div');
+    c.className = 'bit-cell exp'; c.textContent = 'E'; row.appendChild(c);
+  }
+  // mant
+  for (let i=0; i<data.mant; i++) {
+    const c = document.createElement('div');
+    c.className = 'bit-cell mant'; c.textContent = 'M'; row.appendChild(c);
+  }
+  // int
+  for (let i=0; i<data.int; i++) {
+    const c = document.createElement('div');
+    c.className = 'bit-cell int'; c.textContent = 'I'; row.appendChild(c);
+  }
+  // empty cells up to 32 for visual comparison
+  const used = data.sign + data.exp + data.mant + data.int;
+  for (let i=used; i<32; i++) {
+    const c = document.createElement('div');
+    c.className = 'bit-cell empty'; c.textContent = '·'; row.appendChild(c);
+  }
+
+  document.getElementById('metaBits').textContent = data.total;
+  document.getElementById('metaBytes').textContent = data.bytes;
+  document.getElementById('metaRange').textContent = data.range;
+  document.getElementById('metaModel').textContent = data.model7b + ' GB';
+  document.getElementById('bitExplain').innerHTML = '<strong>' + data.name + '.</strong> ' + data.explain;
+}
+
+document.querySelectorAll('.bit-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.bit-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    renderBits(tab.dataset.fmt);
+  });
+});
+renderBits('fp32');
+
+// ============================================================
+//  MEMORY CALCULATOR
+// ============================================================
+const CALC_FORMATS = [
+  { key: 'FP32', bytes: 4.0, cls: 'danger' },
+  { key: 'FP16/BF16', bytes: 2.0, cls: '' },
+  { key: 'FP8/INT8', bytes: 1.0, cls: '' },
+  { key: 'AWQ 4bit', bytes: 0.5, cls: 'highlight' },
+  { key: 'GGUF Q4_K_M', bytes: 0.605, cls: '' }, // ~4.84 bits
+  { key: 'NF4', bytes: 0.5, cls: '' },
+  { key: 'INT2 (실험적)', bytes: 0.25, cls: '' }
+];
+
+function renderCalc() {
+  const params = parseFloat(document.getElementById('modelSel').value); // in B
+  const wrap = document.getElementById('calcResults');
+  wrap.innerHTML = '';
+  CALC_FORMATS.forEach(f => {
+    const sizeGB = (params * 1e9 * f.bytes) / 1e9; // GB
+    const card = document.createElement('div');
+    card.className = 'calc-card ' + f.cls;
+    card.innerHTML = `
+      <div class="fmt">${f.key}</div>
+      <div class="size">${sizeGB.toFixed(1)}</div>
+      <div class="unit">GB</div>
+    `;
+    wrap.appendChild(card);
+  });
+}
+document.getElementById('modelSel').addEventListener('change', renderCalc);
+renderCalc();
+
+// ============================================================
+//  ALGORITHM ACCORDION
+// ============================================================
+document.querySelectorAll('.algo-card .algo-head').forEach(head => {
+  head.addEventListener('click', () => {
+    head.parentElement.classList.toggle('open');
+  });
+});
+
+// ============================================================
+//  QUIZ
+// ============================================================
+document.querySelectorAll('.quiz').forEach(quiz => {
+  const fb = quiz.querySelector('.quiz-feedback');
+  const originalText = fb.textContent.replace(/^정답\.\s?/, '').trim();
+  quiz.querySelectorAll('.quiz-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const correct = opt.dataset.correct === 'true';
+      quiz.querySelectorAll('.quiz-opt').forEach(o => {
+        o.classList.remove('correct', 'wrong');
+      });
+      if (correct) {
+        opt.classList.add('correct');
+        fb.classList.remove('no'); fb.classList.add('ok', 'show');
+        fb.textContent = '정답. ' + originalText;
+      } else {
+        opt.classList.add('wrong');
+        const right = quiz.querySelector('.quiz-opt[data-correct="true"]');
+        right.classList.add('correct');
+        fb.classList.remove('ok'); fb.classList.add('no', 'show');
+        fb.textContent = '아쉽다. 정답은 강조된 항목. ' + originalText;
+      }
+    });
+  });
+});
+
+// ============================================================
+//  SCROLL REVEAL
+// ============================================================
+const reveals = document.querySelectorAll('section');
+reveals.forEach(s => s.classList.add('reveal'));
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+}, { threshold: 0.05 });
+reveals.forEach(s => io.observe(s));
+
+// Reveal hero immediately
+document.querySelector('.hero').classList.add('visible');
+</script>
+
+</body>
+</html>
