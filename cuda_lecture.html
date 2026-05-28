@@ -1,0 +1,1787 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CUDA 입문 — 초보 AI 엔지니어를 위한 GPU 컴퓨팅 강의</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+<style>
+  /* ============ Reset & Base ============ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c0d;
+    --bg-2: #11141a;
+    --surface: #161a22;
+    --surface-2: #1d2230;
+    --border: #232a3a;
+    --border-strong: #2f3a52;
+    --text: #e6ebf2;
+    --text-dim: #98a1b3;
+    --text-faint: #6a7388;
+    --green: #76b900;     /* NVIDIA green */
+    --green-dim: #4f7d04;
+    --green-soft: rgba(118,185,0,0.12);
+    --amber: #f0a050;
+    --rose: #e96b80;
+    --cyan: #54c7ec;
+    --violet: #a78bfa;
+    --shadow: 0 8px 30px rgba(0,0,0,0.45);
+    --serif: "Noto Serif KR", "Iowan Old Style", Georgia, serif;
+    --sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  /* Subtle grid background suggesting GPU thread grid */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(118,185,0,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(118,185,0,0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black, transparent 80%);
+  }
+  /* ============ Layout ============ */
+  .layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    min-height: 100vh;
+    position: relative;
+    z-index: 1;
+  }
+  /* ---- Sidebar ---- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    border-right: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(22,26,34,0.95), rgba(10,12,13,0.95));
+    backdrop-filter: blur(10px);
+    padding: 32px 24px;
+    overflow-y: auto;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-mark {
+    width: 38px; height: 38px;
+    background: var(--green);
+    color: #0a0c0d;
+    display: grid; place-items: center;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 18px;
+    box-shadow: 0 0 24px rgba(118,185,0,0.4);
+  }
+  .brand-text { font-family: var(--serif); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand-sub { font-size: 11px; color: var(--text-faint); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+  .nav-section { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); margin: 24px 0 8px; font-weight: 600; }
+  .nav-list { list-style: none; }
+  .nav-list li { margin-bottom: 2px; }
+  .nav-list a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.15s ease;
+    border-left: 2px solid transparent;
+  }
+  .nav-list a:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .nav-list a.active {
+    color: var(--green);
+    background: var(--green-soft);
+    border-left-color: var(--green);
+  }
+  .nav-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    width: 22px;
+  }
+  .nav-list a.active .nav-num { color: var(--green); }
+
+  /* ---- Main ---- */
+  main {
+    padding: 80px clamp(24px, 5vw, 96px);
+    max-width: 1100px;
+  }
+  section { padding: 64px 0; scroll-margin-top: 40px; border-bottom: 1px solid var(--border); }
+  section:last-child { border-bottom: none; }
+  /* ============ Typography ============ */
+  h1, h2, h3, h4 { font-family: var(--serif); font-weight: 700; letter-spacing: -0.02em; line-height: 1.25; }
+  h1 { font-size: clamp(2.5rem, 5vw, 4.2rem); }
+  h2 { font-size: clamp(1.8rem, 3.5vw, 2.6rem); margin-bottom: 24px; }
+  h3 { font-size: 1.35rem; margin: 32px 0 12px; color: var(--text); }
+  h4 { font-size: 1.05rem; font-family: var(--sans); font-weight: 700; margin: 20px 0 8px; color: var(--text); }
+  p { color: var(--text-dim); margin-bottom: 14px; font-size: 15.5px; }
+  p strong, li strong { color: var(--text); font-weight: 600; }
+  .lede { font-size: 18px; color: var(--text-dim); max-width: 720px; }
+  .eyebrow {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    background: var(--green-soft);
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(118,185,0,0.3);
+  }
+  ul, ol { margin: 12px 0 16px 24px; }
+  li { color: var(--text-dim); margin-bottom: 6px; font-size: 15px; }
+  a { color: var(--green); }
+  code:not(pre code) {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--surface);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--amber);
+    border: 1px solid var(--border);
+  }
+  /* ============ Hero ============ */
+  .hero {
+    padding: 60px 0 32px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .hero h1 { margin: 16px 0 24px; }
+  .hero .accent { color: var(--green); font-style: italic; }
+  .hero-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 40px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-faint);
+    font-family: var(--mono);
+  }
+  .hero-meta span { display: flex; align-items: center; gap: 6px; }
+  .hero-meta .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  /* ============ Components ============ */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 16px 0;
+  }
+  .card-emph {
+    background: linear-gradient(135deg, var(--green-soft), transparent);
+    border-color: rgba(118,185,0,0.3);
+  }
+  .callout {
+    border-left: 3px solid var(--green);
+    padding: 14px 18px;
+    background: rgba(118,185,0,0.05);
+    margin: 18px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .callout.warn {
+    border-left-color: var(--amber);
+    background: rgba(240,160,80,0.06);
+  }
+  .callout.info {
+    border-left-color: var(--cyan);
+    background: rgba(84,199,236,0.06);
+  }
+  .callout-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  .callout.warn .callout-label { color: var(--amber); }
+  .callout.info .callout-label { color: var(--cyan); }
+  .callout p { color: var(--text); margin: 0; font-size: 14.5px; }
+
+  /* Code blocks */
+  pre {
+    background: #0d1019;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    overflow-x: auto;
+    margin: 14px 0;
+    position: relative;
+    box-shadow: var(--shadow);
+  }
+  pre::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  pre code {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: #d3dae6;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .k { color: #e96b80; } /* keyword */
+  .t { color: var(--cyan); } /* type */
+  .s { color: var(--green); } /* string */
+  .c { color: var(--text-faint); font-style: italic; } /* comment */
+  .n { color: var(--amber); } /* number */
+  .f { color: var(--violet); } /* function */
+  .p { color: var(--text-dim); } /* punctuation */
+
+  /* ============ Interactive widgets ============ */
+
+  /* CPU vs GPU comparator */
+  .cpu-gpu {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .chip {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    background: var(--surface);
+    position: relative;
+  }
+  .chip-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+  }
+  .chip-name { font-family: var(--serif); font-size: 1.4rem; font-weight: 700; margin-bottom: 14px; }
+  .cpu .chip-name { color: var(--cyan); }
+  .gpu .chip-name { color: var(--green); }
+  .core-grid {
+    display: grid;
+    gap: 4px;
+    margin: 14px 0;
+    padding: 14px;
+    background: #0a0c10;
+    border-radius: 6px;
+    min-height: 140px;
+  }
+  .cpu .core-grid { grid-template-columns: repeat(4, 1fr); }
+  .gpu .core-grid { grid-template-columns: repeat(16, 1fr); }
+  .core {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    transition: all 0.3s ease;
+  }
+  .cpu .core { background: rgba(84,199,236,0.15); border-color: rgba(84,199,236,0.3); }
+  .gpu .core { background: rgba(118,185,0,0.12); border-color: rgba(118,185,0,0.25); }
+  .core.active.cpu-c { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .core.active.gpu-c { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .chip-stat { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-top: 1px dashed var(--border); }
+  .chip-stat:first-of-type { border-top: none; }
+  .chip-stat .label { color: var(--text-faint); }
+  .chip-stat .val { color: var(--text); font-family: var(--mono); font-size: 12px; }
+
+  /* Thread hierarchy visualizer */
+  .thread-vis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .tv-controls {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .tv-ctrl { display: flex; flex-direction: column; gap: 4px; }
+  .tv-ctrl label {
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+  }
+  .tv-ctrl input[type="range"] {
+    width: 140px;
+    accent-color: var(--green);
+  }
+  .tv-ctrl .ctrl-val { font-family: var(--mono); font-size: 13px; color: var(--green); }
+  .tv-canvas {
+    background: #08090d;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    overflow: auto;
+    max-height: 480px;
+  }
+  .grid-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-bottom: 10px;
+    letter-spacing: 0.05em;
+  }
+  .grid-of-blocks {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .block {
+    background: rgba(118,185,0,0.04);
+    border: 1px solid rgba(118,185,0,0.25);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .block-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--green);
+    margin-bottom: 6px;
+  }
+  .threads-of-block {
+    display: grid;
+    gap: 2px;
+  }
+  .thread {
+    aspect-ratio: 1;
+    background: rgba(118,185,0,0.2);
+    border-radius: 2px;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(118,185,0,0.3);
+  }
+  .thread.warp-0 { background: rgba(118,185,0,0.5); }
+  .thread.warp-1 { background: rgba(84,199,236,0.5); }
+  .thread.warp-2 { background: rgba(240,160,80,0.5); }
+  .thread.warp-3 { background: rgba(167,139,250,0.5); }
+  .tv-summary {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .tv-stat {
+    background: #0a0c10;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  .tv-stat .num { font-family: var(--mono); font-size: 20px; color: var(--green); font-weight: 600; }
+  .tv-stat .lbl { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+
+  /* Memory hierarchy */
+  .mem-pyramid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 28px 0;
+    gap: 0;
+  }
+  .mem-tier {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 14px 22px;
+    display: grid;
+    grid-template-columns: 200px 1fr 160px;
+    gap: 18px;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    border-left: 4px solid var(--border-strong);
+  }
+  .mem-tier:hover {
+    background: var(--surface-2);
+    transform: translateX(4px);
+  }
+  .mem-tier + .mem-tier { border-top: none; }
+  .mem-tier:first-child { border-radius: 8px 8px 0 0; }
+  .mem-tier:last-child { border-radius: 0 0 8px 8px; }
+  .mem-tier.t-reg { border-left-color: var(--green); }
+  .mem-tier.t-shared { border-left-color: var(--cyan); }
+  .mem-tier.t-l1l2 { border-left-color: var(--violet); }
+  .mem-tier.t-global { border-left-color: var(--amber); }
+  .mem-tier.t-host { border-left-color: var(--rose); }
+  .mem-name { font-family: var(--serif); font-weight: 700; font-size: 1.05rem; }
+  .mem-desc { font-size: 13px; color: var(--text-dim); }
+  .mem-speed {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-align: right;
+  }
+  .mem-speed .bar {
+    height: 6px;
+    background: linear-gradient(90deg, var(--green), var(--rose));
+    border-radius: 3px;
+    margin-top: 4px;
+    position: relative;
+  }
+  .mem-speed .bar::after {
+    content: "";
+    position: absolute;
+    top: -2px;
+    height: 10px;
+    width: 3px;
+    background: white;
+    border-radius: 2px;
+  }
+
+  /* Component cards */
+  .comp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin: 20px 0;
+  }
+  .comp-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .comp-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: var(--green);
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform 0.3s ease;
+  }
+  .comp-card:hover { background: var(--surface-2); transform: translateY(-2px); }
+  .comp-card:hover::before { transform: scaleY(1); }
+  .comp-card.expanded::before { transform: scaleY(1); }
+  .comp-card-name {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--green);
+    margin-bottom: 4px;
+  }
+  .comp-card-tag {
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .comp-card-short { font-size: 13.5px; color: var(--text-dim); }
+  .comp-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease, margin-top 0.3s ease;
+    margin-top: 0;
+  }
+  .comp-card.expanded .comp-detail {
+    max-height: 400px;
+    margin-top: 14px;
+  }
+  .comp-detail-inner {
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  /* Comparison table */
+  .compare-table {
+    overflow-x: auto;
+    margin: 20px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 720px; }
+  th, td {
+    text-align: left;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    font-weight: 600;
+  }
+  td { color: var(--text-dim); vertical-align: top; }
+  td:first-child { color: var(--text); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    border: 1px solid;
+  }
+  .b-good { color: var(--green); border-color: rgba(118,185,0,0.4); background: var(--green-soft); }
+  .b-mid { color: var(--amber); border-color: rgba(240,160,80,0.4); background: rgba(240,160,80,0.08); }
+  .b-bad { color: var(--rose); border-color: rgba(233,107,128,0.4); background: rgba(233,107,128,0.08); }
+
+  /* Kernel simulator */
+  .sim {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .sim-row {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    margin: 12px 0;
+  }
+  .sim-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    background: #0a0c10;
+    border: 1px solid var(--border);
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    transition: all 0.3s ease;
+  }
+  .sim-cell.lit-input { background: rgba(84,199,236,0.2); border-color: var(--cyan); color: var(--cyan); }
+  .sim-cell.lit-out { background: rgba(118,185,0,0.25); border-color: var(--green); color: var(--green); box-shadow: 0 0 12px rgba(118,185,0,0.4); }
+  .sim-controls { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+  .sim-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    transition: all 0.15s ease;
+  }
+  .sim-btn:hover { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+  .sim-btn.primary { background: var(--green); color: #0a0c0d; border-color: var(--green); font-weight: 600; }
+  .sim-btn.primary:hover { background: #88d100; }
+  .sim-status {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+  .sim-row-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  /* Tabs */
+  .tabs { margin: 20px 0; }
+  .tab-list {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    padding: 10px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Quiz */
+  .quiz {
+    background: linear-gradient(135deg, rgba(118,185,0,0.04), rgba(84,199,236,0.04));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+    margin: 24px 0;
+  }
+  .quiz-q { font-family: var(--serif); font-size: 1.05rem; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+  .quiz-opts { display: grid; gap: 8px; }
+  .quiz-opt {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-dim);
+    transition: all 0.15s ease;
+    text-align: left;
+    font-family: inherit;
+    width: 100%;
+  }
+  .quiz-opt:hover { background: var(--surface-2); color: var(--text); }
+  .quiz-opt.correct { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+  .quiz-opt.wrong { border-color: var(--rose); background: rgba(233,107,128,0.1); color: var(--rose); }
+  .quiz-feedback {
+    margin-top: 12px;
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text);
+    display: none;
+  }
+  .quiz-feedback.show { display: block; }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 48px 0 32px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+  footer .sig { color: var(--green); }
+
+  /* Mobile */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar {
+      position: relative;
+      height: auto;
+      padding: 20px;
+    }
+    main { padding: 40px 24px; }
+    .cpu-gpu { grid-template-columns: 1fr; }
+    .mem-tier { grid-template-columns: 1fr; gap: 8px; }
+    .mem-speed { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">C</div>
+      <div>
+        <div class="brand-text">CUDA</div>
+        <div class="brand-sub">초보자를 위한 강의</div>
+      </div>
+    </div>
+
+    <div class="nav-section">Part I · 기초</div>
+    <ul class="nav-list">
+      <li><a href="#intro"><span class="nav-num">01</span>시작하며</a></li>
+      <li><a href="#what"><span class="nav-num">02</span>CUDA란 무엇인가</a></li>
+      <li><a href="#cpu-gpu"><span class="nav-num">03</span>CPU vs GPU</a></li>
+    </ul>
+
+    <div class="nav-section">Part II · 아키텍처</div>
+    <ul class="nav-list">
+      <li><a href="#simt"><span class="nav-num">04</span>SIMT 실행 모델</a></li>
+      <li><a href="#hierarchy"><span class="nav-num">05</span>스레드 계층 구조</a></li>
+      <li><a href="#memory"><span class="nav-num">06</span>메모리 계층</a></li>
+    </ul>
+
+    <div class="nav-section">Part III · 컴포넌트</div>
+    <ul class="nav-list">
+      <li><a href="#stack"><span class="nav-num">07</span>CUDA 스택 개관</a></li>
+      <li><a href="#libs"><span class="nav-num">08</span>주요 라이브러리</a></li>
+    </ul>
+
+    <div class="nav-section">Part IV · 실전</div>
+    <ul class="nav-list">
+      <li><a href="#code"><span class="nav-num">09</span>첫 CUDA 코드</a></li>
+      <li><a href="#pytorch"><span class="nav-num">10</span>PyTorch와 CUDA</a></li>
+    </ul>
+
+    <div class="nav-section">Part V · 비교</div>
+    <ul class="nav-list">
+      <li><a href="#compare"><span class="nav-num">11</span>다른 프레임워크</a></li>
+      <li><a href="#wrapup"><span class="nav-num">12</span>정리와 다음 단계</a></li>
+    </ul>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main>
+
+    <!-- ===== HERO ===== -->
+    <section class="hero" id="intro">
+      <span class="eyebrow">Lecture · GPU Computing 101</span>
+      <h1>CUDA, <span class="accent">병렬 컴퓨팅</span>의<br/>가장 친절한 첫걸음</h1>
+      <p class="lede">
+        딥러닝이 가능해진 결정적 이유는 GPU와 <strong>CUDA</strong>입니다.
+        이 강의는 "이름은 많이 들었지만 한 번도 제대로 배워본 적은 없는" AI 엔지니어가
+        CUDA의 본질을 머릿속에 또렷한 그림으로 그릴 수 있게 만드는 데에 초점을 둡니다.
+        수식을 외우는 강의가 아니라, <em>왜 그렇게 설계되었는가</em>를 따라가는 강의입니다.
+      </p>
+      <div class="hero-meta">
+        <span><span class="dot"></span>대상 : AI 입문 ~ 중급</span>
+        <span><span class="dot"></span>예상 학습 시간 : 60–90분</span>
+        <span><span class="dot"></span>선행 지식 : C 문법 기초</span>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 02 : WHAT IS CUDA ===== -->
+    <section id="what">
+      <span class="eyebrow">02 · 개념</span>
+      <h2>CUDA란 무엇인가</h2>
+      <p>
+        <strong>CUDA(Compute Unified Device Architecture)</strong>는
+        NVIDIA가 2007년에 공개한 <strong>병렬 컴퓨팅 플랫폼이자 프로그래밍 모델</strong>입니다.
+        한 단어로 정의하기 어려운 이유는, CUDA가 여러 층(layer)으로 이루어진 <em>스택</em>이기 때문입니다.
+      </p>
+
+      <div class="card">
+        <h4>한 줄로 말하면</h4>
+        <p>
+          "<strong>GPU를 그래픽 출력이 아니라, 범용 수치 계산에 쓰기 위해</strong>
+          NVIDIA가 만든 표준 인터페이스 + 컴파일러 + 런타임 + 라이브러리 묶음"
+          이 CUDA입니다.
+        </p>
+      </div>
+
+      <h3>CUDA가 등장하기 전과 후</h3>
+      <p>
+        2007년 이전에도 사람들은 GPU의 막대한 연산 자원을 일반 계산에 쓰고 싶어 했습니다.
+        문제는, GPU가 본래 "픽셀을 칠하는 기계"였다는 점입니다.
+        OpenGL/DirectX 셰이더를 우회해 행렬 곱을 시키는 식의 트릭(GPGPU)을 썼지만,
+        코드는 이해할 수 없는 형태였고 디버깅도 불가능했습니다.
+      </p>
+      <p>
+        CUDA는 이 상황을 바꿔놓았습니다. <strong>C 언어 확장</strong>으로 GPU 코드를 작성하고,
+        <code>nvcc</code> 컴파일러가 그것을 GPU 명령어로 번역해 주는 모델을 만들었기 때문입니다.
+        이후 10여 년 동안 cuDNN·cuBLAS 같은 고성능 라이브러리가 쌓이고,
+        그 위에 PyTorch와 TensorFlow가 올라가면서, 오늘날 우리가 아는 딥러닝 생태계가 형성되었습니다.
+      </p>
+
+      <div class="callout">
+        <div class="callout-label">핵심 통찰</div>
+        <p>CUDA는 단순한 라이브러리가 아니라, "하드웨어–컴파일러–런타임–라이브러리–프레임워크"가
+        한 줄로 정렬된 <strong>스택(stack)</strong>입니다. 우리가 <code>torch.cuda.is_available()</code>을
+        부를 때, 사실은 이 스택 전체가 함께 움직이고 있습니다.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 03 : CPU vs GPU ===== -->
+    <section id="cpu-gpu">
+      <span class="eyebrow">03 · 직관</span>
+      <h2>왜 GPU인가 — CPU와 무엇이 다른가</h2>
+      <p>
+        "GPU는 CPU보다 빠르다"는 말은 절반만 맞습니다.
+        정확히는 <strong>"GPU는 같은 연산을 동시에 수만 번 반복하는 일에 특화"</strong>되어 있습니다.
+        반대로 복잡한 분기나 순차적 의사 결정은 여전히 CPU가 압도적으로 빠릅니다.
+        구조 자체가 다르기 때문입니다.
+      </p>
+
+      <h3>비유 — 교수님 4명 vs 조교 수천 명</h3>
+      <p>
+        CPU는 <strong>박사급 교수님 몇 명</strong>이 책상에 앉아 있는 것과 같습니다.
+        한 명 한 명이 어떤 어려운 문제든 빠르게 풀 수 있지만, 머릿수가 적습니다.
+        GPU는 <strong>대학원생 수천 명</strong>이 한 강당에 모여 있는 것과 같습니다.
+        한 명의 능력은 교수보다 떨어지지만, "각자 1번부터 1024번까지 동일한 계산을 해라"라는
+        지시에 동시에 응답할 수 있습니다.
+        딥러닝의 행렬 곱은 정확히 이 두 번째 패턴입니다.
+      </p>
+
+      <div class="cpu-gpu">
+        <div class="chip cpu">
+          <div class="chip-title">통상 CPU (서버급)</div>
+          <div class="chip-name">Intel Xeon 계열</div>
+          <div class="core-grid" id="cpu-cores"></div>
+          <div class="chip-stat"><span class="label">코어 수</span><span class="val">~16–64</span></div>
+          <div class="chip-stat"><span class="label">코어 클록</span><span class="val">~3 GHz</span></div>
+          <div class="chip-stat"><span class="label">캐시 / 코어</span><span class="val">크다 (수 MB)</span></div>
+          <div class="chip-stat"><span class="label">강점</span><span class="val">분기, 지연 시간</span></div>
+        </div>
+        <div class="chip gpu">
+          <div class="chip-title">통상 GPU (가속기)</div>
+          <div class="chip-name">NVIDIA H100</div>
+          <div class="core-grid" id="gpu-cores"></div>
+          <div class="chip-stat"><span class="label">CUDA 코어 수</span><span class="val">~14,000+</span></div>
+          <div class="chip-stat"><span class="label">코어 클록</span><span class="val">~1.5 GHz</span></div>
+          <div class="chip-stat"><span class="label">캐시 / 코어</span><span class="val">작다 (KB)</span></div>
+          <div class="chip-stat"><span class="label">강점</span><span class="val">처리량(throughput)</span></div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-label">읽는 법</div>
+        <p>위 그림에서 깜빡이는 작은 셀이 동시에 활성화되는 "코어"입니다.
+        CPU는 똑똑한 코어 몇 개가, GPU는 단순한 코어 수천 개가 동시에 일합니다.
+        딥러닝은 후자에 어울리는 패턴입니다.</p>
+      </div>
+
+      <h3>핵심 차이 한 표로</h3>
+      <div class="compare-table">
+        <table>
+          <thead><tr><th>관점</th><th>CPU</th><th>GPU (CUDA)</th></tr></thead>
+          <tbody>
+            <tr><td>설계 목표</td><td>지연 시간 최소화 (Latency)</td><td>처리량 최대화 (Throughput)</td></tr>
+            <tr><td>코어의 성격</td><td>복잡, 비순차 실행, 거대한 캐시</td><td>단순, in-order, 수많은 코어</td></tr>
+            <tr><td>분기 처리</td><td><span class="badge b-good">매우 강함</span></td><td><span class="badge b-bad">약함 (warp divergence)</span></td></tr>
+            <tr><td>행렬 곱셈</td><td><span class="badge b-mid">가능하나 느림</span></td><td><span class="badge b-good">압도적</span></td></tr>
+            <tr><td>OS / 시스템 호출</td><td><span class="badge b-good">담당</span></td><td><span class="badge b-bad">불가</span></td></tr>
+            <tr><td>메모리</td><td>시스템 RAM (수십~수백 GB)</td><td>전용 VRAM (수~수백 GB, HBM)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-label">자주 하는 오해</div>
+        <p>"GPU가 무조건 빠른 게 아니다." CPU↔GPU 간 데이터 전송은 PCIe(혹은 NVLink)를 거쳐야 하므로,
+        매우 작은 작업을 GPU에 보내면 <strong>전송 오버헤드가 계산 시간보다 더 큽니다</strong>.
+        GPU는 "한 번에 충분히 큰 일"을 줄 때만 빛납니다.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 04 : SIMT ===== -->
+    <section id="simt">
+      <span class="eyebrow">04 · 실행 모델</span>
+      <h2>SIMT — CUDA의 심장</h2>
+      <p>
+        CPU가 SIMD(Single Instruction, Multiple Data)로 한 명령에 여러 데이터를 처리한다면,
+        CUDA는 <strong>SIMT(Single Instruction, Multiple Threads)</strong>를 채택합니다.
+        한 명령을 <strong>여러 스레드</strong>가 동시에 실행하되, 스레드 각각이
+        자신만의 인덱스를 가지고 자기 몫의 데이터를 처리합니다.
+      </p>
+
+      <h3>왜 SIMT가 강력한가</h3>
+      <p>
+        예를 들어 길이 1,000,000인 두 벡터를 더한다고 합시다.
+        CPU에서는 <code>for</code> 루프로 100만 번 반복합니다.
+        CUDA에서는 100만 개의 스레드를 띄워서, <strong>각 스레드가 자기 인덱스 i의 한 쌍만 더하고 종료</strong>합니다.
+        스레드 사이에는 의존 관계가 없으므로, 하드웨어가 가능한 만큼 동시에 실행합니다.
+        이 개념을 <strong>임베러싱리 패럴렐(embarrassingly parallel)</strong>이라고 부릅니다.
+      </p>
+
+      <div class="card card-emph">
+        <h4>SIMT의 단위 — Warp</h4>
+        <p>
+          NVIDIA GPU는 <strong>32개의 스레드를 묶은 단위(warp, 워프)</strong>로 명령을 실행합니다.
+          한 워프 안의 32개 스레드는 <strong>완전히 같은 명령</strong>을 동시에 실행합니다.
+          만약 한 워프 안에서 <code>if</code>로 갈래가 갈리면, 두 갈래를 차례로 실행해야 하므로
+          속도가 절반으로 떨어집니다. 이를 <strong>warp divergence(워프 분기)</strong>라 합니다.
+        </p>
+      </div>
+
+      <div class="sim">
+        <h4 style="margin-top:0">시뮬레이션 — 벡터 덧셈을 SIMT가 어떻게 처리하는가</h4>
+        <p style="font-size:13px;color:var(--text-dim);margin:6px 0 12px">
+          <strong>▶ 실행</strong>을 누르면 8개 스레드가 동시에 한 칸씩 처리합니다.
+          CPU 루프와 달리 8칸이 <em>한 단계에서</em> 모두 켜집니다.
+        </p>
+
+        <div class="sim-row-label">입력 A</div>
+        <div class="sim-row" id="sim-a"></div>
+        <div class="sim-row-label">입력 B</div>
+        <div class="sim-row" id="sim-b"></div>
+        <div class="sim-row-label">출력 C = A + B</div>
+        <div class="sim-row" id="sim-c"></div>
+
+        <div class="sim-controls">
+          <button class="sim-btn primary" id="sim-run">▶ 실행</button>
+          <button class="sim-btn" id="sim-reset">⟲ 초기화</button>
+          <button class="sim-btn" id="sim-cpu">CPU 모드 (순차)</button>
+          <div class="sim-status" id="sim-status">대기 중</div>
+        </div>
+      </div>
+
+      <div class="quiz">
+        <div class="quiz-q">Q. 한 워프(warp)는 몇 개의 스레드로 구성될까요?</div>
+        <div class="quiz-opts">
+          <button class="quiz-opt" data-correct="false">8개</button>
+          <button class="quiz-opt" data-correct="false">16개</button>
+          <button class="quiz-opt" data-correct="true">32개</button>
+          <button class="quiz-opt" data-correct="false">64개</button>
+        </div>
+        <div class="quiz-feedback">
+          정답입니다. NVIDIA 아키텍처는 일관되게 32개를 한 워프로 묶어 동기적으로 실행합니다.
+          이 숫자는 외워두면 좋습니다 — 블록 크기를 32의 배수로 잡는 이유가 됩니다.
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 05 : THREAD HIERARCHY ===== -->
+    <section id="hierarchy">
+      <span class="eyebrow">05 · 핵심 모델</span>
+      <h2>스레드 계층 — Thread → Block → Grid</h2>
+      <p>
+        CUDA에서 가장 중요한 추상은 <strong>스레드의 3단 계층</strong>입니다.
+        한 번 머릿속에 그려지면, 이후 모든 CUDA 코드가 자연스럽게 읽힙니다.
+      </p>
+
+      <ul>
+        <li><strong>Thread (스레드)</strong> — 가장 작은 실행 단위. 자기 인덱스 <code>threadIdx</code>를 가짐.</li>
+        <li><strong>Block (블록)</strong> — 스레드의 묶음. 같은 블록의 스레드는 <strong>shared memory</strong>로 통신 가능. 한 블록은 항상 같은 SM에서 실행.</li>
+        <li><strong>Grid (그리드)</strong> — 블록의 묶음. 한 커널 호출 = 하나의 그리드.</li>
+      </ul>
+
+      <h3>왜 이렇게 나누는가</h3>
+      <p>
+        하드웨어가 GPU마다 SM(Streaming Multiprocessor) 개수가 다르기 때문입니다.
+        프로그래머는 "이 작업을 1,000,000번 해라"라고 큰 그리드를 던지기만 하면 됩니다.
+        그러면 <strong>스케줄러가 자동으로 그리드의 블록을 사용 가능한 SM에 배치</strong>합니다.
+        같은 코드가 RTX 4060이든 H100이든 그대로 동작하는 핵심 비결이 이것입니다.
+      </p>
+
+      <div class="thread-vis">
+        <h4 style="margin-top:0">인터랙티브 — 슬라이더로 블록과 스레드를 조절해 보세요</h4>
+        <div class="tv-controls">
+          <div class="tv-ctrl">
+            <label>그리드 크기 (블록 수) <span class="ctrl-val" id="v-grid">4</span></label>
+            <input type="range" id="r-grid" min="1" max="8" value="4">
+          </div>
+          <div class="tv-ctrl">
+            <label>블록 크기 (스레드 수) <span class="ctrl-val" id="v-block">64</span></label>
+            <input type="range" id="r-block" min="32" max="256" step="32" value="64">
+          </div>
+        </div>
+        <div class="tv-canvas">
+          <div class="grid-label">Grid (그리드)</div>
+          <div class="grid-of-blocks" id="tv-canvas"></div>
+        </div>
+        <div class="tv-summary">
+          <div class="tv-stat"><div class="num" id="s-blocks">4</div><div class="lbl">블록 수</div></div>
+          <div class="tv-stat"><div class="num" id="s-threads">64</div><div class="lbl">블록당 스레드</div></div>
+          <div class="tv-stat"><div class="num" id="s-total">256</div><div class="lbl">총 스레드</div></div>
+          <div class="tv-stat"><div class="num" id="s-warps">8</div><div class="lbl">총 워프 (32-스레드)</div></div>
+        </div>
+        <p style="font-size:13px;color:var(--text-dim);margin-top:14px">
+          색은 워프 단위로 다릅니다. 같은 색의 32개 스레드가 한 워프이며, 동시에 같은 명령을 수행합니다.
+        </p>
+      </div>
+
+      <h3>코드로 보면</h3>
+      <pre data-lang="CUDA C++"><code><span class="c">// 1차원 벡터 덧셈 커널</span>
+<span class="k">__global__</span> <span class="t">void</span> <span class="f">vecAdd</span>(<span class="t">float</span>* a, <span class="t">float</span>* b, <span class="t">float</span>* c, <span class="t">int</span> n) {
+    <span class="t">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;  <span class="c">// 전역 인덱스 계산</span>
+    <span class="k">if</span> (i &lt; n) c[i] = a[i] + b[i];                  <span class="c">// 자기 몫만 처리</span>
+}
+
+<span class="c">// 호스트(CPU)에서 호출</span>
+<span class="t">int</span> threadsPerBlock = <span class="n">256</span>;
+<span class="t">int</span> blocks = (n + threadsPerBlock - <span class="n">1</span>) / threadsPerBlock;  <span class="c">// 올림</span>
+<span class="f">vecAdd</span>&lt;&lt;&lt;blocks, threadsPerBlock&gt;&gt;&gt;(a, b, c, n);  <span class="c">// 커널 런치</span></code></pre>
+
+      <p>
+        <code>&lt;&lt;&lt;blocks, threadsPerBlock&gt;&gt;&gt;</code> 라는 독특한 문법은
+        CUDA의 트레이드마크인 <strong>커널 실행 구성(execution configuration)</strong>입니다.
+        "이 함수를 GPU에서 〈블록 수, 블록당 스레드 수〉 형태로 띄워라"라는 뜻입니다.
+      </p>
+
+      <div class="callout warn">
+        <div class="callout-label">실무 팁</div>
+        <p>블록 크기는 <strong>32의 배수</strong>로, 보통 128 또는 256으로 잡습니다. 너무 작으면
+        SM 점유율(occupancy)이 낮아지고, 너무 크면 레지스터 부족으로 성능이 떨어집니다.
+        의심스럽다면 <strong>256부터 시작</strong>하세요.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 06 : MEMORY ===== -->
+    <section id="memory">
+      <span class="eyebrow">06 · 메모리</span>
+      <h2>메모리 계층 — 빠른 만큼 작다</h2>
+      <p>
+        CUDA 성능 최적화의 90%는 <strong>메모리</strong>입니다.
+        GPU에는 여러 종류의 메모리가 있고, 각각 속도와 크기, 가시 범위가 다릅니다.
+        아래는 빠른 순서대로 정렬한 계층입니다 (각 행을 클릭해 자세히 확인하세요).
+      </p>
+
+      <div class="mem-pyramid" id="mem-pyramid">
+        <div class="mem-tier t-reg" data-detail="레지스터는 각 스레드 전용입니다. 컴파일러가 자동으로 변수에 할당합니다. 한 스레드가 너무 많은 레지스터를 쓰면 SM에 동시에 올릴 수 있는 스레드 수가 줄어들어 점유율이 떨어집니다.">
+          <div><div class="mem-name">Register</div><div class="mem-desc">스레드 전용 · 컴파일러가 자동 할당</div></div>
+          <div></div>
+          <div class="mem-speed">~1 cycle<div class="bar" style="width:100%"></div></div>
+        </div>
+        <div class="mem-tier t-shared" data-detail="Shared memory는 같은 블록 내 스레드가 공유합니다. 행렬 곱이나 합성곱에서 타일링(tiling) 기법의 핵심이며, 적절히 쓰면 글로벌 메모리 접근을 수십 배 줄일 수 있습니다.">
+          <div><div class="mem-name">Shared Memory</div><div class="mem-desc">블록 단위 공유 · 명시적 선언 (__shared__)</div></div>
+          <div></div>
+          <div class="mem-speed">~5 cycle<div class="bar" style="width:78%"></div></div>
+        </div>
+        <div class="mem-tier t-l1l2" data-detail="L1 / L2 캐시는 글로벌 메모리 접근을 빠르게 하는 자동 캐시입니다. 직접 제어할 수는 없지만, 접근 패턴(coalesced access)을 잘 짜야 캐시 효율이 살아납니다.">
+          <div><div class="mem-name">L1 / L2 Cache</div><div class="mem-desc">하드웨어 자동 캐시 · 직접 제어 불가</div></div>
+          <div></div>
+          <div class="mem-speed">~20–200 cycle<div class="bar" style="width:50%"></div></div>
+        </div>
+        <div class="mem-tier t-global" data-detail="Global memory는 GPU의 VRAM(HBM)입니다. 모든 스레드가 접근할 수 있지만 가장 느립니다. coalesced access — 인접 스레드가 인접 주소에 접근하기 — 가 핵심 최적화입니다.">
+          <div><div class="mem-name">Global Memory (VRAM)</div><div class="mem-desc">모든 스레드 접근 · cudaMalloc으로 할당</div></div>
+          <div></div>
+          <div class="mem-speed">~400–800 cycle<div class="bar" style="width:25%"></div></div>
+        </div>
+        <div class="mem-tier t-host" data-detail="Host memory는 CPU의 시스템 RAM입니다. GPU가 직접 읽을 수 없으며 cudaMemcpy / 통합 메모리(Unified Memory)로 전송해야 합니다. PCIe를 거치므로 가장 느립니다.">
+          <div><div class="mem-name">Host RAM</div><div class="mem-desc">CPU 측 메모리 · PCIe / NVLink 거쳐 전송</div></div>
+          <div></div>
+          <div class="mem-speed">~수천 cycle<div class="bar" style="width:10%"></div></div>
+        </div>
+      </div>
+
+      <div class="callout info" id="mem-detail" style="display:none">
+        <div class="callout-label" id="mem-detail-label">상세</div>
+        <p id="mem-detail-text"></p>
+      </div>
+
+      <h3>실전 — Coalesced Access</h3>
+      <p>
+        "<strong>인접한 스레드가 인접한 메모리 주소에 접근하면 한 번에 읽힌다</strong>"가
+        CUDA 메모리 최적화의 황금 법칙입니다.
+        같은 32바이트를 32개 스레드가 각자 한 바이트씩 가져가면 <strong>한 번의 트랜잭션</strong>으로 끝납니다.
+        반대로 스레드 0이 0번지, 스레드 1이 1000번지를 읽으면 <strong>32번의 트랜잭션</strong>이 발생합니다.
+      </p>
+      <pre data-lang="패턴"><code><span class="c">// ✅ 좋은 접근 — coalesced</span>
+<span class="t">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;
+output[i] = input[i] * <span class="n">2.0f</span>;
+
+<span class="c">// ❌ 나쁜 접근 — strided</span>
+output[i * <span class="n">32</span>] = input[i * <span class="n">32</span>] * <span class="n">2.0f</span>;  <span class="c">// 같은 워프가 듬성듬성 접근</span></code></pre>
+    </section>
+
+    <!-- ===== SECTION 07 : STACK ===== -->
+    <section id="stack">
+      <span class="eyebrow">07 · 생태계</span>
+      <h2>CUDA 스택 — 우리는 어느 층에 있는가</h2>
+      <p>
+        AI 엔지니어가 평소 다루는 것은 PyTorch입니다.
+        하지만 "왜 GPU 드라이버 버전이 안 맞는다"라는 메시지를 보고 당황한 적이 있다면,
+        그것은 우리가 사실 거대한 스택의 가장 윗층에만 서 있기 때문입니다.
+        한 번쯤 스택 전체를 그려보면 모든 오류 메시지가 다르게 보입니다.
+      </p>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="background:linear-gradient(90deg,#1d2230,#161a22);padding:14px 22px;font-family:var(--mono);font-size:11px;color:var(--text-faint);letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border)">CUDA Stack — 위에서 아래로</div>
+        <div style="padding:0">
+          <div class="stack-layer" style="padding:18px 22px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(167,139,250,0.08),transparent)">
+            <div style="font-family:var(--serif);font-weight:700;color:var(--violet);font-size:1.05rem">① 프레임워크 — PyTorch, TensorFlow, JAX</div>
+            <div style="font-size:13.5px;color:var(--text-dim);margin-top:4px">Python으로 모델을 정의 · 자동 미분 · 우리가 가장 자주 쓰는 층</div>
+          </div>
+          <div class="stack-layer" style="padding:18px 22px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(84,199,236,0.08),transparent)">
+            <div style="font-family:var(--serif);font-weight:700;color:var(--cyan);font-size:1.05rem">② 고수준 라이브러리 — cuDNN, cuBLAS, NCCL, TensorRT</div>
+            <div style="font-size:13.5px;color:var(--text-dim);margin-top:4px">conv, matmul, all-reduce, 추론 최적화 등 자주 쓰는 연산을 NVIDIA가 미리 작성·튜닝</div>
+          </div>
+          <div class="stack-layer" style="padding:18px 22px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(118,185,0,0.08),transparent)">
+            <div style="font-family:var(--serif);font-weight:700;color:var(--green);font-size:1.05rem">③ CUDA Runtime API + nvcc</div>
+            <div style="font-size:13.5px;color:var(--text-dim);margin-top:4px">우리가 직접 CUDA C++ 코드를 짤 때 보는 층 · <code>cudaMalloc</code>, 커널 런치 등</div>
+          </div>
+          <div class="stack-layer" style="padding:18px 22px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(240,160,80,0.08),transparent)">
+            <div style="font-family:var(--serif);font-weight:700;color:var(--amber);font-size:1.05rem">④ CUDA Driver API</div>
+            <div style="font-size:13.5px;color:var(--text-dim);margin-top:4px">더 저수준 · 가상 메모리, 컨텍스트, 모듈 로딩 · 보통 직접 다루지 않음</div>
+          </div>
+          <div class="stack-layer" style="padding:18px 22px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(233,107,128,0.08),transparent)">
+            <div style="font-family:var(--serif);font-weight:700;color:var(--rose);font-size:1.05rem">⑤ GPU 드라이버 (kernel-mode)</div>
+            <div style="font-size:13.5px;color:var(--text-dim);margin-top:4px">OS와 GPU 하드웨어 사이 · <code>nvidia-smi</code>가 보여주는 그 드라이버</div>
+          </div>
+          <div class="stack-layer" style="padding:18px 22px;background:linear-gradient(90deg,rgba(255,255,255,0.04),transparent)">
+            <div style="font-family:var(--serif);font-weight:700;color:var(--text);font-size:1.05rem">⑥ GPU 하드웨어 (SM, HBM, NVLink, …)</div>
+            <div style="font-size:13.5px;color:var(--text-dim);margin-top:4px">실제 실리콘 — H100, A100, GB10(DGX Spark) 등</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <div class="callout-label">실무 직관</div>
+        <p>"<code>CUDA out of memory</code>"는 ②~③에서, "<code>CUDA driver version is insufficient</code>"는 ⑤에서,
+        "<code>no kernel image is available</code>"은 sm_xx 호환 문제(③↔⑥)에서 발생합니다.
+        오류 메시지가 어느 층에서 났는지 짐작할 수 있으면 디버깅이 훨씬 빨라집니다.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 08 : LIBRARIES ===== -->
+    <section id="libs">
+      <span class="eyebrow">08 · 컴포넌트</span>
+      <h2>CUDA 주요 라이브러리 — 클릭해서 살펴보기</h2>
+      <p>
+        NVIDIA가 제공하는 라이브러리들은 단순히 "편의 기능"이 아니라,
+        같은 알고리즘을 <strong>아키텍처별로 손튜닝</strong>한 결과물입니다.
+        직접 구현한 행렬 곱이 cuBLAS의 1/10 속도밖에 안 나오는 게 정상입니다.
+        AI 엔지니어가 자주 마주치는 라이브러리들을 정리합니다.
+      </p>
+
+      <div class="comp-grid">
+        <div class="comp-card">
+          <div class="comp-card-name">cuBLAS</div>
+          <div class="comp-card-tag">선형대수 · BLAS</div>
+          <div class="comp-card-short">행렬 곱 · 벡터 곱 · GEMM 등 BLAS 표준 연산을 GPU에서.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            <strong>역할.</strong> CPU 세계의 BLAS(LAPACK 등) 대응. PyTorch의 <code>@</code>나
+            <code>torch.matmul</code>은 결국 cuBLAS의 GEMM을 호출합니다.<br/><br/>
+            <strong>변형.</strong> <code>cuBLASLt</code>는 더 새로운 API로 mixed-precision과
+            텐서 코어 활용에 유리합니다.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">cuDNN</div>
+          <div class="comp-card-tag">딥러닝 프리미티브</div>
+          <div class="comp-card-short">합성곱 · pooling · BN · RNN 등 딥러닝 빌딩블록 모음.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            <strong>역할.</strong> PyTorch/TensorFlow가 가장 의존하는 라이브러리.
+            같은 conv2d라도 입력 크기·dtype에 따라 cuDNN이 7가지 알고리즘 중 하나를 자동 선택합니다
+            (<code>torch.backends.cudnn.benchmark = True</code>가 그 선택을 가속).<br/><br/>
+            <strong>버전.</strong> CUDA 버전과 cuDNN 버전은 정밀하게 매칭되어야 합니다.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">NCCL</div>
+          <div class="comp-card-tag">멀티 GPU 통신</div>
+          <div class="comp-card-short">all-reduce · broadcast 등 분산 학습의 필수 통신 라이브러리.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            <strong>역할.</strong> 여러 GPU 사이 / 여러 노드 사이의 통신을 NVLink·InfiniBand 위에서 최적화.
+            DDP(DistributedDataParallel)의 그래디언트 동기화가 NCCL의 all-reduce입니다.<br/><br/>
+            <strong>MLOps 관점.</strong> 멀티노드 학습에서 가장 자주 문제가 생기는 지점.
+            네트워크 토폴로지에 매우 민감합니다.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">TensorRT</div>
+          <div class="comp-card-tag">추론 가속</div>
+          <div class="comp-card-short">학습된 모델을 추론용으로 그래프 최적화 · 양자화 · 커널 융합.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            <strong>역할.</strong> PyTorch 모델 → ONNX → TensorRT 엔진으로 변환하면
+            FP16/INT8 양자화와 layer fusion으로 2–10배 추론 가속이 가능합니다.<br/><br/>
+            <strong>최근.</strong> <code>TensorRT-LLM</code>은 LLM 전용 가속(KV-cache, paged attention 등).
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">cuFFT</div>
+          <div class="comp-card-tag">신호 처리</div>
+          <div class="comp-card-short">고속 푸리에 변환 · 신호처리·음성·물리 시뮬에서 사용.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            FFT는 컨볼루션을 가속하는 데에도 쓰입니다(cuDNN의 FFT 기반 알고리즘이 내부적으로 호출).
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">Thrust</div>
+          <div class="comp-card-tag">STL 스타일</div>
+          <div class="comp-card-short">C++ STL과 비슷한 인터페이스로 sort / reduce / scan 등.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            <code>thrust::sort</code>, <code>thrust::reduce</code> 같은 함수로 손쉽게 GPU 알고리즘 사용 가능.
+            교육용·프로토타이핑에 좋습니다.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">CUB</div>
+          <div class="comp-card-tag">병렬 프리미티브</div>
+          <div class="comp-card-short">스레드/블록/장치 수준의 reduce·scan·sort 빌딩블록.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            Thrust보다 한 단계 낮은 라이브러리. 커스텀 커널 안에서 효율적인
+            collective 연산이 필요할 때 사용.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">cuSPARSE / cuSOLVER</div>
+          <div class="comp-card-tag">희소 / 선형대수</div>
+          <div class="comp-card-short">희소 행렬 연산, 선형 시스템 풀기, 고유값 분해 등.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            GNN, 과학 계산, 추천 시스템에서 자주 등장.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">Nsight Systems / Compute</div>
+          <div class="comp-card-tag">프로파일러</div>
+          <div class="comp-card-short">시계열 프로파일링과 커널 단위 상세 분석.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            <code>nsys</code> = 전체 학습 파이프라인 타임라인, <code>ncu</code> = 한 커널의 instruction 단위 분석.
+            "이상하게 느리다"의 원인을 찾을 때 필수.
+          </div></div>
+        </div>
+
+        <div class="comp-card">
+          <div class="comp-card-name">NVCC</div>
+          <div class="comp-card-tag">컴파일러</div>
+          <div class="comp-card-short">CUDA C++ → PTX → SASS로 변환하는 컴파일러.</div>
+          <div class="comp-detail"><div class="comp-detail-inner">
+            PTX는 GPU의 "어셈블리 IR", SASS는 실제 GPU 명령어. <code>--gpu-architecture=sm_90</code>
+            같은 옵션이 어떤 아키텍처용으로 빌드할지 결정.
+          </div></div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-label">버전 호환</div>
+        <p>실무에서 가장 많은 시간을 잡아먹는 문제 — <strong>CUDA Toolkit ↔ cuDNN ↔ 드라이버 ↔ PyTorch</strong>의
+        버전 매트릭스. <code>nvidia-smi</code>는 드라이버가 지원하는 <em>최대</em> CUDA 버전을 보여줄 뿐,
+        설치된 toolkit 버전이 아닙니다. <code>nvcc --version</code>으로 toolkit 버전을 확인하세요.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 09 : FIRST CODE ===== -->
+    <section id="code">
+      <span class="eyebrow">09 · 실전</span>
+      <h2>첫 CUDA 코드 — 손에 익히기</h2>
+      <p>
+        이론을 다 봤으니, 가장 작은 CUDA 프로그램을 직접 읽어 봅시다.
+        세 가지 예제를 탭으로 준비했습니다. 각 예제의 "왜 이렇게 쓰는가"를 함께 적었습니다.
+      </p>
+
+      <div class="tabs">
+        <div class="tab-list">
+          <button class="tab-btn active" data-tab="t1">① Hello, GPU</button>
+          <button class="tab-btn" data-tab="t2">② 벡터 덧셈</button>
+          <button class="tab-btn" data-tab="t3">③ Reduce (sum)</button>
+        </div>
+
+        <div class="tab-panel active" data-tab="t1">
+          <pre data-lang="hello.cu"><code><span class="k">#include</span> <span class="s">&lt;cstdio&gt;</span>
+
+<span class="k">__global__</span> <span class="t">void</span> <span class="f">hello</span>() {
+    <span class="f">printf</span>(<span class="s">"Hello from thread %d of block %d\n"</span>,
+           threadIdx.x, blockIdx.x);
+}
+
+<span class="t">int</span> <span class="f">main</span>() {
+    <span class="f">hello</span>&lt;&lt;&lt;<span class="n">2</span>, <span class="n">4</span>&gt;&gt;&gt;();          <span class="c">// 2 블록 × 4 스레드 = 총 8개 스레드</span>
+    <span class="f">cudaDeviceSynchronize</span>();      <span class="c">// GPU 작업 끝날 때까지 대기</span>
+    <span class="k">return</span> <span class="n">0</span>;
+}</code></pre>
+          <p>
+            <strong>읽는 법.</strong> <code>__global__</code>은 "GPU에서 실행되되 CPU에서 호출되는 함수"
+            (= 커널)임을 알리는 키워드입니다.
+            <code>&lt;&lt;&lt;2, 4&gt;&gt;&gt;</code>가 그리드 차원 × 블록 차원.
+            <code>cudaDeviceSynchronize</code>가 없으면 CPU가 먼저 끝나버려 출력이 안 보일 수 있습니다.
+          </p>
+          <p>
+            <strong>빌드.</strong> <code>nvcc hello.cu -o hello && ./hello</code>
+          </p>
+        </div>
+
+        <div class="tab-panel" data-tab="t2">
+          <pre data-lang="vec_add.cu"><code><span class="k">__global__</span> <span class="t">void</span> <span class="f">vecAdd</span>(<span class="t">float</span>* a, <span class="t">float</span>* b, <span class="t">float</span>* c, <span class="t">int</span> n) {
+    <span class="t">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;
+    <span class="k">if</span> (i &lt; n) c[i] = a[i] + b[i];
+}
+
+<span class="t">int</span> <span class="f">main</span>() {
+    <span class="t">int</span> n = <span class="n">1</span> &lt;&lt; <span class="n">20</span>;                          <span class="c">// 100만 개</span>
+    <span class="t">size_t</span> bytes = n * <span class="k">sizeof</span>(<span class="t">float</span>);
+
+    <span class="c">// 1. 호스트에서 메모리 할당 & 초기화</span>
+    <span class="t">float</span> *hA = (<span class="t">float</span>*)<span class="f">malloc</span>(bytes), *hB = (<span class="t">float</span>*)<span class="f">malloc</span>(bytes), *hC = (<span class="t">float</span>*)<span class="f">malloc</span>(bytes);
+    <span class="k">for</span> (<span class="t">int</span> i=<span class="n">0</span>; i&lt;n; ++i) { hA[i] = <span class="n">1.0f</span>; hB[i] = <span class="n">2.0f</span>; }
+
+    <span class="c">// 2. GPU 메모리 할당</span>
+    <span class="t">float</span> *dA, *dB, *dC;
+    <span class="f">cudaMalloc</span>(&amp;dA, bytes); <span class="f">cudaMalloc</span>(&amp;dB, bytes); <span class="f">cudaMalloc</span>(&amp;dC, bytes);
+
+    <span class="c">// 3. CPU → GPU 전송</span>
+    <span class="f">cudaMemcpy</span>(dA, hA, bytes, cudaMemcpyHostToDevice);
+    <span class="f">cudaMemcpy</span>(dB, hB, bytes, cudaMemcpyHostToDevice);
+
+    <span class="c">// 4. 커널 실행</span>
+    <span class="t">int</span> tpb = <span class="n">256</span>, blk = (n + tpb - <span class="n">1</span>) / tpb;
+    <span class="f">vecAdd</span>&lt;&lt;&lt;blk, tpb&gt;&gt;&gt;(dA, dB, dC, n);
+
+    <span class="c">// 5. GPU → CPU 복사</span>
+    <span class="f">cudaMemcpy</span>(hC, dC, bytes, cudaMemcpyDeviceToHost);
+
+    <span class="c">// 6. 정리</span>
+    <span class="f">cudaFree</span>(dA); <span class="f">cudaFree</span>(dB); <span class="f">cudaFree</span>(dC);
+    <span class="f">free</span>(hA); <span class="f">free</span>(hB); <span class="f">free</span>(hC);
+}</code></pre>
+          <p>
+            <strong>핵심 패턴.</strong> 모든 CUDA 프로그램은 사실상 이 여섯 단계의 변주입니다 —
+            ① CPU 할당 → ② GPU 할당 → ③ H2D 복사 → ④ 커널 실행 → ⑤ D2H 복사 → ⑥ 해제.
+            PyTorch에서 <code>.to("cuda")</code>가 ②③을, 연산이 ④를, <code>.cpu()</code>가 ⑤를 자동으로 합니다.
+          </p>
+        </div>
+
+        <div class="tab-panel" data-tab="t3">
+          <pre data-lang="reduce.cu"><code><span class="c">// 한 블록 안에서 합을 구하는 간단한 reduce (트리 방식)</span>
+<span class="k">__global__</span> <span class="t">void</span> <span class="f">blockReduce</span>(<span class="t">float</span>* in, <span class="t">float</span>* out, <span class="t">int</span> n) {
+    <span class="k">__shared__</span> <span class="t">float</span> s[<span class="n">256</span>];          <span class="c">// 블록 공유 메모리</span>
+    <span class="t">int</span> tid = threadIdx.x;
+    <span class="t">int</span> i = blockIdx.x * blockDim.x + tid;
+    s[tid] = (i &lt; n) ? in[i] : <span class="n">0.0f</span>;
+    <span class="f">__syncthreads</span>();                        <span class="c">// 블록 내 모든 스레드 동기화</span>
+
+    <span class="c">// 트리: 절반씩 짝지어 더함</span>
+    <span class="k">for</span> (<span class="t">int</span> s2 = blockDim.x/<span class="n">2</span>; s2 &gt; <span class="n">0</span>; s2 &gt;&gt;= <span class="n">1</span>) {
+        <span class="k">if</span> (tid &lt; s2) s[tid] += s[tid + s2];
+        <span class="f">__syncthreads</span>();
+    }
+    <span class="k">if</span> (tid == <span class="n">0</span>) out[blockIdx.x] = s[<span class="n">0</span>];
+}</code></pre>
+          <p>
+            <strong>여기서 새로 보이는 것들.</strong>
+            <code>__shared__</code> = 블록 안 모든 스레드가 같이 쓰는 작은 SRAM.
+            <code>__syncthreads()</code> = "모든 스레드가 여기까지 와야 다음으로 가자"는 배리어.
+            트리 reduce는 O(log N) 깊이로 합을 구하는 고전적인 GPU 패턴입니다.
+            cuBLAS·CUB가 내부적으로 다 이런 패턴을 정교화한 것입니다.
+          </p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <div class="callout-label">학습 권장 경로</div>
+        <p>① 위 세 예제를 직접 컴파일·실행 → ② Nsight Compute로 <code>vecAdd</code> 프로파일링 →
+        ③ <code>blockReduce</code>를 <code>warpReduce</code>(<code>__shfl_down_sync</code>)로 개선해 보기.
+        이 세 단계만 끝내도 CUDA 시야가 확연히 넓어집니다.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 10 : PYTORCH ===== -->
+    <section id="pytorch">
+      <span class="eyebrow">10 · 프레임워크</span>
+      <h2>PyTorch와 CUDA — 한 줄 뒤에 무엇이 있나</h2>
+      <p>
+        AI 엔지니어가 매일 쓰는 한 줄을 해부해 봅시다.
+      </p>
+
+      <pre data-lang="Python"><code><span class="k">import</span> torch
+x = torch.randn(<span class="n">1024</span>, <span class="n">1024</span>, device=<span class="s">"cuda"</span>)
+y = x @ x.T</code></pre>
+
+      <p>이 세 줄이 실제로 호출하는 것:</p>
+      <ol>
+        <li><code>device="cuda"</code> → CUDA Runtime의 <code>cudaSetDevice</code> 호출, GPU 컨텍스트 확보.</li>
+        <li><code>torch.randn</code> → <code>cudaMalloc</code>으로 VRAM 할당 후, PyTorch 내부 RNG 커널을 실행.</li>
+        <li><code>x @ x.T</code> → cuBLAS의 <code>cublasSgemm</code> (또는 텐서 코어 활용 시 <code>cublasGemmEx</code>) 호출.</li>
+        <li>모든 작업은 <strong>CUDA stream</strong>에 비동기로 큐잉되며, CPU는 결과를 실제로 읽기 전까지 기다리지 않음.</li>
+      </ol>
+
+      <div class="card">
+        <h4>PyTorch에서 자주 마주치는 CUDA 개념</h4>
+        <ul>
+          <li><code>torch.cuda.synchronize()</code> — 비동기 큐의 모든 작업이 끝날 때까지 대기.
+          <strong>벤치마킹 전에 반드시 호출</strong>. 안 부르면 측정 시간이 사실상 의미 없음.</li>
+          <li><code>torch.cuda.Stream</code> — 여러 스트림을 만들어 계산과 데이터 전송을 겹쳐 실행(overlapping).</li>
+          <li><code>torch.cuda.amp.autocast</code> — FP16/BF16 자동 혼합 정밀도. 텐서 코어를 활용해 2–3배 가속.</li>
+          <li><code>torch.compile</code> — 그래프 단위 컴파일. 내부적으로 Inductor가 Triton/CUDA 커널을 생성.</li>
+          <li><code>torch.backends.cudnn.benchmark = True</code> — cuDNN이 입력 크기에 맞는 최적 알고리즘을 1회 탐색 후 캐싱.</li>
+        </ul>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-label">자주 만나는 함정</div>
+        <p>"CPU 시간 측정 결과 GPU가 더 느리다" — 거의 항상 <code>synchronize()</code>를 안 불러서 발생합니다.
+        커널 런치는 비동기이므로, <code>time.time()</code> 사이의 시간은 <em>런치 큐잉 시간</em>일 뿐
+        실행 시간이 아닙니다. <code>torch.cuda.Event</code>를 쓰는 게 정석입니다.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 11 : COMPARISON ===== -->
+    <section id="compare">
+      <span class="eyebrow">11 · 비교</span>
+      <h2>CUDA와 다른 ML/GPU 프레임워크</h2>
+      <p>
+        CUDA는 사실상 표준이지만 유일한 선택지는 아닙니다.
+        각 대안이 어떤 자리에서 어떤 트레이드오프를 갖는지 정리합니다.
+      </p>
+
+      <div class="compare-table">
+        <table>
+          <thead>
+            <tr>
+              <th>프레임워크</th>
+              <th>주체</th>
+              <th>대상 하드웨어</th>
+              <th>추상화 수준</th>
+              <th>강점</th>
+              <th>한계</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>CUDA</td>
+              <td>NVIDIA</td>
+              <td>NVIDIA GPU 전용</td>
+              <td>저수준 (C++)</td>
+              <td>성숙한 생태계 · 최고 성능 · cuDNN/TensorRT</td>
+              <td>NVIDIA 락인</td>
+            </tr>
+            <tr>
+              <td>OpenCL</td>
+              <td>Khronos Group</td>
+              <td>CPU·GPU·FPGA 등</td>
+              <td>저수준 (C)</td>
+              <td>벤더 중립</td>
+              <td>딥러닝 생태계가 거의 사라짐</td>
+            </tr>
+            <tr>
+              <td>ROCm / HIP</td>
+              <td>AMD</td>
+              <td>AMD GPU (MI300 등)</td>
+              <td>CUDA와 동등</td>
+              <td>CUDA 코드 거의 그대로 포팅 (<code>hipify</code>)</td>
+              <td>cuDNN 대응 라이브러리(MIOpen)가 아직 따라오는 중</td>
+            </tr>
+            <tr>
+              <td>Metal / MPS</td>
+              <td>Apple</td>
+              <td>Apple Silicon (M 시리즈)</td>
+              <td>중간</td>
+              <td>맥 환경의 가속 · MLX</td>
+              <td>대규모 학습 불가, 메모리 제약</td>
+            </tr>
+            <tr>
+              <td>oneAPI / SYCL</td>
+              <td>Intel</td>
+              <td>Intel CPU/GPU/FPGA</td>
+              <td>중간 (C++)</td>
+              <td>표준 기반·이식성</td>
+              <td>AI 분야 채택률 낮음</td>
+            </tr>
+            <tr>
+              <td>OpenAI Triton</td>
+              <td>OpenAI</td>
+              <td>NVIDIA GPU (AMD 실험적)</td>
+              <td>Python DSL</td>
+              <td>커널을 Python으로 · 자동 최적화 · FlashAttention 등 핵심</td>
+              <td>여전히 NVIDIA 중심</td>
+            </tr>
+            <tr>
+              <td>JAX / XLA</td>
+              <td>Google</td>
+              <td>GPU·TPU·CPU</td>
+              <td>고수준 (함수형)</td>
+              <td><code>jit</code>·<code>pmap</code>·TPU 친화</td>
+              <td>디버깅·동적 그래프 어려움</td>
+            </tr>
+            <tr>
+              <td>TensorFlow / PyTorch</td>
+              <td>Google / Meta</td>
+              <td>GPU·TPU·CPU·NPU</td>
+              <td>최고수준</td>
+              <td>일상 워크플로 표준</td>
+              <td>내부적으론 결국 위 백엔드를 호출</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>한눈에 — 어떤 자리에 어떤 도구를 쓰나</h3>
+      <div class="card">
+        <p><strong>가장 흔한 조합 (95%의 경우)</strong></p>
+        <p style="margin:6px 0">PyTorch (모델 정의) → cuDNN/cuBLAS (자동 호출) → CUDA Runtime → NVIDIA GPU</p>
+      </div>
+      <div class="card">
+        <p><strong>최고 성능이 필요할 때 (FlashAttention 같은 커스텀 커널)</strong></p>
+        <p style="margin:6px 0">PyTorch → Triton 또는 CUDA C++로 커널 작성 → 직접 cuBLASLt/cuDNN 우회</p>
+      </div>
+      <div class="card">
+        <p><strong>NVIDIA가 아닌 환경</strong></p>
+        <p style="margin:6px 0">Apple Silicon → PyTorch MPS / MLX. AMD → PyTorch ROCm. TPU → JAX/XLA.</p>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-label">왜 CUDA가 표준이 되었나</div>
+        <p>기술적 우위만이 아니라 <strong>10년 누적된 생태계</strong>가 결정적입니다. 모든 논문이
+        CUDA로 코드를 공개하고, cuDNN의 conv가 가장 빠르며, NCCL이 가장 안정적이고,
+        모든 클라우드의 GPU 인스턴스가 NVIDIA입니다. 이 관성을 뒤집는 데는 시간이 더 필요할 것입니다.</p>
+      </div>
+    </section>
+
+    <!-- ===== SECTION 12 : WRAP UP ===== -->
+    <section id="wrapup">
+      <span class="eyebrow">12 · 정리</span>
+      <h2>정리하며 — 머릿속에 남겨야 할 그림</h2>
+      <p>이 강의에서 다룬 것들을 한 장면으로 압축해 보면:</p>
+
+      <div class="card card-emph">
+        <h4>CUDA = 〈하드웨어 · 컴파일러 · 런타임 · 라이브러리〉의 정렬된 스택</h4>
+        <ul>
+          <li><strong>실행 모델은 SIMT</strong> — 한 명령, 여러 스레드, 32개 워프 단위.</li>
+          <li><strong>스레드 계층은 Thread→Block→Grid</strong> — 블록 안에서만 통신, 그리드는 자유 배치.</li>
+          <li><strong>성능의 90%는 메모리</strong> — coalesced access, shared memory 활용이 핵심.</li>
+          <li><strong>직접 짜기 전에 라이브러리부터</strong> — cuBLAS·cuDNN·NCCL이 거의 항상 더 빠르다.</li>
+          <li><strong>PyTorch 한 줄 뒤에는 이 모든 것이 있다</strong> — 오류 메시지를 다르게 읽을 수 있게 된다.</li>
+        </ul>
+      </div>
+
+      <h3>다음 단계 — 실습으로 확장하기</h3>
+      <ol>
+        <li><strong>본인 환경 점검.</strong> <code>nvidia-smi</code>, <code>nvcc --version</code>, <code>python -c "import torch; print(torch.version.cuda)"</code>의 세 값을 일치시켜 두기. DGX Spark처럼 ARM64 + sm_121 환경이면 PyTorch nightly·CUDA 13 호환 휠을 확인하기.</li>
+        <li><strong>Hello World → 벡터 덧셈 → reduce</strong> 순으로 직접 컴파일·실행.</li>
+        <li><strong>Nsight Compute</strong>로 자기 커널의 메모리 throughput·occupancy 보기.</li>
+        <li><strong>PyTorch의 한 연산</strong> (예: <code>F.scaled_dot_product_attention</code>)에 <code>nsys</code>를 붙여서, 어떤 CUDA 커널들이 어떤 순서로 실행되는지 관찰.</li>
+        <li><strong>Triton으로 첫 커스텀 커널</strong>을 작성해 보기 — Python으로 작성하지만 CUDA 위에서 동작.</li>
+      </ol>
+
+      <h3>추가 학습 자료</h3>
+      <ul>
+        <li><strong>공식 문서</strong> — "CUDA C++ Programming Guide"가 가장 정확. 길지만 처음 4장만 읽어도 충분히 도움됨.</li>
+        <li><strong>Programming Massively Parallel Processors</strong> (Kirk &amp; Hwu) — 정석 교과서.</li>
+        <li><strong>NVIDIA Deep Learning Performance Guide</strong> — 텐서 코어와 정밀도 튜닝을 위한 실용 가이드.</li>
+        <li><strong>Triton tutorials</strong> — Python으로 GPU 커널을 짜는 가장 빠른 길.</li>
+      </ul>
+
+      <div class="callout">
+        <div class="callout-label">맺으며</div>
+        <p>CUDA를 안다는 것은 단순히 한 라이브러리를 안다는 것이 아닙니다.
+        그것은 <strong>현대 AI 인프라가 무엇 위에 서 있는지</strong>를 안다는 뜻입니다.
+        스레드 계층과 메모리 계층, 단 두 그림만 머릿속에 또렷이 남아 있다면,
+        이 강의는 충분히 제 몫을 다한 것입니다.</p>
+      </div>
+    </section>
+
+    <footer>
+      <div>· · ·</div>
+      <p style="margin-top:14px">CUDA 입문 강의 — <span class="sig">한국어 강의 노트 v1.0</span></p>
+      <p style="margin-top:4px;font-size:11px">Compiled for AI engineers stepping into GPU computing.</p>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+/* ========== Sidebar active nav on scroll ========== */
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav-list a');
+const setActive = () => {
+  const y = window.scrollY + 100;
+  let current = sections[0].id;
+  sections.forEach(s => { if (s.offsetTop <= y) current = s.id; });
+  navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + current));
+};
+window.addEventListener('scroll', setActive, { passive: true });
+setActive();
+
+/* ========== CPU vs GPU core animation ========== */
+function buildCores(elId, total, cls, activeCount) {
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  const cores = [];
+  for (let i = 0; i < total; i++) {
+    const c = document.createElement('div');
+    c.className = 'core ' + cls;
+    el.appendChild(c);
+    cores.push(c);
+  }
+  // animate activation
+  setInterval(() => {
+    cores.forEach(c => c.classList.remove('active'));
+    const pickSet = new Set();
+    while (pickSet.size < activeCount) pickSet.add(Math.floor(Math.random() * total));
+    pickSet.forEach(idx => cores[idx].classList.add('active', cls + '-c'));
+  }, 800);
+}
+buildCores('cpu-cores', 16, 'cpu', 3);
+buildCores('gpu-cores', 256, 'gpu', 80);
+
+/* ========== SIMT vector sim ========== */
+(() => {
+  const N = 8;
+  const aEl = document.getElementById('sim-a');
+  const bEl = document.getElementById('sim-b');
+  const cEl = document.getElementById('sim-c');
+  const status = document.getElementById('sim-status');
+
+  function build() {
+    [aEl, bEl, cEl].forEach(row => {
+      row.innerHTML = '';
+      for (let i = 0; i < N; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'sim-cell';
+        cell.textContent = row === cEl ? '?' : Math.floor(Math.random() * 9 + 1);
+        row.appendChild(cell);
+      }
+    });
+    status.textContent = '대기 중';
+  }
+  build();
+
+  function simtRun() {
+    const aCells = aEl.children, bCells = bEl.children, cCells = cEl.children;
+    [...cCells].forEach(c => { c.classList.remove('lit-out'); c.textContent = '?'; });
+    [...aCells].forEach(c => c.classList.add('lit-input'));
+    [...bCells].forEach(c => c.classList.add('lit-input'));
+    status.textContent = 'GPU 모드 — 8개 스레드 동시 실행';
+    setTimeout(() => {
+      for (let i = 0; i < N; i++) {
+        cCells[i].textContent = (+aCells[i].textContent) + (+bCells[i].textContent);
+        cCells[i].classList.add('lit-out');
+      }
+      status.textContent = '✓ 한 단계에서 8칸 모두 처리 완료';
+    }, 500);
+  }
+  function cpuRun() {
+    const aCells = aEl.children, bCells = bEl.children, cCells = cEl.children;
+    [...cCells].forEach(c => { c.classList.remove('lit-out'); c.textContent = '?'; });
+    [...aCells, ...bCells].forEach(c => c.classList.remove('lit-input'));
+    let i = 0;
+    status.textContent = 'CPU 모드 — 한 번에 한 칸씩 순차 처리';
+    const step = () => {
+      if (i > 0) {
+        aCells[i-1].classList.remove('lit-input');
+        bCells[i-1].classList.remove('lit-input');
+      }
+      if (i >= N) { status.textContent = '✓ 8단계 만에 완료 (느림)'; return; }
+      aCells[i].classList.add('lit-input');
+      bCells[i].classList.add('lit-input');
+      cCells[i].textContent = (+aCells[i].textContent) + (+bCells[i].textContent);
+      cCells[i].classList.add('lit-out');
+      i++;
+      setTimeout(step, 350);
+    };
+    step();
+  }
+  document.getElementById('sim-run').addEventListener('click', simtRun);
+  document.getElementById('sim-reset').addEventListener('click', build);
+  document.getElementById('sim-cpu').addEventListener('click', cpuRun);
+})();
+
+/* ========== Quiz ========== */
+document.querySelectorAll('.quiz').forEach(q => {
+  const opts = q.querySelectorAll('.quiz-opt');
+  const fb = q.querySelector('.quiz-feedback');
+  opts.forEach(o => {
+    o.addEventListener('click', () => {
+      const correct = o.dataset.correct === 'true';
+      opts.forEach(x => x.disabled = true);
+      o.classList.add(correct ? 'correct' : 'wrong');
+      if (!correct) {
+        opts.forEach(x => { if (x.dataset.correct === 'true') x.classList.add('correct'); });
+      }
+      fb.classList.add('show');
+    });
+  });
+});
+
+/* ========== Thread hierarchy visualizer ========== */
+(() => {
+  const rG = document.getElementById('r-grid');
+  const rB = document.getElementById('r-block');
+  const vG = document.getElementById('v-grid');
+  const vB = document.getElementById('v-block');
+  const canvas = document.getElementById('tv-canvas');
+  const sBlocks = document.getElementById('s-blocks');
+  const sThreads = document.getElementById('s-threads');
+  const sTotal = document.getElementById('s-total');
+  const sWarps = document.getElementById('s-warps');
+
+  function render() {
+    const G = +rG.value;
+    const B = +rB.value;
+    vG.textContent = G;
+    vB.textContent = B;
+    sBlocks.textContent = G;
+    sThreads.textContent = B;
+    sTotal.textContent = G * B;
+    sWarps.textContent = Math.ceil((G * B) / 32);
+
+    canvas.style.gridTemplateColumns = `repeat(${Math.min(G, 4)}, 1fr)`;
+    canvas.innerHTML = '';
+
+    // figure out a nice thread layout per block
+    const cols = B <= 32 ? 8 : B <= 64 ? 8 : B <= 128 ? 16 : 16;
+    for (let i = 0; i < G; i++) {
+      const blk = document.createElement('div');
+      blk.className = 'block';
+      blk.innerHTML = `<div class="block-title">Block ${i} · ${B} threads</div>`;
+      const tg = document.createElement('div');
+      tg.className = 'threads-of-block';
+      tg.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      for (let j = 0; j < B; j++) {
+        const t = document.createElement('div');
+        t.className = 'thread warp-' + (Math.floor(j / 32) % 4);
+        tg.appendChild(t);
+      }
+      blk.appendChild(tg);
+      canvas.appendChild(blk);
+    }
+  }
+  rG.addEventListener('input', render);
+  rB.addEventListener('input', render);
+  render();
+})();
+
+/* ========== Memory tier details ========== */
+(() => {
+  const tiers = document.querySelectorAll('.mem-tier');
+  const detail = document.getElementById('mem-detail');
+  const label = document.getElementById('mem-detail-label');
+  const text = document.getElementById('mem-detail-text');
+  tiers.forEach(t => {
+    t.addEventListener('click', () => {
+      detail.style.display = 'block';
+      label.textContent = t.querySelector('.mem-name').textContent;
+      text.textContent = t.dataset.detail;
+      detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+})();
+
+/* ========== Component card expand ========== */
+document.querySelectorAll('.comp-card').forEach(card => {
+  card.addEventListener('click', () => card.classList.toggle('expanded'));
+});
+
+/* ========== Tabs ========== */
+document.querySelectorAll('.tabs').forEach(group => {
+  const btns = group.querySelectorAll('.tab-btn');
+  const panels = group.querySelectorAll('.tab-panel');
+  btns.forEach(b => {
+    b.addEventListener('click', () => {
+      btns.forEach(x => x.classList.remove('active'));
+      panels.forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      group.querySelector(`.tab-panel[data-tab="${b.dataset.tab}"]`).classList.add('active');
+    });
+  });
+});
+</script>
+</body>
+</html>
