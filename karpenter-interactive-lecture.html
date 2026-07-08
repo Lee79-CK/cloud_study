@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karpenter 완벽 가이드 — 차세대 Kubernetes 노드 오토스케일링</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jetbrains-mono/1.0.6/css/jetbrains-mono.min.css">
+<style>
+:root{
+  --bg:#0B0E14;
+  --bg-soft:#10141E;
+  --surface:#151B28;
+  --surface-2:#1B2333;
+  --line:#232D42;
+  --line-soft:#1B2333;
+  --text:#E6EBF4;
+  --text-dim:#9AA7BD;
+  --text-faint:#5F6C84;
+  --accent:#5B9DEF;      /* Karpenter blue */
+  --accent-soft:rgba(91,157,239,.12);
+  --amber:#F5B15C;       /* cost / spot */
+  --amber-soft:rgba(245,177,92,.12);
+  --green:#5ED4A4;       /* success / karpenter track */
+  --green-soft:rgba(94,212,164,.12);
+  --red:#EF7B7B;
+  --red-soft:rgba(239,123,123,.12);
+  --purple:#B08BEF;
+  --purple-soft:rgba(176,139,239,.12);
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Pretendard Variable',Pretendard,-apple-system,sans-serif;
+  --radius:12px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001s!important;transition-duration:.001s!important}
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.75;font-size:16px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--accent);color:#08101E}
+
+/* ---------- layout ---------- */
+.layout{display:grid;grid-template-columns:260px 1fr;max-width:1340px;margin:0 auto}
+main{min-width:0;padding:0 56px 120px;border-left:1px solid var(--line-soft)}
+@media(max-width:1024px){
+  .layout{grid-template-columns:1fr}
+  main{padding:0 20px 80px;border-left:none}
+  nav.toc{display:none}
+}
+
+/* ---------- sidebar ---------- */
+nav.toc{position:sticky;top:0;height:100vh;overflow-y:auto;padding:36px 20px 60px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.toc-brand{font-family:var(--mono);font-size:12px;letter-spacing:.16em;color:var(--accent);text-transform:uppercase;margin-bottom:6px}
+.toc-title{font-size:17px;font-weight:800;margin-bottom:28px;line-height:1.4}
+.toc-group{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;color:var(--text-faint);text-transform:uppercase;margin:22px 0 8px}
+nav.toc a{display:block;padding:6px 10px;margin:1px 0;border-radius:7px;color:var(--text-dim);text-decoration:none;font-size:13.5px;border-left:2px solid transparent;transition:all .15s}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--accent);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
+
+/* ---------- hero ---------- */
+.hero{padding:88px 0 64px;border-bottom:1px solid var(--line)}
+.hero-eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.18em;color:var(--accent);text-transform:uppercase;margin-bottom:20px}
+.hero h1{font-size:clamp(34px,4.6vw,52px);font-weight:900;line-height:1.18;letter-spacing:-.02em;margin-bottom:22px}
+.hero h1 .grad{background:linear-gradient(92deg,var(--accent) 10%,var(--green) 90%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p.lede{font-size:18px;color:var(--text-dim);max-width:640px;margin-bottom:32px}
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px}
+.chip{font-family:var(--mono);font-size:12px;padding:6px 14px;border-radius:999px;border:1px solid var(--line);color:var(--text-dim);background:var(--surface)}
+.chip.hl{border-color:rgba(91,157,239,.4);color:var(--accent);background:var(--accent-soft)}
+
+/* ---------- sections & typography ---------- */
+section{padding:72px 0 8px}
+.sec-eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;color:var(--accent);text-transform:uppercase;margin-bottom:10px}
+section>h2{font-size:30px;font-weight:850;letter-spacing:-.015em;margin-bottom:18px}
+section h3{font-size:21px;font-weight:750;margin:44px 0 14px;letter-spacing:-.01em}
+section h4{font-size:16.5px;font-weight:700;margin:28px 0 10px;color:var(--text)}
+section p{color:var(--text-dim);margin-bottom:16px;max-width:760px}
+section p strong,section li strong{color:var(--text);font-weight:700}
+section ul,section ol{margin:0 0 18px 22px;color:var(--text-dim);max-width:740px}
+section li{margin-bottom:8px}
+section li::marker{color:var(--accent)}
+code.inline{font-family:var(--mono);font-size:.86em;background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:2px 7px;color:#9CC4F5}
+
+/* ---------- callouts ---------- */
+.callout{display:flex;gap:14px;padding:18px 20px;border-radius:var(--radius);margin:22px 0;font-size:15px;max-width:780px;border:1px solid}
+.callout .ic{font-size:19px;line-height:1.5}
+.callout p{margin:0;max-width:none}
+.callout.info{background:var(--accent-soft);border-color:rgba(91,157,239,.3)}
+.callout.warn{background:var(--amber-soft);border-color:rgba(245,177,92,.3)}
+.callout.danger{background:var(--red-soft);border-color:rgba(239,123,123,.3)}
+.callout.tip{background:var(--green-soft);border-color:rgba(94,212,164,.3)}
+
+/* ---------- cards ---------- */
+.grid{display:grid;gap:16px;margin:26px 0}
+.grid.c2{grid-template-columns:repeat(2,1fr)}
+.grid.c3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:860px){.grid.c2,.grid.c3{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.card h4{margin:0 0 8px;font-size:15.5px}
+.card p{font-size:14px;margin:0;max-width:none}
+.card .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:8px}
+
+/* ---------- tables ---------- */
+.tbl-wrap{overflow-x:auto;margin:24px 0;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}
+th{background:var(--surface-2);font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);text-align:left;padding:12px 16px;border-bottom:1px solid var(--line)}
+td{padding:12px 16px;border-bottom:1px solid var(--line-soft);color:var(--text-dim);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.good{color:var(--green)}
+td.bad{color:var(--red)}
+td.mid{color:var(--amber)}
+td b,th b{color:var(--text)}
+
+/* ---------- code blocks & tabs ---------- */
+.codebox{margin:22px 0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#0A0E16}
+.codebox-head{display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);padding:0 8px 0 0;border-bottom:1px solid var(--line)}
+.codetabs{display:flex;overflow-x:auto}
+.codetabs button{font-family:var(--mono);font-size:12.5px;padding:11px 18px;background:none;border:none;color:var(--text-faint);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s}
+.codetabs button.on{color:var(--accent);border-bottom-color:var(--accent);background:rgba(91,157,239,.06)}
+.codetabs button:hover:not(.on){color:var(--text-dim)}
+.copybtn{font-family:var(--mono);font-size:11px;color:var(--text-faint);background:none;border:1px solid var(--line);border-radius:6px;padding:5px 12px;cursor:pointer;transition:all .15s;flex-shrink:0}
+.copybtn:hover{color:var(--text);border-color:var(--text-faint)}
+.codepane{display:none}
+.codepane.on{display:block}
+pre{padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.72;scrollbar-width:thin}
+pre code{color:#C4CEE0}
+.tk-c{color:#5F6C84;font-style:italic}   /* comment */
+.tk-k{color:#7FB5F7}                      /* key/keyword */
+.tk-s{color:#A9D9A0}                      /* string */
+.tk-n{color:#F5B15C}                      /* number */
+.tk-p{color:#B08BEF}                      /* prompt/$ */
+.tk-hl{background:rgba(91,157,239,.14);display:inline-block;width:100%}
+
+/* ---------- interactive shells ---------- */
+.demo{background:var(--bg-soft);border:1px solid var(--line);border-radius:16px;padding:28px;margin:30px 0}
+.demo-tag{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--green);text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.demo-tag::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.demo h4{margin:0 0 6px;font-size:17px}
+.demo>p{font-size:14px;margin-bottom:18px}
+.btn{font-family:var(--sans);font-weight:650;font-size:14px;padding:10px 22px;border-radius:9px;border:1px solid transparent;cursor:pointer;transition:all .15s}
+.btn.primary{background:var(--accent);color:#08101E}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.ghost{background:transparent;color:var(--text-dim);border-color:var(--line)}
+.btn.ghost:hover{color:var(--text);border-color:var(--text-faint)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* --- race simulator --- */
+.race-track{margin:18px 0;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.race-name{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.race-name b{font-size:14.5px}
+.race-time{font-family:var(--mono);font-size:13px;color:var(--text-dim)}
+.race-bar{position:relative;height:34px;background:var(--bg);border-radius:8px;overflow:hidden;border:1px solid var(--line-soft)}
+.race-fill{position:absolute;inset:0 auto 0 0;width:0%;border-radius:8px;transition:width .3s linear}
+.race-fill.ca{background:linear-gradient(90deg,rgba(245,177,92,.25),rgba(245,177,92,.6))}
+.race-fill.kp{background:linear-gradient(90deg,rgba(94,212,164,.25),rgba(94,212,164,.6))}
+.race-stage{font-family:var(--mono);font-size:11.5px;margin-top:8px;color:var(--text-faint);min-height:18px}
+.race-steps{display:flex;gap:4px;margin-top:10px;flex-wrap:wrap}
+.race-step{font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:5px;background:var(--bg);border:1px solid var(--line-soft);color:var(--text-faint);transition:all .2s}
+.race-step.done{color:var(--green);border-color:rgba(94,212,164,.4)}
+.race-step.doing{color:var(--amber);border-color:rgba(245,177,92,.5);background:var(--amber-soft)}
+
+/* --- axis picker --- */
+.axis-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.axis-btns button{font-family:var(--mono);font-size:13px;padding:9px 18px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text-dim);cursor:pointer;transition:all .15s}
+.axis-btns button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.axis-view{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;min-height:150px}
+.axis-view .ttl{font-weight:800;font-size:16px;margin-bottom:4px}
+.axis-view .sub{font-family:var(--mono);font-size:12px;color:var(--accent);margin-bottom:12px}
+.axis-view p{font-size:14px;margin-bottom:8px;max-width:none}
+.axis-diagram{display:flex;gap:8px;align-items:flex-end;margin:14px 0;height:72px}
+.axis-pod{width:38px;border-radius:6px;background:var(--accent-soft);border:1px solid rgba(91,157,239,.45);display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .4s}
+
+/* --- yaml builder --- */
+.builder{display:grid;grid-template-columns:300px 1fr;gap:20px}
+@media(max-width:900px){.builder{grid-template-columns:1fr}}
+.builder-opts{display:flex;flex-direction:column;gap:16px}
+.opt-group>label{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);display:block;margin-bottom:7px}
+.opt-row{display:flex;gap:6px;flex-wrap:wrap}
+.opt-row button{font-family:var(--mono);font-size:12px;padding:6px 12px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text-dim);cursor:pointer;transition:all .12s}
+.opt-row button.on{border-color:var(--green);color:var(--green);background:var(--green-soft)}
+.builder-out{border:1px solid var(--line);border-radius:12px;background:#0A0E16;overflow:hidden}
+.builder-out .bo-head{font-family:var(--mono);font-size:11.5px;padding:9px 16px;background:var(--surface-2);color:var(--text-faint);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.builder-out pre{font-size:12.5px;max-height:460px;overflow:auto}
+
+/* --- binpack demo --- */
+.binpack{display:flex;gap:16px;flex-wrap:wrap;margin:18px 0;align-items:stretch}
+.bp-node{flex:1;min-width:150px;border:1px dashed var(--line);border-radius:12px;padding:12px;background:var(--surface);transition:all .5s;position:relative}
+.bp-node.dying{opacity:.25;transform:scale(.94)}
+.bp-node .bp-name{font-family:var(--mono);font-size:11px;color:var(--text-faint);margin-bottom:8px;display:flex;justify-content:space-between}
+.bp-pods{display:flex;flex-wrap:wrap;gap:6px;min-height:64px}
+.bp-pod{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--accent-soft);border:1px solid rgba(91,157,239,.45);transition:all .5s}
+.bp-cost{font-family:var(--mono);font-size:12px;margin-top:8px;color:var(--amber)}
+.bp-summary{font-family:var(--mono);font-size:13px;margin-top:14px;color:var(--text-dim);min-height:22px}
+
+/* --- cost calculator --- */
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:860px){.calc{grid-template-columns:1fr}}
+.calc-in label{display:block;font-size:13.5px;color:var(--text-dim);margin:16px 0 6px}
+.calc-in label b{color:var(--text)}
+.calc-in input[type=range]{width:100%;accent-color:var(--accent)}
+.calc-val{font-family:var(--mono);font-size:13px;color:var(--accent)}
+.calc-out{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.calc-line{display:flex;justify-content:space-between;font-size:14px;color:var(--text-dim)}
+.calc-line .v{font-family:var(--mono);color:var(--text)}
+.calc-line.total{border-top:1px solid var(--line);padding-top:14px;font-size:15px}
+.calc-line.total .v{color:var(--green);font-size:20px;font-weight:800}
+
+/* ---------- quiz ---------- */
+.quiz-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin:18px 0}
+.quiz-q{font-weight:700;margin-bottom:14px;font-size:15.5px}
+.quiz-q .qn{font-family:var(--mono);color:var(--accent);margin-right:8px}
+.quiz-opts{display:flex;flex-direction:column;gap:8px}
+.quiz-opts button{text-align:left;font-family:var(--sans);font-size:14px;padding:11px 16px;border-radius:9px;border:1px solid var(--line);background:var(--bg-soft);color:var(--text-dim);cursor:pointer;transition:all .15s}
+.quiz-opts button:hover:not(:disabled){border-color:var(--text-faint);color:var(--text)}
+.quiz-opts button.correct{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.quiz-opts button.wrong{border-color:var(--red);background:var(--red-soft);color:var(--red)}
+.quiz-exp{display:none;margin-top:14px;padding:14px 16px;border-radius:9px;font-size:13.5px;background:var(--bg);border:1px solid var(--line-soft);color:var(--text-dim)}
+.quiz-exp.show{display:block}
+.quiz-score{font-family:var(--mono);font-size:14px;color:var(--accent);margin-top:20px;min-height:22px}
+
+/* ---------- flow diagram ---------- */
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin:24px 0}
+.flow-step{flex:1;min-width:150px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;position:relative}
+.flow-step .fn{font-family:var(--mono);font-size:10.5px;color:var(--accent);letter-spacing:.1em;margin-bottom:6px}
+.flow-step b{font-size:14px;display:block;margin-bottom:4px}
+.flow-step span{font-size:12.5px;color:var(--text-dim);line-height:1.5;display:block}
+.flow-arrow{display:flex;align-items:center;padding:0 8px;color:var(--text-faint);font-size:18px}
+@media(max-width:860px){.flow{flex-direction:column}.flow-arrow{transform:rotate(90deg);justify-content:center;padding:4px 0}}
+
+/* footer */
+footer{border-top:1px solid var(--line);margin-top:80px;padding-top:32px;font-size:13px;color:var(--text-faint)}
+footer .ft-title{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px;color:var(--text-dim)}
+footer a{color:var(--accent);text-decoration:none}
+kbd{font-family:var(--mono);font-size:.85em;background:var(--surface-2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc" id="toc">
+  <div class="toc-brand">Cloud Infra Series</div>
+  <div class="toc-title">Karpenter<br>완벽 가이드</div>
+
+  <div class="toc-group">Part 1 · 기초 다지기</div>
+  <a href="#intro">0. 들어가며</a>
+  <a href="#scaling-basics">1. Auto Scaling 기초</a>
+  <a href="#legacy">2. 기존 방식과 한계</a>
+
+  <div class="toc-group">Part 2 · Karpenter 이해</div>
+  <a href="#what-is">3. Karpenter란?</a>
+  <a href="#compare">4. CA vs Karpenter 비교</a>
+  <a href="#resources">5. 핵심 리소스 3총사</a>
+
+  <div class="toc-group">Part 3 · 실전 사용법</div>
+  <a href="#install">6. 설치와 첫 스케일링</a>
+  <a href="#builder">7. NodePool 빌더</a>
+  <a href="#disruption">8. Consolidation과 비용 최적화</a>
+
+  <div class="toc-group">Part 4 · 응용과 심화</div>
+  <a href="#usecases">9. 실전 응용 사례</a>
+  <a href="#bestpractice">10. 모범 사례 & 트러블슈팅</a>
+  <a href="#quiz">11. 확인 퀴즈</a>
+  <a href="#wrapup">12. 마무리</a>
+</nav>
+
+<main>
+<!-- ================= HERO ================= -->
+<div class="hero" id="intro">
+  <div class="hero-eyebrow">Kubernetes Node Autoscaling · Interactive Lecture</div>
+  <h1>Karpenter 완벽 가이드<br><span class="grad">필요한 노드를, 필요한 순간에, 가장 싸게</span></h1>
+  <p class="lede">"Pod가 Pending인데 노드가 안 늘어나요"부터 "매달 클라우드 비용이 너무 나와요"까지 — 노드 오토스케일링의 고민을 Karpenter가 어떻게 해결하는지, 초보 Cloud 엔지니어의 눈높이에서 개념부터 실습, 응용 사례까지 차근차근 다룹니다.</p>
+  <div class="hero-meta">
+    <span class="chip hl">Karpenter v1.x (2026 기준)</span>
+    <span class="chip">난이도 ★★☆☆☆ 입문~초중급</span>
+    <span class="chip">예상 학습 90분</span>
+    <span class="chip">EKS 중심 · AKS 병행 언급</span>
+    <span class="chip">인터랙티브 데모 5종 + 퀴즈 10문항</span>
+  </div>
+</div>
+
+<!-- ================= 0. 들어가며 ================= -->
+<section>
+  <div class="sec-eyebrow">Prologue</div>
+  <h2>이 강의에서 배우는 것</h2>
+  <p>Karpenter는 <strong>Kubernetes 클러스터의 노드(서버)를 자동으로 만들고 없애주는 오픈소스 오토스케일러</strong>입니다. AWS가 만들어 2021년에 공개했고, 지금은 CNCF(kubernetes-sigs) 산하 프로젝트로 성장해 EKS는 물론 Azure AKS에서도 쓸 수 있습니다. 2024년 v1.0으로 GA(정식 출시)된 이후 사실상 <strong>EKS 노드 오토스케일링의 표준</strong>이 되었고, AWS의 완전관리형 모드인 <strong>EKS Auto Mode</strong>의 내부 엔진으로도 채택되었습니다.</p>
+  <div class="grid c3">
+    <div class="card"><span class="k">Concept</span><h4>왜 Karpenter인가</h4><p>HPA·VPA·Cluster Autoscaler 등 기존 스케일링 방식의 역할과 한계를 이해하고, Karpenter가 등장한 배경을 파악합니다.</p></div>
+    <div class="card"><span class="k">Hands-on</span><h4>어떻게 쓰는가</h4><p>NodePool·EC2NodeClass 작성법, Helm 설치, 첫 스케일 아웃/인 테스트까지 실제 명령어와 YAML로 익힙니다.</p></div>
+    <div class="card"><span class="k">Practice</span><h4>어디에 쓰는가</h4><p>Spot 인스턴스 절약, GPU/AI 워크로드, ARM(Graviton) 혼용, 배치 작업 등 실무 응용 패턴과 모범 사례를 배웁니다.</p></div>
+  </div>
+  <div class="callout info"><span class="ic">🎯</span><p><strong>선수 지식:</strong> Pod, Deployment, Node가 무엇인지 정도만 알면 충분합니다. <code class="inline">kubectl get pods</code>를 쳐본 경험이 있다면 완주할 수 있도록 모든 개념을 바닥부터 설명합니다.</p></div>
+</section>
+
+<!-- ================= 1. Auto Scaling 기초 ================= -->
+<section id="scaling-basics">
+  <div class="sec-eyebrow">Part 1 — Foundations</div>
+  <h2>1. Auto Scaling 기초 — 스케일링의 세 가지 축</h2>
+  <p>Kubernetes에서 "오토스케일링"이라는 단어는 사실 <strong>서로 다른 세 가지 층위</strong>를 가리킵니다. 이 셋을 구분하지 못하면 "HPA를 설정했는데 왜 Pod가 Pending이죠?" 같은 혼란이 생깁니다. 아래 데모에서 각 축을 눌러 비교해 보세요.</p>
+
+  <div class="demo">
+    <div class="demo-tag">Interactive Demo 01</div>
+    <h4>스케일링 3축 탐색기</h4>
+    <p>버튼을 눌러 각 스케일링 방식이 "무엇을" 늘리고 줄이는지 시각적으로 확인해 보세요.</p>
+    <div class="axis-btns">
+      <button class="on" onclick="showAxis('hpa',this)">HPA — Pod 개수</button>
+      <button onclick="showAxis('vpa',this)">VPA — Pod 크기</button>
+      <button onclick="showAxis('node',this)">노드 스케일링 — 서버 수</button>
+    </div>
+    <div class="axis-view" id="axisView"></div>
+  </div>
+
+  <h3>1-1. 세 축의 역할 분담</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>축</th><th>대상</th><th>대표 도구</th><th>답하는 질문</th></tr></thead>
+    <tbody>
+      <tr><td><b>수평 Pod 스케일링</b></td><td>Pod의 <b>개수</b></td><td>HPA, KEDA</td><td>"트래픽이 늘었으니 일꾼(Pod)을 더 뽑을까?"</td></tr>
+      <tr><td><b>수직 Pod 스케일링</b></td><td>Pod의 <b>리소스 크기</b></td><td>VPA</td><td>"일꾼 한 명에게 CPU/메모리를 얼마나 줄까?"</td></tr>
+      <tr><td><b>노드 스케일링</b></td><td>노드(서버)의 <b>수와 종류</b></td><td>Cluster Autoscaler, <b>Karpenter</b></td><td>"일꾼이 앉을 책상(서버)이 부족한데 더 살까? 어떤 크기로?"</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>핵심은 이 셋이 <strong>경쟁 관계가 아니라 협력 관계</strong>라는 점입니다. HPA가 Pod를 20개로 늘렸는데 기존 노드에 자리가 없으면 Pod는 <code class="inline">Pending</code> 상태로 대기합니다. 이때 "자리(노드)를 마련해 주는 일"이 노드 스케일러의 몫이고, Karpenter는 바로 이 세 번째 축을 담당합니다.</p>
+
+  <div class="callout tip"><span class="ic">💡</span><p><strong>비유로 기억하기:</strong> 식당에 손님이 몰리면 ① 요리사를 더 투입하고(HPA), ② 요리사 1인당 조리대 넓이를 조절하고(VPA), ③ 주방 자체를 증축합니다(노드 스케일링). Karpenter는 "주방 증축 전문 시공사"인데, 심지어 <strong>딱 필요한 크기의 주방을 몇십 초 만에 지어주는</strong> 시공사입니다.</p></div>
+
+  <h3>1-2. Pod가 Pending이 되는 순간, 무슨 일이 벌어지나</h3>
+  <p>노드 스케일링을 이해하려면 Kubernetes 스케줄러의 동작을 알아야 합니다. 새 Pod가 생성되면 <code class="inline">kube-scheduler</code>가 "이 Pod의 요구사항(CPU·메모리 requests, nodeSelector, affinity, toleration 등)을 만족하는 노드"를 찾습니다. 만족하는 노드가 하나도 없으면 Pod는 <code class="inline">Pending</code> 상태가 되고, 이벤트에 다음과 같은 메시지가 남습니다.</p>
+
+  <div class="codebox">
+    <div class="codebox-head"><div class="codetabs"><button class="on">kubectl describe pod</button></div><button class="copybtn" onclick="copyCode(this)">복사</button></div>
+    <div class="codepane on"><pre><code><span class="tk-p">$</span> kubectl describe pod my-app-7d9f8-x2kqp
+<span class="tk-c">...</span>
+Events:
+  Type     Reason            Message
+  ----     ------            -------
+  <span class="tk-hl">Warning  FailedScheduling  0/3 nodes are available: 3 Insufficient cpu.</span></code></pre></div>
+  </div>
+
+  <p>이 <strong>"FailedScheduling → Pending Pod 발생"</strong> 신호가 바로 모든 노드 오토스케일러의 출발점입니다. Cluster Autoscaler도, Karpenter도 이 신호를 감시(watch)하다가 움직입니다. 차이는 <strong>그다음 행동</strong>에 있습니다.</p>
+</section>
+
+<!-- ================= 2. 기존 방식과 한계 ================= -->
+<section id="legacy">
+  <div class="sec-eyebrow">Part 1 — Foundations</div>
+  <h2>2. 기존 방식과 한계 — ASG와 Cluster Autoscaler</h2>
+  <p>Karpenter 이전의 표준 조합은 <strong>Cluster Autoscaler(CA) + Auto Scaling Group(ASG)</strong>이었습니다. 이 구조를 이해해야 Karpenter가 "무엇을 없앴는지"가 보입니다.</p>
+
+  <h3>2-1. Auto Scaling Group 방식의 동작</h3>
+  <p>AWS의 ASG(또는 EKS 관리형 노드 그룹)는 <strong>"같은 사양의 서버 묶음"</strong>입니다. 운영자는 미리 이렇게 정의합니다.</p>
+  <ul>
+    <li><strong>Launch Template:</strong> 어떤 인스턴스 타입(예: m5.xlarge), 어떤 AMI, 어떤 보안 그룹을 쓸지</li>
+    <li><strong>min / max / desired:</strong> 최소 2대, 최대 10대, 현재 3대 유지 — 같은 대수 규칙</li>
+  </ul>
+  <p>Cluster Autoscaler는 Pending Pod를 발견하면 <strong>직접 서버를 만들지 않고</strong>, ASG의 desired 값을 3 → 4로 올려달라고 AWS에 요청합니다. 그러면 ASG가 미리 정해진 템플릿대로 노드를 1대 추가합니다. 즉 CA는 "ASG라는 중간 관리자에게 증원을 요청하는" 구조입니다.</p>
+
+  <div class="flow">
+    <div class="flow-step"><div class="fn">STEP 1</div><b>Pending Pod 감지</b><span>CA가 스케줄 실패한 Pod 발견</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><div class="fn">STEP 2</div><b>노드 그룹 시뮬레이션</b><span>"어느 ASG를 늘리면 이 Pod가 뜰까?" 그룹 단위로 계산</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><div class="fn">STEP 3</div><b>ASG desired 증가 요청</b><span>AWS Auto Scaling API 호출</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><div class="fn">STEP 4</div><b>ASG가 EC2 기동</b><span>템플릿의 고정된 타입으로 생성 → 노드 등록 대기</span></div>
+  </div>
+
+  <h3>2-2. 이 구조의 다섯 가지 아픈 지점</h3>
+  <div class="grid c2">
+    <div class="card"><span class="k">Pain 1 · 속도</span><h4>여러 단계를 거치는 지연</h4><p>CA → ASG → EC2로 이어지는 간접 호출 구조라 노드가 뜨기까지 보통 수 분이 걸립니다. 트래픽 급증 시 이 몇 분이 장애로 이어지기도 합니다.</p></div>
+    <div class="card"><span class="k">Pain 2 · 유연성</span><h4>그룹당 인스턴스 타입 고정</h4><p>ASG는 기본적으로 동일 사양 묶음입니다. GPU용, 메모리 집약용, 일반용… 워크로드 종류마다 노드 그룹을 미리 만들어 관리해야 합니다.</p></div>
+    <div class="card"><span class="k">Pain 3 · 낭비</span><h4>빈 자리가 큰 노드</h4><p>0.5 vCPU짜리 Pod 하나 때문에 4 vCPU 노드가 통째로 추가되는 식의 과잉 프로비저닝이 발생하기 쉽습니다.</p></div>
+    <div class="card"><span class="k">Pain 4 · 운영 부담</span><h4>그룹 개수의 폭발</h4><p>"AZ별 × 타입별 × 용도별" 조합으로 노드 그룹이 수십 개까지 늘어나고, 각각의 min/max와 템플릿을 사람이 관리해야 합니다.</p></div>
+  </div>
+  <div class="callout warn"><span class="ic">⚠️</span><p><strong>Pain 5 — 버전 결합:</strong> Cluster Autoscaler는 Kubernetes 버전과 짝을 맞춘 릴리스를 사용하는 것이 권장되어, 클러스터를 업그레이드할 때마다 CA 버전도 함께 신경 써야 합니다. Karpenter는 특정 K8s 버전에 묶이지 않는 독립 컨트롤러라 이 부담이 적습니다.</p></div>
+
+  <p>정리하면 기존 방식의 본질적 한계는 <strong>"노드를 그룹 단위로, 미리 정한 모양대로만 다룬다"</strong>는 데 있습니다. Karpenter는 이 전제를 뒤집는 것에서 출발합니다.</p>
+</section>
+
+<!-- ================= 3. Karpenter란 ================= -->
+<section id="what-is">
+  <div class="sec-eyebrow">Part 2 — Understanding Karpenter</div>
+  <h2>3. Karpenter란? — 그룹 없는(Groupless) 프로비저닝</h2>
+  <p>Karpenter의 핵심 아이디어는 한 문장입니다. <strong>"중간 관리자(ASG)를 없애고, Pending Pod의 요구사항을 직접 읽어, 클라우드 API를 바로 호출해 딱 맞는 노드를 만든다."</strong></p>
+
+  <div class="flow">
+    <div class="flow-step"><div class="fn">WATCH</div><b>Pending Pod 감시</b><span>스케줄 안 된 Pod의 requests, affinity, toleration을 실시간 수집</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><div class="fn">COMPUTE</div><b>최적 조합 계산</b><span>수백 개 인스턴스 타입 중 조건을 만족하는 가장 싼 조합을 빈패킹으로 산출</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><div class="fn">PROVISION</div><b>EC2 API 직접 호출</b><span>ASG 없이 RunInstances로 즉시 생성. 보통 수십 초 내 노드 Ready</span></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step"><div class="fn">OPTIMIZE</div><b>지속적 재조정</b><span>빈 노드 제거, 더 싼 노드로 교체(Consolidation)를 계속 수행</span></div>
+  </div>
+
+  <h3>3-1. 무엇이 달라지는가 — 세 가지 관점의 전환</h3>
+  <h4>① "그룹"에서 "요구사항"으로</h4>
+  <p>운영자는 더 이상 "m5.xlarge 노드 그룹, min 2 max 10"을 정의하지 않습니다. 대신 <strong>NodePool</strong>이라는 리소스에 <strong>허용 범위</strong>만 선언합니다 — "아키텍처는 amd64 또는 arm64, 용량 유형은 spot 우선, 인스턴스 패밀리는 c/m/r 계열, 전체 CPU 상한은 1000개". 구체적으로 어떤 타입을 몇 대 띄울지는 Karpenter가 그때그때 Pod를 보고 결정합니다.</p>
+  <h4>② "미리"에서 "적시(Just-in-Time)"로</h4>
+  <p>워크로드가 오기 전에 노드 그룹을 설계해 두는 것이 아니라, <strong>Pod가 나타난 순간의 요구사항에 맞춰</strong> 노드를 만듭니다. GPU Pod가 오면 GPU 노드가, 8Gi 메모리 Pod가 오면 그에 맞는 노드가 만들어집니다.</p>
+  <h4>③ "확장"에서 "수명주기 관리"로</h4>
+  <p>Karpenter는 스스로를 오토스케일러라기보다 <strong>노드 수명주기(lifecycle) 관리자</strong>로 정의합니다. 노드 생성뿐 아니라 통합(Consolidation), 드리프트 감지(설정과 달라진 노드 교체), 만료(expireAfter), Spot 중단 대응, 노드 자동 복구까지 노드의 일생 전체를 관리합니다.</p>
+
+  <div class="callout info"><span class="ic">📦</span><p><strong>지원 범위(2026년 기준):</strong> AWS EKS가 가장 성숙한 환경이며, <strong>EKS Auto Mode</strong>를 켜면 AWS가 Karpenter를 대신 운영해 줍니다. Azure는 AKS Node Autoprovisioning(NAP)이라는 이름의 관리형 모드와 셀프호스팅 프로바이더를 제공합니다. GCP용 공식 프로바이더는 아직 없어 GKE에서는 여전히 Cluster Autoscaler(또는 GKE Autopilot)가 답입니다.</p></div>
+
+  <h3>3-2. 자주 나오는 오해 바로잡기</h3>
+  <ul>
+    <li><strong>"Karpenter가 HPA를 대체한다?"</strong> — 아닙니다. HPA/KEDA는 Pod 수를, Karpenter는 노드를 담당합니다. 실무에서는 <strong>HPA + Karpenter를 함께</strong> 쓰는 것이 표준 조합입니다.</li>
+    <li><strong>"Pod 사용량을 보고 알아서 최적화해 준다?"</strong> — Karpenter는 Pod의 <strong>requests(선언값)</strong>를 믿습니다. 실제로는 0.4 vCPU만 쓰는 Pod가 4 vCPU를 요청하면, 4 vCPU 기준으로 노드를 만듭니다. requests 정확화(rightsizing)는 여전히 사람(또는 VPA 같은 별도 도구)의 몫입니다.</li>
+    <li><strong>"CA와 같이 켜두면 더 좋다?"</strong> — 위험합니다. 같은 Pending Pod를 두 컨트롤러가 동시에 처리하려다 중복 프로비저닝이 발생합니다. 마이그레이션 기간에는 담당 영역을 taint 등으로 분리하거나 CA를 내려야 합니다.</li>
+  </ul>
+</section>
+
+<!-- ================= 4. 비교 ================= -->
+<section id="compare">
+  <div class="sec-eyebrow">Part 2 — Understanding Karpenter</div>
+  <h2>4. Cluster Autoscaler vs Karpenter — 직접 비교</h2>
+  <p>같은 상황(갑작스러운 트래픽 급증으로 Pending Pod 다수 발생)에서 두 방식이 어떻게 다르게 움직이는지 시뮬레이션으로 체감해 보세요. 시간 축은 실측 벤치마크의 전형적 값을 바탕으로 한 <strong>개념적 재현</strong>입니다.</p>
+
+  <div class="demo">
+    <div class="demo-tag">Interactive Demo 02</div>
+    <h4>스케일 아웃 레이스 — Pending Pod 발생부터 Pod Running까지</h4>
+    <p>▶ 버튼을 누르면 두 오토스케일러가 동시에 출발합니다. 각 단계가 어디서 시간을 쓰는지 관찰해 보세요.</p>
+    <button class="btn primary" id="raceBtn" onclick="startRace()">▶ 트래픽 급증 발생시키기</button>
+    <button class="btn ghost" onclick="resetRace()">초기화</button>
+
+    <div class="race-track">
+      <div class="race-name"><b style="color:var(--amber)">Cluster Autoscaler + ASG</b><span class="race-time" id="caTime">0.0s</span></div>
+      <div class="race-bar"><div class="race-fill ca" id="caFill"></div></div>
+      <div class="race-stage" id="caStage">대기 중…</div>
+      <div class="race-steps" id="caSteps">
+        <span class="race-step">Pending 감지·그룹 시뮬레이션</span><span class="race-step">ASG desired 변경</span><span class="race-step">EC2 기동</span><span class="race-step">노드 등록·Ready</span><span class="race-step">Pod 스케줄</span>
+      </div>
+    </div>
+    <div class="race-track">
+      <div class="race-name"><b style="color:var(--green)">Karpenter</b><span class="race-time" id="kpTime">0.0s</span></div>
+      <div class="race-bar"><div class="race-fill kp" id="kpFill"></div></div>
+      <div class="race-stage" id="kpStage">대기 중…</div>
+      <div class="race-steps" id="kpSteps">
+        <span class="race-step">Pending 감지·타입 계산</span><span class="race-step">EC2 API 직접 호출</span><span class="race-step">노드 등록·Ready</span><span class="race-step">Pod 스케줄</span>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:var(--text-faint);margin:10px 0 0">※ 일반적으로 Karpenter는 수십 초(약 45~60초), CA+ASG는 수 분 수준으로 보고됩니다. AMI·AZ 상황에 따라 달라질 수 있습니다.</p>
+  </div>
+
+  <h3>4-1. 항목별 비교표</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>비교 항목</th><th>Cluster Autoscaler (+ASG)</th><th>Karpenter</th></tr></thead>
+    <tbody>
+      <tr><td><b>프로비저닝 경로</b></td><td class="mid">CA → ASG → EC2 (간접)</td><td class="good">EC2 API 직접 호출 (Groupless)</td></tr>
+      <tr><td><b>노드 준비 속도</b></td><td class="bad">보통 수 분 (3~4분 수준 보고)</td><td class="good">보통 수십 초 (45~60초 수준 보고)</td></tr>
+      <tr><td><b>인스턴스 타입 선택</b></td><td class="mid">노드 그룹에 미리 고정</td><td class="good">수백 개 타입 중 매번 최적·최저가 선택</td></tr>
+      <tr><td><b>사전 설계 부담</b></td><td class="bad">용도별 노드 그룹 다수 설계·관리</td><td class="good">NodePool 소수만 선언 (범위 기반)</td></tr>
+      <tr><td><b>빈패킹/통합</b></td><td class="mid">저활용 노드 제거 위주, 비교적 보수적</td><td class="good">능동적 Consolidation — 노드 교체·통폐합으로 지속 절감</td></tr>
+      <tr><td><b>Spot 활용</b></td><td class="mid">Spot용 ASG 별도 구성 필요</td><td class="good">기본 내장 — 다양한 풀에 분산, 중단 신호 자동 처리</td></tr>
+      <tr><td><b>멀티 클라우드</b></td><td class="good">AWS·GCP·Azure 등 폭넓게 지원 (성숙)</td><td class="mid">AWS 성숙, Azure 프로바이더 성장 중, GCP 공식 미지원</td></tr>
+      <tr><td><b>K8s 버전 결합</b></td><td class="mid">클러스터 버전과 짝 맞춤 권장</td><td class="good">독립 컨트롤러 — 자체 주기로 업그레이드</td></tr>
+      <tr><td><b>관리형 옵션</b></td><td class="mid">각 클라우드의 기본 애드온</td><td class="good">EKS Auto Mode / AKS NAP로 완전관리형 사용 가능</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>4-2. 그럼 언제 무엇을 쓰나 — 선택 가이드</h3>
+  <div class="grid c3">
+    <div class="card"><span class="k">Karpenter 추천</span><h4>이런 팀이라면</h4><p>EKS/AKS 사용, 워크로드 사양이 다양(GPU·배치·웹 혼재), Spot으로 비용을 줄이고 싶고, 트래픽 급증 대응 속도가 중요한 팀.</p></div>
+    <div class="card"><span class="k">CA 유지 고려</span><h4>이런 팀이라면</h4><p>GKE 등 Karpenter 미지원 환경, 멀티 클라우드에서 도구를 통일해야 하거나, 워크로드가 균질하고 예측 가능해 지금 구조로 충분한 팀.</p></div>
+    <div class="card"><span class="k">Auto Mode 고려</span><h4>이런 팀이라면</h4><p>EKS 신규 구축이고 노드 운영 자체를 AWS에 맡기고 싶은 팀. Karpenter의 속도·빈패킹을 컨트롤러 운영 부담 없이 얻습니다(대신 세부 제어권 일부 축소).</p></div>
+  </div>
+
+  <div class="callout tip"><span class="ic">🧩</span><p><strong>KEDA와의 관계도 정리해 두세요:</strong> KEDA는 큐 길이·이벤트 수 같은 외부 지표로 <strong>Pod 수</strong>를 조절하는 도구입니다. "KEDA가 Pod를 0→50으로 늘림 → 자리가 부족해 Pending 발생 → Karpenter가 노드 공급"처럼 <strong>KEDA(수요) + Karpenter(공급)</strong>는 이벤트 기반 워크로드의 황금 조합입니다.</p></div>
+</section>
+
+<!-- ================= 5. 핵심 리소스 ================= -->
+<section id="resources">
+  <div class="sec-eyebrow">Part 2 — Understanding Karpenter</div>
+  <h2>5. 핵심 리소스 3총사 — NodePool, EC2NodeClass, NodeClaim</h2>
+  <p>Karpenter를 "쓴다"는 것은 사실상 <strong>두 개의 YAML(NodePool, EC2NodeClass)을 작성하는 일</strong>입니다. 세 번째(NodeClaim)는 Karpenter가 알아서 만드는 산출물이니 읽을 줄만 알면 됩니다.</p>
+
+  <div class="grid c3">
+    <div class="card"><span class="k">kind: NodePool</span><h4>"어떤 노드를 허용할까" — 정책</h4><p>인스턴스 타입 범위, 아키텍처, Spot/온디맨드, 총량 상한, taint, 통합 정책 등 <strong>스케줄링·수명주기 규칙</strong>을 정의합니다. 클라우드 중립적입니다.</p></div>
+    <div class="card"><span class="k">kind: EC2NodeClass</span><h4>"AWS에서 어떻게 만들까" — 재료</h4><p>AMI 계열, 서브넷·보안 그룹(태그로 선택), IAM Role, 디스크 크기 등 <strong>AWS 종속 세부사항</strong>을 정의합니다. AKS에서는 AKSNodeClass가 같은 역할을 합니다.</p></div>
+    <div class="card"><span class="k">kind: NodeClaim</span><h4>"이 노드 한 대의 신분증" — 결과</h4><p>Karpenter가 노드 1대를 만들 때마다 자동 생성하는 리소스. 실제 인스턴스와 1:1 대응하며, 노드가 왜/언제 만들어졌는지 추적할 때 봅니다.</p></div>
+  </div>
+
+  <h3>5-1. 실제 YAML 뜯어보기</h3>
+  <p>가장 널리 쓰이는 "범용(default) NodePool" 예제입니다. 탭을 눌러 두 리소스를 비교해 보세요. 주석을 꼭 읽어보길 권합니다.</p>
+
+  <div class="codebox">
+    <div class="codebox-head">
+      <div class="codetabs">
+        <button class="on" onclick="swTab(this,'yp1')">nodepool.yaml</button>
+        <button onclick="swTab(this,'yp2')">ec2nodeclass.yaml</button>
+        <button onclick="swTab(this,'yp3')">NodeClaim 관찰하기</button>
+      </div>
+      <button class="copybtn" onclick="copyCode(this)">복사</button>
+    </div>
+    <div class="codepane on" id="yp1"><pre><code><span class="tk-k">apiVersion:</span> <span class="tk-s">karpenter.sh/v1</span>
+<span class="tk-k">kind:</span> <span class="tk-s">NodePool</span>
+<span class="tk-k">metadata:</span>
+  <span class="tk-k">name:</span> <span class="tk-s">default</span>
+<span class="tk-k">spec:</span>
+  <span class="tk-k">template:</span>
+    <span class="tk-k">spec:</span>
+      <span class="tk-k">nodeClassRef:</span>            <span class="tk-c"># 아래 EC2NodeClass와 연결</span>
+        <span class="tk-k">group:</span> <span class="tk-s">karpenter.k8s.aws</span>
+        <span class="tk-k">kind:</span> <span class="tk-s">EC2NodeClass</span>
+        <span class="tk-k">name:</span> <span class="tk-s">default</span>
+      <span class="tk-k">requirements:</span>           <span class="tk-c"># "허용 범위"를 선언 — 핵심!</span>
+        - <span class="tk-k">key:</span> <span class="tk-s">karpenter.sh/capacity-type</span>
+          <span class="tk-k">operator:</span> <span class="tk-s">In</span>
+          <span class="tk-k">values:</span> [<span class="tk-s">"spot"</span>, <span class="tk-s">"on-demand"</span>]   <span class="tk-c"># Spot 우선, 없으면 온디맨드</span>
+        - <span class="tk-k">key:</span> <span class="tk-s">kubernetes.io/arch</span>
+          <span class="tk-k">operator:</span> <span class="tk-s">In</span>
+          <span class="tk-k">values:</span> [<span class="tk-s">"amd64"</span>]
+        - <span class="tk-k">key:</span> <span class="tk-s">karpenter.k8s.aws/instance-category</span>
+          <span class="tk-k">operator:</span> <span class="tk-s">In</span>
+          <span class="tk-k">values:</span> [<span class="tk-s">"c"</span>, <span class="tk-s">"m"</span>, <span class="tk-s">"r"</span>]     <span class="tk-c"># 컴퓨트/범용/메모리 계열 허용</span>
+        - <span class="tk-k">key:</span> <span class="tk-s">karpenter.k8s.aws/instance-generation</span>
+          <span class="tk-k">operator:</span> <span class="tk-s">Gt</span>
+          <span class="tk-k">values:</span> [<span class="tk-s">"4"</span>]                <span class="tk-c"># 5세대 이상 최신 세대만</span>
+      <span class="tk-k">expireAfter:</span> <span class="tk-s">720h</span>          <span class="tk-c"># 30일 지난 노드는 교체(보안 패치 반영)</span>
+  <span class="tk-k">limits:</span>                       <span class="tk-c"># 이 NodePool의 총량 상한(예산 가드레일)</span>
+    <span class="tk-k">cpu:</span> <span class="tk-n">1000</span>
+    <span class="tk-k">memory:</span> <span class="tk-s">1000Gi</span>
+  <span class="tk-k">disruption:</span>                   <span class="tk-c"># 노드 통폐합(비용 최적화) 정책 — 8장에서 상세히</span>
+    <span class="tk-k">consolidationPolicy:</span> <span class="tk-s">WhenEmptyOrUnderutilized</span>
+    <span class="tk-k">consolidateAfter:</span> <span class="tk-s">1m</span></code></pre></div>
+    <div class="codepane" id="yp2"><pre><code><span class="tk-k">apiVersion:</span> <span class="tk-s">karpenter.k8s.aws/v1</span>
+<span class="tk-k">kind:</span> <span class="tk-s">EC2NodeClass</span>
+<span class="tk-k">metadata:</span>
+  <span class="tk-k">name:</span> <span class="tk-s">default</span>
+<span class="tk-k">spec:</span>
+  <span class="tk-k">amiSelectorTerms:</span>            <span class="tk-c"># 노드 OS 이미지 — alias로 최신 자동 추적</span>
+    - <span class="tk-k">alias:</span> <span class="tk-s">al2023@latest</span>      <span class="tk-c"># Amazon Linux 2023 (운영에선 버전 고정 권장)</span>
+  <span class="tk-k">role:</span> <span class="tk-s">"KarpenterNodeRole-my-cluster"</span>  <span class="tk-c"># 노드가 쓸 IAM Role</span>
+  <span class="tk-k">subnetSelectorTerms:</span>         <span class="tk-c"># 태그로 서브넷 자동 발견</span>
+    - <span class="tk-k">tags:</span>
+        <span class="tk-k">karpenter.sh/discovery:</span> <span class="tk-s">"my-cluster"</span>
+  <span class="tk-k">securityGroupSelectorTerms:</span>  <span class="tk-c"># 태그로 보안 그룹 자동 발견</span>
+    - <span class="tk-k">tags:</span>
+        <span class="tk-k">karpenter.sh/discovery:</span> <span class="tk-s">"my-cluster"</span>
+  <span class="tk-k">blockDeviceMappings:</span>         <span class="tk-c"># 루트 볼륨 설정(선택)</span>
+    - <span class="tk-k">deviceName:</span> <span class="tk-s">/dev/xvda</span>
+      <span class="tk-k">ebs:</span>
+        <span class="tk-k">volumeSize:</span> <span class="tk-s">100Gi</span>
+        <span class="tk-k">volumeType:</span> <span class="tk-s">gp3</span>
+        <span class="tk-k">encrypted:</span> <span class="tk-s">true</span></code></pre></div>
+    <div class="codepane" id="yp3"><pre><code><span class="tk-c"># Karpenter가 만든 노드들의 "신분증" 확인</span>
+<span class="tk-p">$</span> kubectl get nodeclaims
+NAME            TYPE          CAPACITY   ZONE          NODE            READY
+default-abc12   c6a.2xlarge   spot       ap-northeast-2a  ip-10-0-1-23  True
+default-def34   m6i.large     on-demand  ap-northeast-2c  ip-10-0-3-88  True
+
+<span class="tk-c"># 특정 노드가 왜 이 타입으로 선택됐는지 상세 확인</span>
+<span class="tk-p">$</span> kubectl describe nodeclaim default-abc12
+
+<span class="tk-c"># Karpenter가 관리하는 노드만 골라 보기</span>
+<span class="tk-p">$</span> kubectl get nodes -l karpenter.sh/nodepool</code></pre></div>
+  </div>
+
+  <div class="callout info"><span class="ic">🔑</span><p><strong>requirements가 Karpenter 사고방식의 전부입니다.</strong> "이 타입을 써라"가 아니라 <strong>"이 범위 안에서 네가 최적을 골라라"</strong>고 위임하는 것. 범위를 넓게 줄수록 Karpenter가 더 싼 조합(특히 Spot)을 찾을 여지가 커집니다. 초보자가 가장 흔히 하는 실수가 requirements를 특정 타입 1~2개로 못 박아 Karpenter의 손발을 묶는 것입니다.</p></div>
+
+  <div class="callout warn"><span class="ic">🕰️</span><p><strong>구버전 자료 주의:</strong> 인터넷 예제 중 <code class="inline">kind: Provisioner</code>와 <code class="inline">AWSNodeTemplate</code>을 쓰는 글이 아직 많습니다. 이는 v1beta1 이전(v0.32 미만) 시절 API로, <strong>현재 v1 API에서는 NodePool / EC2NodeClass로 완전히 대체</strong>되었습니다. 구버전 YAML은 그대로 적용되지 않으니 반드시 공식 문서의 v1 스키마를 기준으로 하세요.</p></div>
+</section>
+
+<!-- ================= 6. 설치 ================= -->
+<section id="install">
+  <div class="sec-eyebrow">Part 3 — Hands-on</div>
+  <h2>6. 설치와 첫 스케일링 — EKS에 Karpenter 올리기</h2>
+  <p>설치의 전체 흐름은 <strong>① AWS 쪽 준비(IAM·태그) → ② Helm으로 컨트롤러 설치 → ③ NodePool 배포 → ④ 스케일 테스트</strong> 4단계입니다. 명령어보다 <strong>각 단계가 "왜" 필요한지</strong>를 이해하는 데 집중하세요.</p>
+
+  <h3>6-1. 사전 준비 — Karpenter에게 필요한 권한과 정보</h3>
+  <p>Karpenter는 클러스터 안에서 돌지만 하는 일은 "AWS에 EC2를 만들어라"는 바깥일입니다. 그래서 두 종류의 IAM Role이 필요합니다.</p>
+  <ul>
+    <li><strong>컨트롤러 Role:</strong> Karpenter Pod 자신이 사용. EC2 생성/삭제, 가격 조회, Spot 중단 큐(SQS) 읽기 권한. Pod Identity 또는 IRSA로 연결합니다.</li>
+    <li><strong>노드 Role:</strong> Karpenter가 만든 노드(EC2)가 사용. 클러스터 조인, ECR 이미지 풀 등 일반 워커노드 권한입니다.</li>
+  </ul>
+  <p>또 하나 중요한 것이 <strong>디스커버리 태그</strong>입니다. EC2NodeClass가 "어느 서브넷·보안 그룹에 노드를 만들지"를 태그로 찾기 때문에, 대상 서브넷과 보안 그룹에 <code class="inline">karpenter.sh/discovery = &lt;클러스터명&gt;</code> 태그를 미리 붙여야 합니다. <strong>태그를 빠뜨리면 Karpenter는 에러 로그만 남기고 노드를 하나도 만들지 못합니다</strong> — 초보자 트러블슈팅 1순위 항목입니다.</p>
+
+  <div class="callout tip"><span class="ic">🚀</span><p><strong>실습이라면 지름길:</strong> 공식 Getting Started 가이드는 <code class="inline">eksctl</code> + CloudFormation 템플릿으로 IAM·태그·SQS까지 한 번에 만들어 줍니다. 학습 단계에서는 이 경로를 그대로 따라가고, 운영 도입 시에 Terraform 등 IaC로 다시 정리하는 것을 권합니다.</p></div>
+
+  <h3>6-2. Helm 설치와 검증</h3>
+  <div class="codebox">
+    <div class="codebox-head">
+      <div class="codetabs">
+        <button class="on" onclick="swTab(this,'in1')">1. 환경 변수</button>
+        <button onclick="swTab(this,'in2')">2. Helm 설치</button>
+        <button onclick="swTab(this,'in3')">3. 설치 확인</button>
+      </div>
+      <button class="copybtn" onclick="copyCode(this)">복사</button>
+    </div>
+    <div class="codepane on" id="in1"><pre><code><span class="tk-c"># 자주 쓰는 값을 변수로 — 이후 명령에서 재사용</span>
+<span class="tk-p">$</span> export KARPENTER_VERSION=<span class="tk-s">"1.13.0"</span>        <span class="tk-c"># 2026-06 기준 최신, 설치 시점에 확인</span>
+<span class="tk-p">$</span> export CLUSTER_NAME=<span class="tk-s">"my-cluster"</span>
+<span class="tk-p">$</span> export AWS_REGION=<span class="tk-s">"ap-northeast-2"</span>
+<span class="tk-p">$</span> export KARPENTER_IAM_ROLE_ARN=<span class="tk-s">"arn:aws:iam::123456789012:role/KarpenterController-my-cluster"</span></code></pre></div>
+    <div class="codepane" id="in2"><pre><code><span class="tk-c"># 공식 OCI 차트로 설치 (public ECR — 로그인 불필요)</span>
+<span class="tk-p">$</span> helm upgrade --install karpenter \
+    oci://public.ecr.aws/karpenter/karpenter \
+    --version <span class="tk-s">"${KARPENTER_VERSION}"</span> \
+    --namespace kube-system \
+    --set <span class="tk-s">"settings.clusterName=${CLUSTER_NAME}"</span> \
+    --set <span class="tk-s">"settings.interruptionQueue=${CLUSTER_NAME}"</span> \
+    --set <span class="tk-s">"serviceAccount.annotations.eks\.amazonaws\.com/role-arn=${KARPENTER_IAM_ROLE_ARN}"</span> \
+    --set controller.resources.requests.cpu=<span class="tk-n">1</span> \
+    --set controller.resources.requests.memory=<span class="tk-s">1Gi</span> \
+    --wait
+
+<span class="tk-c"># interruptionQueue: Spot 중단·리밸런스 신호를 받는 SQS 큐(사전 준비 단계에서 생성)</span></code></pre></div>
+    <div class="codepane" id="in3"><pre><code><span class="tk-c"># 컨트롤러 Pod 확인 (2개 레플리카, leader election)</span>
+<span class="tk-p">$</span> kubectl get pods -n kube-system -l app.kubernetes.io/name=karpenter
+NAME                         READY   STATUS    RESTARTS   AGE
+karpenter-5f8c9b7d4-abcde    1/1     Running   0          1m
+karpenter-5f8c9b7d4-fghij    1/1     Running   0          1m
+
+<span class="tk-c"># 로그 실시간 확인 — 앞으로 가장 자주 볼 화면입니다</span>
+<span class="tk-p">$</span> kubectl logs -n kube-system -l app.kubernetes.io/name=karpenter -f</code></pre></div>
+  </div>
+
+  <div class="callout danger"><span class="ic">🛑</span><p><strong>중요한 닭-달걀 문제:</strong> Karpenter 컨트롤러 자신은 어디서 돌까요? Karpenter가 만든 노드에 올리면, 그 노드가 통합(consolidation)으로 삭제될 때 컨트롤러도 함께 사라지는 순환이 생깁니다. 그래서 컨트롤러는 <strong>작은 관리형 노드 그룹(2노드) 또는 Fargate</strong>처럼 Karpenter 관리 밖의 공간에서 실행하는 것이 원칙입니다.</p></div>
+
+  <h3>6-3. 첫 스케일 아웃 / 스케일 인 실험</h3>
+  <p>5장의 NodePool·EC2NodeClass를 적용했다면, 이제 일부러 큰 워크로드를 만들어 Karpenter를 깨워 봅시다.</p>
+  <div class="codebox">
+    <div class="codebox-head">
+      <div class="codetabs">
+        <button class="on" onclick="swTab(this,'ex1')">스케일 아웃 테스트</button>
+        <button onclick="swTab(this,'ex2')">관찰 포인트</button>
+        <button onclick="swTab(this,'ex3')">스케일 인 테스트</button>
+      </div>
+      <button class="copybtn" onclick="copyCode(this)">복사</button>
+    </div>
+    <div class="codepane on" id="ex1"><pre><code><span class="tk-c"># CPU 1개씩 요구하는 Pod 0개짜리 Deployment 생성</span>
+<span class="tk-p">$</span> cat &lt;&lt;EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate                <span class="tk-c"># Karpenter 튜토리얼의 전통적인 이름</span>
+spec:
+  replicas: 0
+  selector: { matchLabels: { app: inflate } }
+  template:
+    metadata: { labels: { app: inflate } }
+    spec:
+      containers:
+        - name: inflate
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            requests: { cpu: 1 }   <span class="tk-c"># requests가 핵심 — Karpenter는 이 값을 봅니다</span>
+EOF
+
+<span class="tk-c"># 갑자기 20개로! → 기존 노드에 자리가 없어 Pending 다수 발생</span>
+<span class="tk-p">$</span> kubectl scale deployment inflate --replicas <span class="tk-n">20</span></code></pre></div>
+    <div class="codepane" id="ex2"><pre><code><span class="tk-c"># (터미널 1) Karpenter 로그 — 의사결정 과정이 그대로 보입니다</span>
+<span class="tk-p">$</span> kubectl logs -n kube-system -l app.kubernetes.io/name=karpenter -f
+<span class="tk-hl">... "computed new nodeclaim(s) to fit pod(s)" pods=20 nodeclaims=1</span>
+<span class="tk-hl">... "launched nodeclaim" instance-type=c6a.8xlarge capacity-type=spot</span>
+
+<span class="tk-c"># (터미널 2) 노드가 늘어나는 모습 관찰</span>
+<span class="tk-p">$</span> kubectl get nodes -w
+
+<span class="tk-c"># 주목! Pod 20개(=CPU 20)를 위해 작은 노드 20대가 아니라</span>
+<span class="tk-c"># 큰 노드 1대(c6a.8xlarge = 32 vCPU)로 "빈패킹"한 것을 확인하세요.</span></code></pre></div>
+    <div class="codepane" id="ex3"><pre><code><span class="tk-c"># 워크로드 제거 → 노드가 비었음을 감지 → 자동 삭제</span>
+<span class="tk-p">$</span> kubectl delete deployment inflate
+
+<span class="tk-p">$</span> kubectl logs -n kube-system -l app.kubernetes.io/name=karpenter -f
+<span class="tk-hl">... "disrupting node(s)" reason=empty decision=delete</span>
+
+<span class="tk-c"># 1~2분 내 노드 수가 원래대로 줄어듭니다. 이것이 consolidation의 첫 경험!</span>
+<span class="tk-p">$</span> kubectl get nodeclaims</code></pre></div>
+  </div>
+</section>
+
+<!-- ================= 7. NodePool 빌더 ================= -->
+<section id="builder">
+  <div class="sec-eyebrow">Part 3 — Hands-on</div>
+  <h2>7. NodePool 빌더 — 옵션을 고르면 YAML이 완성됩니다</h2>
+  <p>NodePool 문법이 아직 낯설다면, 아래 빌더로 감을 잡아 보세요. 왼쪽에서 정책을 선택하면 오른쪽 YAML이 실시간으로 바뀝니다. 어떤 선택이 어떤 필드로 번역되는지 연결해 보는 것이 목적입니다.</p>
+
+  <div class="demo">
+    <div class="demo-tag">Interactive Demo 03</div>
+    <h4>NodePool YAML 빌더</h4>
+    <p>실무에서 자주 쓰는 조합: 웹 서비스 = Spot+온디맨드/consolidation 적극, ML 학습 = GPU/WhenEmpty.</p>
+    <div class="builder">
+      <div class="builder-opts">
+        <div class="opt-group"><label>용량 유형 (capacity-type)</label>
+          <div class="opt-row" data-g="cap">
+            <button class="on" data-v="both">Spot+온디맨드</button><button data-v="spot">Spot 전용</button><button data-v="od">온디맨드 전용</button>
+          </div>
+        </div>
+        <div class="opt-group"><label>CPU 아키텍처</label>
+          <div class="opt-row" data-g="arch">
+            <button class="on" data-v="amd64">amd64</button><button data-v="arm64">arm64 (Graviton)</button><button data-v="multi">둘 다 허용</button>
+          </div>
+        </div>
+        <div class="opt-group"><label>인스턴스 범위</label>
+          <div class="opt-row" data-g="fam">
+            <button class="on" data-v="general">범용 (c·m·r)</button><button data-v="compute">컴퓨트 (c)</button><button data-v="gpu">GPU (g·p)</button>
+          </div>
+        </div>
+        <div class="opt-group"><label>통합(Consolidation) 정책</label>
+          <div class="opt-row" data-g="cons">
+            <button class="on" data-v="under">적극 절감</button><button data-v="empty">빈 노드만</button>
+          </div>
+        </div>
+        <div class="opt-group"><label>전용 워크로드 격리 (taint)</label>
+          <div class="opt-row" data-g="taint">
+            <button class="on" data-v="no">없음</button><button data-v="yes">전용 taint 부여</button>
+          </div>
+        </div>
+      </div>
+      <div class="builder-out">
+        <div class="bo-head"><span>nodepool-generated.yaml</span><button class="copybtn" onclick="copyBuilder(this)">복사</button></div>
+        <pre><code id="builderYaml"></code></pre>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--text-dim);margin-top:14px" id="builderNote"></p>
+  </div>
+
+  <h3>7-1. 스케줄링 제어 — Pod와 NodePool을 잇는 4가지 방법</h3>
+  <p>NodePool을 여러 개 만들면 "이 Pod는 어느 NodePool로 갈까"를 정해야 합니다. Karpenter는 Kubernetes 표준 스케줄링 문법을 그대로 존중합니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>방법</th><th>선언 위치</th><th>강제성</th><th>대표 용도</th></tr></thead>
+    <tbody>
+      <tr><td><b>nodeSelector</b></td><td>Pod</td><td>강함 (일치 필수)</td><td>"GPU 노드에만": <code class="inline">karpenter.sh/nodepool: gpu</code></td></tr>
+      <tr><td><b>nodeAffinity</b></td><td>Pod</td><td>강함/약함 선택</td><td>"가능하면 Spot, 안 되면 아무거나" 같은 선호 표현</td></tr>
+      <tr><td><b>taint + toleration</b></td><td>NodePool + Pod</td><td>강함 (거부 기반)</td><td>"GPU 노드에 일반 Pod 못 오게" 전용 풀 격리</td></tr>
+      <tr><td><b>topologySpread</b></td><td>Pod</td><td>강함/약함 선택</td><td>AZ 간 고르게 분산 — Karpenter가 AZ를 맞춰 노드 생성</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout tip"><span class="ic">🎛️</span><p><strong>weight로 우선순위 주기:</strong> NodePool에 <code class="inline">spec.weight</code>(높을수록 우선)를 주면 여러 NodePool이 모두 조건을 만족할 때의 우선순위를 정할 수 있습니다. 예: Graviton NodePool weight 50, x86 NodePool weight 10 → 가능하면 저렴한 Graviton부터 시도.</p></div>
+</section>
+
+<!-- ================= 8. Consolidation ================= -->
+<section id="disruption">
+  <div class="sec-eyebrow">Part 3 — Hands-on</div>
+  <h2>8. Consolidation과 비용 최적화 — Karpenter의 진짜 무기</h2>
+  <p>많은 팀이 Karpenter를 "빠른 스케일 아웃" 때문에 도입하지만, 도입 후 가장 사랑하게 되는 기능은 <strong>Consolidation(통합)</strong>입니다. 트래픽이 빠진 뒤 남은 노드들을 능동적으로 정리해 <strong>계속해서 비용을 깎아 주는</strong> 기능이기 때문입니다.</p>
+
+  <div class="demo">
+    <div class="demo-tag">Interactive Demo 04</div>
+    <h4>Consolidation 시각화 — 빈자리를 모아 노드를 반납한다</h4>
+    <p>트래픽이 줄어 Pod가 드문드문 남은 상황입니다. ▶ 버튼을 눌러 Karpenter가 노드를 어떻게 정리하는지 보세요.</p>
+    <button class="btn primary" id="bpBtn" onclick="runBinpack()">▶ Consolidation 실행</button>
+    <button class="btn ghost" onclick="resetBinpack()">초기화</button>
+    <div class="binpack" id="bpArea"></div>
+    <div class="bp-summary" id="bpSummary"></div>
+  </div>
+
+  <h3>8-1. Disruption의 세 가지 트리거</h3>
+  <p>Karpenter가 스스로 노드를 건드리는(disrupt) 경우는 크게 셋입니다. 모두 <code class="inline">NodePool.spec.disruption</code>과 관련 필드로 제어합니다.</p>
+  <div class="grid c3">
+    <div class="card"><span class="k">Consolidation</span><h4>더 싸게 재배치 가능할 때</h4><p><b>WhenEmpty</b>: 완전히 빈 노드만 삭제(보수적). <b>WhenEmptyOrUnderutilized</b>: 저활용 노드의 Pod를 다른 노드로 옮기거나 더 싼 노드로 교체까지 수행(적극적, 절감 효과 큼).</p></div>
+    <div class="card"><span class="k">Drift</span><h4>선언과 실제가 어긋났을 때</h4><p>NodePool이나 EC2NodeClass를 수정(예: AMI 변경)하면 기존 노드는 "드리프트" 상태가 되고, Karpenter가 점진적으로 새 사양의 노드로 교체합니다. <b>선언형 노드 업그레이드</b>의 핵심.</p></div>
+    <div class="card"><span class="k">Expiration</span><h4>수명이 다했을 때</h4><p><code class="inline">expireAfter: 720h</code>처럼 최대 수명을 정하면 오래된 노드를 주기적으로 새 노드로 교체합니다. 최신 AMI 반영, 설정 표류 방지 등 위생(hygiene) 목적.</p></div>
+  </div>
+
+  <h3>8-2. "마음대로 죽이면 곤란한데요" — 안전장치들</h3>
+  <p>운영자가 가장 걱정하는 것이 "Karpenter가 서비스 중인 노드를 함부로 내리면 어쩌지"입니다. 다층의 안전장치가 있습니다.</p>
+  <ul>
+    <li><strong>PodDisruptionBudget(PDB) 준수:</strong> Karpenter는 노드를 비울 때 표준 eviction API를 사용하므로, PDB가 허용하는 만큼만 Pod를 이동시킵니다. <strong>중요 서비스에 PDB를 걸어두는 것은 Karpenter 운영의 필수 전제</strong>입니다.</li>
+    <li><strong>Disruption Budgets:</strong> NodePool 단위로 "동시에 재편 가능한 노드 비율"과 "재편 금지 시간대"를 선언합니다. 예: 평상시 10%까지만, 그리고 업무 피크 시간엔 0%.</li>
+    <li><strong>do-not-disrupt 주석:</strong> 절대 중단되면 안 되는 Pod(예: 장시간 배치 작업)에 <code class="inline">karpenter.sh/do-not-disrupt: "true"</code> 주석을 달면, 그 Pod가 있는 노드는 자발적 disruption에서 제외됩니다.</li>
+  </ul>
+
+  <div class="codebox">
+    <div class="codebox-head"><div class="codetabs"><button class="on">disruption-budget 예제</button></div><button class="copybtn" onclick="copyCode(this)">복사</button></div>
+    <div class="codepane on"><pre><code><span class="tk-k">spec:</span>
+  <span class="tk-k">disruption:</span>
+    <span class="tk-k">consolidationPolicy:</span> <span class="tk-s">WhenEmptyOrUnderutilized</span>
+    <span class="tk-k">consolidateAfter:</span> <span class="tk-s">5m</span>       <span class="tk-c"># Pod 변동 후 5분 안정되면 통합 검토</span>
+    <span class="tk-k">budgets:</span>
+      - <span class="tk-k">nodes:</span> <span class="tk-s">"10%"</span>            <span class="tk-c"># 평상시: 노드의 10%까지만 동시 재편</span>
+      - <span class="tk-k">nodes:</span> <span class="tk-s">"0"</span>              <span class="tk-c"># 아래 시간대엔 재편 전면 금지</span>
+        <span class="tk-k">schedule:</span> <span class="tk-s">"0 9 * * mon-fri"</span>   <span class="tk-c"># 평일 09시(UTC)부터</span>
+        <span class="tk-k">duration:</span> <span class="tk-s">8h</span>            <span class="tk-c"># 8시간 동안 = 업무 피크 보호</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= 9. 응용 사례 ================= -->
+<section id="usecases">
+  <div class="sec-eyebrow">Part 4 — Applied</div>
+  <h2>9. 실전 응용 사례 — 이렇게 씁니다</h2>
+
+  <h3>사례 ① Spot 인스턴스로 비용 절감 — 가장 대중적인 활용</h3>
+  <p>Spot 인스턴스는 AWS의 남는 용량을 온디맨드 대비 <strong>최대 90% 할인</strong>(통상 60~90%)으로 쓰되, 2분 전 통보로 회수될 수 있는 상품입니다. Spot 운영의 어려움 — 다양한 풀 분산, 중단 신호 대응, 대체 노드 확보 — 를 Karpenter가 흡수해 줍니다.</p>
+  <ul>
+    <li><strong>분산:</strong> requirements를 넓게 주면 Karpenter가 <em>가격-용량 최적화(price-capacity-optimized)</em> 전략으로 회수 확률이 낮고 저렴한 풀을 골라 분산합니다.</li>
+    <li><strong>중단 대응:</strong> SQS의 중단 통보를 받으면 즉시 대체 노드를 확보하고 Pod를 우아하게 이동시킵니다.</li>
+    <li><strong>폴백:</strong> capacity-type에 spot과 on-demand를 함께 허용하면, Spot 재고가 없을 때 자동으로 온디맨드로 폴백합니다.</li>
+  </ul>
+
+  <div class="demo">
+    <div class="demo-tag">Interactive Demo 05</div>
+    <h4>Spot + Consolidation 절감 계산기</h4>
+    <p>우리 클러스터 규모를 넣어 보세요. Spot 비중과 통합 효율에 따른 월간 절감액을 어림해 봅니다(개념 학습용 단순 모델).</p>
+    <div class="calc">
+      <div class="calc-in">
+        <label>평균 노드 수: <b><span id="cvNodes">30</span>대</b></label>
+        <input type="range" min="5" max="200" value="30" id="cNodes" oninput="calcCost()">
+        <label>노드 1대 월 온디맨드 비용: <b>$<span id="cvPrice">140</span></b> <span class="calc-val">(m6i.xlarge 서울 리전 어림)</span></label>
+        <input type="range" min="50" max="600" value="140" step="10" id="cPrice" oninput="calcCost()">
+        <label>Spot 전환 비율: <b><span id="cvSpot">60</span>%</b> <span class="calc-val">(Spot 할인율 70% 가정)</span></label>
+        <input type="range" min="0" max="90" value="60" step="5" id="cSpot" oninput="calcCost()">
+        <label>Consolidation로 줄어드는 노드: <b><span id="cvCons">15</span>%</b> <span class="calc-val">(유휴 자원 정리 효과)</span></label>
+        <input type="range" min="0" max="40" value="15" step="5" id="cCons" oninput="calcCost()">
+      </div>
+      <div class="calc-out">
+        <div class="calc-line"><span>현재 월 비용 (전량 온디맨드)</span><span class="v" id="coBase">$0</span></div>
+        <div class="calc-line"><span>Consolidation 적용 후</span><span class="v" id="coCons">$0</span></div>
+        <div class="calc-line"><span>+ Spot 전환 적용 후</span><span class="v" id="coFinal">$0</span></div>
+        <div class="calc-line total"><span>예상 월간 절감액</span><span class="v" id="coSave">$0</span></div>
+        <div class="calc-line"><span>절감률</span><span class="v" id="coPct" style="color:var(--green)">0%</span></div>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:var(--text-faint);margin-top:12px">※ 실제 절감은 워크로드의 중단 허용성, requests 정확도, Spot 시장 상황에 따라 달라집니다. 스테이트리스·재시도 가능 워크로드부터 Spot을 적용하세요.</p>
+  </div>
+
+  <h3>사례 ② GPU / AI 워크로드 — 비싼 자원일수록 Just-in-Time</h3>
+  <p>GPU 노드는 시간당 수 달러~수십 달러로, <strong>놀고 있는 GPU 노드가 최악의 낭비</strong>입니다. GPU 전용 NodePool을 만들어 두면, 학습/추론 Job이 생길 때만 GPU 노드가 떠서 일하고 끝나면 사라집니다.</p>
+  <div class="codebox">
+    <div class="codebox-head">
+      <div class="codetabs">
+        <button class="on" onclick="swTab(this,'gp1')">gpu-nodepool.yaml</button>
+        <button onclick="swTab(this,'gp2')">GPU Job 예시</button>
+      </div>
+      <button class="copybtn" onclick="copyCode(this)">복사</button>
+    </div>
+    <div class="codepane on" id="gp1"><pre><code><span class="tk-k">apiVersion:</span> <span class="tk-s">karpenter.sh/v1</span>
+<span class="tk-k">kind:</span> <span class="tk-s">NodePool</span>
+<span class="tk-k">metadata:</span>
+  <span class="tk-k">name:</span> <span class="tk-s">gpu</span>
+<span class="tk-k">spec:</span>
+  <span class="tk-k">template:</span>
+    <span class="tk-k">spec:</span>
+      <span class="tk-k">nodeClassRef:</span> { <span class="tk-k">group:</span> <span class="tk-s">karpenter.k8s.aws</span>, <span class="tk-k">kind:</span> <span class="tk-s">EC2NodeClass</span>, <span class="tk-k">name:</span> <span class="tk-s">gpu</span> }
+      <span class="tk-k">requirements:</span>
+        - <span class="tk-k">key:</span> <span class="tk-s">karpenter.k8s.aws/instance-family</span>
+          <span class="tk-k">operator:</span> <span class="tk-s">In</span>
+          <span class="tk-k">values:</span> [<span class="tk-s">"g6"</span>, <span class="tk-s">"g5"</span>]        <span class="tk-c"># 추론용 NVIDIA L4/A10G 계열</span>
+        - <span class="tk-k">key:</span> <span class="tk-s">karpenter.sh/capacity-type</span>
+          <span class="tk-k">operator:</span> <span class="tk-s">In</span>
+          <span class="tk-k">values:</span> [<span class="tk-s">"on-demand"</span>]        <span class="tk-c"># 장시간 학습은 온디맨드 안전. 재시도 가능한 실험은 spot도 고려</span>
+      <span class="tk-k">taints:</span>                           <span class="tk-c"># 일반 Pod가 비싼 GPU 노드에 끼어들지 못하게 격리</span>
+        - <span class="tk-k">key:</span> <span class="tk-s">nvidia.com/gpu</span>
+          <span class="tk-k">effect:</span> <span class="tk-s">NoSchedule</span>
+  <span class="tk-k">limits:</span>
+    <span class="tk-k">nvidia.com/gpu:</span> <span class="tk-n">16</span>              <span class="tk-c"># GPU 총량 상한 = 예산 폭주 방지</span>
+  <span class="tk-k">disruption:</span>
+    <span class="tk-k">consolidationPolicy:</span> <span class="tk-s">WhenEmpty</span>  <span class="tk-c"># 학습 중 재배치 위험 회피, 빈 노드만 정리</span>
+    <span class="tk-k">consolidateAfter:</span> <span class="tk-s">5m</span></code></pre></div>
+    <div class="codepane" id="gp2"><pre><code><span class="tk-k">apiVersion:</span> <span class="tk-s">batch/v1</span>
+<span class="tk-k">kind:</span> <span class="tk-s">Job</span>
+<span class="tk-k">metadata:</span>
+  <span class="tk-k">name:</span> <span class="tk-s">llm-finetune</span>
+<span class="tk-k">spec:</span>
+  <span class="tk-k">template:</span>
+    <span class="tk-k">metadata:</span>
+      <span class="tk-k">annotations:</span>
+        <span class="tk-k">karpenter.sh/do-not-disrupt:</span> <span class="tk-s">"true"</span>   <span class="tk-c"># 학습 중 노드 회수 금지</span>
+    <span class="tk-k">spec:</span>
+      <span class="tk-k">tolerations:</span>
+        - { <span class="tk-k">key:</span> <span class="tk-s">nvidia.com/gpu</span>, <span class="tk-k">operator:</span> <span class="tk-s">Exists</span>, <span class="tk-k">effect:</span> <span class="tk-s">NoSchedule</span> }
+      <span class="tk-k">containers:</span>
+        - <span class="tk-k">name:</span> <span class="tk-s">trainer</span>
+          <span class="tk-k">image:</span> <span class="tk-s">my-registry/finetune:latest</span>
+          <span class="tk-k">resources:</span>
+            <span class="tk-k">limits:</span> { <span class="tk-k">nvidia.com/gpu:</span> <span class="tk-n">1</span> }   <span class="tk-c"># 이 한 줄이 GPU 노드 생성을 트리거</span>
+      <span class="tk-k">restartPolicy:</span> <span class="tk-s">Never</span></code></pre></div>
+  </div>
+  <p>MLOps 파이프라인(Kubeflow, Argo Workflows 등)과 결합하면 "파이프라인 실행 → GPU 노드 자동 기동 → 학습 → 노드 자동 반납"이 완전 자동화됩니다. vLLM 추론 서빙도 같은 패턴으로, KEDA(요청량 기반 Pod 스케일) + Karpenter(GPU 노드 공급) 조합이 널리 쓰입니다.</p>
+
+  <h3>사례 ③ ARM(Graviton) 혼용 — 같은 성능을 더 싸게</h3>
+  <p>AWS Graviton(ARM64)은 동급 x86 대비 <strong>가성비가 20~40% 좋은</strong> 경우가 많습니다. 컨테이너 이미지를 멀티아키텍처(multi-arch)로 빌드해 두었다면, NodePool의 arch에 arm64를 추가하는 것만으로 Karpenter가 알아서 더 싼 Graviton을 우선 활용합니다.</p>
+  <div class="callout warn"><span class="ic">🧱</span><p><strong>전제 조건은 이미지:</strong> arm64를 허용하기 전에 모든 이미지가 arm64를 지원하는지 확인하세요(<code class="inline">docker buildx --platform linux/amd64,linux/arm64</code>). 지원하지 않는 이미지의 Pod가 ARM 노드에 뜨면 <code class="inline">exec format error</code>로 CrashLoop에 빠집니다. Pod 쪽에서 nodeAffinity로 amd64를 못 박는 방식으로 예외 처리할 수 있습니다.</p></div>
+
+  <h3>사례 ④ 배치/CI 워크로드 — "0에서 폭발, 다시 0으로"</h3>
+  <p>야간 배치, 데이터 파이프라인, CI 러너처럼 <strong>피크와 유휴의 낙차가 큰</strong> 워크로드는 Karpenter의 최적 고객입니다. 낮에는 노드 0대, 새벽 2시에 Job 수백 개가 쏟아지면 수 분 내 수십 대 확보, 끝나면 다시 0대. 전용 NodePool + taint로 격리하고 Spot 전용으로 돌리는 것이 정석입니다.</p>
+
+  <h3>사례 ⑤ 팀/테넌트별 NodePool 분리 — 거버넌스</h3>
+  <p>NodePool의 <code class="inline">limits</code>는 팀별 예산 가드레일로도 쓰입니다. "데이터팀 NodePool은 CPU 500개까지, ML팀 GPU는 16장까지"처럼 상한을 걸고, taint/toleration으로 서로의 노드를 넘보지 못하게 하면 멀티테넌트 클러스터의 리소스 거버넌스가 선언형으로 관리됩니다.</p>
+</section>
+
+<!-- ================= 10. 모범 사례 ================= -->
+<section id="bestpractice">
+  <div class="sec-eyebrow">Part 4 — Applied</div>
+  <h2>10. 모범 사례 & 트러블슈팅</h2>
+
+  <h3>10-1. 운영 체크리스트</h3>
+  <div class="grid c2">
+    <div class="card"><span class="k">Do ✓</span><h4>requests를 정직하게</h4><p>Karpenter의 모든 판단은 Pod requests에서 출발합니다. 과대 선언은 과대 노드로, 과소 선언은 노드 압박(OOM·eviction)으로 직결됩니다. 모니터링 기반 rightsizing을 병행하세요.</p></div>
+    <div class="card"><span class="k">Do ✓</span><h4>인스턴스 범위는 넓게, 상한은 명확히</h4><p>타입을 못 박는 대신 category·generation 기반으로 넓게 허용하고, limits로 총량을 통제하는 것이 Karpenter식 설계입니다.</p></div>
+    <div class="card"><span class="k">Do ✓</span><h4>PDB는 필수 동반자</h4><p>Consolidation을 적극 정책으로 쓰려면 주요 서비스에 PDB가 반드시 있어야 합니다. PDB 없이 적극 통합은 위험합니다.</p></div>
+    <div class="card"><span class="k">Do ✓</span><h4>메트릭 관찰</h4><p>Karpenter는 Prometheus 메트릭을 노출합니다. Pending 시간, NodeClaim 생성/실패, disruption 사유 대시보드(Grafana)를 초기부터 구축하세요.</p></div>
+    <div class="card"><span class="k">Don't ✗</span><h4>CA와 동시 운영</h4><p>같은 워크로드 영역에서 CA와 Karpenter를 함께 켜면 중복 프로비저닝·삭제 경합이 발생합니다. 전환기에는 영역을 명확히 분리하세요.</p></div>
+    <div class="card"><span class="k">Don't ✗</span><h4>운영에서 AMI @latest 방치</h4><p><code class="inline">al2023@latest</code>는 새 AMI가 나오면 Drift로 전체 노드 교체를 유발할 수 있습니다. 운영 클러스터는 AMI 버전을 고정하고 계획적으로 올리세요.</p></div>
+  </div>
+
+  <h3>10-2. 자주 만나는 문제와 첫 대응</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>증상</th><th>흔한 원인</th><th>확인 명령 / 조치</th></tr></thead>
+    <tbody>
+      <tr><td><b>노드가 아예 안 생김</b></td><td>서브넷/보안그룹 discovery 태그 누락, IAM 권한 부족</td><td>컨트롤러 로그에서 selector/UnauthorizedOperation 에러 확인 → 태그·Role 점검</td></tr>
+      <tr><td><b>Pod가 계속 Pending</b></td><td>requirements가 너무 좁아 조건 만족 타입이 없음, limits 초과</td><td><code class="inline">kubectl describe nodeclaim</code>·이벤트에서 "no instance type satisfied" 확인 → 범위 완화</td></tr>
+      <tr><td><b>노드가 생겼다 바로 죽음</b></td><td>노드 Role 권한 부족으로 클러스터 조인 실패, 보안그룹 통신 불가</td><td>노드 상태 NotReady 지속 여부, kubelet 로그, aws-auth/액세스 엔트리 확인</td></tr>
+      <tr><td><b>서비스가 자꾸 재배치됨</b></td><td>적극 consolidation + PDB 부재</td><td>PDB 추가, budgets로 재편 속도 제한, 민감 Pod에 do-not-disrupt</td></tr>
+      <tr><td><b>Spot 회수로 순단 발생</b></td><td>단일 풀 편중, 준비 안 된 graceful shutdown</td><td>인스턴스 범위 확대로 풀 분산, terminationGracePeriod·preStop 정비, 핵심부는 온디맨드 유지</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout info"><span class="ic">🔭</span><p><strong>디버깅 황금 루트:</strong> ① <code class="inline">kubectl get nodeclaims</code>로 시도 여부 확인 → ② 컨트롤러 로그에서 의사결정/에러 확인 → ③ <code class="inline">kubectl describe nodepool</code>의 상태·이벤트 확인. 대부분의 문제는 이 세 단계 안에서 원인이 드러납니다.</p></div>
+</section>
+
+<!-- ================= 11. 퀴즈 ================= -->
+<section id="quiz">
+  <div class="sec-eyebrow">Part 4 — Check Yourself</div>
+  <h2>11. 확인 퀴즈 — 10문항</h2>
+  <p>각 문항의 보기를 클릭하면 즉시 정답과 해설이 표시됩니다. 7문항 이상 맞히면 실무 도입 논의에 참여할 준비가 된 것입니다.</p>
+  <div id="quizArea"></div>
+  <div class="quiz-score" id="quizScore"></div>
+  <button class="btn ghost" onclick="resetQuiz()" style="margin-top:8px">퀴즈 다시 풀기</button>
+</section>
+
+<!-- ================= 12. 마무리 ================= -->
+<section id="wrapup">
+  <div class="sec-eyebrow">Epilogue</div>
+  <h2>12. 마무리 — 오늘의 핵심 다섯 줄</h2>
+  <ol>
+    <li><strong>스케일링은 3축</strong> — HPA/KEDA(Pod 수), VPA(Pod 크기), Karpenter(노드). 서로 대체가 아니라 협업 관계입니다.</li>
+    <li><strong>Karpenter = Groupless + Just-in-Time</strong> — ASG 없이 Pending Pod의 요구사항을 읽어 클라우드 API를 직접 호출, 수십 초 만에 딱 맞는 노드를 만듭니다.</li>
+    <li><strong>운영자는 범위만 선언</strong> — NodePool(정책)과 EC2NodeClass(재료)에 허용 범위를 적으면, 타입 선택과 빈패킹은 Karpenter가 합니다.</li>
+    <li><strong>진짜 무기는 Consolidation</strong> — 빈 노드 정리, 저활용 노드 통폐합, 더 싼 노드 교체를 상시 수행해 비용을 계속 깎습니다. PDB·budgets가 안전벨트입니다.</li>
+    <li><strong>Spot·GPU·ARM·배치</strong> — 사양이 다양하고 낙차가 큰 워크로드일수록 Karpenter의 효과가 커집니다.</li>
+  </ol>
+
+  <h3>다음 학습 로드맵</h3>
+  <div class="grid c3">
+    <div class="card"><span class="k">Next 1</span><h4>KEDA 이벤트 기반 스케일링</h4><p>큐·이벤트 지표로 Pod를 늘리는 KEDA와 Karpenter의 조합 — 수요와 공급의 완성.</p></div>
+    <div class="card"><span class="k">Next 2</span><h4>EKS Auto Mode 심화</h4><p>관리형 Karpenter의 기본 NodePool 구조, 커스텀 NodePool 추가, 셀프호스팅과의 트레이드오프.</p></div>
+    <div class="card"><span class="k">Next 3</span><h4>FinOps 관점의 최적화</h4><p>requests rightsizing, Savings Plans와 Spot의 포트폴리오 구성, Kubecost 등 비용 가시화 도구 연계.</p></div>
+  </div>
+
+  <footer>
+    <div class="ft-title">References</div>
+    <p style="max-width:none;font-size:13px">
+      공식 문서 <a href="https://karpenter.sh" target="_blank" rel="noopener">karpenter.sh</a> ·
+      GitHub <a href="https://github.com/kubernetes-sigs/karpenter" target="_blank" rel="noopener">kubernetes-sigs/karpenter</a> /
+      <a href="https://github.com/aws/karpenter-provider-aws" target="_blank" rel="noopener">aws/karpenter-provider-aws</a> ·
+      AWS <a href="https://docs.aws.amazon.com/eks/latest/best-practices/karpenter.html" target="_blank" rel="noopener">EKS Best Practices — Karpenter</a>
+    </p>
+    <p style="max-width:none;margin-top:10px">Cloud Infra Series · Karpenter 완벽 가이드 — 본 자료의 수치(속도·절감률)는 공개 벤치마크의 전형값을 학습용으로 단순화한 것으로, 실제 환경에서는 달라질 수 있습니다. 버전 정보는 2026년 상반기 기준입니다.</p>
+  </footer>
+</section>
+
+</main>
+</div>
+
+<script>
+/* ---------- scroll spy ---------- */
+(function(){
+  const links=[...document.querySelectorAll('nav.toc a')];
+  const map=new Map();
+  links.forEach(a=>{const id=a.getAttribute('href').slice(1);const el=document.getElementById(id);if(el)map.set(el,a);});
+  const obs=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){links.forEach(l=>l.classList.remove('active'));const a=map.get(e.target);if(a)a.classList.add('active');}
+    });
+  },{rootMargin:'-15% 0px -70% 0px'});
+  map.forEach((_,el)=>obs.observe(el));
+})();
+
+/* ---------- code tabs & copy ---------- */
+function swTab(btn,paneId){
+  const head=btn.closest('.codebox-head');
+  head.querySelectorAll('.codetabs button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  const box=btn.closest('.codebox');
+  box.querySelectorAll('.codepane').forEach(p=>p.classList.remove('on'));
+  document.getElementById(paneId).classList.add('on');
+}
+function copyCode(btn){
+  const box=btn.closest('.codebox');
+  const pane=box.querySelector('.codepane.on');
+  navigator.clipboard.writeText(pane.innerText).then(()=>flash(btn));
+}
+function copyBuilder(btn){
+  navigator.clipboard.writeText(document.getElementById('builderYaml').innerText).then(()=>flash(btn));
+}
+function flash(btn){const t=btn.textContent;btn.textContent='복사됨 ✓';setTimeout(()=>btn.textContent=t,1400);}
+
+/* ---------- demo 01: scaling axis ---------- */
+const AXES={
+  hpa:{ttl:'HPA — Horizontal Pod Autoscaler',sub:'같은 Pod의 "개수"를 늘리고 줄인다',
+    desc:'CPU 사용률·요청 수 등의 지표가 목표치를 넘으면 replicas를 자동 조정합니다. 예: 평균 CPU 70% 초과 시 Pod 3개 → 8개. 단, 늘어난 Pod가 앉을 노드 자리는 책임지지 않습니다.',
+    pods:[{h:44,e:'📦'},{h:44,e:'📦'},{h:44,e:'📦'},{h:44,e:'📦',ghost:1},{h:44,e:'📦',ghost:1},{h:44,e:'📦',ghost:1}],
+    note:'→ 개수가 3개에서 6개로 (크기는 동일)'},
+  vpa:{ttl:'VPA — Vertical Pod Autoscaler',sub:'Pod 하나의 "리소스 크기"를 조절한다',
+    desc:'실제 사용량을 관찰해 CPU/메모리 requests·limits를 재조정합니다. 예: 항상 메모리가 부족한 Pod의 requests를 512Mi → 1Gi로. Karpenter가 신뢰하는 requests 값을 정확하게 만들어 주는 보완재이기도 합니다.',
+    pods:[{h:30,e:'📦'},{h:48,e:'📦'},{h:66,e:'📦'}],
+    note:'→ 개수는 그대로, 한 개의 크기가 커짐'},
+  node:{ttl:'노드 스케일링 — CA / Karpenter',sub:'Pod가 올라탈 "서버(노드)" 자체를 늘리고 줄인다',
+    desc:'Pending Pod가 생기면 새 노드를 공급하고, 노드가 남으면 회수합니다. HPA·VPA가 만든 수요를 실제 컴퓨팅 자원으로 뒷받침하는 층입니다. Karpenter는 이 층에서 "몇 대"뿐 아니라 "어떤 타입으로"까지 최적화합니다.',
+    pods:[{h:66,e:'🖥️'},{h:66,e:'🖥️'},{h:66,e:'🖥️',ghost:1}],
+    note:'→ 서버가 2대에서 3대로 (Pod는 그 위에 배치)'}
+};
+function showAxis(key,btn){
+  document.querySelectorAll('.axis-btns button').forEach(b=>b.classList.remove('on'));
+  if(btn)btn.classList.add('on');
+  const a=AXES[key];
+  const podHtml=a.pods.map(p=>`<div class="axis-pod" style="height:${p.h}px;${p.ghost?'opacity:.45;border-style:dashed':''}">${p.e}</div>`).join('');
+  document.getElementById('axisView').innerHTML=
+    `<div class="ttl">${a.ttl}</div><div class="sub">${a.sub}</div><p>${a.desc}</p>
+     <div class="axis-diagram">${podHtml}</div>
+     <p style="font-family:var(--mono);font-size:12px;color:var(--text-faint)">${a.note} <span style="opacity:.7">(점선 = 새로 추가/확장된 부분)</span></p>`;
+}
+showAxis('hpa');
+
+/* ---------- demo 02: race ---------- */
+const CA_STEPS=[
+  {t:25,label:'스캔 주기 대기 + Pending 감지, 노드 그룹별 시뮬레이션 중…'},
+  {t:45,label:'ASG desired capacity 3 → 4 변경 요청…'},
+  {t:120,label:'ASG가 EC2 기동 중… (템플릿 고정 타입)'},
+  {t:200,label:'노드 부팅·kubelet 등록·Ready 대기…'},
+  {t:215,label:'✅ Pod 스케줄 완료 (총 약 3분 35초)'}
+];
+const KP_STEPS=[
+  {t:3,label:'Pending 감지 → 수백 개 타입 중 최적 조합 계산 (수 초)'},
+  {t:8,label:'EC2 RunInstances 직접 호출 — ASG 단계 생략!'},
+  {t:48,label:'노드 부팅·등록·Ready…'},
+  {t:55,label:'✅ Pod 스케줄 완료 (총 약 55초)'}
+];
+let raceTimer=null;
+function startRace(){
+  resetRace();
+  document.getElementById('raceBtn').disabled=true;
+  const TOTAL=215, SPEED=28; // 28x 배속
+  let t=0;
+  raceTimer=setInterval(()=>{
+    t+=0.3*SPEED/10; // tick당 가상초
+    updTrack('ca',CA_STEPS,t,TOTAL);
+    updTrack('kp',KP_STEPS,t,TOTAL);
+    if(t>=TOTAL){clearInterval(raceTimer);document.getElementById('raceBtn').disabled=false;}
+  },30);
+}
+function updTrack(pfx,steps,t,total){
+  const end=steps[steps.length-1].t;
+  const cur=Math.min(t,end);
+  document.getElementById(pfx+'Fill').style.width=(cur/total*100)+'%';
+  document.getElementById(pfx+'Time').textContent=fmtT(cur)+(cur>=end?' 완료':'');
+  let idx=steps.findIndex(s=>t<s.t); if(idx===-1)idx=steps.length;
+  document.getElementById(pfx+'Stage').textContent=steps[Math.min(idx,steps.length-1)].label;
+  const chips=document.getElementById(pfx+'Steps').children;
+  for(let i=0;i<chips.length;i++){
+    chips[i].classList.remove('done','doing');
+    if(i<idx)chips[i].classList.add('done');
+    else if(i===idx&&t<end)chips[i].classList.add('doing');
+    else if(t>=end)chips[i].classList.add('done');
+  }
+}
+function fmtT(s){return s>=60?Math.floor(s/60)+'분 '+Math.round(s%60)+'초':s.toFixed(1)+'s';}
+function resetRace(){
+  if(raceTimer)clearInterval(raceTimer);
+  ['ca','kp'].forEach(p=>{
+    document.getElementById(p+'Fill').style.width='0%';
+    document.getElementById(p+'Time').textContent='0.0s';
+    document.getElementById(p+'Stage').textContent='대기 중…';
+    [...document.getElementById(p+'Steps').children].forEach(c=>c.classList.remove('done','doing'));
+  });
+  document.getElementById('raceBtn').disabled=false;
+}
+
+/* ---------- demo 03: builder ---------- */
+const bState={cap:'both',arch:'amd64',fam:'general',cons:'under',taint:'no'};
+document.querySelectorAll('.opt-row').forEach(row=>{
+  row.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      row.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+      bState[row.dataset.g]=btn.dataset.v;
+      renderBuilder();
+    });
+  });
+});
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function renderBuilder(){
+  const cap={both:'["spot", "on-demand"]',spot:'["spot"]',od:'["on-demand"]'}[bState.cap];
+  const arch={amd64:'["amd64"]',arm64:'["arm64"]',multi:'["amd64", "arm64"]'}[bState.arch];
+  const fam={general:'["c", "m", "r"]',compute:'["c"]',gpu:null}[bState.fam];
+  const famKey=bState.fam==='gpu'?'karpenter.k8s.aws/instance-family':'karpenter.k8s.aws/instance-category';
+  const famVal=bState.fam==='gpu'?'["g6", "g5", "p5"]':fam;
+  const cons=bState.cons==='under'?'WhenEmptyOrUnderutilized':'WhenEmpty';
+  let y='';
+  y+='apiVersion: karpenter.sh/v1\n';
+  y+='kind: NodePool\n';
+  y+='metadata:\n  name: '+(bState.fam==='gpu'?'gpu':'default')+'\n';
+  y+='spec:\n  template:\n    spec:\n';
+  y+='      nodeClassRef:\n        group: karpenter.k8s.aws\n        kind: EC2NodeClass\n        name: default\n';
+  y+='      requirements:\n';
+  y+='        - key: karpenter.sh/capacity-type\n          operator: In\n          values: '+cap+'\n';
+  y+='        - key: kubernetes.io/arch\n          operator: In\n          values: '+arch+'\n';
+  y+='        - key: '+famKey+'\n          operator: In\n          values: '+famVal+'\n';
+  y+='        - key: karpenter.k8s.aws/instance-generation\n          operator: Gt\n          values: ["4"]\n';
+  if(bState.taint==='yes'){
+    y+='      taints:\n        - key: dedicated\n          value: special-team\n          effect: NoSchedule\n';
+  }
+  y+='      expireAfter: 720h\n';
+  y+='  limits:\n    cpu: 1000\n';
+  if(bState.fam==='gpu')y+='    nvidia.com/gpu: 16\n';
+  y+='  disruption:\n    consolidationPolicy: '+cons+'\n    consolidateAfter: '+(cons==='WhenEmpty'?'5m':'1m')+'\n';
+  document.getElementById('builderYaml').innerHTML=esc(y);
+  const notes=[];
+  if(bState.cap==='spot')notes.push('⚠ Spot 전용은 재고 부족 시 프로비저닝이 실패할 수 있어, 중단 허용 워크로드에만 권장합니다.');
+  if(bState.cap==='both')notes.push('✓ Spot+온디맨드: Karpenter는 Spot을 우선 시도하고 없으면 온디맨드로 폴백합니다.');
+  if(bState.arch==='multi')notes.push('✓ 멀티 아키텍처: 모든 이미지의 arm64 지원(multi-arch 빌드)이 전제 조건입니다.');
+  if(bState.fam==='gpu')notes.push('✓ GPU 풀: taint로 격리하고 limits에 GPU 상한을 두는 것이 정석입니다. EC2NodeClass도 GPU 드라이버 포함 AMI로 별도 구성하세요.');
+  if(bState.cons==='under')notes.push('✓ 적극 통합: 절감 효과가 크지만 Pod 재배치가 발생하므로 PDB가 필수입니다.');
+  if(bState.cons==='empty')notes.push('✓ 빈 노드만 정리: 재배치가 없어 안전하지만 절감 폭은 줄어듭니다. 학습/배치 풀에 적합.');
+  document.getElementById('builderNote').innerHTML=notes.join('<br>');
+}
+renderBuilder();
+
+/* ---------- demo 04: binpack ---------- */
+const BP_INIT=[
+  {name:'node-a · m6i.xlarge',pods:3,cost:0.24},
+  {name:'node-b · m6i.xlarge',pods:2,cost:0.24},
+  {name:'node-c · m6i.xlarge',pods:1,cost:0.24},
+  {name:'node-d · m6i.xlarge',pods:2,cost:0.24}
+];
+let bpBusy=false;
+function drawBinpack(nodes){
+  document.getElementById('bpArea').innerHTML=nodes.map((n,i)=>`
+    <div class="bp-node" id="bpn${i}">
+      <div class="bp-name"><span>${n.name}</span><span>${n.pods}/8 pods</span></div>
+      <div class="bp-pods">${'<div class="bp-pod">📦</div>'.repeat(n.pods)}</div>
+      <div class="bp-cost">$${n.cost.toFixed(2)}/h</div>
+    </div>`).join('');
+}
+function resetBinpack(){
+  bpBusy=false;
+  document.getElementById('bpBtn').disabled=false;
+  drawBinpack(BP_INIT);
+  document.getElementById('bpSummary').textContent='현재: 노드 4대 × $0.24 = $0.96/h · 총 8개 Pod가 드문드문 배치 (활용률 25%)';
+}
+function runBinpack(){
+  if(bpBusy)return; bpBusy=true;
+  document.getElementById('bpBtn').disabled=true;
+  const sum=document.getElementById('bpSummary');
+  sum.textContent='① 저활용 감지: node-c(1개)·node-d(2개)의 Pod를 다른 노드로 옮길 수 있는지 시뮬레이션…';
+  setTimeout(()=>{
+    sum.textContent='② Pod 이동: PDB를 지키며 node-c, node-d의 Pod를 node-a·b로 안전하게 재배치…';
+    const a=document.getElementById('bpn0').querySelector('.bp-pods');
+    const b=document.getElementById('bpn1').querySelector('.bp-pods');
+    a.innerHTML='<div class="bp-pod">📦</div>'.repeat(5);
+    b.innerHTML='<div class="bp-pod">📦</div>'.repeat(3);
+    document.getElementById('bpn0').querySelector('.bp-name span:last-child').textContent='5/8 pods';
+    document.getElementById('bpn1').querySelector('.bp-name span:last-child').textContent='3/8 pods';
+    document.getElementById('bpn2').querySelector('.bp-pods').innerHTML='';
+    document.getElementById('bpn3').querySelector('.bp-pods').innerHTML='';
+  },1600);
+  setTimeout(()=>{
+    sum.textContent='③ 빈 노드 회수: node-c·d를 cordon → drain → 인스턴스 종료…';
+    document.getElementById('bpn2').classList.add('dying');
+    document.getElementById('bpn3').classList.add('dying');
+  },3400);
+  setTimeout(()=>{
+    sum.innerHTML='✅ 완료: 노드 <b style="color:var(--green)">4대 → 2대</b>, 비용 <b style="color:var(--green)">$0.96 → $0.48/h (-50%)</b> · Pod 8개는 전부 무사히 Running — 이 과정이 24시간 자동으로 반복됩니다.';
+    document.getElementById('bpBtn').disabled=false; bpBusy=false;
+  },5200);
+}
+resetBinpack();
+
+/* ---------- demo 05: cost calc ---------- */
+function calcCost(){
+  const n=+document.getElementById('cNodes').value;
+  const p=+document.getElementById('cPrice').value;
+  const s=+document.getElementById('cSpot').value/100;
+  const c=+document.getElementById('cCons').value/100;
+  document.getElementById('cvNodes').textContent=n;
+  document.getElementById('cvPrice').textContent=p;
+  document.getElementById('cvSpot').textContent=Math.round(s*100);
+  document.getElementById('cvCons').textContent=Math.round(c*100);
+  const base=n*p;
+  const afterCons=base*(1-c);
+  const SPOT_DISCOUNT=0.7;
+  const final=afterCons*(1-s)+afterCons*s*(1-SPOT_DISCOUNT);
+  const save=base-final;
+  const fm=x=>'$'+Math.round(x).toLocaleString();
+  document.getElementById('coBase').textContent=fm(base);
+  document.getElementById('coCons').textContent=fm(afterCons);
+  document.getElementById('coFinal').textContent=fm(final);
+  document.getElementById('coSave').textContent=fm(save)+' /월';
+  document.getElementById('coPct').textContent=Math.round(save/base*100)+'%';
+}
+calcCost();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ {q:'Karpenter가 담당하는 스케일링 축은 무엇인가요?',o:['Pod의 개수','Pod의 CPU/메모리 크기','노드(서버)의 수와 종류','컨테이너 이미지 크기'],a:2,e:'Karpenter는 노드 수명주기 관리자입니다. Pod 개수는 HPA/KEDA, Pod 크기는 VPA의 영역이며 셋은 함께 사용됩니다.'},
+ {q:'Karpenter가 노드를 만들기 시작하는 "출발 신호"는?',o:['CPU 사용률이 80%를 넘을 때','스케줄되지 못한 Pending Pod가 생겼을 때','매 시간 정각','운영자가 수동으로 명령할 때'],a:1,e:'Karpenter는 사용률 지표가 아니라 "스케줄 실패한 Pod의 존재"에 반응합니다. Pod의 requests·affinity를 읽어 딱 맞는 노드를 계산합니다.'},
+ {q:'Cluster Autoscaler와 비교했을 때 Karpenter의 구조적 차이는?',o:['ASG의 desired 값을 더 빨리 올린다','ASG 없이 EC2 API를 직접 호출한다','노드를 미리 넉넉히 만들어 둔다','kubelet을 자체 구현했다'],a:1,e:'Groupless 프로비저닝이 핵심입니다. 중간 관리자(ASG)를 거치지 않아 수십 초 만에 노드를 공급하고, 타입도 매번 자유롭게 선택합니다.'},
+ {q:'NodePool과 EC2NodeClass의 역할 분담으로 옳은 것은?',o:['NodePool=AWS 세부사항, EC2NodeClass=스케줄링 정책','NodePool=스케줄링·수명주기 정책, EC2NodeClass=AMI·서브넷 등 AWS 재료','둘 다 같은 내용의 별칭이다','NodePool은 v1beta1에서 폐기되었다'],a:1,e:'NodePool은 클라우드 중립적인 "정책", EC2NodeClass는 "AWS에서 어떻게 만들지"의 재료입니다. 폐기된 것은 구버전의 Provisioner/AWSNodeTemplate입니다.'},
+ {q:'requirements를 작성하는 바람직한 방향은?',o:['특정 인스턴스 타입 1개로 못 박는다','최대한 넓은 범위를 허용하고 limits로 총량을 통제한다','requirements를 아예 비워 둔다','온디맨드만 허용한다'],a:1,e:'범위가 넓을수록 Karpenter가 싸고 재고 있는 타입(특히 Spot)을 찾을 여지가 커집니다. 예산 통제는 limits가 담당합니다. 다만 완전히 비우는 것보다 세대·카테고리 정도의 가드레일은 두는 것이 좋습니다.'},
+ {q:'consolidationPolicy: WhenEmptyOrUnderutilized의 의미는?',o:['빈 노드만 삭제한다','저활용 노드의 Pod를 옮기거나 더 싼 노드로 교체까지 한다','노드를 절대 삭제하지 않는다','Spot 노드만 삭제한다'],a:1,e:'적극적 통합 정책으로 절감 효과가 가장 큽니다. Pod 재배치가 동반되므로 PDB(PodDisruptionBudget)를 함께 설정하는 것이 필수입니다.'},
+ {q:'장시간 ML 학습 Job이 Consolidation으로 중단되지 않게 하려면?',o:['replicas를 늘린다','Pod에 karpenter.sh/do-not-disrupt: "true" 주석을 단다','노드에 SSH로 접속해 잠근다','HPA를 끈다'],a:1,e:'do-not-disrupt 주석이 달린 Pod가 있는 노드는 자발적 disruption 대상에서 제외됩니다. GPU 풀은 WhenEmpty 정책과 병행하면 더 안전합니다.'},
+ {q:'Spot 인스턴스 활용 시 Karpenter가 해 주는 일이 아닌 것은?',o:['다양한 풀에 분산해 회수 위험 완화','중단 통보 수신 시 대체 노드 확보','Spot 재고가 없으면 온디맨드로 폴백','앱의 상태(state)를 자동으로 백업'],a:3,e:'인프라 차원의 대응은 Karpenter가 하지만, 애플리케이션의 상태 보존·재시도 설계는 여전히 개발자의 몫입니다. Spot에는 중단 허용 워크로드를 올리세요.'},
+ {q:'노드가 하나도 생성되지 않을 때 가장 먼저 의심할 것은?',o:['Kubernetes 버전이 너무 최신이라서','서브넷·보안그룹의 discovery 태그 누락 또는 IAM 권한 부족','노드가 부끄러움을 타서','HPA 미설치'],a:1,e:'EC2NodeClass는 태그로 서브넷·보안그룹을 찾습니다. 태그 누락과 IAM 권한 부족이 초기 도입 시 문제의 대부분입니다. 컨트롤러 로그부터 확인하세요.'},
+ {q:'Cluster Autoscaler에서 Karpenter로 전환할 때의 주의점은?',o:['둘을 같은 영역에서 동시에 켜 두면 안 된다','CA를 먼저 3년간 유지해야 한다','전환 시 클러스터를 재생성해야 한다','Karpenter는 HPA와 함께 쓸 수 없다'],a:0,e:'같은 Pending Pod에 두 컨트롤러가 반응하면 중복 프로비저닝이 발생합니다. 전환기에는 taint 등으로 담당 영역을 분리하거나 CA를 축소(replicas 0)하세요.'}
+];
+let answered=0,correct=0;
+function buildQuiz(){
+  answered=0;correct=0;
+  document.getElementById('quizArea').innerHTML=QUIZ.map((it,qi)=>`
+    <div class="quiz-item">
+      <div class="quiz-q"><span class="qn">Q${qi+1}.</span>${it.q}</div>
+      <div class="quiz-opts">${it.o.map((o,oi)=>`<button onclick="pick(${qi},${oi},this)">${String.fromCharCode(65+oi)}. ${o}</button>`).join('')}</div>
+      <div class="quiz-exp" id="exp${qi}"></div>
+    </div>`).join('');
+  document.getElementById('quizScore').textContent='';
+}
+function pick(qi,oi,btn){
+  const it=QUIZ[qi];
+  const opts=btn.parentElement.querySelectorAll('button');
+  opts.forEach(b=>b.disabled=true);
+  opts[it.a].classList.add('correct');
+  if(oi!==it.a)btn.classList.add('wrong'); else correct++;
+  const exp=document.getElementById('exp'+qi);
+  exp.innerHTML=(oi===it.a?'⭕ 정답! ':'❌ 아쉽습니다. 정답은 <b>'+String.fromCharCode(65+it.a)+'</b>. ')+it.e;
+  exp.classList.add('show');
+  answered++;
+  if(answered===QUIZ.length){
+    const msg=correct>=9?'훌륭합니다! 팀에 Karpenter를 소개할 준비가 되었습니다 🏆':correct>=7?'합격! 실습 환경에 직접 설치해 볼 차례입니다 🎉':'기초는 잡혔습니다. 3·5·8장을 한 번 더 복습해 보세요 💪';
+    document.getElementById('quizScore').textContent=`결과: ${QUIZ.length}문항 중 ${correct}개 정답 — ${msg}`;
+  }
+}
+function resetQuiz(){buildQuiz();document.getElementById('quiz').scrollIntoView();}
+buildQuiz();
+</script>
+</body>
+</html>

@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K8s 네트워크 아키텍처 — 계층으로 이해하기</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0E14; --surface:#12161F; --surface2:#1A202C; --line:#242C3A;
+  --text:#E7EBF4; --muted:#8C95A8; --dim:#5B6478;
+  /* 계층 색상: 물리(따뜻한 색) → 추상(차가운 색/보라) 스펙트럼 */
+  --c-hw:#E8A87C;   /* H/W  구리 */
+  --c-os:#E5C07B;   /* OS   앰버 */
+  --c-vm:#98C379;   /* VM   그린 */
+  --c-node:#56B6C2; /* Node 시안 */
+  --c-cluster:#61AFEF; /* Cluster 블루 */
+  --c-pod:#C678DD;  /* Pod  퍼플 */
+  --c-ct:#E06C75;   /* Container 로즈 */
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Pretendard Variable',Pretendard,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.75;font-size:16.5px;letter-spacing:-.01em}
+::selection{background:rgba(97,175,239,.3)}
+
+/* ---------- 레이아웃 ---------- */
+.wrap{display:flex;max-width:1360px;margin:0 auto}
+nav.toc{position:sticky;top:0;height:100vh;width:248px;flex-shrink:0;padding:36px 20px 36px 28px;border-right:1px solid var(--line);overflow-y:auto;scrollbar-width:thin}
+main{flex:1;min-width:0;padding:0 clamp(20px,4vw,64px) 120px}
+.toc .brand{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px}
+.toc .brand b{color:var(--c-cluster);font-weight:500}
+.toc .title{font-weight:800;font-size:15px;line-height:1.4;margin-bottom:24px;letter-spacing:-.02em}
+.toc ol{list-style:none}
+.toc a{display:block;padding:7px 10px;margin:1px 0;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13.5px;border-left:2px solid transparent;transition:all .18s}
+.toc a:hover{color:var(--text);background:var(--surface)}
+.toc a.active{color:var(--text);background:var(--surface2);border-left-color:var(--layer-c,var(--c-cluster));font-weight:600}
+.toc .grp{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase;margin:20px 0 6px 10px}
+@media(max-width:1023px){nav.toc{display:none}main{padding:0 20px 100px}}
+
+/* ---------- 히어로 ---------- */
+header.hero{padding:clamp(48px,8vw,96px) 0 56px;border-bottom:1px solid var(--line);margin-bottom:56px}
+.hero .eyebrow{font-family:var(--mono);font-size:12.5px;color:var(--c-node);letter-spacing:.18em;text-transform:uppercase;margin-bottom:18px}
+.hero h1{font-size:clamp(30px,5vw,52px);font-weight:800;line-height:1.18;letter-spacing:-.035em;margin-bottom:20px}
+.hero h1 .grad{background:linear-gradient(92deg,var(--c-hw),var(--c-vm) 35%,var(--c-cluster) 70%,var(--c-pod));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p.lead{font-size:18px;color:var(--muted);max-width:680px;margin-bottom:28px}
+.hero .meta{display:flex;gap:10px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:12px;padding:6px 13px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--surface)}
+
+/* ---------- 섹션 공통 ---------- */
+section{margin-bottom:88px;scroll-margin-top:24px}
+.sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+.sec-head .lyr{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.1em;padding:4px 11px;border-radius:6px;white-space:nowrap;flex-shrink:0}
+section h2{font-size:clamp(24px,3.4vw,34px);font-weight:800;letter-spacing:-.03em;line-height:1.25}
+.sec-sub{color:var(--muted);font-size:16px;margin-bottom:28px;max-width:720px}
+h3{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:40px 0 14px}
+p{margin-bottom:16px;color:#C9D0DF}
+p b,li b{color:var(--text)}
+main ul,main ol{margin:0 0 18px 22px;color:#C9D0DF}
+main li{margin-bottom:8px}
+code.inline{font-family:var(--mono);font-size:.86em;background:var(--surface2);border:1px solid var(--line);padding:2px 7px;border-radius:6px;color:#A7D3F5}
+
+/* 계층별 액센트 헬퍼 */
+.hw{--a:var(--c-hw)} .os{--a:var(--c-os)} .vm{--a:var(--c-vm)} .nd{--a:var(--c-node)}
+.cl{--a:var(--c-cluster)} .pd{--a:var(--c-pod)} .ct{--a:var(--c-ct)}
+.lyr{background:color-mix(in srgb,var(--a) 14%,transparent);color:var(--a);border:1px solid color-mix(in srgb,var(--a) 35%,transparent)}
+
+/* ---------- 카드/콜아웃 ---------- */
+.callout{border:1px solid var(--line);border-left:3px solid var(--a,var(--c-cluster));background:var(--surface);border-radius:12px;padding:20px 24px;margin:24px 0}
+.callout .co-t{font-weight:700;font-size:14.5px;margin-bottom:8px;color:var(--a,var(--c-cluster));display:flex;align-items:center;gap:8px}
+.callout p:last-child{margin-bottom:0}
+.callout.analogy{--a:#D9A0E8}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}
+@media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr}}
+.card{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:22px}
+.card .c-t{font-weight:700;font-size:15px;margin-bottom:8px;color:var(--a,var(--text))}
+.card p{font-size:14.5px;margin-bottom:0;color:var(--muted)}
+.card .mono-tag{font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:10px;letter-spacing:.08em}
+
+/* ---------- 테이블 ---------- */
+.tbl-wrap{overflow-x:auto;margin:24px 0;border:1px solid var(--line);border-radius:14px}
+table{width:100%;border-collapse:collapse;font-size:14.5px;min-width:560px}
+th{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:14px 18px;background:var(--surface2);border-bottom:1px solid var(--line);font-weight:600}
+td{padding:13px 18px;border-bottom:1px solid var(--line);color:#C9D0DF;vertical-align:top}
+tr:last-child td{border-bottom:none}
+td:first-child{white-space:nowrap;font-weight:600;color:var(--text)}
+
+/* ---------- 코드 블록 & 탭 ---------- */
+.codebox{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:24px 0;background:#0D1119}
+.codebox .cb-head{display:flex;align-items:center;gap:0;background:var(--surface2);border-bottom:1px solid var(--line);padding:0 8px;overflow-x:auto}
+.cb-tab{font-family:var(--mono);font-size:12.5px;padding:11px 16px;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.cb-tab.on{color:var(--text);border-bottom-color:var(--a,var(--c-cluster))}
+.cb-tab:hover{color:var(--text)}
+.cb-label{font-family:var(--mono);font-size:11.5px;color:var(--dim);padding:11px 16px;letter-spacing:.06em}
+pre{padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:13.2px;line-height:1.7;scrollbar-width:thin}
+pre .cmt{color:#5B6478}pre .kw{color:#C678DD}pre .str{color:#98C379}pre .num{color:#D19A66}pre .fn{color:#61AFEF}pre .prompt{color:#56B6C2;user-select:none}pre .out{color:#8C95A8}
+.cb-pane{display:none}.cb-pane.on{display:block}
+
+/* ---------- 레이어 스택 익스플로러 (시그니처) ---------- */
+.stack-explorer{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:24px;margin:32px 0;align-items:start}
+@media(max-width:900px){.stack-explorer{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:6px;position:sticky;top:24px}
+@media(max-width:900px){.stack{position:static}}
+.slayer{border:1px solid color-mix(in srgb,var(--a) 40%,var(--line));background:color-mix(in srgb,var(--a) 7%,var(--surface));border-radius:12px;padding:14px 18px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:12px;text-align:left;width:100%;color:var(--text);font-family:var(--sans)}
+.slayer:hover{background:color-mix(in srgb,var(--a) 14%,var(--surface));transform:translateX(4px)}
+.slayer.on{background:color-mix(in srgb,var(--a) 18%,var(--surface));border-color:var(--a);box-shadow:0 0 0 1px var(--a),0 8px 24px -8px color-mix(in srgb,var(--a) 40%,transparent);transform:translateX(6px)}
+.slayer .n{font-family:var(--mono);font-size:11px;color:var(--a);font-weight:700;width:24px;flex-shrink:0}
+.slayer .nm{font-weight:700;font-size:15px}
+.slayer .ds{font-size:12px;color:var(--muted);margin-left:auto;text-align:right}
+.slayer:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+.stack-detail{border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:26px;min-height:300px}
+.stack-detail .sd-badge{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:.1em;padding:4px 12px;border-radius:6px;display:inline-block;margin-bottom:14px;background:color-mix(in srgb,var(--a) 15%,transparent);color:var(--a);border:1px solid color-mix(in srgb,var(--a) 35%,transparent)}
+.stack-detail h4{font-size:19px;font-weight:800;margin-bottom:10px;letter-spacing:-.02em}
+.stack-detail p{font-size:14.8px;color:var(--muted)}
+.stack-detail .sd-kw{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.stack-detail .sd-kw span{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);color:#A7B2C8}
+.stack-detail .sd-link{display:inline-block;margin-top:18px;font-size:13.5px;color:var(--a);text-decoration:none;font-weight:600}
+.stack-detail .sd-link:hover{text-decoration:underline}
+
+/* ---------- 다이어그램 ---------- */
+.diagram{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:24px;margin:24px 0;overflow-x:auto}
+.diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}
+.diagram .dg-cap{font-size:13px;color:var(--dim);text-align:center;margin-top:14px;font-family:var(--mono)}
+.dg-t{font-family:var(--mono);font-size:12px;fill:var(--muted)}
+.dg-tb{font-family:var(--sans);font-weight:700;font-size:13px;fill:var(--text)}
+
+/* ---------- 패킷 여행 ---------- */
+.journey{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:24px;margin:28px 0}
+.journey .j-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.j-tab{font-family:var(--mono);font-size:12.5px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);cursor:pointer}
+.j-tab.on{border-color:var(--c-cluster);color:var(--c-cluster);background:color-mix(in srgb,var(--c-cluster) 12%,transparent);font-weight:700}
+.j-stage{position:relative;margin-bottom:18px}
+.j-desc{border:1px solid var(--line);border-left:3px solid var(--c-cluster);border-radius:10px;background:var(--surface2);padding:16px 20px;min-height:86px;margin-bottom:16px}
+.j-desc .jd-step{font-family:var(--mono);font-size:11.5px;color:var(--c-cluster);letter-spacing:.1em;margin-bottom:6px;font-weight:700}
+.j-desc p{font-size:14.5px;margin:0;color:#C9D0DF}
+.j-ctrl{display:flex;gap:10px;align-items:center}
+.j-btn{font-family:var(--sans);font-weight:700;font-size:14px;padding:10px 20px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;transition:all .15s}
+.j-btn:hover{border-color:var(--c-cluster);color:var(--c-cluster)}
+.j-btn.primary{background:var(--c-cluster);color:#0B0E14;border-color:var(--c-cluster)}
+.j-btn.primary:hover{filter:brightness(1.12);color:#0B0E14}
+.j-btn:disabled{opacity:.35;cursor:not-allowed}
+.j-prog{font-family:var(--mono);font-size:12.5px;color:var(--dim);margin-left:auto}
+.hop{opacity:.28;transition:opacity .3s}
+.hop.lit{opacity:1}
+.pkt{transition:cx .45s ease,cy .45s ease,x .45s ease,y .45s ease}
+
+/* ---------- 퀴즈 ---------- */
+.quiz{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:26px;margin:22px 0}
+.quiz .q-n{font-family:var(--mono);font-size:11.5px;color:var(--c-pod);letter-spacing:.12em;font-weight:700;margin-bottom:10px}
+.quiz .q-q{font-weight:700;font-size:16.5px;margin-bottom:16px;line-height:1.55}
+.q-opts{display:grid;gap:9px}
+.q-opt{text-align:left;font-family:var(--sans);font-size:14.5px;padding:13px 17px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:#C9D0DF;cursor:pointer;transition:all .15s;line-height:1.5}
+.q-opt:hover{border-color:var(--c-pod);color:var(--text)}
+.q-opt.correct{border-color:var(--c-vm);background:color-mix(in srgb,var(--c-vm) 12%,var(--surface2));color:var(--text)}
+.q-opt.wrong{border-color:var(--c-ct);background:color-mix(in srgb,var(--c-ct) 10%,var(--surface2))}
+.q-opt:disabled{cursor:default}
+.q-exp{display:none;margin-top:16px;padding:15px 18px;border-radius:10px;font-size:14px;line-height:1.65;border:1px solid var(--line)}
+.q-exp.show{display:block}
+.q-exp.ok{border-color:color-mix(in srgb,var(--c-vm) 40%,transparent);background:color-mix(in srgb,var(--c-vm) 7%,transparent)}
+.q-exp.no{border-color:color-mix(in srgb,var(--c-ct) 40%,transparent);background:color-mix(in srgb,var(--c-ct) 7%,transparent)}
+.q-exp b{display:block;margin-bottom:4px}
+.quiz-score{border:1px solid var(--c-cluster);border-radius:16px;padding:24px;text-align:center;background:color-mix(in srgb,var(--c-cluster) 6%,var(--surface));margin-top:26px}
+.quiz-score .qs-n{font-family:var(--mono);font-size:34px;font-weight:700;color:var(--c-cluster)}
+.quiz-score p{color:var(--muted);font-size:14.5px;margin:6px 0 0}
+
+/* ---------- 비교 레일 (같은 Pod / 같은 Node / 다른 Node) ---------- */
+.rail{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0}
+@media(max-width:860px){.rail{grid-template-columns:1fr}}
+.rail .r-card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:20px;position:relative}
+.rail .r-card .r-lv{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;color:var(--a);font-weight:700;margin-bottom:8px}
+.rail .r-card .r-t{font-weight:800;font-size:15.5px;margin-bottom:8px}
+.rail .r-card p{font-size:13.5px;color:var(--muted);margin:0}
+.rail .r-card .r-path{font-family:var(--mono);font-size:11.5px;color:#A7B2C8;background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:12px;line-height:1.6;word-break:break-all}
+
+/* ---------- 푸터 ---------- */
+footer{border-top:1px solid var(--line);padding-top:32px;color:var(--dim);font-size:13px;font-family:var(--mono)}
+.top-link{position:fixed;right:26px;bottom:26px;width:44px;height:44px;border-radius:12px;background:var(--surface2);border:1px solid var(--line);color:var(--muted);display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:18px;transition:all .2s;z-index:50}
+.top-link:hover{color:var(--text);border-color:var(--c-cluster)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <div class="brand">CLOUD ENGINEERING <b>/ K8S</b></div>
+  <div class="title">쿠버네티스 네트워크 아키텍처</div>
+  <ol>
+    <li><a href="#intro" style="--layer-c:var(--c-cluster)">0. 왜 계층으로 봐야 하나</a></li>
+    <li><a href="#stack" style="--layer-c:var(--c-cluster)">1. 7계층 스택 한눈에</a></li>
+    <li class="grp">물리 · 가상화 기반</li>
+    <li><a href="#hw" style="--layer-c:var(--c-hw)">2. H/W — 물리 네트워크</a></li>
+    <li><a href="#os" style="--layer-c:var(--c-os)">3. OS — 리눅스 네트워킹</a></li>
+    <li><a href="#vm" style="--layer-c:var(--c-vm)">4. VM — 가상화 계층</a></li>
+    <li class="grp">쿠버네티스 계층</li>
+    <li><a href="#node" style="--layer-c:var(--c-node)">5. Node — 일꾼 머신</a></li>
+    <li><a href="#pod" style="--layer-c:var(--c-pod)">6. Pod — IP의 주인</a></li>
+    <li><a href="#container" style="--layer-c:var(--c-ct)">7. Container — 최소 단위</a></li>
+    <li><a href="#cluster" style="--layer-c:var(--c-cluster)">8. Cluster — 하나의 네트워크</a></li>
+    <li class="grp">종합</li>
+    <li><a href="#journey" style="--layer-c:var(--c-cluster)">9. 패킷 여행 시뮬레이터</a></li>
+    <li><a href="#quiz" style="--layer-c:var(--c-pod)">10. 이해도 체크 퀴즈</a></li>
+    <li><a href="#cheatsheet" style="--layer-c:var(--c-node)">11. 명령어 치트시트</a></li>
+  </ol>
+</nav>
+<main>
+
+<header class="hero" id="top">
+  <div class="eyebrow">Interactive Lecture · Kubernetes Networking</div>
+  <h1>쿠버네티스 네트워크,<br><span class="grad">H/W부터 Container까지</span> 계층으로 꿰뚫기</h1>
+  <p class="lead">"Pod IP는 어디서 오는 걸까?" "다른 노드의 Pod과는 어떻게 통신하지?" — 초보 클라우드 엔지니어가 가장 헷갈리는 질문들을, 물리 하드웨어부터 컨테이너까지 <b>7개 계층을 바닥부터 쌓아 올리며</b> 하나씩 해결합니다.</p>
+  <div class="meta">
+    <span class="chip">난이도 · 입문~초급</span>
+    <span class="chip">소요 시간 · 약 60분</span>
+    <span class="chip">패킷 여행 시뮬레이터 포함</span>
+    <span class="chip">퀴즈 8문항</span>
+  </div>
+</header>
+<!-- ================= 0. 인트로 ================= -->
+<section id="intro" class="cl">
+  <div class="sec-head"><span class="lyr">INTRO</span><h2>왜 "계층"으로 이해해야 할까?</h2></div>
+  <p class="sec-sub">쿠버네티스 네트워크가 어렵게 느껴지는 진짜 이유는, 여러 계층의 개념이 한꺼번에 등장하기 때문입니다.</p>
+
+  <p>처음 쿠버네티스를 배우면 이런 상황을 겪게 됩니다. <code class="inline">kubectl get pods -o wide</code>를 쳤더니 Pod마다 IP가 있습니다. 그런데 노드에도 IP가 있고, Service에도 IP가 있고, 심지어 VM에도, 물리 서버에도 IP가 있습니다. <b>"도대체 IP가 몇 개인 거야?"</b> 라는 혼란이 시작되죠.</p>
+
+  <p>정답은 간단합니다. 각 IP는 <b>서로 다른 계층에 속해 있고, 각 계층은 자기 아래 계층 위에 쌓여 있습니다.</b> 아래 계층을 이해하면 위 계층은 "아, 이건 아래 걸 한 번 더 추상화한 거구나"로 자연스럽게 이해됩니다. 반대로 계층 구분 없이 외우려고 하면 영원히 헷갈립니다.</p>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 비유: 대형 오피스 빌딩</div>
+    <p>이 강의 전체에서 쓸 비유 하나를 소개합니다. 쿠버네티스 클러스터를 <b>대형 오피스 빌딩 단지</b>라고 생각해 보세요.</p>
+    <ul style="margin-top:10px;margin-bottom:0">
+      <li><b>H/W</b> = 땅과 건물 뼈대, 단지 사이의 실제 도로</li>
+      <li><b>OS</b> = 건물 내부의 복도·엘리베이터·우편 규칙</li>
+      <li><b>VM</b> = 한 건물을 칸막이로 나눈 독립 임대 공간</li>
+      <li><b>Node</b> = 쿠버네티스에 등록된 하나의 "지점 사무실"</li>
+      <li><b>Pod</b> = 같은 방을 쓰는 팀 (방 번호 = Pod IP)</li>
+      <li><b>Container</b> = 그 방 안에서 일하는 개별 직원</li>
+      <li><b>Cluster</b> = 모든 지점을 묶는 "회사 전체 조직도 + 사내 전화망"</li>
+    </ul>
+  </div>
+
+  <h3>이 강의의 학습 순서</h3>
+  <p>우리는 <b>바닥(H/W)에서 시작해 위(Container)로 쌓아 올린 뒤</b>, 마지막에 이 모든 걸 하나로 묶는 Cluster 네트워킹을 다룹니다. 실제 패킷이 이동하는 물리적 순서와 같기 때문에, 이 순서로 배우면 트러블슈팅할 때도 "어느 계층에서 끊겼는지"를 논리적으로 추적할 수 있습니다.</p>
+
+  <div class="callout">
+    <div class="co-t">🎯 학습 목표</div>
+    <ul style="margin-bottom:0">
+      <li>7개 계층(H/W → OS → VM → Node → Pod → Container → Cluster)의 역할과 네트워크 책임을 구분한다</li>
+      <li>Pod IP가 어떻게 만들어지고, 노드를 넘어 어떻게 전달되는지 설명한다</li>
+      <li>같은 Pod 내 / 같은 Node 내 / 다른 Node 간 통신 경로의 차이를 그림으로 그릴 수 있다</li>
+      <li>장애 발생 시 어느 계층부터 확인해야 하는지 판단한다</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= 1. 스택 익스플로러 ================= -->
+<section id="stack" class="cl">
+  <div class="sec-head"><span class="lyr">OVERVIEW</span><h2>7계층 스택 한눈에 보기</h2></div>
+  <p class="sec-sub">아래 스택의 각 계층을 클릭해 보세요. 아래에서 위로 갈수록 "물리적 실체"에서 "논리적 추상화"로 이동합니다.</p>
+
+  <div class="stack-explorer">
+    <div class="stack" id="stackBtns" role="tablist" aria-label="네트워크 계층 선택"></div>
+    <div class="stack-detail" id="stackDetail" role="tabpanel" aria-live="polite"></div>
+  </div>
+
+  <div class="callout">
+    <div class="co-t">💡 핵심 관점: "각 계층은 아래 계층의 자원을 나눠 쓰는 방법"</div>
+    <p style="margin-bottom:0">OS는 H/W의 NIC을 프로세스들이 나눠 쓰게 하고, 하이퍼바이저는 물리 NIC을 여러 VM이 나눠 쓰게 하고(vNIC), 쿠버네티스는 노드의 네트워크를 여러 Pod이 나눠 쓰게 합니다(veth + 네임스페이스). <b>"나눠 쓰기(공유) + 격리(isolation)"</b>가 모든 계층에서 반복되는 단 하나의 패턴입니다.</p>
+  </div>
+</section>
+
+<!-- ================= 2. H/W ================= -->
+<section id="hw" class="hw">
+  <div class="sec-head"><span class="lyr">LAYER 1 · H/W</span><h2>물리 네트워크 — 모든 것의 바닥</h2></div>
+  <p class="sec-sub">아무리 추상화해도 결국 모든 패킷은 구리선·광케이블·전파 위를 달리는 전기 신호입니다.</p>
+
+  <p>클라우드 시대에도 데이터센터 어딘가에는 실제 서버가 랙에 꽂혀 있습니다. 이 계층의 등장인물은 단순합니다.</p>
+
+  <div class="grid3">
+    <div class="card"><div class="mono-tag">NIC</div><div class="c-t" style="--a:var(--c-hw)">네트워크 인터페이스 카드</div><p>서버가 네트워크에 연결되는 물리 포트. 전 세계에서 유일한 <b>MAC 주소</b>가 새겨져 있습니다. 요즘 서버는 10/25/100GbE NIC을 여러 장 꽂습니다.</p></div>
+    <div class="card"><div class="mono-tag">SWITCH</div><div class="c-t" style="--a:var(--c-hw)">스위치 (L2)</div><p>같은 네트워크 안에서 MAC 주소를 보고 프레임을 전달합니다. 데이터센터에서는 랙 상단의 ToR(Top of Rack) 스위치가 서버들을 1차로 묶습니다.</p></div>
+    <div class="card"><div class="mono-tag">ROUTER</div><div class="c-t" style="--a:var(--c-hw)">라우터 (L3)</div><p>서로 다른 네트워크(서브넷) 사이에서 <b>IP 주소</b>를 보고 패킷의 다음 목적지를 결정합니다. 인터넷은 라우터들의 거대한 연결망입니다.</p></div>
+  </div>
+
+  <div class="diagram">
+    <svg viewBox="0 0 720 240" role="img" aria-label="데이터센터 물리 네트워크 구성도">
+      <rect x="20" y="30" width="200" height="180" rx="12" fill="none" stroke="#E8A87C" stroke-opacity=".4" stroke-dasharray="5 4"/>
+      <text x="120" y="20" text-anchor="middle" class="dg-t" fill="#E8A87C">Rack A</text>
+      <rect x="45" y="45" width="150" height="34" rx="7" fill="#1A202C" stroke="#E8A87C"/>
+      <text x="120" y="67" text-anchor="middle" class="dg-tb">ToR 스위치</text>
+      <rect x="45" y="95" width="150" height="30" rx="7" fill="#12161F" stroke="#242C3A"/><text x="120" y="115" text-anchor="middle" class="dg-t">물리 서버 #1 (NIC×2)</text>
+      <rect x="45" y="133" width="150" height="30" rx="7" fill="#12161F" stroke="#242C3A"/><text x="120" y="153" text-anchor="middle" class="dg-t">물리 서버 #2 (NIC×2)</text>
+      <rect x="45" y="171" width="150" height="30" rx="7" fill="#12161F" stroke="#242C3A"/><text x="120" y="191" text-anchor="middle" class="dg-t">물리 서버 #3 (NIC×2)</text>
+      <line x1="120" y1="79" x2="120" y2="95" stroke="#E8A87C" stroke-opacity=".6"/>
+      <rect x="500" y="30" width="200" height="180" rx="12" fill="none" stroke="#E8A87C" stroke-opacity=".4" stroke-dasharray="5 4"/>
+      <text x="600" y="20" text-anchor="middle" class="dg-t" fill="#E8A87C">Rack B</text>
+      <rect x="525" y="45" width="150" height="34" rx="7" fill="#1A202C" stroke="#E8A87C"/>
+      <text x="600" y="67" text-anchor="middle" class="dg-tb">ToR 스위치</text>
+      <rect x="525" y="95" width="150" height="30" rx="7" fill="#12161F" stroke="#242C3A"/><text x="600" y="115" text-anchor="middle" class="dg-t">물리 서버 #4</text>
+      <rect x="525" y="133" width="150" height="30" rx="7" fill="#12161F" stroke="#242C3A"/><text x="600" y="153" text-anchor="middle" class="dg-t">물리 서버 #5</text>
+      <rect x="525" y="171" width="150" height="30" rx="7" fill="#12161F" stroke="#242C3A"/><text x="600" y="191" text-anchor="middle" class="dg-t">물리 서버 #6</text>
+      <rect x="300" y="90" width="120" height="40" rx="8" fill="#1A202C" stroke="#61AFEF"/>
+      <text x="360" y="108" text-anchor="middle" class="dg-tb">Spine /</text>
+      <text x="360" y="123" text-anchor="middle" class="dg-tb">코어 라우터</text>
+      <line x1="220" y1="62" x2="300" y2="105" stroke="#8C95A8" stroke-opacity=".6"/>
+      <line x1="500" y1="62" x2="420" y2="105" stroke="#8C95A8" stroke-opacity=".6"/>
+      <text x="360" y="165" text-anchor="middle" class="dg-t">랙 간 통신은 반드시 상위 스위치/라우터를 거칩니다</text>
+    </svg>
+    <div class="dg-cap">전형적인 데이터센터 Leaf-Spine 구조의 단순화 모습</div>
+  </div>
+
+  <h3>이 계층에서 기억할 것</h3>
+  <ul>
+    <li><b>MAC 주소는 L2(같은 스위치 영역), IP 주소는 L3(네트워크 간)</b> 통신의 기준입니다. 이 구분은 위의 모든 가상 계층에서도 그대로 반복됩니다.</li>
+    <li>물리 대역폭이 모든 상위 계층 성능의 상한선입니다. Pod 간 통신이 느리다면 최종적으로는 이 계층의 케이블·스위치 용량까지 내려와서 봐야 할 수 있습니다.</li>
+    <li>퍼블릭 클라우드에서는 이 계층이 <b>완전히 숨겨져</b> 있습니다. AWS/GCP/Azure를 쓰면 우리는 이 계층을 만질 수 없고, 대신 VPC라는 "가상의 L3 네트워크"를 받습니다.</li>
+  </ul>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0">H/W 계층은 <b>땅, 건물 뼈대, 단지 안팎의 실제 도로</b>입니다. 위에서 아무리 조직을 바꿔도(팀 이동, 부서 개편) 도로 자체가 막히면 어떤 우편물도 배달될 수 없죠. 반대로 평소에 우리는 도로의 존재를 의식하지 않고 삽니다 — 클라우드에서 H/W를 의식하지 않는 것과 같습니다.</p>
+  </div>
+</section>
+
+<!-- ================= 3. OS ================= -->
+<section id="os" class="os">
+  <div class="sec-head"><span class="lyr">LAYER 2 · OS</span><h2>리눅스 네트워킹 — 컨테이너 네트워크의 재료 창고</h2></div>
+  <p class="sec-sub">쿠버네티스 네트워크의 마법처럼 보이는 것들은 전부 리눅스 커널이 이미 갖고 있던 기능의 조합입니다.</p>
+
+  <p>이 계층이 <b>이 강의에서 가장 중요합니다.</b> Docker도, 쿠버네티스도 네트워크를 "새로 발명"하지 않았습니다. 리눅스 커널이 제공하는 4가지 재료를 조립했을 뿐입니다. 이 4가지만 이해하면 Pod 네트워크는 저절로 이해됩니다.</p>
+
+  <div class="grid2">
+    <div class="card"><div class="mono-tag">재료 ① network namespace</div><div class="c-t" style="--a:var(--c-os)">네트워크 네임스페이스</div><p>프로세스에게 <b>"자기만의 독립된 네트워크 세상"</b>을 줍니다. 자기만의 인터페이스 목록, 라우팅 테이블, iptables 규칙을 따로 가집니다. 나중에 배울 "Pod마다 IP가 따로 있는 이유"의 정체가 바로 이것입니다.</p></div>
+    <div class="card"><div class="mono-tag">재료 ② veth pair</div><div class="c-t" style="--a:var(--c-os)">가상 이더넷 케이블</div><p>양 끝이 쌍으로 만들어지는 가상 랜선입니다. 한쪽 끝을 네임스페이스 안에, 다른 끝을 호스트에 두면 <b>격리된 세상과 바깥 세상을 잇는 통로</b>가 됩니다. 한쪽으로 넣으면 반드시 반대쪽으로 나옵니다.</p></div>
+    <div class="card"><div class="mono-tag">재료 ③ bridge</div><div class="c-t" style="--a:var(--c-os)">가상 스위치</div><p>소프트웨어로 구현된 L2 스위치입니다. 여러 veth의 호스트 쪽 끝을 브리지에 꽂으면, <b>같은 호스트 안의 네임스페이스들이 서로 통신</b>할 수 있게 됩니다. Docker의 <code class="inline">docker0</code>, K8s CNI의 <code class="inline">cni0</code>가 이것입니다.</p></div>
+    <div class="card"><div class="mono-tag">재료 ④ iptables / IPVS / eBPF</div><div class="c-t" style="--a:var(--c-os)">패킷 규칙 엔진</div><p>커널을 지나는 패킷을 조건에 따라 <b>바꾸고(NAT), 막고(필터), 다른 곳으로 보내는(DNAT)</b> 규칙 시스템입니다. 나중에 배울 Service의 "가상 IP → 실제 Pod IP 변환"이 여기서 일어납니다.</p></div>
+  </div>
+
+  <div class="diagram">
+    <svg viewBox="0 0 720 300" role="img" aria-label="리눅스 네임스페이스, veth, 브리지 구조도">
+      <rect x="15" y="15" width="690" height="270" rx="14" fill="none" stroke="#E5C07B" stroke-opacity=".45"/>
+      <text x="40" y="42" class="dg-tb" fill="#E5C07B">리눅스 호스트 (하나의 커널)</text>
+      <rect x="50" y="65" width="180" height="110" rx="10" fill="#1A202C" stroke="#C678DD"/>
+      <text x="140" y="90" text-anchor="middle" class="dg-tb">netns A</text>
+      <text x="140" y="112" text-anchor="middle" class="dg-t">eth0 · 10.244.1.2</text>
+      <text x="140" y="132" text-anchor="middle" class="dg-t">자기만의 라우팅 테이블</text>
+      <rect x="270" y="65" width="180" height="110" rx="10" fill="#1A202C" stroke="#C678DD"/>
+      <text x="360" y="90" text-anchor="middle" class="dg-tb">netns B</text>
+      <text x="360" y="112" text-anchor="middle" class="dg-t">eth0 · 10.244.1.3</text>
+      <text x="360" y="132" text-anchor="middle" class="dg-t">자기만의 라우팅 테이블</text>
+      <rect x="120" y="210" width="290" height="40" rx="8" fill="#12161F" stroke="#E5C07B"/>
+      <text x="265" y="235" text-anchor="middle" class="dg-tb">bridge (cni0 / docker0)</text>
+      <line x1="140" y1="175" x2="180" y2="210" stroke="#98C379" stroke-width="2.5"/>
+      <line x1="360" y1="175" x2="330" y2="210" stroke="#98C379" stroke-width="2.5"/>
+      <text x="128" y="200" class="dg-t" fill="#98C379">veth</text>
+      <text x="352" y="200" class="dg-t" fill="#98C379">veth</text>
+      <rect x="500" y="210" width="170" height="40" rx="8" fill="#12161F" stroke="#E8A87C"/>
+      <text x="585" y="235" text-anchor="middle" class="dg-tb">물리 NIC (eth0)</text>
+      <line x1="410" y1="230" x2="500" y2="230" stroke="#8C95A8" stroke-dasharray="4 4"/>
+      <text x="455" y="222" text-anchor="middle" class="dg-t">라우팅/NAT</text>
+      <text x="585" y="275" text-anchor="middle" class="dg-t" fill="#E8A87C">↓ 외부 물리 네트워크로</text>
+    </svg>
+    <div class="dg-cap">네임스페이스 2개가 veth로 브리지에 연결된 모습 — 이것이 곧 "한 노드 안의 Pod 2개"의 실체입니다</div>
+  </div>
+
+  <h3>직접 만들어 보기 — 쿠버네티스 없이 "미니 Pod 네트워크" 만들기</h3>
+  <p>아래 명령어 몇 줄이면 쿠버네티스가 Pod 네트워크를 만들 때 하는 일을 그대로 재현할 수 있습니다. 이 실습이 이 강의 전체에서 가장 가치 있는 15분입니다.</p>
+
+  <div class="codebox">
+    <div class="cb-head">
+      <button class="cb-tab on" data-cb="os1">① 네임스페이스 생성</button>
+      <button class="cb-tab" data-cb="os2">② veth + 브리지 연결</button>
+      <button class="cb-tab" data-cb="os3">③ 통신 확인</button>
+    </div>
+    <div class="cb-pane on" id="cb-os1"><pre><span class="cmt"># "미니 Pod" 역할을 할 네트워크 네임스페이스 2개 생성</span>
+<span class="prompt">$</span> sudo ip netns add pod-a
+<span class="prompt">$</span> sudo ip netns add pod-b
+
+<span class="cmt"># 확인 — 각자 완전히 격리된 네트워크 세상을 가짐</span>
+<span class="prompt">$</span> sudo ip netns list
+<span class="out">pod-a
+pod-b</span>
+
+<span class="cmt"># pod-a 안에서 인터페이스를 보면 lo(루프백)뿐, 바깥 세상과 단절 상태</span>
+<span class="prompt">$</span> sudo ip netns exec pod-a ip link
+<span class="out">1: lo: &lt;LOOPBACK&gt; mtu 65536 ...</span></pre></div>
+    <div class="cb-pane" id="cb-os2"><pre><span class="cmt"># 가상 스위치(브리지) 생성 — cni0와 같은 역할</span>
+<span class="prompt">$</span> sudo ip link add br0 type bridge
+<span class="prompt">$</span> sudo ip link set br0 up
+<span class="prompt">$</span> sudo ip addr add 10.244.1.1/24 dev br0   <span class="cmt"># 브리지 = 게이트웨이</span>
+
+<span class="cmt"># veth 케이블 2쌍 생성 → 한쪽 끝은 네임스페이스로, 반대쪽은 브리지로</span>
+<span class="prompt">$</span> sudo ip link add veth-a type veth peer name veth-a-br
+<span class="prompt">$</span> sudo ip link set veth-a netns pod-a
+<span class="prompt">$</span> sudo ip link set veth-a-br master br0 up
+
+<span class="prompt">$</span> sudo ip link add veth-b type veth peer name veth-b-br
+<span class="prompt">$</span> sudo ip link set veth-b netns pod-b
+<span class="prompt">$</span> sudo ip link set veth-b-br master br0 up
+
+<span class="cmt"># 각 "미니 Pod"에 IP 부여 — 이것이 곧 Pod IP의 정체!</span>
+<span class="prompt">$</span> sudo ip netns exec pod-a ip addr add 10.244.1.2/24 dev veth-a
+<span class="prompt">$</span> sudo ip netns exec pod-a ip link set veth-a up
+<span class="prompt">$</span> sudo ip netns exec pod-b ip addr add 10.244.1.3/24 dev veth-b
+<span class="prompt">$</span> sudo ip netns exec pod-b ip link set veth-b up</pre></div>
+    <div class="cb-pane" id="cb-os3"><pre><span class="cmt"># pod-a에서 pod-b로 ping — 브리지를 통해 통신 성공!</span>
+<span class="prompt">$</span> sudo ip netns exec pod-a ping -c 2 10.244.1.3
+<span class="out">64 bytes from 10.244.1.3: icmp_seq=1 ttl=64 time=0.058 ms
+64 bytes from 10.244.1.3: icmp_seq=2 ttl=64 time=0.041 ms</span>
+
+<span class="cmt"># 축하합니다. 방금 CNI 플러그인이 하는 일의 핵심을 손으로 재현했습니다.</span>
+<span class="cmt"># K8s에서 Pod가 생성될 때마다 CNI가 정확히 이 작업을 자동으로 수행합니다:</span>
+<span class="cmt">#   netns 생성 → veth 생성 → 브리지 연결 → IP 할당 → 라우팅 설정</span>
+
+<span class="cmt"># 실습 후 정리</span>
+<span class="prompt">$</span> sudo ip netns del pod-a && sudo ip netns del pod-b
+<span class="prompt">$</span> sudo ip link del br0</pre></div>
+  </div>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0">OS 계층은 <b>건물 내부의 복도·엘리베이터·우편 분류 규칙</b>입니다. 네임스페이스는 "독립된 사무실 공간", veth는 "사무실 문과 복도를 잇는 통로", 브리지는 "층별 우편 분류대", iptables는 "우편물 배송 규정집"입니다.</p>
+  </div>
+
+  <div class="callout">
+    <div class="co-t">⚠️ 초보자가 자주 헷갈리는 것</div>
+    <p style="margin-bottom:0"><b>"컨테이너 네트워크는 특별한 기술이다"</b> → 아닙니다. 위에서 본 것처럼 1990~2000년대부터 리눅스 커널에 있던 기능(netns는 2008년, iptables는 2001년)의 조합입니다. Docker(2013)와 K8s(2014)는 이를 <b>자동화</b>했을 뿐입니다. 그래서 트러블슈팅의 최종 병기도 언제나 <code class="inline">ip</code>, <code class="inline">iptables</code>, <code class="inline">tcpdump</code> 같은 리눅스 표준 도구입니다.</p>
+  </div>
+</section>
+
+<!-- ================= 4. VM ================= -->
+<section id="vm" class="vm">
+  <div class="sec-head"><span class="lyr">LAYER 3 · VM</span><h2>가상머신 — 하드웨어를 나눠 쓰는 기술</h2></div>
+  <p class="sec-sub">클라우드의 "서버"는 대부분 물리 서버가 아니라 VM입니다. VM은 네트워크마저 통째로 가상화합니다.</p>
+
+  <p>물리 서버 한 대는 너무 크고 비쌉니다(CPU 128코어, 메모리 1TB…). 그래서 <b>하이퍼바이저(Hypervisor)</b>라는 소프트웨어로 한 대를 여러 대의 "가상 컴퓨터"로 쪼갭니다. 이때 네트워크도 함께 쪼개져야 합니다.</p>
+
+  <div class="grid3">
+    <div class="card"><div class="mono-tag">vNIC</div><div class="c-t" style="--a:var(--c-vm)">가상 NIC</div><p>VM 입장에서는 진짜 랜카드로 보이지만, 실제로는 하이퍼바이저가 만든 소프트웨어 장치입니다. 자기만의 MAC 주소와 IP를 가집니다.</p></div>
+    <div class="card"><div class="mono-tag">vSwitch</div><div class="c-t" style="--a:var(--c-vm)">가상 스위치</div><p>하이퍼바이저 안의 소프트웨어 스위치. 같은 호스트 위 VM들의 vNIC을 연결하고, 물리 NIC과의 다리 역할을 합니다. (OVS, Linux bridge, VMware vSwitch 등)</p></div>
+    <div class="card"><div class="mono-tag">VPC / 오버레이</div><div class="c-t" style="--a:var(--c-vm)">가상 네트워크</div><p>클라우드의 VPC는 수많은 물리 서버에 흩어진 VM들을 "마치 한 네트워크에 있는 것처럼" 묶는 대규모 오버레이 네트워크입니다.</p></div>
+  </div>
+
+  <div class="callout">
+    <div class="co-t">🔍 어디서 많이 본 구조 아닌가요?</div>
+    <p style="margin-bottom:0">vNIC ↔ vSwitch ↔ 물리 NIC 구조는, 방금 OS 계층에서 본 <b>veth ↔ bridge ↔ 물리 NIC과 정확히 같은 패턴</b>입니다. 격리 단위가 "프로세스(netns)"냐 "운영체제 전체(VM)"냐만 다를 뿐입니다. 이 패턴 인식이 되면 쿠버네티스 네트워크의 절반은 이미 이해한 것입니다.</p>
+  </div>
+
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>구분</th><th>VM 가상화</th><th>컨테이너 (netns)</th></tr></thead>
+    <tbody>
+      <tr><td>격리 단위</td><td>OS 전체 (커널 포함, 게스트 OS 각자 부팅)</td><td>프로세스 그룹 (호스트 커널 공유)</td></tr>
+      <tr><td>가상 랜카드</td><td>vNIC (하이퍼바이저 에뮬레이션)</td><td>veth (커널 가상 장치)</td></tr>
+      <tr><td>가상 스위치</td><td>vSwitch / OVS</td><td>Linux bridge (cni0 등)</td></tr>
+      <tr><td>기동 시간</td><td>수십 초 ~ 분</td><td>수 밀리초 ~ 초</td></tr>
+      <tr><td>격리 강도</td><td>강함 (커널 분리)</td><td>상대적으로 약함 (커널 공유)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>온프레미스 vs 퍼블릭 클라우드에서의 이 계층</h3>
+  <ul>
+    <li><b>온프레미스(예: OpenStack, VMware, Proxmox)</b>: 우리가 하이퍼바이저와 vSwitch를 직접 운영합니다. K8s 노드가 VM이라면, Pod 트래픽은 <b>veth → 브리지 → vNIC → vSwitch → 물리 NIC</b>이라는 이중 가상화 경로를 지납니다.</li>
+    <li><b>퍼블릭 클라우드(예: AWS EC2)</b>: 하이퍼바이저는 클라우드 사업자가 관리하고, 우리에게는 "VPC 안의 인스턴스"만 보입니다. EKS 노드의 eth0 = VM의 vNIC = ENI(Elastic Network Interface)입니다.</li>
+    <li><b>베어메탈 K8s</b>: VM 계층이 아예 없을 수도 있습니다! 이 경우 노드 = 물리 서버이며, 이 계층은 건너뜁니다. 계층은 "항상 7개 전부"가 아니라 환경에 따라 생략될 수 있습니다.</li>
+  </ul>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0">VM은 <b>한 건물을 칸막이 공사로 나눈 독립 임대 공간</b>입니다. 각 임대 공간은 자기 현관(vNIC)과 우편함(IP)을 갖고, 건물 관리사무소(하이퍼바이저)가 공용 우편 시스템(vSwitch)으로 각 공간에 우편을 분배합니다. 세입자(VM 사용자)는 옆 공간이 존재하는지조차 모릅니다.</p>
+  </div>
+</section>
+<!-- ================= 5. Node ================= -->
+<section id="node" class="nd">
+  <div class="sec-head"><span class="lyr">LAYER 4 · NODE</span><h2>Node — 쿠버네티스에 등록된 일꾼 머신</h2></div>
+  <p class="sec-sub">VM(또는 물리 서버)에 쿠버네티스 구성 요소가 설치되는 순간, 그 머신은 "노드"가 됩니다.</p>
+
+  <p>노드는 새로운 하드웨어가 아닙니다. <b>앞 계층의 VM/물리 서버 그 자체</b>이고, 다만 쿠버네티스의 일원으로서 3가지 네트워크 관련 구성 요소를 추가로 실행할 뿐입니다.</p>
+
+  <div class="grid3">
+    <div class="card"><div class="mono-tag">kubelet</div><div class="c-t" style="--a:var(--c-node)">노드 관리인</div><p>API 서버의 지시를 받아 Pod를 만들고, Pod 생성 시 <b>CNI 플러그인을 호출</b>해 네트워크를 붙입니다. "Pod 하나 만들어졌으니 네트워크 연결해줘"라고 시키는 주체입니다.</p></div>
+    <div class="card"><div class="mono-tag">CNI plugin</div><div class="c-t" style="--a:var(--c-node)">네트워크 배선공</div><p>Container Network Interface. OS 계층 실습에서 우리가 손으로 한 일(netns·veth·브리지·IP 할당·라우팅)을 <b>자동으로 수행하는 표준 인터페이스</b>입니다. Calico, Cilium, Flannel 등이 구현체입니다.</p></div>
+    <div class="card"><div class="mono-tag">kube-proxy</div><div class="c-t" style="--a:var(--c-node)">서비스 규칙 관리자</div><p>Service(뒤에서 배움)의 가상 IP가 실제 Pod IP로 변환되도록 <b>노드의 iptables/IPVS 규칙을 계속 갱신</b>합니다. Cilium 같은 eBPF 기반 CNI는 이 역할을 대체하기도 합니다.</p></div>
+  </div>
+
+  <h3>노드의 두 얼굴: Node IP와 Pod CIDR</h3>
+  <p>노드는 네트워크 관점에서 두 가지를 가집니다. 이 둘의 구분이 매우 중요합니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>항목</th><th>설명</th><th>예시</th></tr></thead>
+    <tbody>
+      <tr><td>Node IP</td><td>노드 자신의 IP. VM의 vNIC(또는 물리 NIC)에 붙은 주소로, <b>클러스터 밖의 네트워크(VPC, 사내망)에 실제로 존재</b>합니다. SSH 접속, kubelet 통신, NodePort가 이 IP를 씁니다.</td><td><code class="inline">192.168.10.11</code></td></tr>
+      <tr><td>Pod CIDR</td><td>이 노드에서 생성될 Pod들에게 나눠줄 <b>IP 대역</b>. 클러스터가 노드마다 겹치지 않게 배정합니다. 이 대역은 보통 클러스터 내부에서만 유효합니다.</td><td><code class="inline">10.244.1.0/24</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="diagram">
+    <svg viewBox="0 0 720 330" role="img" aria-label="노드 내부 네트워크 구조">
+      <rect x="15" y="15" width="690" height="300" rx="14" fill="none" stroke="#56B6C2" stroke-opacity=".5"/>
+      <text x="40" y="42" class="dg-tb" fill="#56B6C2">Node (worker-1) · Node IP 192.168.10.11 · Pod CIDR 10.244.1.0/24</text>
+      <rect x="45" y="60" width="150" height="80" rx="10" fill="#1A202C" stroke="#C678DD"/>
+      <text x="120" y="88" text-anchor="middle" class="dg-tb">Pod A</text>
+      <text x="120" y="110" text-anchor="middle" class="dg-t">10.244.1.2</text>
+      <rect x="215" y="60" width="150" height="80" rx="10" fill="#1A202C" stroke="#C678DD"/>
+      <text x="290" y="88" text-anchor="middle" class="dg-tb">Pod B</text>
+      <text x="290" y="110" text-anchor="middle" class="dg-t">10.244.1.3</text>
+      <rect x="435" y="60" width="240" height="80" rx="10" fill="#12161F" stroke="#242C3A"/>
+      <text x="555" y="85" text-anchor="middle" class="dg-tb">kubelet · kube-proxy</text>
+      <text x="555" y="107" text-anchor="middle" class="dg-t">CNI plugin (Calico/Cilium/…)</text>
+      <text x="555" y="126" text-anchor="middle" class="dg-t">Pod 생성 시 배선 + 규칙 갱신</text>
+      <rect x="100" y="185" width="270" height="38" rx="8" fill="#12161F" stroke="#E5C07B"/>
+      <text x="235" y="209" text-anchor="middle" class="dg-tb">bridge (cni0) · 10.244.1.1</text>
+      <line x1="120" y1="140" x2="180" y2="185" stroke="#98C379" stroke-width="2.5"/>
+      <line x1="290" y1="140" x2="290" y2="185" stroke="#98C379" stroke-width="2.5"/>
+      <text x="118" y="168" class="dg-t" fill="#98C379">veth</text>
+      <text x="298" y="168" class="dg-t" fill="#98C379">veth</text>
+      <rect x="100" y="255" width="270" height="38" rx="8" fill="#12161F" stroke="#98C379"/>
+      <text x="235" y="279" text-anchor="middle" class="dg-tb">eth0 (vNIC) · 192.168.10.11</text>
+      <line x1="235" y1="223" x2="235" y2="255" stroke="#8C95A8" stroke-dasharray="4 4"/>
+      <text x="255" y="243" class="dg-t">라우팅 / 캡슐화</text>
+      <text x="520" y="279" class="dg-t" fill="#56B6C2">→ 다른 노드 / VPC / 외부로</text>
+    </svg>
+    <div class="dg-cap">한 노드의 내부 — OS 계층에서 본 그림에 K8s 구성 요소가 얹힌 것뿐입니다</div>
+  </div>
+
+  <div class="codebox">
+    <div class="cb-head">
+      <button class="cb-tab on" data-cb="nd1">노드 정보 확인</button>
+      <button class="cb-tab" data-cb="nd2">노드 안에서 배선 확인</button>
+    </div>
+    <div class="cb-pane on" id="cb-nd1"><pre><span class="cmt"># 노드 IP와 Pod CIDR 확인</span>
+<span class="prompt">$</span> kubectl get nodes -o wide
+<span class="out">NAME       STATUS   VERSION   INTERNAL-IP     ...
+worker-1   Ready    v1.33.2   192.168.10.11
+worker-2   Ready    v1.33.2   192.168.10.12</span>
+
+<span class="prompt">$</span> kubectl get node worker-1 -o jsonpath='{.spec.podCIDR}'
+<span class="out">10.244.1.0/24</span>
+
+<span class="cmt"># 이 노드 위의 Pod들은 전부 10.244.1.x 대역의 IP를 받습니다</span>
+<span class="prompt">$</span> kubectl get pods -o wide --field-selector spec.nodeName=worker-1
+<span class="out">NAME     READY   STATUS    IP           NODE
+web-1    1/1     Running   10.244.1.2   worker-1
+api-1    1/1     Running   10.244.1.3   worker-1</span></pre></div>
+    <div class="cb-pane" id="cb-nd2"><pre><span class="cmt"># 노드에 SSH 접속 후 — Pod 수만큼 veth가 보입니다</span>
+<span class="prompt">worker-1$</span> ip link | grep veth
+<span class="out">7: veth1a2b3c@if3: &lt;BROADCAST,MULTICAST,UP&gt; ... master cni0
+9: veth4d5e6f@if3: &lt;BROADCAST,MULTICAST,UP&gt; ... master cni0</span>
+
+<span class="cmt"># 브리지 확인 (CNI에 따라 cni0가 없을 수도 있음 — Calico는 라우팅 방식)</span>
+<span class="prompt">worker-1$</span> ip addr show cni0
+<span class="out">4: cni0: &lt;BROADCAST,MULTICAST,UP&gt; inet 10.244.1.1/24 ...</span>
+
+<span class="cmt"># kube-proxy가 만든 iptables 규칙 수 확인 — Service가 많을수록 늘어남</span>
+<span class="prompt">worker-1$</span> sudo iptables -t nat -L KUBE-SERVICES -n | wc -l
+<span class="out">142</span></pre></div>
+  </div>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0">노드는 <b>회사 조직도에 정식 등록된 "지점 사무실"</b>입니다. 지점 주소(Node IP)는 시청 지도(VPC/사내망)에 등록된 실제 주소이고, 지점 내부의 방 번호 체계(Pod CIDR)는 본사가 지점마다 겹치지 않게 배정해 준 것입니다. 지점장(kubelet)이 새 팀을 들일 때마다 시설 담당(CNI)이 방을 만들고 문패(Pod IP)를 답니다.</p>
+  </div>
+</section>
+
+<!-- ================= 6. Pod ================= -->
+<section id="pod" class="pd">
+  <div class="sec-head"><span class="lyr">LAYER 5 · POD</span><h2>Pod — 쿠버네티스 네트워크에서 IP를 가지는 단위</h2></div>
+  <p class="sec-sub">쿠버네티스 네트워크의 가장 중요한 규칙: IP는 컨테이너가 아니라 Pod에 부여됩니다.</p>
+
+  <p>드디어 핵심에 도착했습니다. Pod의 네트워크 정체를 한 문장으로 말하면 이렇습니다.</p>
+
+  <div class="callout" style="--a:var(--c-pod)">
+    <div class="co-t">📌 이 강의에서 단 하나만 기억한다면</div>
+    <p style="margin-bottom:0"><b>Pod = 하나의 network namespace.</b> OS 계층에서 만든 netns가 바로 Pod의 실체입니다. Pod 안의 모든 컨테이너는 이 네임스페이스를 <b>공유</b>하므로, 같은 IP를 쓰고 서로를 <code class="inline">localhost</code>로 부릅니다.</p>
+  </div>
+
+  <h3>pause 컨테이너 — 네임스페이스를 붙잡고 있는 닻</h3>
+  <p>Pod가 만들어질 때 쿠버네티스는 가장 먼저 <b>pause(infra) 컨테이너</b>라는 아주 작은 컨테이너를 띄웁니다. 이 컨테이너가 하는 일은 사실상 하나 — <b>네트워크 네임스페이스를 만들어 붙잡고(유지하고) 있는 것</b>입니다. 이후 우리가 정의한 앱 컨테이너들은 pause의 네임스페이스에 "합류"합니다.</p>
+  <ul>
+    <li>덕분에 앱 컨테이너가 재시작되어도 <b>Pod IP가 바뀌지 않습니다</b> (네임스페이스의 주인은 pause니까).</li>
+    <li>반대로 Pod 자체가 삭제·재생성되면 netns도 새로 만들어지므로 <b>Pod IP는 언제든 바뀔 수 있습니다</b>. → 그래서 Service(8장)가 필요합니다.</li>
+  </ul>
+
+  <h3>IP-per-Pod 모델: 쿠버네티스 네트워크의 헌법</h3>
+  <p>쿠버네티스는 어떤 CNI를 쓰든 반드시 지켜야 하는 네트워크 규칙을 정해 두었습니다. 단 3줄입니다.</p>
+  <div class="grid3">
+    <div class="card"><div class="mono-tag">RULE 1</div><div class="c-t" style="--a:var(--c-pod)">모든 Pod은 고유 IP를 가진다</div><p>클러스터 전체에서 겹치지 않는 자기만의 IP. 포트 매핑 없이 자기 포트를 그대로 씁니다.</p></div>
+    <div class="card"><div class="mono-tag">RULE 2</div><div class="c-t" style="--a:var(--c-pod)">모든 Pod은 NAT 없이 서로 통신한다</div><p>어느 노드에 있든 Pod A가 Pod B의 IP로 직접 패킷을 보낼 수 있어야 합니다.</p></div>
+    <div class="card"><div class="mono-tag">RULE 3</div><div class="c-t" style="--a:var(--c-pod)">노드와 Pod도 NAT 없이 통신한다</div><p>노드의 에이전트(kubelet 등)가 Pod에 바로 접근할 수 있어야 합니다.</p></div>
+  </div>
+  <p>이 규칙 덕분에 개발자는 "내 앱이 어느 노드에 뜰까"를 신경 쓰지 않아도 됩니다. Docker 단독 사용 시절의 골칫거리였던 <b>포트 충돌과 포트 매핑(-p 8080:80) 지옥</b>이 사라진 이유가 바로 이 모델입니다.</p>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0">Pod은 <b>같은 방을 쓰는 하나의 팀</b>입니다. 방 번호(Pod IP)는 하나이고, 방 안의 팀원(컨테이너)들은 옆자리 동료를 부를 때 주소가 필요 없죠(localhost). 우편(외부 트래픽)은 방 번호로 오고, 방 안에서 누가 받을지는 내선 번호(포트)로 구분합니다. pause 컨테이너는 <b>방 열쇠를 쥐고 상주하는 총무</b> — 팀원이 바뀌어도 방 번호가 유지되는 이유입니다.</p>
+  </div>
+
+  <div class="codebox">
+    <div class="cb-head">
+      <button class="cb-tab on" data-cb="pd1">Pod IP 관찰</button>
+      <button class="cb-tab" data-cb="pd2">netns 공유 직접 확인</button>
+    </div>
+    <div class="cb-pane on" id="cb-pd1"><pre><span class="cmt"># Pod IP는 어떤 노드에 뜨느냐에 따라 그 노드의 Pod CIDR에서 할당됩니다</span>
+<span class="prompt">$</span> kubectl get pods -o wide
+<span class="out">NAME     READY   STATUS    IP           NODE
+web-1    1/1     Running   10.244.1.2   worker-1   ← worker-1의 CIDR
+web-2    1/1     Running   10.244.2.5   worker-2   ← worker-2의 CIDR</span>
+
+<span class="cmt"># 다른 노드의 Pod에도 IP로 직접 통신 (NAT 없음 = IP-per-Pod 모델)</span>
+<span class="prompt">$</span> kubectl exec web-1 -- curl -s 10.244.2.5:8080/healthz
+<span class="out">ok</span></pre></div>
+    <div class="cb-pane" id="cb-pd2"><pre><span class="cmt"># 컨테이너 2개짜리 Pod에서, 두 컨테이너의 IP를 각각 확인해 보면?</span>
+<span class="prompt">$</span> kubectl exec mypod -c app -- hostname -i
+<span class="out">10.244.1.7</span>
+<span class="prompt">$</span> kubectl exec mypod -c sidecar -- hostname -i
+<span class="out">10.244.1.7</span>          <span class="cmt">← 완전히 동일! 같은 netns를 공유하기 때문</span>
+
+<span class="cmt"># sidecar에서 app(같은 Pod, 포트 8080)에 localhost로 접근</span>
+<span class="prompt">$</span> kubectl exec mypod -c sidecar -- curl -s localhost:8080
+<span class="out">hello from app container</span>
+
+<span class="cmt"># 노드에서 pause 컨테이너 확인 (containerd 기준)</span>
+<span class="prompt">worker-1$</span> sudo crictl ps -a | grep -i pause | head -2
+<span class="out">3f2a...   registry.k8s.io/pause:3.10   Running   ...</span></pre></div>
+  </div>
+
+  <div class="callout">
+    <div class="co-t">⚠️ 초보자가 자주 헷갈리는 것</div>
+    <p style="margin-bottom:0"><b>"Pod IP로 서비스하면 되지 않나요?"</b> → 안 됩니다. Pod은 언제든 죽고 다시 태어나며(스케일링, 롤링 업데이트, 노드 장애), 그때마다 IP가 바뀝니다. Pod IP는 <b>"현재 순간의 주소"</b>일 뿐, 영구적인 엔드포인트가 아닙니다. 영구적인 주소는 8장의 Service가 제공합니다.</p>
+  </div>
+</section>
+
+<!-- ================= 7. Container ================= -->
+<section id="container" class="ct">
+  <div class="sec-head"><span class="lyr">LAYER 6 · CONTAINER</span><h2>Container — 네트워크를 "빌려 쓰는" 최소 실행 단위</h2></div>
+  <p class="sec-sub">놀랍게도, 쿠버네티스에서 컨테이너는 자기 네트워크를 갖지 않습니다.</p>
+
+  <p>Docker를 먼저 배운 분들이 가장 크게 헷갈리는 지점입니다. Docker 단독 사용 시에는 컨테이너마다 IP가 있었는데(<code class="inline">docker0</code> 브리지에서 할당), 쿠버네티스에서는 <b>네트워크의 주인이 Pod로 승격</b>되고 컨테이너는 세입자가 됩니다.</p>
+
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>관점</th><th>Docker 단독</th><th>Kubernetes</th></tr></thead>
+    <tbody>
+      <tr><td>IP 소유자</td><td>컨테이너 1개당 IP 1개</td><td><b>Pod</b>이 IP 소유, 컨테이너는 공유</td></tr>
+      <tr><td>netns</td><td>컨테이너마다 생성</td><td>Pod(pause)이 생성, 앱 컨테이너는 합류</td></tr>
+      <tr><td>컨테이너 간 통신</td><td>브리지 경유 (IP 필요)</td><td>같은 Pod이면 <code class="inline">localhost</code></td></tr>
+      <tr><td>외부 노출</td><td><code class="inline">-p 8080:80</code> 포트 매핑</td><td>Pod IP + Service (포트 매핑 불필요)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>같은 Pod 안에서 컨테이너들이 지켜야 할 것</h3>
+  <ul>
+    <li><b>포트 충돌 주의</b>: 네임스페이스(=포트 공간)를 공유하므로, 한 Pod 안의 두 컨테이너가 <b>같은 포트를 리슨할 수 없습니다.</b> app이 8080을 쓰면 sidecar는 다른 포트를 써야 합니다.</li>
+    <li><b>localhost 통신</b>: 사이드카 패턴(로그 수집기, 프록시, Envoy 등)이 성립하는 근거입니다. Istio의 사이드카가 앱 트래픽을 가로챌 수 있는 것도 같은 netns 안에 있기 때문입니다.</li>
+    <li><b>네트워크는 공유, 파일시스템은 격리</b>: 컨테이너들은 netns는 공유하지만 파일시스템·프로세스 공간은 기본적으로 각자입니다(공유하려면 volume, shareProcessNamespace 필요). "무엇이 공유되고 무엇이 격리되는지"를 구분하는 것이 중요합니다.</li>
+  </ul>
+
+  <div class="diagram">
+    <svg viewBox="0 0 720 250" role="img" aria-label="Pod 내부 컨테이너 구조">
+      <rect x="60" y="20" width="600" height="200" rx="14" fill="none" stroke="#C678DD" stroke-opacity=".6"/>
+      <text x="85" y="48" class="dg-tb" fill="#C678DD">Pod (netns 하나 · IP 10.244.1.7)</text>
+      <rect x="90" y="70" width="150" height="100" rx="10" fill="#1A202C" stroke="#E06C75"/>
+      <text x="165" y="100" text-anchor="middle" class="dg-tb">app</text>
+      <text x="165" y="122" text-anchor="middle" class="dg-t">:8080 리슨</text>
+      <rect x="270" y="70" width="150" height="100" rx="10" fill="#1A202C" stroke="#E06C75"/>
+      <text x="345" y="100" text-anchor="middle" class="dg-tb">sidecar</text>
+      <text x="345" y="122" text-anchor="middle" class="dg-t">:9090 리슨</text>
+      <rect x="450" y="70" width="150" height="100" rx="10" fill="#12161F" stroke="#5B6478" stroke-dasharray="4 3"/>
+      <text x="525" y="100" text-anchor="middle" class="dg-tb" fill="#8C95A8">pause</text>
+      <text x="525" y="122" text-anchor="middle" class="dg-t">netns 소유자</text>
+      <text x="525" y="140" text-anchor="middle" class="dg-t">(잠자는 닻)</text>
+      <line x1="240" y1="120" x2="270" y2="120" stroke="#E06C75" stroke-width="2"/>
+      <text x="255" y="110" text-anchor="middle" class="dg-t" fill="#E06C75">localhost</text>
+      <text x="360" y="205" text-anchor="middle" class="dg-t">세 컨테이너가 인터페이스 eth0(10.244.1.7)과 포트 공간을 함께 사용</text>
+    </svg>
+    <div class="dg-cap">Pod 안: 네트워크의 주인은 pause, 나머지는 같은 방의 세입자</div>
+  </div>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0">컨테이너는 <b>방 안의 개별 직원</b>입니다. 직원들은 각자 내선 번호(포트)를 하나씩 맡습니다. 두 직원이 같은 내선 번호를 쓸 수 없고(포트 충돌), 옆자리 동료에게는 그냥 말을 걸면 됩니다(localhost). 방 번호(Pod IP)는 직원 개인 소유가 아니라 팀(Pod) 공용입니다.</p>
+  </div>
+</section>
+
+<!-- ================= 8. Cluster ================= -->
+<section id="cluster" class="cl">
+  <div class="sec-head"><span class="lyr">LAYER 7 · CLUSTER</span><h2>Cluster — 흩어진 노드들을 하나의 네트워크로</h2></div>
+  <p class="sec-sub">개별 부품은 다 모였습니다. 이제 이들을 "하나의 거대한 평평한 네트워크"로 묶는 클러스터 차원의 장치들을 봅니다.</p>
+
+  <h3>① CNI가 노드 사이를 잇는 두 가지 방법</h3>
+  <p>같은 노드 안의 Pod끼리는 브리지로 통신한다는 걸 배웠습니다. 그럼 <b>다른 노드의 Pod에게는</b> 어떻게 갈까요? Pod IP(10.244.x.x)는 물리 네트워크가 모르는 주소인데 말이죠. CNI는 두 가지 전략 중 하나를 씁니다.</p>
+
+  <div class="grid2">
+    <div class="card"><div class="mono-tag">전략 A · 오버레이 (터널링)</div><div class="c-t" style="--a:var(--c-cluster)">캡슐화해서 나른다 — VXLAN 등</div><p>Pod의 패킷을 <b>노드 IP로 된 겉봉투에 한 번 더 포장(캡슐화)</b>해서 보냅니다. 물리망은 노드 IP만 보고 배달하고, 받는 노드가 봉투를 뜯어 안의 Pod 패킷을 꺼냅니다. 물리망 설정 변경이 필요 없어 어디서나 동작. (Flannel VXLAN, Calico IPIP/VXLAN, Cilium VXLAN)</p></div>
+    <div class="card"><div class="mono-tag">전략 B · 라우팅 (네이티브)</div><div class="c-t" style="--a:var(--c-cluster)">길을 알려준다 — BGP 등</div><p>"10.244.2.0/24 대역은 192.168.10.12 노드로 보내라"는 <b>경로 정보를 물리망/노드에 직접 심습니다.</b> 캡슐화 오버헤드가 없어 빠르지만 네트워크 환경의 협조가 필요. (Calico BGP, AWS VPC CNI — Pod에 VPC IP를 직접 부여)</p></div>
+  </div>
+
+  <div class="callout analogy">
+    <div class="co-t">🏢 빌딩 비유로 보면</div>
+    <p style="margin-bottom:0"><b>오버레이</b> = 지점 간 우편을 보낼 때, 방 번호가 적힌 내부 봉투를 <b>지점 주소가 적힌 겉봉투</b>에 넣어 일반 택배(물리망)로 보내는 것. 택배 기사는 겉봉투만 봅니다. <b>라우팅</b> = 아예 시청 지도(라우팅 테이블)에 "3층 3xx호 우편은 강남지점으로"라고 등록해 두는 것. 겉봉투가 필요 없지만 시청의 협조가 필요하죠.</p>
+  </div>
+
+  <h3>② Service — Pod IP의 무상함을 이기는 고정 주소</h3>
+  <p>Pod IP는 Pod이 재생성될 때마다 바뀝니다. 그래서 쿠버네티스는 <b>절대 바뀌지 않는 가상 IP(ClusterIP)</b>를 만들어 그 뒤에 Pod들을 세워 둡니다.</p>
+  <ul>
+    <li>Service는 <b>실체가 없는 가상 IP</b>입니다. 어떤 인터페이스에도 붙어 있지 않습니다.</li>
+    <li>패킷이 ClusterIP(예: 10.96.0.10)로 향하면, 노드의 <b>iptables/IPVS/eBPF 규칙이 목적지를 실제 Pod IP로 바꿔치기(DNAT)</b>합니다. 여러 Pod 중 하나가 랜덤/라운드로빈으로 선택되어 <b>로드밸런싱</b>도 됩니다.</li>
+    <li>이 규칙을 매 순간 갱신하는 것이 노드 계층에서 본 <b>kube-proxy</b>의 일입니다. Pod가 죽거나 새로 생기면 EndpointSlice가 갱신되고, kube-proxy가 이를 규칙에 반영합니다.</li>
+  </ul>
+
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Service 타입</th><th>무엇을 만드나</th><th>주 용도</th></tr></thead>
+    <tbody>
+      <tr><td>ClusterIP</td><td>클러스터 내부 전용 가상 IP (기본값)</td><td>마이크로서비스 간 내부 통신</td></tr>
+      <tr><td>NodePort</td><td>모든 노드의 특정 포트(30000-32767)를 개방</td><td>간단한 외부 노출, 테스트</td></tr>
+      <tr><td>LoadBalancer</td><td>클라우드 LB를 생성해 NodePort 앞에 배치</td><td>운영 환경의 외부 노출</td></tr>
+      <tr><td>Headless (clusterIP: None)</td><td>가상 IP 없이 Pod IP 목록을 DNS로 직접 반환</td><td>StatefulSet, DB 클러스터</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>③ DNS — 이름으로 부르기</h3>
+  <p>IP를 외우는 대신 이름을 씁니다. 클러스터 안의 <b>CoreDNS</b>(그 자체도 Pod!)가 <code class="inline">서비스명.네임스페이스.svc.cluster.local</code> 형식의 이름을 ClusterIP로 풀어 줍니다. 모든 Pod의 <code class="inline">/etc/resolv.conf</code>는 CoreDNS를 바라보도록 자동 설정됩니다.</p>
+
+  <div class="codebox">
+    <div class="cb-head">
+      <button class="cb-tab on" data-cb="cl1">Service 생성과 동작</button>
+      <button class="cb-tab" data-cb="cl2">DNS 확인</button>
+      <button class="cb-tab" data-cb="cl3">iptables로 마법 벗기기</button>
+    </div>
+    <div class="cb-pane on" id="cb-cl1"><pre><span class="cmt"># Deployment(Pod 3개) + Service 생성</span>
+<span class="prompt">$</span> kubectl create deployment web --image=nginx --replicas=3
+<span class="prompt">$</span> kubectl expose deployment web --port=80
+<span class="prompt">$</span> kubectl get svc web
+<span class="out">NAME   TYPE        CLUSTER-IP     PORT(S)   AGE
+web    ClusterIP   10.96.142.7    80/TCP    5s</span>
+
+<span class="cmt"># Service 뒤의 실제 Pod IP 목록 (EndpointSlice)</span>
+<span class="prompt">$</span> kubectl get endpointslices -l kubernetes.io/service-name=web
+<span class="out">NAME        ADDRESSTYPE   PORTS   ENDPOINTS
+web-x7k2p   IPv4          80      10.244.1.2,10.244.1.3,10.244.2.5</span>
+
+<span class="cmt"># ClusterIP로 호출하면 세 Pod 중 하나로 분배됨</span>
+<span class="prompt">$</span> kubectl run test --rm -it --image=busybox -- wget -qO- 10.96.142.7
+<span class="out">&lt;!DOCTYPE html&gt; ... Welcome to nginx! ...</span></pre></div>
+    <div class="cb-pane" id="cb-cl2"><pre><span class="cmt"># 이름으로 호출 — 같은 네임스페이스면 서비스명만으로 충분</span>
+<span class="prompt">$</span> kubectl run test --rm -it --image=busybox -- nslookup web
+<span class="out">Server:    10.96.0.10          ← CoreDNS의 ClusterIP
+Name:      web.default.svc.cluster.local
+Address:   10.96.142.7         ← web 서비스의 ClusterIP</span>
+
+<span class="cmt"># FQDN 구조: {svc}.{namespace}.svc.{cluster-domain}</span>
+<span class="cmt">#   web            → 같은 네임스페이스</span>
+<span class="cmt">#   web.payment    → payment 네임스페이스의 web 서비스</span>
+<span class="cmt">#   web.payment.svc.cluster.local → 완전한 이름</span></pre></div>
+    <div class="cb-pane" id="cb-cl3"><pre><span class="cmt"># "Service는 iptables 규칙일 뿐"임을 눈으로 확인 (iptables 모드 기준)</span>
+<span class="prompt">worker-1$</span> sudo iptables -t nat -L KUBE-SERVICES -n | grep 10.96.142.7
+<span class="out">KUBE-SVC-XXXX  tcp  --  0.0.0.0/0  10.96.142.7  tcp dpt:80</span>
+
+<span class="cmt"># 그 체인을 따라가면 — 확률 기반 로드밸런싱이 보입니다</span>
+<span class="prompt">worker-1$</span> sudo iptables -t nat -L KUBE-SVC-XXXX -n
+<span class="out">KUBE-SEP-AAA ... statistic mode random probability 0.33333  → 10.244.1.2
+KUBE-SEP-BBB ... statistic mode random probability 0.50000  → 10.244.1.3
+KUBE-SEP-CCC ... (나머지)                                    → 10.244.2.5</span>
+
+<span class="cmt"># 결론: ClusterIP로 온 패킷은 33%/33%/33% 확률로 세 Pod에 DNAT됩니다</span></pre></div>
+  </div>
+
+  <h3>④ 외부에서 클러스터로: Ingress와 Gateway</h3>
+  <p>지금까지는 클러스터 <b>내부</b> 이야기였습니다. 외부 사용자의 HTTP 요청은 보통 <b>Ingress</b>(또는 최신 표준인 <b>Gateway API</b>)를 통해 들어옵니다. Ingress Controller(nginx, Traefik 등 — 이것도 Pod!)가 L7에서 도메인·경로 기반 라우팅을 수행한 뒤, 알맞은 Service로 넘깁니다.</p>
+  <div class="callout" style="--a:var(--c-cluster)">
+    <div class="co-t">🛬 외부 요청의 전형적인 여정</div>
+    <p style="margin-bottom:0">사용자 → DNS → <b>클라우드 LB</b>(LoadBalancer Service) → 어느 노드의 <b>NodePort</b> → <b>Ingress Controller Pod</b> → 라우팅 규칙 매칭 → 대상 <b>Service(ClusterIP)</b> → DNAT → <b>애플리케이션 Pod</b>. 계층을 배웠으니 이제 이 문장이 읽히실 겁니다.</p>
+  </div>
+
+  <h3>⑤ NetworkPolicy — 기본은 "전부 허용", 잠그는 건 우리 몫</h3>
+  <p>IP-per-Pod 모델의 대가로, 쿠버네티스는 기본적으로 <b>모든 Pod이 모든 Pod과 통신 가능</b>합니다. 운영 환경에서는 NetworkPolicy로 "payment 네임스페이스에는 api Pod만 접근 가능" 같은 방화벽 규칙을 걸어야 합니다. 이 규칙을 실제로 집행하는 것도 CNI입니다(Flannel 단독은 미지원, Calico/Cilium 지원 — CNI 선택이 중요한 이유).</p>
+</section>
+<!-- ================= 9. 패킷 여행 ================= -->
+<section id="journey" class="cl">
+  <div class="sec-head"><span class="lyr">SIMULATOR</span><h2>패킷 여행 시뮬레이터</h2></div>
+  <p class="sec-sub">4가지 대표 시나리오에서 패킷이 실제로 지나는 경로를 단계별로 따라가 봅니다. [다음 단계 →] 버튼을 눌러 보세요.</p>
+
+  <div class="journey">
+    <div class="j-tabs" role="tablist" aria-label="시나리오 선택">
+      <button class="j-tab on" data-j="0">① 같은 Pod 안</button>
+      <button class="j-tab" data-j="1">② 같은 노드, 다른 Pod</button>
+      <button class="j-tab" data-j="2">③ 다른 노드의 Pod</button>
+      <button class="j-tab" data-j="3">④ Service를 통한 호출</button>
+    </div>
+    <div class="j-stage">
+      <svg id="jSvg" viewBox="0 0 760 340" role="img" aria-label="패킷 이동 애니메이션"></svg>
+    </div>
+    <div class="j-desc" aria-live="polite">
+      <div class="jd-step" id="jStep">STEP 0 / 0</div>
+      <p id="jText">시나리오를 선택하고 [다음 단계]를 눌러 패킷의 여정을 시작하세요.</p>
+    </div>
+    <div class="j-ctrl">
+      <button class="j-btn" id="jPrev">← 이전</button>
+      <button class="j-btn primary" id="jNext">다음 단계 →</button>
+      <button class="j-btn" id="jReset">처음부터</button>
+      <span class="j-prog" id="jProg"></span>
+    </div>
+  </div>
+
+  <h3>세 가지 통신 범위 비교 요약</h3>
+  <div class="rail">
+    <div class="r-card ct"><div class="r-lv">SCOPE 1 · INTRA-POD</div><div class="r-t">같은 Pod 안</div><p>netns 공유. 네트워크 장비를 전혀 거치지 않는 커널 내 루프백 통신. 가장 빠릅니다.</p><div class="r-path">app → localhost:9090 → sidecar</div></div>
+    <div class="r-card pd"><div class="r-lv">SCOPE 2 · INTRA-NODE</div><div class="r-t">같은 노드, 다른 Pod</div><p>veth를 나와 브리지(또는 노드 라우팅)를 거쳐 상대 Pod의 veth로. 물리 NIC은 통과하지 않습니다.</p><div class="r-path">PodA eth0 → veth → cni0 → veth → PodB eth0</div></div>
+    <div class="r-card nd"><div class="r-lv">SCOPE 3 · INTER-NODE</div><div class="r-t">다른 노드의 Pod</div><p>브리지에서 답을 못 찾으면 노드 라우팅으로. CNI가 캡슐화(오버레이) 또는 라우팅(BGP)으로 상대 노드까지 배달합니다.</p><div class="r-path">PodA → cni0 → NodeA eth0 → 물리망 → NodeB eth0 → cni0 → PodB</div></div>
+  </div>
+</section>
+
+<!-- ================= 10. 퀴즈 ================= -->
+<section id="quiz" class="pd">
+  <div class="sec-head"><span class="lyr">QUIZ</span><h2>이해도 체크 — 8문항</h2></div>
+  <p class="sec-sub">각 문항은 실무 트러블슈팅 상황을 가정했습니다. 선택하면 즉시 해설이 표시됩니다.</p>
+  <div id="quizWrap"></div>
+  <div class="quiz-score" id="quizScore" style="display:none">
+    <div class="qs-n"><span id="qsGot">0</span> / 8</div>
+    <p id="qsMsg"></p>
+  </div>
+</section>
+
+<!-- ================= 11. 치트시트 ================= -->
+<section id="cheatsheet" class="nd">
+  <div class="sec-head"><span class="lyr">CHEATSHEET</span><h2>계층별 트러블슈팅 명령어 치트시트</h2></div>
+  <p class="sec-sub">"통신이 안 돼요"라는 장애가 오면, 위(앱)에서 아래(물리)로 계층을 하나씩 내려가며 확인합니다.</p>
+
+  <div class="codebox">
+    <div class="cb-head">
+      <button class="cb-tab on" data-cb="cs1">Pod/Container</button>
+      <button class="cb-tab" data-cb="cs2">Service/DNS</button>
+      <button class="cb-tab" data-cb="cs3">Node/CNI</button>
+      <button class="cb-tab" data-cb="cs4">OS/네트워크</button>
+    </div>
+    <div class="cb-pane on" id="cb-cs1"><pre><span class="cmt"># [1단계] Pod은 살아 있고 IP는 받았는가?</span>
+<span class="prompt">$</span> kubectl get pods -o wide                    <span class="cmt"># STATUS, IP, NODE 확인</span>
+<span class="prompt">$</span> kubectl describe pod &lt;pod&gt;                  <span class="cmt"># Events에서 CNI 오류 확인</span>
+<span class="prompt">$</span> kubectl logs &lt;pod&gt; -c &lt;container&gt;           <span class="cmt"># 앱이 정말 리슨 중인가</span>
+
+<span class="cmt"># [2단계] Pod 안에서 직접 확인</span>
+<span class="prompt">$</span> kubectl exec -it &lt;pod&gt; -- sh
+<span class="prompt">#</span> netstat -tlnp        <span class="cmt"># 어떤 포트를 리슨 중인가 (ss -tlnp도 가능)</span>
+<span class="prompt">#</span> curl -v localhost:8080  <span class="cmt"># 자기 자신은 응답하는가</span>
+<span class="prompt">#</span> cat /etc/resolv.conf    <span class="cmt"># DNS 설정은 정상인가</span>
+
+<span class="cmt"># 디버깅 도구가 없는 이미지라면 임시 디버그 컨테이너 주입</span>
+<span class="prompt">$</span> kubectl debug -it &lt;pod&gt; --image=nicolaka/netshoot --target=&lt;container&gt;</pre></div>
+    <div class="cb-pane" id="cb-cs2"><pre><span class="cmt"># [3단계] Service가 Pod을 제대로 바라보는가?</span>
+<span class="prompt">$</span> kubectl get svc &lt;svc&gt;                        <span class="cmt"># ClusterIP, 포트 확인</span>
+<span class="prompt">$</span> kubectl get endpointslices -l kubernetes.io/service-name=&lt;svc&gt;
+<span class="cmt">#  → ENDPOINTS가 비어 있다면? selector와 Pod label 불일치가 90%!</span>
+<span class="prompt">$</span> kubectl get pods --show-labels               <span class="cmt"># label 대조</span>
+
+<span class="cmt"># [4단계] DNS가 이름을 풀어 주는가?</span>
+<span class="prompt">$</span> kubectl run dnstest --rm -it --image=busybox -- nslookup &lt;svc&gt;
+<span class="prompt">$</span> kubectl get pods -n kube-system -l k8s-app=kube-dns   <span class="cmt"># CoreDNS 상태</span>
+<span class="prompt">$</span> kubectl logs -n kube-system -l k8s-app=kube-dns --tail=20</pre></div>
+    <div class="cb-pane" id="cb-cs3"><pre><span class="cmt"># [5단계] 노드와 CNI는 건강한가?</span>
+<span class="prompt">$</span> kubectl get nodes                             <span class="cmt"># NotReady = CNI 문제 단골</span>
+<span class="prompt">$</span> kubectl get pods -n kube-system -o wide       <span class="cmt"># CNI 데몬셋 상태 (calico-node 등)</span>
+<span class="prompt">$</span> kubectl get node &lt;node&gt; -o jsonpath='{.spec.podCIDR}'
+
+<span class="cmt"># kube-proxy 상태와 모드</span>
+<span class="prompt">$</span> kubectl logs -n kube-system -l k8s-app=kube-proxy --tail=20
+<span class="prompt">$</span> kubectl describe cm -n kube-system kube-proxy | grep mode</pre></div>
+    <div class="cb-pane" id="cb-cs4"><pre><span class="cmt"># [6단계] 노드 OS 레벨에서 직접 추적 (SSH 접속 후)</span>
+<span class="prompt">node$</span> ip addr && ip route                <span class="cmt"># 인터페이스와 라우팅 테이블</span>
+<span class="prompt">node$</span> ip link | grep veth               <span class="cmt"># Pod 수만큼 veth가 있는가</span>
+<span class="prompt">node$</span> sudo iptables -t nat -L KUBE-SERVICES -n | grep &lt;ClusterIP&gt;
+<span class="prompt">node$</span> sudo tcpdump -i any host &lt;PodIP&gt; -nn   <span class="cmt"># 최종 병기: 패킷 직접 관찰</span>
+
+<span class="cmt"># [7단계] 물리/기반 네트워크</span>
+<span class="prompt">node$</span> ping &lt;다른-노드-IP&gt;                <span class="cmt"># 노드 간 기본 연결성</span>
+<span class="prompt">node$</span> ethtool eth0 | grep Speed          <span class="cmt"># 링크 속도 (H/W 계층!)</span>
+<span class="prompt">node$</span> ip -s link show eth0               <span class="cmt"># 드롭/에러 카운터</span></pre></div>
+  </div>
+
+  <h3>마무리 — 이 강의의 핵심을 한 장으로</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>계층</th><th>네트워크 정체</th><th>핵심 키워드</th><th>빌딩 비유</th></tr></thead>
+    <tbody>
+      <tr><td style="color:var(--c-hw)">H/W</td><td>전기 신호가 달리는 실제 길</td><td>NIC · MAC · 스위치 · 라우터</td><td>땅과 도로</td></tr>
+      <tr><td style="color:var(--c-os)">OS</td><td>커널의 네트워크 재료 창고</td><td>netns · veth · bridge · iptables</td><td>복도와 우편 규칙</td></tr>
+      <tr><td style="color:var(--c-vm)">VM</td><td>하드웨어를 나눠 쓰는 가상 컴퓨터</td><td>하이퍼바이저 · vNIC · vSwitch · VPC</td><td>칸막이 임대 공간</td></tr>
+      <tr><td style="color:var(--c-node)">Node</td><td>K8s에 등록된 일꾼 머신</td><td>kubelet · CNI · kube-proxy · Pod CIDR</td><td>지점 사무실</td></tr>
+      <tr><td style="color:var(--c-pod)">Pod</td><td>IP를 가지는 netns 하나</td><td>IP-per-Pod · pause · veth</td><td>같은 방을 쓰는 팀</td></tr>
+      <tr><td style="color:var(--c-ct)">Container</td><td>Pod 네트워크를 빌려 쓰는 세입자</td><td>localhost 공유 · 포트 충돌 주의</td><td>방 안의 직원</td></tr>
+      <tr><td style="color:var(--c-cluster)">Cluster</td><td>전체를 하나로 묶는 논리 네트워크</td><td>오버레이/라우팅 · Service · DNS · Ingress</td><td>회사 전체 조직 + 사내 전화망</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <div class="co-t">🚀 다음 학습 추천</div>
+    <ul style="margin-bottom:0">
+      <li><b>CNI 심화</b>: Calico(BGP)와 Cilium(eBPF)의 아키텍처 비교 — eBPF가 iptables를 대체하는 흐름</li>
+      <li><b>Service Mesh</b>: Istio/Linkerd — 사이드카가 같은 netns에서 트래픽을 가로채는 원리(이제 이해되시죠?)</li>
+      <li><b>Gateway API</b>: Ingress의 후계자, L4~L7 라우팅의 새 표준</li>
+      <li><b>실습</b>: kind/minikube에서 OS 계층 실습(3장)을 그대로 재현 + tcpdump로 VXLAN 헤더 직접 관찰</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  K8S NETWORK ARCHITECTURE · LAYERED LECTURE FOR CLOUD ENGINEERS · SINGLE-FILE INTERACTIVE HTML<br>
+  H/W → OS → VM → NODE → POD → CONTAINER → CLUSTER
+</footer>
+</main>
+</div>
+<a href="#top" class="top-link" aria-label="맨 위로">↑</a>
+<script>
+/* ================= 1. 레이어 스택 익스플로러 ================= */
+const LAYERS=[
+ {id:'hw',n:'L1',nm:'H/W',ds:'물리 서버 · NIC · 스위치',c:'var(--c-hw)',t:'물리 네트워크 — 모든 것의 바닥',
+  d:'실제 전기 신호가 흐르는 계층입니다. 서버의 NIC(랜카드), 랙의 ToR 스위치, 라우터, 광케이블로 구성됩니다. 모든 상위 계층의 트래픽은 최종적으로 이 위를 지나며, 물리 대역폭이 전체 성능의 상한선입니다. 퍼블릭 클라우드에서는 완전히 숨겨져 있습니다.',
+  kw:['NIC','MAC 주소','ToR 스위치','라우터','Leaf-Spine'],a:'#hw'},
+ {id:'os',n:'L2',nm:'OS (Linux)',ds:'netns · veth · bridge · iptables',c:'var(--c-os)',t:'리눅스 커널 — 컨테이너 네트워크의 재료 창고',
+  d:'쿠버네티스 네트워크의 "마법"은 전부 리눅스 커널 기능의 조합입니다. network namespace(격리), veth(가상 케이블), bridge(가상 스위치), iptables(패킷 규칙) — 이 4가지 재료만 이해하면 Pod 네트워크는 저절로 이해됩니다. 이 강의에서 가장 중요한 계층입니다.',
+  kw:['network namespace','veth pair','bridge','iptables','eBPF'],a:'#os'},
+ {id:'vm',n:'L3',nm:'VM',ds:'하이퍼바이저 · vNIC · vSwitch',c:'var(--c-vm)',t:'가상머신 — 하드웨어를 나눠 쓰는 기술',
+  d:'물리 서버 한 대를 하이퍼바이저로 쪼갠 가상 컴퓨터입니다. 네트워크도 함께 가상화되어 vNIC(가상 랜카드)과 vSwitch(가상 스위치)가 등장합니다. 클라우드의 EC2 인스턴스가 바로 이것이며, 베어메탈 K8s에서는 이 계층이 생략되기도 합니다.',
+  kw:['Hypervisor','vNIC','vSwitch','VPC','ENI'],a:'#vm'},
+ {id:'nd',n:'L4',nm:'Node',ds:'kubelet · CNI · kube-proxy',c:'var(--c-node)',t:'노드 — 쿠버네티스에 등록된 일꾼 머신',
+  d:'VM(또는 물리 서버)에 kubelet, CNI 플러그인, kube-proxy가 설치되어 클러스터의 일원이 된 상태입니다. 노드는 자신의 Node IP(실제 망의 주소)와, 자기 위 Pod들에게 나눠줄 Pod CIDR(IP 대역)을 가집니다.',
+  kw:['kubelet','CNI plugin','kube-proxy','Node IP','Pod CIDR'],a:'#node'},
+ {id:'pd',n:'L5',nm:'Pod',ds:'IP를 가지는 netns 하나',c:'var(--c-pod)',t:'Pod — 쿠버네티스에서 IP를 가지는 단위',
+  d:'Pod의 실체는 network namespace 하나입니다. pause 컨테이너가 네임스페이스를 만들어 유지하고, 앱 컨테이너들이 합류합니다. "모든 Pod은 고유 IP를 갖고 NAT 없이 서로 통신한다"는 IP-per-Pod 모델이 쿠버네티스 네트워크의 헌법입니다.',
+  kw:['IP-per-Pod','pause 컨테이너','netns 공유','Pod IP'],a:'#pod'},
+ {id:'ct',n:'L6',nm:'Container',ds:'Pod 네트워크의 세입자',c:'var(--c-ct)',t:'컨테이너 — 네트워크를 빌려 쓰는 최소 실행 단위',
+  d:'쿠버네티스에서 컨테이너는 자기 네트워크를 갖지 않습니다. Pod의 netns를 빌려 쓰는 세입자이므로, 같은 Pod의 컨테이너끼리는 localhost로 통신하고 포트 공간을 공유합니다(같은 포트 리슨 불가). 사이드카 패턴이 성립하는 근거입니다.',
+  kw:['localhost 통신','포트 공유','사이드카','Envoy'],a:'#container'},
+ {id:'cl',n:'L7',nm:'Cluster',ds:'Service · DNS · CNI 오버레이',c:'var(--c-cluster)',t:'클러스터 — 흩어진 노드들을 하나의 네트워크로',
+  d:'노드들에 흩어진 Pod들을 "하나의 평평한 네트워크"로 묶는 논리 계층입니다. CNI가 노드 간 배달(오버레이/라우팅)을, Service가 고정 가상 IP와 로드밸런싱을, CoreDNS가 이름 해석을, Ingress가 외부 유입을, NetworkPolicy가 방화벽을 담당합니다.',
+  kw:['VXLAN/BGP','Service·ClusterIP','CoreDNS','Ingress','NetworkPolicy'],a:'#cluster'}
+];
+const sBtns=document.getElementById('stackBtns'),sDet=document.getElementById('stackDetail');
+LAYERS.forEach((L,i)=>{
+  const b=document.createElement('button');
+  b.className='slayer';b.style.setProperty('--a',L.c);b.setAttribute('role','tab');
+  b.innerHTML=`<span class="n">${L.n}</span><span class="nm">${L.nm}</span><span class="ds">${L.ds}</span>`;
+  b.addEventListener('click',()=>selectLayer(i));
+  sBtns.appendChild(b);
+});
+function selectLayer(i){
+  const L=LAYERS[i];
+  [...sBtns.children].forEach((b,j)=>b.classList.toggle('on',j===i));
+  sDet.style.setProperty('--a',L.c);
+  sDet.innerHTML=`<span class="sd-badge">${L.n} · ${L.nm}</span><h4>${L.t}</h4><p>${L.d}</p>
+   <div class="sd-kw">${L.kw.map(k=>`<span>${k}</span>`).join('')}</div>
+   <a class="sd-link" href="${L.a}">이 계층 자세히 보기 ↓</a>`;
+}
+selectLayer(4); /* 기본: Pod */
+
+/* ================= 2. 코드 탭 ================= */
+document.querySelectorAll('.codebox').forEach(box=>{
+  box.querySelectorAll('.cb-tab').forEach(tab=>{
+    tab.addEventListener('click',()=>{
+      box.querySelectorAll('.cb-tab').forEach(t=>t.classList.remove('on'));
+      box.querySelectorAll('.cb-pane').forEach(p=>p.classList.remove('on'));
+      tab.classList.add('on');
+      box.querySelector('#cb-'+tab.dataset.cb).classList.add('on');
+    });
+  });
+});
+
+/* ================= 3. 패킷 여행 시뮬레이터 ================= */
+const box=(x,y,w,h,stroke,fill,id,dash)=>`<rect id="${id}" class="hop" x="${x}" y="${y}" width="${w}" height="${h}" rx="9" fill="${fill}" stroke="${stroke}" ${dash?'stroke-dasharray="5 4"':''}/>`;
+const txt=(x,y,s,cls,fill,id)=>`<text ${id?`id="${id}" class="hop ${cls}"`:`class="${cls}"`} x="${x}" y="${y}" text-anchor="middle" ${fill?`fill="${fill}"`:''}>${s}</text>`;
+const ln=(x1,y1,x2,y2,stroke,id)=>`<line id="${id}" class="hop" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="2.5"/>`;
+
+const SCN=[
+{name:'같은 Pod 안 (localhost)',svg:`
+  ${box(120,40,520,240,'#C678DD','none','s1pod')}${txt(380,70,'Pod (netns 하나 · 10.244.1.7)','dg-tb','#C678DD','s1podt')}
+  ${box(170,110,150,110,'#E06C75','#1A202C','s1app')}${txt(245,145,'app','dg-tb',null,'s1appt')}${txt(245,168,':8080','dg-t',null,'s1appt2')}
+  ${box(440,110,150,110,'#E06C75','#1A202C','s1sc')}${txt(515,145,'sidecar','dg-tb',null,'s1sct')}${txt(515,168,':9090 리슨','dg-t',null,'s1sct2')}
+  ${ln(320,165,440,165,'#8C95A8','s1lo')}${txt(380,155,'lo (loopback)','dg-t','#98C379','s1lot')}
+  ${txt(380,310,'네트워크 장비 0개 통과 — 커널 안에서 끝나는 가장 빠른 통신','dg-t',null,'')}`,
+ steps:[
+  {t:'app 컨테이너가 curl localhost:9090 을 실행합니다. 목적지 localhost(127.0.0.1)는 "이 netns 자신"을 뜻합니다.',x:245,y:200,lit:['s1pod','s1podt','s1app','s1appt','s1appt2']},
+  {t:'패킷이 netns의 루프백 인터페이스(lo)로 들어갑니다. veth도, 브리지도, NIC도 거치지 않습니다.',x:380,y:165,lit:['s1lo','s1lot']},
+  {t:'같은 netns에서 9090 포트를 리슨 중인 프로세스 = sidecar. 커널이 즉시 배달합니다.',x:515,y:200,lit:['s1sc','s1sct','s1sct2']},
+  {t:'완료! 두 컨테이너가 다른 프로그램일 뿐 네트워크상으로는 "같은 컴퓨터"이기 때문에 가능한 일입니다. 이것이 netns 공유의 의미입니다.',x:515,y:165,lit:[]}]},
+
+{name:'같은 노드, 다른 Pod',svg:`
+  ${box(30,30,700,280,'#56B6C2','none','s2node')}${txt(380,58,'Node worker-1 (10.244.1.0/24)','dg-tb','#56B6C2','s2nodet')}
+  ${box(70,90,180,90,'#C678DD','#1A202C','s2pa')}${txt(160,122,'Pod A','dg-tb',null,'s2pat')}${txt(160,145,'10.244.1.2','dg-t',null,'s2pat2')}
+  ${box(510,90,180,90,'#C678DD','#1A202C','s2pb')}${txt(600,122,'Pod B','dg-tb',null,'s2pbt')}${txt(600,145,'10.244.1.3','dg-t',null,'s2pbt2')}
+  ${box(240,230,280,42,'#E5C07B','#12161F','s2br')}${txt(380,257,'bridge cni0 · 10.244.1.1','dg-tb',null,'s2brt')}
+  ${ln(160,180,290,230,'#98C379','s2va')}${txt(195,212,'vethA','dg-t','#98C379','s2vat')}
+  ${ln(600,180,470,230,'#98C379','s2vb')}${txt(560,212,'vethB','dg-t','#98C379','s2vbt')}`,
+ steps:[
+  {t:'Pod A(10.244.1.2)가 Pod B(10.244.1.3)에게 패킷을 보냅니다. 목적지가 같은 서브넷(10.244.1.0/24)이므로 게이트웨이 없이 직접 전달 대상입니다.',x:160,y:150,lit:['s2node','s2nodet','s2pa','s2pat','s2pat2']},
+  {t:'패킷이 Pod A의 eth0 → veth 케이블을 타고 netns 밖으로 나옵니다. veth는 한쪽으로 들어가면 반드시 반대쪽으로 나오는 가상 랜선입니다.',x:225,y:205,lit:['s2va','s2vat']},
+  {t:'브리지 cni0에 도착. 브리지는 L2 스위치처럼 "10.244.1.3의 MAC이 어느 포트에 있지?"를 MAC 테이블에서 찾습니다(없으면 ARP).',x:380,y:251,lit:['s2br','s2brt']},
+  {t:'브리지가 vethB 포트로 프레임을 내보냅니다. 물리 NIC(eth0)은 전혀 통과하지 않았다는 점에 주목하세요.',x:535,y:205,lit:['s2vb','s2vbt']},
+  {t:'Pod B의 netns 안 eth0으로 패킷 도착, 완료! 요약: PodA eth0 → veth → cni0 → veth → PodB eth0. 3장에서 손으로 만든 실습과 완전히 같은 경로입니다.',x:600,y:150,lit:['s2pb','s2pbt','s2pbt2']}]},
+
+{name:'다른 노드의 Pod (오버레이)',svg:`
+  ${box(20,30,320,220,'#56B6C2','none','s3na')}${txt(180,56,'Node A · 192.168.10.11','dg-tb','#56B6C2','s3nat')}
+  ${box(50,80,150,74,'#C678DD','#1A202C','s3pa')}${txt(125,108,'Pod A','dg-tb',null,'s3pat')}${txt(125,130,'10.244.1.2','dg-t',null,'s3pat2')}
+  ${box(50,180,180,36,'#E5C07B','#12161F','s3bra')}${txt(140,203,'cni0','dg-t',null,'s3brat')}
+  ${box(250,180,80,36,'#98C379','#12161F','s3ea')}${txt(290,203,'eth0','dg-t',null,'s3eat')}
+  ${box(420,30,320,220,'#56B6C2','none','s3nb')}${txt(580,56,'Node B · 192.168.10.12','dg-tb','#56B6C2','s3nbt')}
+  ${box(560,80,150,74,'#C678DD','#1A202C','s3pb')}${txt(635,108,'Pod B','dg-tb',null,'s3pbt')}${txt(635,130,'10.244.2.5','dg-t',null,'s3pbt2')}
+  ${box(530,180,180,36,'#E5C07B','#12161F','s3brb')}${txt(620,203,'cni0','dg-t',null,'s3brbt')}
+  ${box(430,180,80,36,'#98C379','#12161F','s3eb')}${txt(470,203,'eth0','dg-t',null,'s3ebt')}
+  ${ln(330,198,430,198,'#E8A87C','s3phy')}${txt(380,188,'물리망','dg-t','#E8A87C','s3phyt')}
+  ${txt(380,300,'겉봉투(UDP/VXLAN · src 10.11 → dst 10.12) 안에 원본(1.2 → 2.5)이 들어 있음','dg-t','#8C95A8','s3cap')}`,
+ steps:[
+  {t:'Pod A(10.244.1.2)가 다른 노드의 Pod B(10.244.2.5)에게 보냅니다. 목적지가 자기 서브넷(10.244.1.x) 밖이므로 게이트웨이(cni0)로 보냅니다.',x:125,y:135,lit:['s3na','s3nat','s3pa','s3pat','s3pat2']},
+  {t:'cni0에 왔지만 10.244.2.5는 이 노드에 없습니다. 노드의 라우팅 테이블이 "10.244.2.0/24 → 터널 장치로"라고 알려줍니다(CNI가 미리 심어 둠).',x:140,y:198,lit:['s3bra','s3brat']},
+  {t:'⭐ 핵심 순간: 터널 장치(flannel.1/vxlan 등)가 Pod 패킷 전체를 "노드 IP 겉봉투"로 캡슐화합니다. 겉: 192.168.10.11→10.12(UDP), 속: 10.244.1.2→2.5.',x:290,y:198,lit:['s3ea','s3eat','s3cap']},
+  {t:'물리 네트워크(H/W 계층!)는 겉봉투의 노드 IP만 보고 배달합니다. Pod IP의 존재를 전혀 몰라도 되는 이유입니다.',x:380,y:198,lit:['s3phy','s3phyt']},
+  {t:'Node B의 eth0 도착. 터널 장치가 겉봉투를 뜯고(디캡슐화) 원본 Pod 패킷을 꺼냅니다.',x:470,y:198,lit:['s3nb','s3nbt','s3eb','s3ebt']},
+  {t:'원본 패킷이 Node B의 cni0 → vethB를 거쳐 Pod B에 도착, 완료! 참고로 Calico BGP 모드라면 캡슐화 없이 라우팅만으로 같은 여정을 갑니다.',x:635,y:135,lit:['s3brb','s3brbt','s3pb','s3pbt','s3pbt2']}]},
+
+{name:'Service(ClusterIP)를 통한 호출',svg:`
+  ${box(20,40,330,230,'#56B6C2','none','s4na')}${txt(185,66,'Node A','dg-tb','#56B6C2','s4nat')}
+  ${box(50,90,160,74,'#C678DD','#1A202C','s4c')}${txt(130,118,'client Pod','dg-tb',null,'s4ct')}${txt(130,140,'10.244.1.9','dg-t',null,'s4ct2')}
+  ${box(50,200,270,44,'#E06C75','#12161F','s4ipt')}${txt(185,220,'iptables (kube-proxy가 관리)','dg-t',null,'s4iptt')}${txt(185,237,'DNAT: 10.96.142.7 → 10.244.2.5','dg-t','#E06C75','s4iptt2')}
+  ${box(430,40,310,230,'#56B6C2','none','s4nb')}${txt(585,66,'Node B','dg-tb','#56B6C2','s4nbt')}
+  ${box(540,90,160,74,'#C678DD','#1A202C','s4w')}${txt(620,118,'web Pod','dg-tb',null,'s4wt')}${txt(620,140,'10.244.2.5','dg-t',null,'s4wt2')}
+  ${box(455,200,120,44,'#61AFEF','#12161F','s4dns')}${txt(515,220,'CoreDNS','dg-t',null,'s4dnst')}${txt(515,237,'(이것도 Pod)','dg-t','#5B6478','s4dnst2')}
+  ${txt(380,305,'Service "web" = ClusterIP 10.96.142.7 — 실체 없는 가상 IP, iptables 규칙으로만 존재','dg-t','#61AFEF','s4svc')}`,
+ steps:[
+  {t:'client Pod가 curl http://web 을 실행합니다. 먼저 이름을 IP로 바꿔야 하므로 /etc/resolv.conf에 설정된 CoreDNS에 질의합니다.',x:130,y:145,lit:['s4na','s4nat','s4c','s4ct','s4ct2']},
+  {t:'CoreDNS가 "web.default.svc.cluster.local = 10.96.142.7(ClusterIP)"라고 응답합니다.',x:515,y:222,lit:['s4dns','s4dnst','s4dnst2','s4svc']},
+  {t:'client가 10.96.142.7:80으로 패킷을 보냅니다. 그런데 이 IP는 어떤 장치에도 없는 가상 IP입니다!',x:130,y:180,lit:[]},
+  {t:'⭐ 핵심 순간: 패킷이 노드 커널을 지나는 순간 iptables 규칙이 낚아채, 목적지를 실제 Pod IP(10.244.2.5)로 바꿔치기(DNAT)합니다. Pod가 여럿이면 확률적으로 하나를 선택 = 로드밸런싱.',x:185,y:222,lit:['s4ipt','s4iptt','s4iptt2']},
+  {t:'이제부터는 시나리오 ③과 동일: 목적지가 다른 노드의 Pod IP이므로 오버레이/라우팅으로 Node B까지 배달됩니다.',x:400,y:170,lit:['s4nb','s4nbt']},
+  {t:'web Pod 도착, 완료! 요약: 이름(DNS) → 가상 IP(Service) → 실제 Pod IP(DNAT) → Pod 간 통신. 앞의 모든 계층 지식이 총동원된 여정입니다.',x:620,y:145,lit:['s4w','s4wt','s4wt2']}]}
+];
+let jCur=0,jStep=-1;
+const jSvg=document.getElementById('jSvg'),jText=document.getElementById('jText'),
+      jStepEl=document.getElementById('jStep'),jProg=document.getElementById('jProg'),
+      jPrev=document.getElementById('jPrev'),jNext=document.getElementById('jNext');
+function jLoad(i){
+  jCur=i;jStep=-1;
+  document.querySelectorAll('.j-tab').forEach((t,j)=>t.classList.toggle('on',j===i));
+  jSvg.innerHTML=SCN[i].svg+`<circle id="jPkt" class="pkt" r="9" fill="#61AFEF" stroke="#0B0E14" stroke-width="2" opacity="0"/>
+    <circle id="jPkt2" class="pkt" r="14" fill="none" stroke="#61AFEF" stroke-opacity=".5" opacity="0"/>`;
+  jRender();
+}
+function jRender(){
+  const S=SCN[jCur],total=S.steps.length;
+  jSvg.querySelectorAll('.hop').forEach(el=>el.classList.remove('lit'));
+  const pkt=jSvg.querySelector('#jPkt'),pkt2=jSvg.querySelector('#jPkt2');
+  if(jStep<0){
+    jStepEl.textContent='READY';
+    jText.textContent='『'+S.name+'』 시나리오입니다. [다음 단계 →]를 눌러 패킷 출발!';
+    pkt.setAttribute('opacity',0);pkt2.setAttribute('opacity',0);
+    /* 시작 전에는 전체 구조를 다 보여줌 */
+    jSvg.querySelectorAll('.hop').forEach(el=>el.classList.add('lit'));
+  }else{
+    for(let s=0;s<=jStep;s++)S.steps[s].lit.forEach(id=>{const e=jSvg.querySelector('#'+id);if(e)e.classList.add('lit');});
+    const st=S.steps[jStep];
+    jStepEl.textContent=`STEP ${jStep+1} / ${total}`;
+    jText.textContent=st.t;
+    pkt.setAttribute('opacity',1);pkt2.setAttribute('opacity',1);
+    [pkt,pkt2].forEach(p=>{p.setAttribute('cx',st.x);p.setAttribute('cy',st.y);});
+  }
+  jProg.textContent=(jStep+1)+' / '+total;
+  jPrev.disabled=jStep<0;
+  jNext.textContent=jStep>=total-1?'처음부터 ↺':'다음 단계 →';
+}
+jNext.addEventListener('click',()=>{const t=SCN[jCur].steps.length;jStep=jStep>=t-1?-1:jStep+1;jRender();});
+jPrev.addEventListener('click',()=>{if(jStep>=0){jStep--;jRender();}});
+document.getElementById('jReset').addEventListener('click',()=>{jStep=-1;jRender();});
+document.querySelectorAll('.j-tab').forEach((t,i)=>t.addEventListener('click',()=>jLoad(i)));
+jLoad(0);
+
+/* ================= 4. 퀴즈 ================= */
+const QUIZ=[
+ {q:'한 Pod 안의 sidecar 컨테이너가 app 컨테이너(포트 8080)에 접근하려 합니다. 가장 올바른 주소는?',
+  o:['app 컨테이너의 개별 IP:8080','localhost:8080','Pod IP는 알 수 없으므로 Service를 먼저 만들어야 한다','노드 IP:8080'],c:1,
+  e:'같은 Pod의 컨테이너들은 하나의 network namespace를 공유하므로 서로에게 localhost입니다. 컨테이너 개별 IP라는 것은 K8s에 존재하지 않습니다.'},
+ {q:'Pod IP(예: 10.244.1.5)는 근본적으로 어디에서 오는 걸까요?',
+  o:['DHCP 서버가 사내망에서 임대','해당 Pod이 뜬 노드에 배정된 Pod CIDR에서 CNI 플러그인이 할당','kube-apiserver가 중앙에서 무작위 발급','컨테이너 이미지에 내장'],c:1,
+  e:'클러스터는 노드마다 겹치지 않는 Pod CIDR(예: worker-1은 10.244.1.0/24)을 배정하고, Pod 생성 시 CNI가 그 대역에서 IP를 할당하며 veth·라우팅까지 구성합니다.'},
+ {q:'Service의 ClusterIP(10.96.142.7)를 노드에서 ip addr로 아무리 찾아도 어떤 인터페이스에도 없습니다. 왜일까요?',
+  o:['장애 상황이므로 kube-proxy를 재시작해야 한다','ClusterIP는 마스터 노드에만 존재한다','ClusterIP는 실체 없는 가상 IP로, iptables/IPVS 규칙(DNAT)으로만 동작하기 때문','CoreDNS Pod에 붙어 있다'],c:2,
+  e:'정상입니다. ClusterIP는 어떤 NIC에도 붙지 않는 규칙상의 주소이며, 패킷이 커널을 지날 때 kube-proxy가 만든 규칙이 실제 Pod IP로 바꿔치기합니다. ping이 안 되는 경우가 많은 것도 같은 이유입니다.'},
+ {q:'Service를 만들었는데 응답이 없습니다. kubectl get endpointslices 결과 ENDPOINTS가 비어 있다면 가장 유력한 원인은?',
+  o:['CNI 플러그인 다운','Service의 selector와 Pod의 label이 일치하지 않음','CoreDNS 장애','노드 물리 NIC 불량'],c:1,
+  e:'Endpoints가 비었다는 건 "이 Service가 바라볼 Pod을 못 찾았다"는 뜻이고, 원인의 대부분은 selector-label 불일치(또는 Pod이 Not Ready)입니다. 실무 최다 빈출 장애입니다.'},
+ {q:'VXLAN 오버레이 환경에서 Pod A(NodeA) → Pod B(NodeB) 패킷이 물리 네트워크를 지날 때, 겉봉투(외부 헤더)의 출발지/목적지 IP는?',
+  o:['Pod A IP → Pod B IP','ClusterIP → Pod B IP','Node A IP → Node B IP','브리지(cni0) IP → 브리지 IP'],c:2,
+  e:'캡슐화의 핵심입니다. 물리망은 Pod IP를 모르므로, 겉봉투에는 물리망이 아는 노드 IP를 적습니다. 원본 Pod 패킷은 그 안에 통째로 들어 있습니다.'},
+ {q:'한 Pod 안에 nginx(80 리슨)와 또 다른 웹서버(역시 80 리슨) 컨테이너를 함께 넣으면?',
+  o:['각자 자기 네임스페이스라 문제없다','두 번째 컨테이너가 포트 충돌로 기동 실패(CrashLoop 등)','K8s가 자동으로 81로 바꿔준다','Pod IP가 2개 발급된다'],c:1,
+  e:'같은 netns = 같은 포트 공간입니다. 방(Pod) 하나에 내선 번호(포트) 체계가 하나이므로, 같은 번호를 두 직원이 쓸 수 없습니다.'},
+ {q:'Pod IP에 대한 설명으로 옳은 것은?',
+  o:['앱 컨테이너가 크래시로 재시작되면 Pod IP도 바뀐다','Pod이 삭제 후 재생성되어도 IP는 유지된다','앱 컨테이너 재시작 시 IP 유지(pause가 netns 보유), Pod 재생성 시에는 바뀔 수 있다','Pod IP는 한번 할당되면 클러스터가 사라질 때까지 영구적이다'],c:2,
+  e:'netns의 주인은 pause 컨테이너이므로 앱 컨테이너가 재시작돼도 IP는 그대로입니다. 반면 Pod 자체가 재생성되면 netns도 새로 만들어져 IP가 바뀔 수 있고, 그래서 고정 주소인 Service가 필요합니다.'},
+ {q:'NetworkPolicy를 하나도 만들지 않은 새 클러스터에서 Pod 간 통신의 기본 상태는?',
+  o:['같은 네임스페이스끼리만 허용','전부 차단 (명시적으로 열어야 함)','전부 허용 (IP-per-Pod 모델의 기본값)','같은 노드 안에서만 허용'],c:2,
+  e:'쿠버네티스의 기본은 전면 허용입니다. 잠그려면 NetworkPolicy를 만들어야 하고, 이를 실제 집행하는 것은 CNI입니다(Flannel 단독은 미지원 — CNI 선택이 보안에 직결되는 이유).'}
+];
+const qWrap=document.getElementById('quizWrap');let qDone=0,qGot=0;
+QUIZ.forEach((Q,qi)=>{
+  const d=document.createElement('div');d.className='quiz';
+  d.innerHTML=`<div class="q-n">QUESTION ${String(qi+1).padStart(2,'0')} / 08</div>
+    <div class="q-q">${Q.q}</div>
+    <div class="q-opts">${Q.o.map((o,oi)=>`<button class="q-opt" data-oi="${oi}">${String.fromCharCode(65+oi)}. ${o}</button>`).join('')}</div>
+    <div class="q-exp"></div>`;
+  const exp=d.querySelector('.q-exp');
+  d.querySelectorAll('.q-opt').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      if(d.dataset.done)return;d.dataset.done=1;qDone++;
+      const pick=+btn.dataset.oi,ok=pick===Q.c;
+      if(ok)qGot++;
+      d.querySelectorAll('.q-opt').forEach((b,bi)=>{
+        b.disabled=true;
+        if(bi===Q.c)b.classList.add('correct');
+        else if(bi===pick)b.classList.add('wrong');
+      });
+      exp.className='q-exp show '+(ok?'ok':'no');
+      exp.innerHTML=`<b>${ok?'✅ 정답입니다!':'❌ 아쉽습니다. 정답은 '+String.fromCharCode(65+Q.c)+'번'}</b>${Q.e}`;
+      if(qDone===QUIZ.length){
+        const sc=document.getElementById('quizScore');
+        sc.style.display='block';
+        document.getElementById('qsGot').textContent=qGot;
+        document.getElementById('qsMsg').textContent=
+          qGot===8?'완벽합니다! 이제 K8s 네트워크 장애가 와도 계층별로 추적할 수 있습니다.':
+          qGot>=6?'훌륭합니다. 틀린 문항의 해당 계층 섹션만 다시 읽어 보세요.':
+          qGot>=4?'기본기는 잡혔습니다. 3장(OS)과 6장(Pod)을 복습하면 나머지가 연결됩니다.':
+          '괜찮습니다. 3장의 손 실습을 직접 해 보는 것이 가장 빠른 지름길입니다.';
+        sc.scrollIntoView({behavior:'smooth',block:'nearest'});
+      }
+    });
+  });
+  qWrap.appendChild(d);
+});
+
+/* ================= 5. 스크롤 스파이 ================= */
+const tocLinks=[...document.querySelectorAll('.toc a')];
+const secMap=new Map(tocLinks.map(a=>[a.getAttribute('href').slice(1),a]));
+const io=new IntersectionObserver(entries=>{
+  entries.forEach(en=>{
+    if(en.isIntersecting){
+      tocLinks.forEach(a=>a.classList.remove('active'));
+      const a=secMap.get(en.target.id);if(a)a.classList.add('active');
+    }
+  });
+},{rootMargin:'-15% 0px -70% 0px'});
+document.querySelectorAll('main section, header.hero').forEach(s=>{if(s.id)io.observe(s);});
+</script>
+</body>
+</html>
