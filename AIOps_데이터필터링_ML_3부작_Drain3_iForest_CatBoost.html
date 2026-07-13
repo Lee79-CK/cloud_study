@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIOps 데이터 필터링 ML 3부작 — Drain3 · Isolation Forest · CatBoost</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.19/index.min.css">
+<style>
+:root{
+  --bg:#0B0E14;
+  --surface:#111624;
+  --surface-2:#161C2E;
+  --border:#232B41;
+  --border-soft:#1A2136;
+  --text:#DEE4F2;
+  --text-dim:#8B94AD;
+  --text-faint:#5A6178;
+  --drain:#4FD1C5;      /* 1단계: Drain3 — 청록 */
+  --iforest:#F6AD55;    /* 2단계: Isolation Forest — 호박 */
+  --catboost:#B794F4;   /* 3단계: CatBoost — 보라 */
+  --accent:#6C8CFF;     /* 공통 강조 */
+  --good:#68D391;
+  --bad:#FC8181;
+  --code-bg:#0D1220;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Pretendard Variable',Pretendard,-apple-system,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16.5px;line-height:1.78;letter-spacing:-0.01em}
+::selection{background:rgba(108,140,255,.35)}
+
+/* ---------- 레이아웃 ---------- */
+.layout{display:flex;min-height:100vh}
+.sidebar{width:272px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;border-right:1px solid var(--border-soft);padding:32px 20px 48px;background:linear-gradient(180deg,#0C1019,#0B0E14)}
+.sidebar::-webkit-scrollbar{width:4px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.side-brand{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--text-faint);text-transform:uppercase;margin-bottom:6px}
+.side-title{font-weight:800;font-size:17px;line-height:1.4;margin-bottom:28px}
+.side-title .grad{background:linear-gradient(90deg,var(--drain),var(--iforest),var(--catboost));-webkit-background-clip:text;background-clip:text;color:transparent}
+.toc{list-style:none}
+.toc li{margin-bottom:2px}
+.toc a{display:block;padding:7px 12px;border-radius:8px;color:var(--text-dim);text-decoration:none;font-size:13.5px;line-height:1.45;border-left:2px solid transparent;transition:all .15s}
+.toc a:hover{color:var(--text);background:var(--surface)}
+.toc a.active{color:var(--text);background:var(--surface-2);border-left-color:var(--accent);font-weight:600}
+.toc .toc-num{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin-right:8px}
+.toc a.active .toc-num{color:var(--accent)}
+.side-progress{margin-top:24px;padding-top:20px;border-top:1px solid var(--border-soft);font-family:var(--mono);font-size:11px;color:var(--text-faint)}
+.pbar{height:3px;background:var(--border-soft);border-radius:2px;margin-top:8px;overflow:hidden}
+.pbar>div{height:100%;width:0;background:linear-gradient(90deg,var(--drain),var(--iforest),var(--catboost));transition:width .2s}
+
+.main{flex:1;min-width:0}
+.container{max-width:920px;margin:0 auto;padding:0 40px 120px}
+
+/* ---------- 히어로 ---------- */
+.hero{padding:72px 0 56px;border-bottom:1px solid var(--border-soft);margin-bottom:64px}
+.hero-eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--accent);text-transform:uppercase;margin-bottom:18px}
+.hero h1{font-size:clamp(30px,4.4vw,46px);font-weight:850;line-height:1.22;letter-spacing:-0.03em;margin-bottom:20px}
+.hero h1 .h-drain{color:var(--drain)}
+.hero h1 .h-if{color:var(--iforest)}
+.hero h1 .h-cb{color:var(--catboost)}
+.hero-sub{color:var(--text-dim);font-size:17.5px;max-width:720px;margin-bottom:36px}
+.hero-meta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:44px}
+.chip{font-family:var(--mono);font-size:11.5px;padding:5px 12px;border:1px solid var(--border);border-radius:999px;color:var(--text-dim)}
+
+/* 히어로 깔때기 — 시그니처 */
+.funnel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px 28px 26px}
+.funnel-title{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--text-faint);text-transform:uppercase;margin-bottom:22px;text-align:center}
+.funnel-rows{display:flex;flex-direction:column;gap:8px;align-items:center}
+.frow{display:flex;align-items:center;gap:16px;width:100%;justify-content:center}
+.fbar{height:44px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12.5px;font-weight:600;color:#0B0E14;transition:width 1.2s cubic-bezier(.2,.8,.2,1);min-width:120px;white-space:nowrap;padding:0 14px}
+.frow .flabel{width:230px;flex-shrink:0;text-align:right;font-size:13px;color:var(--text-dim)}
+.frow .fstage{width:150px;flex-shrink:0;font-family:var(--mono);font-size:11px;color:var(--text-faint)}
+.f0 .fbar{background:#3B455F;color:#C8D0E4;width:100%}
+.f1 .fbar{background:var(--drain);width:34%}
+.f2 .fbar{background:var(--iforest);width:12%}
+.f3 .fbar{background:var(--catboost);width:4.5%}
+.funnel-note{margin-top:18px;text-align:center;font-size:13px;color:var(--text-faint)}
+
+/* ---------- 섹션 공통 ---------- */
+section.lecture{margin-bottom:96px}
+.sec-eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.sec-eyebrow::after{content:"";flex:1;height:1px;background:var(--border-soft)}
+.sec-eyebrow.e-drain{color:var(--drain)}
+.sec-eyebrow.e-if{color:var(--iforest)}
+.sec-eyebrow.e-cb{color:var(--catboost)}
+section.lecture h2{font-size:30px;font-weight:800;letter-spacing:-0.02em;margin-bottom:10px;line-height:1.3}
+.sec-lead{color:var(--text-dim);font-size:17px;margin-bottom:36px;max-width:760px}
+h3{font-size:21px;font-weight:750;margin:48px 0 16px;letter-spacing:-0.015em}
+h4{font-size:16.5px;font-weight:700;margin:32px 0 12px;color:var(--text)}
+p{margin-bottom:16px;color:#C6CDE0}
+p strong{color:var(--text);font-weight:700}
+em{font-style:normal;color:var(--accent);font-weight:600}
+.mono, code.inline{font-family:var(--mono);font-size:.86em;background:var(--surface-2);border:1px solid var(--border-soft);padding:1.5px 6px;border-radius:5px;color:#A9C1FF}
+
+/* 카드/그리드 */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:20px 0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.card h5{font-size:14.5px;font-weight:750;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.card p{font-size:13.8px;color:var(--text-dim);margin:0;line-height:1.65}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.d1{background:var(--drain)}.dot.d2{background:var(--iforest)}.dot.d3{background:var(--catboost)}.dot.da{background:var(--accent)}
+
+/* 콜아웃 */
+.callout{border-radius:12px;padding:18px 20px;margin:24px 0;border:1px solid;font-size:14.5px;line-height:1.7}
+.callout .co-t{font-weight:750;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;display:block}
+.callout.info{background:rgba(108,140,255,.07);border-color:rgba(108,140,255,.3)}
+.callout.info .co-t{color:var(--accent)}
+.callout.tip{background:rgba(104,211,145,.06);border-color:rgba(104,211,145,.28)}
+.callout.tip .co-t{color:var(--good)}
+.callout.warn{background:rgba(252,129,129,.06);border-color:rgba(252,129,129,.3)}
+.callout.warn .co-t{color:var(--bad)}
+.callout p{margin:0;color:#C6CDE0}
+.callout p+p{margin-top:8px}
+
+/* 테이블 */
+.tbl-wrap{overflow-x:auto;margin:22px 0;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:13.8px;min-width:640px}
+thead th{background:var(--surface-2);text-align:left;padding:12px 14px;font-weight:700;font-size:12.5px;letter-spacing:.03em;color:var(--text-dim);border-bottom:1px solid var(--border);white-space:nowrap}
+tbody td{padding:11px 14px;border-bottom:1px solid var(--border-soft);color:#C6CDE0;vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:rgba(255,255,255,.015)}
+td .pill{display:inline-block;font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--border)}
+.pill.g{color:var(--good);border-color:rgba(104,211,145,.4)}
+.pill.b{color:var(--bad);border-color:rgba(252,129,129,.4)}
+.pill.n{color:var(--text-dim)}
+
+/* 코드 블록(탭) */
+.codebox{background:var(--code-bg);border:1px solid var(--border);border-radius:12px;margin:22px 0;overflow:hidden}
+.code-tabs{display:flex;gap:2px;background:var(--surface);border-bottom:1px solid var(--border);padding:6px 8px 0;overflow-x:auto}
+.code-tab{font-family:var(--mono);font-size:12px;padding:8px 14px;color:var(--text-faint);cursor:pointer;border:none;background:none;border-radius:8px 8px 0 0;white-space:nowrap}
+.code-tab:hover{color:var(--text-dim)}
+.code-tab.active{color:var(--text);background:var(--code-bg);border:1px solid var(--border);border-bottom-color:var(--code-bg);margin-bottom:-1px}
+.code-head{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 0}
+.code-lang{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase}
+.copy-btn{font-family:var(--mono);font-size:11px;color:var(--text-faint);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer}
+.copy-btn:hover{color:var(--text)}
+.code-pane{display:none}
+.code-pane.active{display:block}
+pre{padding:16px 18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.72;color:#C9D4EC}
+pre::-webkit-scrollbar{height:6px}
+pre::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.c-kw{color:#8FA7FF}.c-str{color:#9AE6B4}.c-com{color:#5A6178;font-style:italic}.c-num{color:#F6AD55}.c-fn{color:#76E4F7}.c-cls{color:#B794F4}
+
+/* 인터랙티브 데모 패널 */
+.demo{border:1px solid var(--border);border-radius:14px;margin:28px 0;overflow:hidden;background:var(--surface)}
+.demo-head{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--surface-2)}
+.demo-badge{font-family:var(--mono);font-size:10px;letter-spacing:.14em;padding:3px 9px;border-radius:999px;font-weight:700}
+.demo-badge.b-drain{background:rgba(79,209,197,.15);color:var(--drain);border:1px solid rgba(79,209,197,.4)}
+.demo-badge.b-if{background:rgba(246,173,85,.13);color:var(--iforest);border:1px solid rgba(246,173,85,.4)}
+.demo-badge.b-cb{background:rgba(183,148,244,.13);color:var(--catboost);border:1px solid rgba(183,148,244,.4)}
+.demo-badge.b-a{background:rgba(108,140,255,.13);color:var(--accent);border:1px solid rgba(108,140,255,.4)}
+.demo-head .demo-title{font-weight:700;font-size:14.5px}
+.demo-body{padding:22px 20px}
+.demo-controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.btn{font-family:var(--sans);font-size:13.5px;font-weight:650;padding:8px 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);cursor:pointer;transition:all .15s}
+.btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#0B0E14}
+.btn.ghost{background:transparent}
+.demo-note{font-size:12.5px;color:var(--text-faint);margin-top:14px;line-height:1.6}
+
+/* Drain3 데모 */
+.d3-log-feed{font-family:var(--mono);font-size:12px;background:var(--code-bg);border:1px solid var(--border-soft);border-radius:10px;padding:12px 14px;min-height:52px;margin-bottom:14px;color:#AEB9D6;word-break:break-all}
+.d3-log-feed .hl{color:var(--drain);font-weight:700}
+.d3-clusters{display:flex;flex-direction:column;gap:8px}
+.d3-cluster{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:10px;padding:10px 14px;font-family:var(--mono);font-size:12px;display:flex;justify-content:space-between;gap:12px;align-items:center;transition:border-color .3s}
+.d3-cluster.flash{border-color:var(--drain)}
+.d3-cluster .tmpl{color:#C9D4EC;word-break:break-all}
+.d3-cluster .tmpl .wc{color:var(--drain);font-weight:700}
+.d3-cluster .cnt{font-size:11px;color:var(--text-faint);flex-shrink:0}
+.d3-stats{display:flex;gap:18px;margin-top:14px;font-family:var(--mono);font-size:11.5px;color:var(--text-dim)}
+.d3-stats b{color:var(--drain)}
+
+/* IF 데모 */
+.if-canvas-wrap{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+canvas#ifCanvas{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:10px;cursor:crosshair;max-width:100%}
+.if-panel{flex:1;min-width:220px;font-size:13.5px}
+.if-metric{background:var(--code-bg);border:1px solid var(--border-soft);border-radius:10px;padding:12px 16px;margin-bottom:10px}
+.if-metric .k{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);letter-spacing:.1em;text-transform:uppercase}
+.if-metric .v{font-family:var(--mono);font-size:20px;font-weight:700;margin-top:2px}
+.if-metric .v.warm{color:var(--iforest)}
+.if-metric .v.cool{color:var(--accent)}
+
+/* CatBoost 데모 */
+.cb-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+.cb-table th{background:var(--surface-2);padding:8px 10px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border);text-align:left}
+.cb-table td{padding:8px 10px;border-bottom:1px solid var(--border-soft);color:#C6CDE0}
+.cb-table tr.done td{opacity:1}
+.cb-table tr.pending td{opacity:.32}
+.cb-table tr.current td{background:rgba(183,148,244,.08)}
+.cb-table td.enc{color:var(--catboost);font-weight:700}
+.cb-table td.leak{color:var(--bad);font-weight:700}
+.cb-formula{font-family:var(--mono);font-size:12.5px;background:var(--code-bg);border:1px solid var(--border-soft);border-radius:10px;padding:12px 16px;margin-top:14px;color:var(--text-dim);line-height:1.8}
+.cb-formula b{color:var(--catboost)}
+
+/* 파이프라인 다이어그램 */
+.pipe{display:flex;gap:0;align-items:stretch;margin:24px 0;flex-wrap:wrap}
+.pipe-stage{flex:1;min-width:150px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 14px;cursor:pointer;transition:all .18s;position:relative;text-align:center}
+.pipe-stage:hover{transform:translateY(-2px)}
+.pipe-stage.sel{border-width:2px}
+.pipe-stage .ps-n{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--text-faint);margin-bottom:6px}
+.pipe-stage .ps-t{font-weight:750;font-size:14px;margin-bottom:4px}
+.pipe-stage .ps-d{font-size:11.5px;color:var(--text-faint);font-family:var(--mono)}
+.pipe-arrow{display:flex;align-items:center;padding:0 8px;color:var(--text-faint);font-size:18px}
+.pipe-detail{background:var(--code-bg);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:6px;font-size:14px;min-height:120px}
+.pipe-detail h6{font-size:14px;font-weight:750;margin-bottom:8px}
+.pipe-detail ul{margin:0 0 0 18px;color:var(--text-dim);font-size:13.5px}
+.pipe-detail li{margin-bottom:5px}
+.st-drain{border-color:rgba(79,209,197,.5)}.st-drain .ps-t{color:var(--drain)}
+.st-if{border-color:rgba(246,173,85,.5)}.st-if .ps-t{color:var(--iforest)}
+.st-cb{border-color:rgba(183,148,244,.5)}.st-cb .ps-t{color:var(--catboost)}
+.st-llm{border-color:rgba(108,140,255,.5)}.st-llm .ps-t{color:var(--accent)}
+.st-raw .ps-t{color:var(--text-dim)}
+
+/* 아키텍처 다이어그램 */
+.arch{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;margin:24px 0;overflow-x:auto}
+.arch svg{min-width:760px;width:100%;height:auto}
+.arch text{font-family:var(--mono)}
+
+/* 퀴즈 */
+.quiz-item{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:16px}
+.quiz-q{font-weight:700;margin-bottom:14px;font-size:15.5px;display:flex;gap:10px}
+.quiz-q .qn{font-family:var(--mono);color:var(--accent);flex-shrink:0}
+.quiz-opts{display:flex;flex-direction:column;gap:8px}
+.quiz-opt{border:1px solid var(--border);border-radius:10px;padding:11px 15px;cursor:pointer;font-size:14px;color:#C6CDE0;transition:all .15s;background:var(--surface-2)}
+.quiz-opt:hover{border-color:var(--accent)}
+.quiz-opt.correct{border-color:var(--good);background:rgba(104,211,145,.08);color:var(--good)}
+.quiz-opt.wrong{border-color:var(--bad);background:rgba(252,129,129,.08);color:var(--bad)}
+.quiz-opt.dim{opacity:.45;pointer-events:none}
+.quiz-exp{display:none;margin-top:14px;font-size:13.5px;color:var(--text-dim);border-top:1px dashed var(--border);padding-top:12px;line-height:1.7}
+.quiz-exp.show{display:block}
+.quiz-score{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;font-size:16px}
+.quiz-score b{font-size:28px;font-family:var(--mono);background:linear-gradient(90deg,var(--drain),var(--iforest),var(--catboost));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* 비교 바 */
+.cmp-bars{margin:20px 0}
+.cmp-row{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+.cmp-row .cl{width:150px;flex-shrink:0;font-size:13px;color:var(--text-dim);text-align:right;font-family:var(--mono)}
+.cmp-row .cbar-track{flex:1;height:22px;background:var(--code-bg);border-radius:6px;overflow:hidden;border:1px solid var(--border-soft)}
+.cmp-row .cbar{height:100%;border-radius:5px;display:flex;align-items:center;padding-left:10px;font-family:var(--mono);font-size:10.5px;color:#0B0E14;font-weight:700;min-width:36px}
+
+footer{border-top:1px solid var(--border-soft);padding-top:32px;color:var(--text-faint);font-size:13px;line-height:1.8}
+footer .refs{font-family:var(--mono);font-size:12px}
+
+/* 반응형 */
+@media (max-width:1023px){
+  .sidebar{display:none}
+  .container{padding:0 22px 90px}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .frow .flabel{width:auto;font-size:11px}
+  .frow .fstage{display:none}
+  .pipe{flex-direction:column}
+  .pipe-arrow{transform:rotate(90deg);justify-content:center;padding:2px 0}
+}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="sidebar" aria-label="목차">
+  <div class="side-brand">AIOps Lecture Series</div>
+  <div class="side-title">데이터 필터링 ML 3부작<br><span class="grad">Drain3 · iForest · CatBoost</span></div>
+  <ul class="toc" id="toc">
+    <li><a href="#sec1"><span class="toc-num">01</span>왜 필터링인가</a></li>
+    <li><a href="#sec2"><span class="toc-num">02</span>전체 그림: 3단 깔때기</a></li>
+    <li><a href="#sec3"><span class="toc-num">03</span>Drain3 — 로그 템플릿 파싱</a></li>
+    <li><a href="#sec4"><span class="toc-num">04</span>Isolation Forest — 이상 탐지</a></li>
+    <li><a href="#sec5"><span class="toc-num">05</span>CatBoost — 지도학습 분류</a></li>
+    <li><a href="#sec6"><span class="toc-num">06</span>세 모델의 연계 설계</a></li>
+    <li><a href="#sec7"><span class="toc-num">07</span>구현 아키텍처</a></li>
+    <li><a href="#sec8"><span class="toc-num">08</span>확인 퀴즈</a></li>
+    <li><a href="#sec9"><span class="toc-num">09</span>정리 &amp; 참고자료</a></li>
+  </ul>
+  <div class="side-progress">READING PROGRESS<div class="pbar"><div id="pbarFill"></div></div></div>
+</nav>
+
+<div class="main"><div class="container">
+
+<header class="hero">
+  <div class="hero-eyebrow">AIOps · Machine Learning for Log Filtering</div>
+  <h1>하루 10억 건의 로그에서<br><span class="h-drain">패턴을 접고</span>, <span class="h-if">이상을 걸러</span>,<br><span class="h-cb">진짜 장애만 남기는 법</span></h1>
+  <p class="hero-sub">AIOps 파이프라인의 심장은 LLM이 아니라 <strong>그 앞단의 데이터 필터링</strong>입니다. 이 강의는 로그 템플릿 파서 <strong>Drain3</strong>, 비지도 이상 탐지기 <strong>Isolation Forest</strong>, 지도학습 분류기 <strong>CatBoost</strong>를 처음 접하는 ML 엔지니어의 눈높이에서, 개념 → 사용법 → 유사 모델 비교 → 연계 설계 → 구현 아키텍처까지 한 번에 다룹니다.</p>
+  <div class="hero-meta">
+    <span class="chip">대상: 초급 ML/MLOps 엔지니어</span>
+    <span class="chip">Python 3.11+</span>
+    <span class="chip">drain3 · scikit-learn · catboost</span>
+    <span class="chip">인터랙티브 데모 4종 + 퀴즈 10문항</span>
+  </div>
+  <div class="funnel" id="funnel">
+    <div class="funnel-title">The Filtering Funnel — 이 강의가 만드는 깔때기</div>
+    <div class="funnel-rows">
+      <div class="frow f0"><div class="flabel">원본 로그 스트림</div><div class="fbar" data-w="100%">1,000,000,000 lines/day</div><div class="fstage">RAW</div></div>
+      <div class="frow f1"><div class="flabel">템플릿으로 구조화·중복 제거</div><div class="fbar" data-w="34%">~2,000 templates</div><div class="fstage">① DRAIN3</div></div>
+      <div class="frow f2"><div class="flabel">통계적으로 "이상한" 구간만</div><div class="fbar" data-w="12%">~5,000 events/day</div><div class="fstage">② iFOREST</div></div>
+      <div class="frow f3"><div class="flabel">실제 조치가 필요한 알람</div><div class="fbar" data-w="4.5%">~50 incidents</div><div class="fstage">③ CATBOOST</div></div>
+    </div>
+    <div class="funnel-note">10억 건 → 50건. 뒤에 붙는 sLLM/LLM은 이 50건만 읽으면 됩니다. 이것이 GPU 비용과 알람 피로를 동시에 줄이는 구조입니다.</div>
+  </div>
+</header>
+
+<!-- ================= SECTION 1 ================= -->
+<section class="lecture" id="sec1">
+  <div class="sec-eyebrow">Section 01 — Motivation</div>
+  <h2>왜 "필터링"이 AIOps의 첫 번째 문제인가</h2>
+  <p class="sec-lead">AIOps를 "로그를 LLM에 넣으면 장애 원인을 알려주는 시스템"으로 오해하기 쉽습니다. 실제 현장의 첫 번째 벽은 훨씬 단순하고 물리적입니다. <strong>데이터가 너무 많다</strong>는 것입니다.</p>
+
+  <h3>1.1 규모의 문제를 숫자로 보기</h3>
+  <p>중형 규모의 서비스 인프라(VM 수백 대 + K8s 클러스터 몇 개)만 되어도 로그는 <strong>초당 수만~수십만 건</strong>, 하루 수억~수십억 건 규모로 쏟아집니다. 위성 관제, 통신망 관제처럼 장비 텔레메트리가 붙는 도메인이라면 여기에 시계열 메트릭까지 더해집니다. 이 데이터를 LLM에 그대로 흘려보내는 것은 세 가지 이유로 불가능합니다.</p>
+  <div class="grid3">
+    <div class="card"><h5><span class="dot da"></span>비용·물리 한계</h5><p>10억 라인 ≈ 수백 GB/일. 토큰으로 환산하면 수천억 토큰입니다. H200을 수백 장 붙여도 실시간 처리는 불가능하고, 가능하더라도 GPU 비용이 장애 손실보다 커집니다.</p></div>
+    <div class="card"><h5><span class="dot da"></span>신호 대 잡음비</h5><p>로그의 99.9% 이상은 "정상 동작 기록"입니다. 정상 로그로 컨텍스트를 채우면 LLM은 정작 중요한 한 줄을 놓칩니다. 건초더미를 통째로 주면 바늘은 못 찾습니다.</p></div>
+    <div class="card"><h5><span class="dot da"></span>알람 피로 (Alert Fatigue)</h5><p>필터링 없는 탐지는 오탐(False Positive)을 양산합니다. 하루 수천 건의 알람을 받는 운영자는 결국 알람을 무시하게 되고, 진짜 장애도 함께 묻힙니다.</p></div>
+  </div>
+
+  <h3>1.2 해법: 계단식(Cascade) 필터링</h3>
+  <p>해법은 단일 만능 모델이 아니라, <strong>싸고 빠른 모델부터 비싸고 똑똑한 모델 순서로 계단을 쌓는 것</strong>입니다. 공항 보안 검색과 같은 원리입니다. 전원이 금속탐지기(저비용)를 통과하고, 걸린 사람만 정밀 검색(중비용)을 받고, 그중 극소수만 심층 조사(고비용)를 받습니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>단계</th><th>모델</th><th>학습 방식</th><th>역할 (공항 비유)</th><th>처리량</th><th>건당 비용</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill n">1단계</span></td><td><strong style="color:var(--drain)">Drain3</strong></td><td>온라인 클러스터링 (모델 없음)</td><td>수하물 X-ray — 전수 검사, 구조화</td><td>수십만 line/s (CPU 1코어)</td><td>≈ 0</td></tr>
+      <tr><td><span class="pill n">2단계</span></td><td><strong style="color:var(--iforest)">Isolation Forest</strong></td><td>비지도 (라벨 불필요)</td><td>금속탐지기 — "평소와 다름" 감지</td><td>수만 sample/s (CPU)</td><td>매우 낮음</td></tr>
+      <tr><td><span class="pill n">3단계</span></td><td><strong style="color:var(--catboost)">CatBoost</strong></td><td>지도학습 (운영자 라벨)</td><td>보안 요원 심사 — 진짜/가짜 판별</td><td>수천 sample/s</td><td>낮음</td></tr>
+      <tr><td><span class="pill n">4단계</span></td><td><strong style="color:var(--accent)">sLLM / LLM</strong></td><td>사전학습 + RAG</td><td>심층 조사실 — 원인 분석·조치 제안</td><td>수 건/s (GPU)</td><td>높음</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout info"><span class="co-t">이 조합이 사실상의 표준인 이유</span>
+    <p>세 모델은 각자 다른 종류의 "모름"을 해결합니다. Drain3는 <strong>비정형 텍스트를 정형 데이터로</strong> 바꾸는 문제(파싱), Isolation Forest는 <strong>라벨이 하나도 없는 초기 상태</strong>에서의 탐지 문제(콜드 스타트), CatBoost는 <strong>운영자 피드백이 쌓인 뒤</strong>의 정밀 분류 문제(오탐 억제)를 풉니다. 즉 이 3부작은 "모델 3개"가 아니라 <strong>AIOps 시스템의 성장 단계 그 자체</strong>입니다.</p>
+  </div>
+</section>
+
+<!-- ================= SECTION 2 ================= -->
+<section class="lecture" id="sec2">
+  <div class="sec-eyebrow">Section 02 — Big Picture</div>
+  <h2>전체 그림: 데이터가 흐르는 길</h2>
+  <p class="sec-lead">세부 모델로 들어가기 전에, 데이터 한 줄이 어떤 여정을 거치는지 먼저 그려봅니다. 아래 다이어그램의 각 단계를 클릭해 보세요.</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="demo-badge b-a">INTERACTIVE</span><span class="demo-title">파이프라인 여행 — 단계를 클릭하세요</span></div>
+    <div class="demo-body">
+      <div class="pipe" id="pipe">
+        <div class="pipe-stage st-raw" data-stage="0"><div class="ps-n">STAGE 0</div><div class="ps-t">Raw Logs</div><div class="ps-d">10^9 /day</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-stage st-drain" data-stage="1"><div class="ps-n">STAGE 1</div><div class="ps-t">Drain3</div><div class="ps-d">parse</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-stage st-if" data-stage="2"><div class="ps-n">STAGE 2</div><div class="ps-t">iForest</div><div class="ps-d">detect</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-stage st-cb" data-stage="3"><div class="ps-n">STAGE 3</div><div class="ps-t">CatBoost</div><div class="ps-d">classify</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-stage st-llm" data-stage="4"><div class="ps-n">STAGE 4</div><div class="ps-t">sLLM/LLM</div><div class="ps-d">analyze</div></div>
+      </div>
+      <div class="pipe-detail" id="pipeDetail"></div>
+    </div>
+  </div>
+
+  <h3>2.1 한 줄 요약으로 미리 보는 세 모델</h3>
+  <div class="grid3">
+    <div class="card"><h5><span class="dot d1"></span>Drain3 = 문장 틀 추출기</h5><p>"user 42 logged in"과 "user 87 logged in"은 사실 같은 문장 틀 <code class="inline">user &lt;*&gt; logged in</code>입니다. Drain3는 흘러가는 로그에서 이런 틀(템플릿)을 실시간으로 찾아내 수백만 줄을 수천 개 패턴으로 접습니다.</p></div>
+    <div class="card"><h5><span class="dot d2"></span>iForest = 스무고개 이상 탐지</h5><p>"무리에서 떨어진 점일수록 적은 질문으로 고립시킬 수 있다"는 직관 하나로 동작합니다. 정상이 무엇인지 정의하지 않아도, 라벨이 없어도, 남들과 다른 놈을 찾아냅니다.</p></div>
+    <div class="card"><h5><span class="dot d3"></span>CatBoost = 경력직 심사관</h5><p>운영자가 "이건 진짜 장애 / 이건 노이즈"라고 매긴 판정 이력을 학습해, 이상 후보 중 진짜만 통과시킵니다. 범주형 피처(장비명, 에러코드)를 전처리 없이 잘 다루는 게 특기입니다.</p></div>
+  </div>
+
+  <div class="callout tip"><span class="co-t">학습 로드맵</span>
+    <p>3장은 각 모델을 <strong>① 직관 → ② 알고리즘 원리 → ③ 코드 사용법 → ④ 유사 모델 비교</strong> 순서로 다룹니다. 6장에서 세 모델을 하나의 파이프라인으로 엮고, 7장에서 Kubernetes 위의 실제 배치 아키텍처로 구현합니다. 급하다면 각 장의 인터랙티브 데모만 먼저 돌려보고 돌아와도 좋습니다.</p>
+  </div>
+</section>
+
+<!-- ================= SECTION 3 : DRAIN3 ================= -->
+<section class="lecture" id="sec3">
+  <div class="sec-eyebrow e-drain">Section 03 — Stage 1 · Log Template Mining</div>
+  <h2>Drain3 — 로그를 "문장 틀"로 접는 기술</h2>
+  <p class="sec-lead">ML 파이프라인의 가장 큰 적은 비정형 텍스트입니다. Drain3는 자유 텍스트 로그를 <strong>템플릿 ID + 파라미터</strong>라는 정형 데이터로 바꿔주는 온라인 로그 파서입니다. 뒤따르는 모든 모델(iForest, CatBoost, LLM)의 입력 품질이 여기서 결정됩니다.</p>
+
+  <h3>3.1 직관: 로그 파싱이란 무엇인가</h3>
+  <p>개발자가 코드에 이렇게 썼다고 합시다.</p>
+  <div class="codebox"><div class="code-head"><span class="code-lang">java</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-fn">logger</span>.info(<span class="c-str">"Connection from {} closed, session {} lasted {} ms"</span>, ip, sid, dur);</pre></div>
+  <p>운영 환경에서 이 <em>한 줄의 코드</em>는 하루에 수백만 번 실행되며 매번 다른 로그를 남깁니다.</p>
+  <div class="codebox"><div class="code-head"><span class="code-lang">log</span><button class="copy-btn">복사</button></div>
+<pre>Connection from 10.0.3.17 closed, session a9f2 lasted 3021 ms
+Connection from 10.0.8.44 closed, session 77b0 lasted 1288 ms
+Connection from 10.0.1.02 closed, session c3d1 lasted 45802 ms</pre></div>
+  <p>로그 파싱(log parsing / template mining)은 이 역과정입니다. 즉, <strong>출력된 로그만 보고 원래의 print 문(템플릿)을 복원</strong>하는 작업입니다.</p>
+  <div class="codebox"><div class="code-head"><span class="code-lang">template</span><button class="copy-btn">복사</button></div>
+<pre>Template #17 : Connection from <span class="c-fn">&lt;*&gt;</span> closed, session <span class="c-fn">&lt;*&gt;</span> lasted <span class="c-fn">&lt;*&gt;</span> ms
+Parameters  : [<span class="c-str">"10.0.3.17"</span>, <span class="c-str">"a9f2"</span>, <span class="c-num">3021</span>]</pre></div>
+  <p>이렇게 바꾸면 세 가지 강력한 효과가 생깁니다.</p>
+  <div class="grid3">
+    <div class="card"><h5><span class="dot d1"></span>차원 붕괴</h5><p>수억 개의 서로 다른 문자열이 수백~수천 개의 템플릿 ID로 접힙니다. 이제 로그는 "이벤트 타입의 시계열"이라는 카운트 가능한 데이터가 됩니다.</p></div>
+    <div class="card"><h5><span class="dot d1"></span>피처화 가능</h5><p>"템플릿 17이 분당 몇 번 발생했나" 같은 수치 피처를 만들 수 있습니다. 이것이 바로 다음 단계 iForest의 입력이 됩니다.</p></div>
+    <div class="card"><h5><span class="dot d1"></span>신규 패턴 감지</h5><p>"지금까지 없던 템플릿의 첫 등장" 자체가 강한 이상 신호입니다. 배포 직후 새 에러 패턴을 즉시 포착할 수 있습니다.</p></div>
+  </div>
+
+  <h3>3.2 원리: 고정 깊이 파스 트리 (Fixed-Depth Parse Tree)</h3>
+  <p>Drain(2017, He et al.)의 핵심 아이디어는 <strong>"비슷한 로그를 빨리 찾기 위해 트리를 이정표로 쓰자"</strong>입니다. 새 로그가 도착하면 전체 템플릿과 일일이 비교하는 대신, 트리를 따라 내려가 <em>후보 그룹만</em> 빠르게 좁힙니다. 트리의 각 층은 다음 기준으로 분기합니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>층</th><th>분기 기준</th><th>직관</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill n">Root → L1</span></td><td><strong>토큰 개수</strong> (로그 길이)</td><td>단어 수가 다르면 같은 print 문일 가능성이 낮다</td></tr>
+      <tr><td><span class="pill n">L1 → L2...</span></td><td><strong>앞쪽 토큰들</strong> (기본: 첫 토큰)</td><td>로그의 첫 단어(모듈명, 동사)는 대개 상수다. 숫자가 섞인 토큰은 <code class="inline">&lt;*&gt;</code>로 취급해 분기 폭발 방지</td></tr>
+      <tr><td><span class="pill n">Leaf</span></td><td><strong>유사도 비교</strong></td><td>리프에 모인 소수의 템플릿 후보와만 토큰 단위 유사도(simTh, 기본 0.4)를 계산</td></tr>
+    </tbody>
+  </table></div>
+  <p>리프에서의 판정은 단순합니다. 같은 위치의 토큰이 일치하는 비율 <code class="inline">sim = 일치 토큰 수 / 전체 토큰 수</code>가 임계값(<code class="inline">sim_th</code>) 이상이면 기존 클러스터에 <strong>병합</strong>하고, 불일치 위치의 토큰을 <code class="inline">&lt;*&gt;</code>로 바꿔 템플릿을 갱신합니다. 임계값 미만이면 <strong>새 클러스터</strong>를 만듭니다. 트리 덕분에 로그 1건 처리 비용이 전체 클러스터 수와 무관하게 거의 상수 시간(O(depth + 리프 내 후보 수))이라, 스트리밍 환경에서도 CPU 한 코어로 수십만 line/s를 처리합니다.</p>
+
+  <div class="callout info"><span class="co-t">Drain vs Drain3 — 이름이 비슷한데 뭐가 다른가</span>
+    <p><strong>Drain</strong>은 2017년 논문의 알고리즘 이름이고, <strong>Drain3</strong>는 IBM이 이를 프로덕션용 Python 3 라이브러리로 재구현·확장한 오픈소스입니다. Drain3가 추가한 것: ① <strong>마스킹 전처리</strong>(IP·숫자·경로를 정규식으로 미리 <code class="inline">&lt;IP&gt;</code> 등으로 치환), ② <strong>스냅샷 영속화</strong>(Kafka/Redis/파일에 상태 저장 → 재시작해도 학습한 템플릿 유지), ③ 템플릿 변경 콜백, 캐시 크기 제한(LRU), 유사도 파라미터 튜닝 등 운영 기능입니다. 실무에서는 사실상 Drain3만 사용합니다.</p>
+  </div>
+
+  <h3>3.3 인터랙티브 데모: 파서가 되어 보기</h3>
+  <p>아래 데모는 Drain의 병합 로직을 단순화해 브라우저에서 재현한 것입니다. 로그를 한 줄씩 흘려보내며 클러스터(템플릿)가 만들어지고, 파라미터 자리가 <code class="inline">&lt;*&gt;</code>로 접히는 과정을 지켜보세요.</p>
+  <div class="demo">
+    <div class="demo-head"><span class="demo-badge b-drain">INTERACTIVE</span><span class="demo-title">미니 Drain 시뮬레이터</span></div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <button class="btn primary" id="d3Step">다음 로그 1건 처리</button>
+        <button class="btn" id="d3Auto">자동 재생</button>
+        <button class="btn ghost" id="d3Reset">초기화</button>
+      </div>
+      <div class="d3-log-feed" id="d3Feed">▶ [다음 로그 1건 처리]를 눌러 스트림을 시작하세요.</div>
+      <div class="d3-clusters" id="d3Clusters"></div>
+      <div class="d3-stats"><span>처리한 로그: <b id="d3Cnt">0</b></span><span>템플릿 수: <b id="d3Tmpl">0</b></span><span>압축률: <b id="d3Ratio">–</b></span></div>
+      <div class="demo-note">단순화한 규칙: ① 토큰 수가 같고 첫 토큰이 같은 클러스터를 후보로 조회 → ② 위치별 토큰 일치율 ≥ 0.5면 병합(불일치 위치는 &lt;*&gt;로 갱신) → ③ 아니면 새 템플릿 생성. 실제 Drain3는 여기에 파스 트리 탐색·마스킹·파라미터 추출이 더해집니다.</div>
+    </div>
+  </div>
+
+  <h3>3.4 사용법: 설치부터 운영 설정까지</h3>
+  <div class="codebox">
+    <div class="code-tabs">
+      <button class="code-tab active">① 설치 &amp; 30초 시작</button>
+      <button class="code-tab">② 마스킹 설정 (drain3.ini)</button>
+      <button class="code-tab">③ 상태 영속화 (Redis/Kafka)</button>
+      <button class="code-tab">④ 파라미터 추출 &amp; 피처화</button>
+    </div>
+    <div class="code-pane active"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># pip install drain3</span>
+<span class="c-kw">from</span> drain3 <span class="c-kw">import</span> TemplateMiner
+<span class="c-kw">from</span> drain3.template_miner_config <span class="c-kw">import</span> TemplateMinerConfig
+
+config = <span class="c-cls">TemplateMinerConfig</span>()
+config.load(<span class="c-str">"drain3.ini"</span>)          <span class="c-com"># 설정 파일(다음 탭 참고)</span>
+miner = <span class="c-cls">TemplateMiner</span>(config=config)
+
+logs = [
+    <span class="c-str">"connected to 10.0.0.1"</span>,
+    <span class="c-str">"connected to 10.0.0.2"</span>,
+    <span class="c-str">"Hex number 0xDEADBEAF"</span>,
+    <span class="c-str">"user davidoh logged in"</span>,
+    <span class="c-str">"user eranra logged in"</span>,
+]
+<span class="c-kw">for</span> line <span class="c-kw">in</span> logs:
+    result = miner.<span class="c-fn">add_log_message</span>(line)   <span class="c-com"># 핵심 API — 한 줄 학습+매칭</span>
+    <span class="c-fn">print</span>(result[<span class="c-str">"change_type"</span>],           <span class="c-com"># cluster_created / cluster_template_changed / none</span>
+          result[<span class="c-str">"cluster_id"</span>],
+          result[<span class="c-str">"template_mined"</span>])
+
+<span class="c-com"># 출력 예:</span>
+<span class="c-com"># cluster_created           1  connected to &lt;:IP:&gt;</span>
+<span class="c-com"># none                      1  connected to &lt;:IP:&gt;</span>
+<span class="c-com"># cluster_created           2  Hex number &lt;:HEX:&gt;</span>
+<span class="c-com"># cluster_created           3  user davidoh logged in</span>
+<span class="c-com"># cluster_template_changed  3  user &lt;*&gt; logged in</span></pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">ini</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># drain3.ini — 마스킹은 "파서에게 미리 주는 힌트"입니다.</span>
+<span class="c-com"># 가변값을 정규식으로 먼저 치환하면 템플릿 폭발(같은 패턴이 여러 템플릿으로 갈라짐)을 막습니다.</span>
+[MASKING]
+masking = [
+    {"regex_pattern": "((?&lt;=[^A-Za-z0-9])|^)(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})((?=[^A-Za-z0-9])|$)", "mask_with": "IP"},
+    {"regex_pattern": "((?&lt;=[^A-Za-z0-9])|^)(0[xX][0-9a-fA-F]+)((?=[^A-Za-z0-9])|$)", "mask_with": "HEX"},
+    {"regex_pattern": "((?&lt;=[^A-Za-z0-9])|^)([\\-\\+]?\\d+)((?=[^A-Za-z0-9])|$)", "mask_with": "NUM"},
+    {"regex_pattern": "(?&lt;=executed cmd )(\".+?\")", "mask_with": "CMD"}
+  ]
+
+[DRAIN]
+sim_th = 0.4          <span class="c-com"># 유사도 임계값. 낮추면 템플릿 수 감소(과병합 위험), 높이면 증가(파편화 위험)</span>
+depth = 4             <span class="c-com"># 파스 트리 깊이. 로그 앞부분 토큰이 안정적이면 늘려도 됨</span>
+max_children = 100    <span class="c-com"># 노드당 자식 수 제한 → 분기 폭발 방지</span>
+max_clusters = 4096   <span class="c-com"># LRU 캐시 상한. 메모리 보호용. 운영에선 반드시 설정</span>
+extra_delimiters = ["_"]
+
+[SNAPSHOT]
+snapshot_interval_minutes = 10
+compress_state = True</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># 파서는 "상태(지금까지 배운 템플릿)"를 가진 스트리밍 컴포넌트입니다.</span>
+<span class="c-com"># Pod가 재시작될 때 상태를 잃지 않도록 반드시 영속화를 붙입니다.</span>
+
+<span class="c-com"># (a) 파일 — 개발/단일 노드용</span>
+<span class="c-kw">from</span> drain3.file_persistence <span class="c-kw">import</span> FilePersistence
+miner = <span class="c-cls">TemplateMiner</span>(<span class="c-cls">FilePersistence</span>(<span class="c-str">"drain3_state.bin"</span>), config=config)
+
+<span class="c-com"># (b) Redis — K8s에서 다중 replica가 스냅샷 공유</span>
+<span class="c-kw">from</span> drain3.redis_persistence <span class="c-kw">import</span> RedisPersistence
+persistence = <span class="c-cls">RedisPersistence</span>(
+    redis_host=<span class="c-str">"redis.aiops.svc"</span>, redis_port=<span class="c-num">6379</span>,
+    redis_db=<span class="c-num">0</span>, redis_pass=<span class="c-str">""</span>, is_ssl=<span class="c-kw">False</span>,
+    redis_key=<span class="c-str">"drain3:prod:state"</span>)
+miner = <span class="c-cls">TemplateMiner</span>(persistence, config=config)
+
+<span class="c-com"># (c) Kafka — 상태 변경 이력을 토픽으로 남기고 싶을 때</span>
+<span class="c-kw">from</span> drain3.kafka_persistence <span class="c-kw">import</span> KafkaPersistence
+persistence = <span class="c-cls">KafkaPersistence</span>(<span class="c-str">"drain3-state"</span>, bootstrap_servers=<span class="c-str">"kafka:9092"</span>)
+
+<span class="c-com"># 운영 팁: 학습이 안정화된 후에는 추론 전용 모드로 조회만 할 수도 있습니다.</span>
+cluster = miner.<span class="c-fn">match</span>(<span class="c-str">"connected to 10.0.9.9"</span>)   <span class="c-com"># 상태를 바꾸지 않는 read-only 매칭</span>
+<span class="c-kw">if</span> cluster <span class="c-kw">is</span> <span class="c-kw">None</span>:
+    <span class="c-fn">print</span>(<span class="c-str">"미지의 패턴! → 그 자체로 이상 신호"</span>)</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># 템플릿에서 파라미터를 뽑아내면 "구조화 로그"가 완성됩니다.</span>
+result = miner.<span class="c-fn">add_log_message</span>(<span class="c-str">"Connection from 10.0.3.17 closed, session a9f2 lasted 3021 ms"</span>)
+template = result[<span class="c-str">"template_mined"</span>]
+params = miner.<span class="c-fn">extract_parameters</span>(template, <span class="c-str">"Connection from 10.0.3.17 closed, session a9f2 lasted 3021 ms"</span>)
+<span class="c-com"># [ExtractedParameter(value='10.0.3.17', mask_name='IP'), ..., ExtractedParameter(value='3021', mask_name='NUM')]</span>
+
+<span class="c-com"># ★ 다음 단계(iForest)를 위한 피처화: "1분 윈도우 × 템플릿별 발생 횟수" 벡터</span>
+<span class="c-kw">import</span> pandas <span class="c-kw">as</span> pd
+rows = []   <span class="c-com"># (timestamp, cluster_id) 스트림을 모았다고 가정</span>
+df = pd.<span class="c-fn">DataFrame</span>(rows, columns=[<span class="c-str">"ts"</span>, <span class="c-str">"cluster_id"</span>])
+feat = (df.<span class="c-fn">set_index</span>(<span class="c-str">"ts"</span>)
+          .<span class="c-fn">groupby</span>([pd.<span class="c-cls">Grouper</span>(freq=<span class="c-str">"1min"</span>), <span class="c-str">"cluster_id"</span>])
+          .<span class="c-fn">size</span>()
+          .<span class="c-fn">unstack</span>(fill_value=<span class="c-num">0</span>))   <span class="c-com"># 행=시간창, 열=템플릿ID, 값=건수</span>
+<span class="c-com"># 이 행렬이 4장 Isolation Forest의 입력 X가 됩니다.</span></pre></div>
+  </div>
+
+  <div class="callout warn"><span class="co-t">현장에서 자주 겪는 함정</span>
+    <p><strong>① 템플릿 폭발</strong> — 마스킹 없이 돌리면 UUID·타임스탬프·경로가 전부 상수 취급되어 템플릿이 수만 개로 갈라집니다. 마스킹 정규식 설계가 Drain3 튜닝의 80%입니다. <strong>② 멀티라인 로그</strong> — Java 스택트레이스는 줄 단위로 파싱하면 안 됩니다. 수집기(Fluent Bit 등)에서 멀티라인 병합 후 첫 줄만 파싱하는 것이 정석입니다. <strong>③ sim_th 과신</strong> — 임계값을 낮춰 "ERROR disk full"과 "ERROR disk healthy"가 병합되면 정반대 의미가 한 템플릿이 됩니다. 핵심 키워드(레벨, 상태어)는 마스킹하지 말고 상수로 남기세요.</p>
+  </div>
+
+  <h3>3.5 유사 모델 비교: 왜 하필 Drain인가</h3>
+  <p>로그 파싱 알고리즘은 십수 종이 벤치마크(LogHub/LogPai)에서 경쟁해 왔습니다. 초보자가 알아둘 대표 주자들만 추리면 다음과 같습니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>파서</th><th>접근 방식</th><th>온라인 처리</th><th>속도</th><th>정확도 경향</th><th>실무 한 줄 평</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:var(--drain)">Drain / Drain3</strong></td><td>고정 깊이 파스 트리</td><td><span class="pill g">스트리밍</span></td><td><span class="pill g">매우 빠름</span></td><td>벤치마크 전반 상위권, 안정적</td><td>속도·정확도·운영성의 균형이 가장 좋아 사실상 업계 기본값</td></tr>
+      <tr><td><strong>Spell</strong></td><td>LCS(최장 공통 부분수열)</td><td><span class="pill g">스트리밍</span></td><td><span class="pill n">보통</span></td><td>양호하나 긴 로그에서 저하</td><td>LCS 계산 비용이 로그 길이에 민감. 대량 처리엔 부담</td></tr>
+      <tr><td><strong>IPLoM</strong></td><td>반복 분할(길이→위치→매핑)</td><td><span class="pill b">배치</span></td><td><span class="pill g">빠름</span></td><td>데이터셋 따라 편차 큼</td><td>전체 데이터를 먼저 봐야 해서 스트리밍 부적합</td></tr>
+      <tr><td><strong>LenMa</strong></td><td>토큰 길이 벡터 유사도</td><td><span class="pill g">스트리밍</span></td><td><span class="pill n">보통</span></td><td>중위권</td><td>아이디어는 가볍지만 정확도가 아쉬움</td></tr>
+      <tr><td><strong>LogMine</strong></td><td>계층적 클러스터링</td><td><span class="pill b">배치</span></td><td><span class="pill n">보통</span></td><td>중상위권</td><td>맵리듀스 친화적. 대규모 오프라인 분석용</td></tr>
+      <tr><td><strong>정규식/Grok 수작업</strong></td><td>사람이 패턴 작성</td><td><span class="pill g">스트리밍</span></td><td><span class="pill g">매우 빠름</span></td><td>커버한 패턴은 100%</td><td>미지 패턴에 무력, 유지보수 비용 폭발. Drain3의 마스킹 단계로만 활용 권장</td></tr>
+      <tr><td><strong>LLM 기반 파서 (LILAC, LogPPT 등)</strong></td><td>LLM few-shot / 미세튜닝</td><td><span class="pill b">준실시간</span></td><td><span class="pill b">느림·고비용</span></td><td>최고 수준 정확도</td><td>연구 최전선. 전수 파싱엔 과하고, Drain3가 만든 신규 템플릿의 "라벨링 보조"로 쓰는 하이브리드가 실용적</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cmp-bars" aria-label="파서 처리 속도 비교(상대치)">
+    <div class="cmp-row"><div class="cl">Drain3</div><div class="cbar-track"><div class="cbar" style="width:96%;background:var(--drain)">스트리밍 대량 처리</div></div></div>
+    <div class="cmp-row"><div class="cl">정규식(커버 한정)</div><div class="cbar-track"><div class="cbar" style="width:90%;background:#3B9E94"> </div></div></div>
+    <div class="cmp-row"><div class="cl">IPLoM(배치)</div><div class="cbar-track"><div class="cbar" style="width:70%;background:#2E7A73"> </div></div></div>
+    <div class="cmp-row"><div class="cl">Spell</div><div class="cbar-track"><div class="cbar" style="width:45%;background:#265F5A"> </div></div></div>
+    <div class="cmp-row"><div class="cl">LLM 파서</div><div class="cbar-track"><div class="cbar" style="width:8%;background:#1E4A46"> </div></div></div>
+  </div>
+  <div class="callout tip"><span class="co-t">선택 기준 요약</span>
+    <p>실시간 스트림 + 미지 패턴 대응 + 낮은 운영 비용이라는 AIOps의 3대 요구를 동시에 만족하는 것은 사실상 Drain3뿐입니다. 정규식은 Drain3의 <strong>마스킹 전처리</strong>로 흡수하고, LLM 파서는 <strong>새 템플릿의 의미 라벨링(예: "이 템플릿은 DB 커넥션 풀 고갈")</strong> 같은 저빈도·고가치 작업에만 붙이는 구성이 비용 대비 최적입니다.</p>
+  </div>
+</section>
+
+<!-- ================= SECTION 4 : ISOLATION FOREST ================= -->
+<section class="lecture" id="sec4">
+  <div class="sec-eyebrow e-if">Section 04 — Stage 2 · Unsupervised Anomaly Detection</div>
+  <h2>Isolation Forest — "다른 놈은 빨리 고립된다"</h2>
+  <p class="sec-lead">라벨이 한 장도 없는 시스템 오픈 첫날부터 동작해야 하는 것이 이상 탐지입니다. Isolation Forest(iForest, Liu et al. 2008)는 "정상"을 모델링하는 대신 <strong>"이상한 점은 무작위 질문 몇 번이면 혼자 남는다"</strong>는 발상의 전환으로, 비지도 이상 탐지의 기본기가 되었습니다.</p>
+
+  <h3>4.1 직관: 스무고개로 사람 찾기</h3>
+  <p>운동장에 100명이 모여 있고, 99명은 가운데에 뭉쳐 있고 1명만 구석에 서 있다고 합시다. "동쪽 절반에 있나요?", "북쪽 절반에 있나요?"처럼 <strong>무작위로 공간을 반씩 잘라가며</strong> 특정 인물을 고립시키는 게임을 한다면 — 구석의 1명은 두세 번의 질문이면 혼자 남지만, 무리 한가운데의 사람은 수십 번을 잘라야 합니다. iForest는 이 직관을 그대로 알고리즘으로 만든 것입니다.</p>
+  <div class="grid2">
+    <div class="card"><h5><span class="dot d2"></span>기존 접근 (밀도/거리 기반)</h5><p>"정상 데이터의 분포를 먼저 배우고, 그 분포에서 먼 점을 이상으로 판정" — 정상을 모델링하는 비용이 크고, 고차원에서 거리 개념이 무너집니다(차원의 저주).</p></div>
+    <div class="card"><h5><span class="dot d2"></span>iForest의 역발상</h5><p>"정상은 몰라도 된다. 이상만 직접 노린다" — 이상치는 ① 수가 적고(few) ② 값이 다르다(different)는 성질 덕에 무작위 분할로 <strong>빨리 고립</strong>됩니다. 고립 속도 자체가 점수가 됩니다.</p></div>
+  </div>
+
+  <h3>4.2 인터랙티브 데모: 고립 속도를 눈으로 확인</h3>
+  <div class="demo">
+    <div class="demo-head"><span class="demo-badge b-if">INTERACTIVE</span><span class="demo-title">무작위 분할로 점 고립시키기 — 점을 직접 클릭해 보세요</span></div>
+    <div class="demo-body">
+      <div class="if-canvas-wrap">
+        <canvas id="ifCanvas" width="440" height="320" aria-label="이상 탐지 시각화 캔버스"></canvas>
+        <div class="if-panel">
+          <div class="if-metric"><div class="k">이번 시도 분할 횟수 (path length)</div><div class="v cool" id="ifDepth">–</div></div>
+          <div class="if-metric"><div class="k">평균 경로 길이 (20회 트리 평균)</div><div class="v warm" id="ifAvg">–</div></div>
+          <div class="if-metric"><div class="k">이상 점수 s(x) ≈ 2<sup>−E[h(x)]/c(n)</sup></div><div class="v warm" id="ifScore">–</div></div>
+          <div class="demo-controls" style="margin:8px 0 0">
+            <button class="btn primary" id="ifOutlier">이상치 자동 선택</button>
+            <button class="btn" id="ifNormal">정상점 자동 선택</button>
+            <button class="btn ghost" id="ifRegen">데이터 재생성</button>
+          </div>
+        </div>
+      </div>
+      <div class="demo-note">주황 선은 무작위 축·무작위 위치의 분할입니다. 선택한 점(테두리 강조)이 혼자 남을 때까지의 분할 횟수가 경로 길이 h(x)입니다. 구석의 이상치는 평균 2~5회, 군집 중심은 8회 이상 걸리는 것을 확인해 보세요. 점수 s(x)가 <strong>1에 가까울수록 이상</strong>, 0.5 근처면 평범입니다.</div>
+    </div>
+  </div>
+
+  <h3>4.3 원리를 조금 더 정확히</h3>
+  <p>학습은 놀랄 만큼 단순합니다. 데이터에서 <strong>소량(기본 256개)을 서브샘플링</strong>해, 무작위 피처·무작위 분할값으로 트리를 만들고(점이 전부 고립되거나 최대 깊이 도달까지), 이를 100그루(기본) 반복해 숲을 만듭니다. 예측 시에는 각 트리에서 해당 점이 도달한 리프까지의 <strong>경로 길이 h(x)</strong>를 평균 내고, 다음처럼 0~1 점수로 정규화합니다.</p>
+  <div class="cb-formula">s(x, n) = 2<sup>−E[h(x)] / c(n)</sup> &nbsp;&nbsp;·&nbsp;&nbsp; c(n) = 표본 n개 이진탐색트리의 평균 경로 길이(정규화 상수)<br>
+  <b>s → 1</b> : 경로가 매우 짧음 = 뚜렷한 이상 &nbsp;·&nbsp; <b>s ≈ 0.5</b> : 평균적 = 정상 &nbsp;·&nbsp; <b>s → 0</b> : 오히려 고립이 어려움 = 밀집 중심부</div>
+  <div class="grid3">
+    <div class="card"><h5><span class="dot d2"></span>왜 서브샘플 256개?</h5><p>표본이 작을수록 이상치끼리 뭉치는 masking, 정상이 이상을 가리는 swamping이 줄어듭니다. "적게 볼수록 이상이 더 잘 보인다"는 iForest의 반직관적 매력 포인트입니다. 덕분에 학습이 극도로 가볍습니다(선형 시간, 저메모리).</p></div>
+    <div class="card"><h5><span class="dot d2"></span>차원의 저주에 강함</h5><p>거리 계산이 아예 없습니다. 축 하나씩 자르기 때문에 피처 수십~수백 개에서도 동작합니다. 단, 무의미한 피처가 많으면 성능이 희석되므로 피처 선택은 여전히 중요합니다.</p></div>
+    <div class="card"><h5><span class="dot d2"></span>한계도 분명</h5><p>축에 평행한 분할만 하므로 대각선 경계·국소 밀도 차이에 약하고(→ Extended iForest, LOF 참고), 범주형 피처를 직접 못 먹으며, "왜 이상인가"의 설명력이 약합니다. 그래서 3단계 CatBoost가 필요해집니다.</p></div>
+  </div>
+
+  <h3>4.4 사용법: scikit-learn으로 10분 완성</h3>
+  <div class="codebox">
+    <div class="code-tabs">
+      <button class="code-tab active">① 기본 학습·추론</button>
+      <button class="code-tab">② 핵심 파라미터 튜닝</button>
+      <button class="code-tab">③ 로그 피처에 적용 (Drain3 연계)</button>
+      <button class="code-tab">④ 운영: 점수 보정·재학습</button>
+    </div>
+    <div class="code-pane active"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-kw">from</span> sklearn.ensemble <span class="c-kw">import</span> IsolationForest
+<span class="c-kw">import</span> numpy <span class="c-kw">as</span> np
+
+X = np.random.<span class="c-fn">randn</span>(<span class="c-num">10_000</span>, <span class="c-num">8</span>)          <span class="c-com"># 행=1분 윈도우, 열=피처</span>
+X = np.<span class="c-fn">vstack</span>([X, [[<span class="c-num">8</span>]*<span class="c-num">8</span>, [-<span class="c-num">7</span>]*<span class="c-num">8</span>]])   <span class="c-com"># 이상치 2개 주입</span>
+
+clf = <span class="c-cls">IsolationForest</span>(
+    n_estimators=<span class="c-num">200</span>,        <span class="c-com"># 트리 수. 100~300이면 충분히 수렴</span>
+    max_samples=<span class="c-num">256</span>,         <span class="c-com"># 트리당 서브샘플. 논문 기본값</span>
+    contamination=<span class="c-str">"auto"</span>,    <span class="c-com"># 이상 비율 가정(임계값 결정용)</span>
+    random_state=<span class="c-num">42</span>, n_jobs=-<span class="c-num">1</span>)
+clf.<span class="c-fn">fit</span>(X)                                 <span class="c-com"># 라벨 없음! 비지도</span>
+
+pred  = clf.<span class="c-fn">predict</span>(X)          <span class="c-com"># +1 정상 / -1 이상 (contamination 기반 이분법)</span>
+score = -clf.<span class="c-fn">score_samples</span>(X)   <span class="c-com"># ★실무는 이걸 쓰세요. 클수록 이상(연속 점수)</span>
+top = np.<span class="c-fn">argsort</span>(score)[-<span class="c-num">5</span>:]
+<span class="c-fn">print</span>(<span class="c-str">"가장 이상한 5개 윈도우:"</span>, top, score[top])</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># contamination — 가장 오해가 많은 파라미터</span>
+<span class="c-com"># "데이터 중 이상이 몇 %냐"는 사전 가정이며, 모델 학습이 아니라</span>
+<span class="c-com"># predict()의 컷라인(threshold)만 결정합니다.</span>
+<span class="c-com">#   · 모르면 "auto"로 두고 predict() 대신 score_samples()로 연속 점수 운용</span>
+<span class="c-com">#   · 알람 예산이 명확하면: contamination=0.001 → "상위 0.1%만 알람"</span>
+
+<span class="c-com"># max_features — 트리마다 피처 일부만 사용(기본 1.0=전부)</span>
+<span class="c-com">#   피처가 많고 잡음 피처가 섞였을 때 0.5~0.8로 낮추면 강건해짐</span>
+
+<span class="c-com"># 실전 임계값 잡기: 점수 분포의 분위수를 쓰는 편이 안전</span>
+<span class="c-kw">import</span> numpy <span class="c-kw">as</span> np
+scores_train = -clf.<span class="c-fn">score_samples</span>(X_train)
+threshold = np.<span class="c-fn">quantile</span>(scores_train, <span class="c-num">0.999</span>)   <span class="c-com"># 학습 분포 상위 0.1%</span>
+is_anomaly = (-clf.<span class="c-fn">score_samples</span>(X_new)) &gt; threshold
+
+<span class="c-com"># 트리 수에 따른 점수 안정성 확인(수렴 체크)</span>
+<span class="c-kw">for</span> n <span class="c-kw">in</span> [<span class="c-num">50</span>, <span class="c-num">100</span>, <span class="c-num">200</span>, <span class="c-num">400</span>]:
+    m = <span class="c-cls">IsolationForest</span>(n_estimators=n, random_state=<span class="c-num">0</span>).<span class="c-fn">fit</span>(X_train)
+    <span class="c-fn">print</span>(n, np.<span class="c-fn">std</span>(-m.<span class="c-fn">score_samples</span>(X_val)))</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># Drain3 출력 → iForest 입력: "시간창 × 피처" 행렬 만들기</span>
+<span class="c-com"># 피처 설계가 성능의 90%입니다. 로그 도메인의 대표 피처:</span>
+
+features_per_window = {
+    <span class="c-str">"total_count"</span>:        <span class="c-str">"윈도우 내 전체 로그 수"</span>,
+    <span class="c-str">"error_ratio"</span>:        <span class="c-str">"ERROR/FATAL 템플릿 비율"</span>,
+    <span class="c-str">"unique_templates"</span>:   <span class="c-str">"등장한 고유 템플릿 수"</span>,
+    <span class="c-str">"new_template_count"</span>: <span class="c-str">"★생애 첫 등장 템플릿 수 (초강력 신호)"</span>,
+    <span class="c-str">"template_entropy"</span>:   <span class="c-str">"템플릿 분포 엔트로피(패턴 다양성 급변 감지)"</span>,
+    <span class="c-str">"top_template_zscore"</span>:<span class="c-str">"주요 템플릿별 발생량의 이동 z-score"</span>,
+    <span class="c-str">"latency_p99"</span>:        <span class="c-str">"파라미터에서 추출한 지연시간 p99 (extract_parameters 활용)"</span>,
+}
+
+<span class="c-kw">import</span> pandas <span class="c-kw">as</span> pd, numpy <span class="c-kw">as</span> np
+<span class="c-kw">def</span> <span class="c-fn">build_features</span>(df: pd.DataFrame) -&gt; pd.DataFrame:
+    <span class="c-com"># df: columns = [ts, cluster_id, level, latency_ms]</span>
+    g = df.<span class="c-fn">set_index</span>(<span class="c-str">"ts"</span>).<span class="c-fn">groupby</span>(pd.<span class="c-cls">Grouper</span>(freq=<span class="c-str">"1min"</span>))
+    feat = pd.<span class="c-cls">DataFrame</span>({
+        <span class="c-str">"total_count"</span>:      g.<span class="c-fn">size</span>(),
+        <span class="c-str">"error_ratio"</span>:      g[<span class="c-str">"level"</span>].<span class="c-fn">apply</span>(<span class="c-kw">lambda</span> s: (s.<span class="c-fn">isin</span>([<span class="c-str">"ERROR"</span>,<span class="c-str">"FATAL"</span>])).<span class="c-fn">mean</span>()),
+        <span class="c-str">"unique_templates"</span>: g[<span class="c-str">"cluster_id"</span>].<span class="c-fn">nunique</span>(),
+        <span class="c-str">"latency_p99"</span>:      g[<span class="c-str">"latency_ms"</span>].<span class="c-fn">quantile</span>(<span class="c-num">0.99</span>),
+    }).<span class="c-fn">fillna</span>(<span class="c-num">0</span>)
+    <span class="c-com"># 계절성 제거: 시각 자체가 아니라 "평소 같은 시각 대비 편차"를 피처로</span>
+    feat[<span class="c-str">"count_z"</span>] = (feat[<span class="c-str">"total_count"</span>] - feat[<span class="c-str">"total_count"</span>].<span class="c-fn">rolling</span>(<span class="c-num">60</span>).<span class="c-fn">mean</span>()) \
+                      / (feat[<span class="c-str">"total_count"</span>].<span class="c-fn">rolling</span>(<span class="c-num">60</span>).<span class="c-fn">std</span>() + <span class="c-num">1e-9</span>)
+    <span class="c-kw">return</span> feat.<span class="c-fn">dropna</span>()</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># 운영 3원칙</span>
+<span class="c-com"># ① 재학습 주기: 배포·트래픽 패턴 변화로 "정상"이 이동(drift)합니다.</span>
+<span class="c-com">#    일/주 단위 롤링 윈도우(예: 최근 14일)로 재학습을 스케줄링하세요.</span>
+<span class="c-com"># ② 점수 보정: 재학습 때마다 점수 분포가 바뀌므로 절대값 임계 대신</span>
+<span class="c-com">#    분위수 임계(예: 상위 0.1%)를 재계산해 저장합니다.</span>
+<span class="c-com"># ③ 모델은 joblib 직렬화 + 버전 태깅 후 레지스트리(MLflow 등)에 등록.</span>
+
+<span class="c-kw">import</span> joblib, json, datetime <span class="c-kw">as</span> dt
+model_meta = {
+    <span class="c-str">"trained_at"</span>: dt.datetime.<span class="c-fn">utcnow</span>().<span class="c-fn">isoformat</span>(),
+    <span class="c-str">"train_window"</span>: <span class="c-str">"14d"</span>,
+    <span class="c-str">"threshold_q999"</span>: <span class="c-fn">float</span>(threshold),
+    <span class="c-str">"feature_columns"</span>: <span class="c-fn">list</span>(feat.columns),
+}
+joblib.<span class="c-fn">dump</span>(clf, <span class="c-str">"iforest_v2026.07.13.joblib"</span>)
+<span class="c-fn">open</span>(<span class="c-str">"iforest_meta.json"</span>, <span class="c-str">"w"</span>).<span class="c-fn">write</span>(json.<span class="c-fn">dumps</span>(model_meta))</pre></div>
+  </div>
+
+  <h3>4.5 유사 모델 비교: 비지도 이상 탐지의 지형도</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>모델</th><th>원리</th><th>학습/추론 비용</th><th>고차원</th><th>국소 밀도 차</th><th>실무 한 줄 평</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:var(--iforest)">Isolation Forest</strong></td><td>무작위 분할 고립 속도</td><td><span class="pill g">매우 낮음</span></td><td><span class="pill g">강함</span></td><td><span class="pill b">약함</span></td><td>기본값. 대량·고차원·라벨 없음이면 일단 이것</td></tr>
+      <tr><td><strong>LOF</strong> (Local Outlier Factor)</td><td>이웃 대비 국소 밀도 비율</td><td><span class="pill b">O(n²)급, 무거움</span></td><td><span class="pill b">약함</span></td><td><span class="pill g">강함</span></td><td>밀도가 지역마다 다른 데이터에 강점. 대량 스트림엔 부담</td></tr>
+      <tr><td><strong>One-Class SVM</strong></td><td>정상 영역 경계면 학습</td><td><span class="pill b">높음(커널)</span></td><td><span class="pill n">보통</span></td><td><span class="pill n">보통</span></td><td>스케일링에 민감, 튜닝 까다로움. 요즘은 우선순위 낮음</td></tr>
+      <tr><td><strong>Elliptic Envelope</strong></td><td>가우시안 가정 + 마할라노비스 거리</td><td><span class="pill g">낮음</span></td><td><span class="pill b">약함</span></td><td><span class="pill b">약함</span></td><td>데이터가 단봉 정규분포에 가까울 때만</td></tr>
+      <tr><td><strong>DBSCAN/HDBSCAN</strong></td><td>밀도 클러스터링의 잔여점=이상</td><td><span class="pill n">중간</span></td><td><span class="pill b">약함</span></td><td><span class="pill g">강함(HDBSCAN)</span></td><td>이상 탐지 전용은 아님. 탐색적 분석에 유용</td></tr>
+      <tr><td><strong>Autoencoder</strong></td><td>재구성 오차</td><td><span class="pill b">GPU 학습 필요</span></td><td><span class="pill g">강함</span></td><td><span class="pill n">보통</span></td><td>피처 간 복잡한 상관을 잡음. 데이터 많고 팀에 DL 역량 있을 때</td></tr>
+      <tr><td><strong>LSTM/Transformer 계열</strong> (DeepLog, LogBERT 등)</td><td>시퀀스 예측 실패=이상</td><td><span class="pill b">높음</span></td><td><span class="pill g">강함</span></td><td>–</td><td>템플릿 "순서" 이상까지 탐지. 2세대로 도입할 고급 옵션</td></tr>
+      <tr><td><strong>Extended iForest</strong></td><td>기울어진 초평면 분할</td><td><span class="pill g">낮음</span></td><td><span class="pill g">강함</span></td><td><span class="pill n">개선</span></td><td>iForest의 축-평행 편향(격자 아티팩트) 보완판</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout tip"><span class="co-t">선택 기준 요약</span>
+    <p>초기 구축: <strong>iForest 단독</strong>으로 충분합니다. 오탐 패턴이 "특정 구역에서 밀도가 다른" 형태라면 LOF를 앙상블(두 점수의 평균/최댓값)로 추가하고, 라벨이 쌓여 시퀀스 이상(순서 뒤바뀜, 누락)이 중요해지면 DeepLog·LogBERT류를 검토하세요. 단, 어느 경우든 <strong>비지도 탐지의 오탐을 0으로 만들 수는 없으며</strong>, 그 몫은 다음 단계인 CatBoost가 담당합니다.</p>
+  </div>
+</section>
+
+<!-- ================= SECTION 5 : CATBOOST ================= -->
+<section class="lecture" id="sec5">
+  <div class="sec-eyebrow e-cb">Section 05 — Stage 3 · Supervised Classification</div>
+  <h2>CatBoost — 운영자의 판단을 학습하는 심사관</h2>
+  <p class="sec-lead">iForest가 "평소와 다르다"고 올린 후보에는 배포 이벤트, 배치 작업, 트래픽 급증 같은 <strong>무해한 이상</strong>이 잔뜩 섞여 있습니다. CatBoost는 운영자가 매긴 "진짜 장애 / 무해 이벤트" 라벨을 학습해 이 마지막 오탐을 걸러내는 지도학습 분류기입니다. 이름 그대로 <strong>Cat</strong>egorical 피처 처리에 특화된 Gradient <strong>Boost</strong>ing 라이브러리(Yandex, 2017)입니다.</p>
+
+  <h3>5.1 배경 지식: 그래디언트 부스팅 3분 요약</h3>
+  <p>부스팅은 <strong>"약한 모델을 순서대로 쌓되, 각 모델이 이전까지의 오답(잔차)을 보정"</strong>하는 앙상블 기법입니다. 시험 채점에 비유하면: 1번 채점자가 대충 점수를 매기고 → 2번 채점자는 1번이 틀린 만큼만 교정하고 → 3번은 그 나머지를 교정하고… 를 수백 번 반복해 최종 점수는 모두의 교정치 합이 됩니다. 결정트리를 약한 모델로 쓰는 것이 GBDT(Gradient Boosted Decision Trees)이며, 정형 데이터(테이블 데이터)에서는 여전히 딥러닝보다 GBDT가 기본 선택지입니다. 3대 구현체가 XGBoost, LightGBM, CatBoost입니다.</p>
+
+  <h3>5.2 CatBoost만의 두 가지 발명</h3>
+  <h4>발명 ① Ordered Target Statistics — 범주형 피처의 안전한 수치화</h4>
+  <p>AIOps 데이터의 핵심 피처는 대부분 범주형입니다: <code class="inline">호스트명</code>, <code class="inline">서비스명</code>, <code class="inline">에러코드</code>, <code class="inline">템플릿ID</code>… 원-핫 인코딩은 카디널리티가 수천이면 폭발하고, 흔히 쓰는 <strong>타깃 인코딩</strong>(카테고리별 타깃 평균값으로 치환)은 치명적 함정이 있습니다. 자기 자신의 정답을 인코딩에 쓰는 <strong>타깃 누수(target leakage)</strong>가 생겨, 학습 점수는 좋은데 운영에선 무너지는 모델이 됩니다.</p>
+  <p>CatBoost의 해법은 시간의 화살을 도입하는 것입니다. 데이터를 무작위로 줄 세운 뒤, <strong>각 행의 인코딩 값은 "그 행보다 앞에 있는 행들"의 통계만으로</strong> 계산합니다. 미래(자기 자신 포함)를 훔쳐볼 수 없게 만든 것이죠. 아래 데모로 차이를 직접 확인해 보세요.</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="demo-badge b-cb">INTERACTIVE</span><span class="demo-title">타깃 인코딩 누수 실험 — Ordered TS는 무엇이 다른가</span></div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <button class="btn primary" id="cbStep">다음 행 인코딩</button>
+        <button class="btn" id="cbAll">전체 계산</button>
+        <button class="btn ghost" id="cbToggle">방식 전환: <span id="cbMode">Ordered TS</span></button>
+        <button class="btn ghost" id="cbReset">초기화</button>
+      </div>
+      <div style="overflow-x:auto"><table class="cb-table" id="cbTable">
+        <thead><tr><th>#</th><th>host_type (범주형)</th><th>y (장애=1)</th><th>인코딩 값</th><th>계산 근거</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="cb-formula" id="cbFormula">Ordered TS: enc(i) = ( Σ<sub>j&lt;i, 같은 카테고리</sub> y<sub>j</sub> + a·P ) / ( count<sub>j&lt;i</sub> + a ) &nbsp;&nbsp;— a=1(prior 강도), P=전체 평균(prior)</div>
+      <div class="demo-note">방식을 "일반 타깃 인코딩(누수)"으로 전환해 보세요. 각 행의 인코딩에 <strong>자기 자신의 y가 포함</strong>되어 값이 정답을 노골적으로 흉내 내는 것을 볼 수 있습니다(빨간 값). 표본이 적은 카테고리일수록 누수가 심해집니다. Ordered TS는 같은 데이터에서 미래 정보를 차단합니다.</div>
+    </div>
+  </div>
+
+  <h4>발명 ② Ordered Boosting + 대칭 트리(Oblivious Tree)</h4>
+  <div class="grid2">
+    <div class="card"><h5><span class="dot d3"></span>Ordered Boosting</h5><p>전통 부스팅은 잔차를 계산할 때도 같은 데이터를 재사용해 미세한 낙관 편향(prediction shift)이 누적됩니다. CatBoost는 여기에도 "앞 데이터로만 뒤 데이터의 잔차를 추정"하는 순서 원칙을 적용해, <strong>작은 데이터셋에서 특히 과적합에 강한</strong> 특성을 얻었습니다. 운영자 라벨이 수백~수천 건뿐인 AIOps 초기에 이 성질이 대단히 유용합니다.</p></div>
+    <div class="card"><h5><span class="dot d3"></span>대칭 트리</h5><p>트리의 같은 깊이에서는 모든 노드가 <strong>동일한 분할 조건</strong>을 사용합니다. 트리 하나가 사실상 "질문 k개짜리 체크리스트"가 되어, 추론이 비트 연산 수준으로 단순해집니다(→ 추론 속도 매우 빠름, 결과 재현성·안정성 향상). 정규화 효과도 있어 기본값만으로도 잘 동작하는 이유 중 하나입니다.</p></div>
+  </div>
+
+  <h3>5.3 사용법: 알람 분류기 만들기</h3>
+  <div class="codebox">
+    <div class="code-tabs">
+      <button class="code-tab active">① 기본 학습</button>
+      <button class="code-tab">② 불균형 데이터 대응</button>
+      <button class="code-tab">③ 설명가능성 (SHAP)</button>
+      <button class="code-tab">④ 배포: 저장·ONNX·추론</button>
+    </div>
+    <div class="code-pane active"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># pip install catboost</span>
+<span class="c-kw">from</span> catboost <span class="c-kw">import</span> CatBoostClassifier, Pool
+<span class="c-kw">import</span> pandas <span class="c-kw">as</span> pd
+
+<span class="c-com"># iForest가 올린 "이상 후보"가 학습 데이터. y는 운영자 판정(1=진짜 장애)</span>
+df = pd.<span class="c-fn">read_parquet</span>(<span class="c-str">"anomaly_candidates_labeled.parquet"</span>)
+cat_features = [<span class="c-str">"host"</span>, <span class="c-str">"service"</span>, <span class="c-str">"top_template_id"</span>, <span class="c-str">"error_code"</span>, <span class="c-str">"deploy_flag"</span>]
+num_features = [<span class="c-str">"iforest_score"</span>, <span class="c-str">"count_z"</span>, <span class="c-str">"error_ratio"</span>, <span class="c-str">"new_template_count"</span>, <span class="c-str">"latency_p99"</span>]
+
+X, y = df[cat_features + num_features], df[<span class="c-str">"is_real_incident"</span>]
+train_pool = <span class="c-cls">Pool</span>(X, y, cat_features=cat_features)   <span class="c-com"># ★인코딩 전처리 불필요. 문자열 그대로!</span>
+
+model = <span class="c-cls">CatBoostClassifier</span>(
+    iterations=<span class="c-num">1000</span>,
+    learning_rate=<span class="c-num">0.05</span>,
+    depth=<span class="c-num">6</span>,
+    loss_function=<span class="c-str">"Logloss"</span>,
+    eval_metric=<span class="c-str">"PRAUC"</span>,          <span class="c-com"># 불균형에선 정확도 대신 PR-AUC</span>
+    early_stopping_rounds=<span class="c-num">50</span>,
+    verbose=<span class="c-num">100</span>)
+model.<span class="c-fn">fit</span>(train_pool, eval_set=<span class="c-cls">Pool</span>(X_val, y_val, cat_features=cat_features))
+
+proba = model.<span class="c-fn">predict_proba</span>(X_val)[:, <span class="c-num">1</span>]   <span class="c-com"># "진짜 장애일 확률" → 알람 우선순위로 사용</span></pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># 현실: 후보 1000건 중 진짜 장애는 20건. 1:50 불균형.</span>
+<span class="c-com"># 대응 ① 클래스 가중치 — 소수 클래스 오류에 벌점을 크게</span>
+model = <span class="c-cls">CatBoostClassifier</span>(
+    auto_class_weights=<span class="c-str">"Balanced"</span>,   <span class="c-com"># 또는 class_weights=[1, 50] 수동 지정</span>
+    eval_metric=<span class="c-str">"PRAUC"</span>, iterations=<span class="c-num">1000</span>)
+
+<span class="c-com"># 대응 ② 임계값 튜닝 — "확률 0.5 컷"은 불균형에서 무의미</span>
+<span class="c-kw">from</span> sklearn.metrics <span class="c-kw">import</span> precision_recall_curve
+prec, rec, thr = <span class="c-fn">precision_recall_curve</span>(y_val, proba)
+<span class="c-com"># 운영 목표를 먼저 정하세요. 예: "진짜 장애의 95%는 놓치지 않는다(recall≥0.95)"</span>
+<span class="c-kw">import</span> numpy <span class="c-kw">as</span> np
+idx = np.<span class="c-fn">argmax</span>(rec[:-<span class="c-num">1</span>] &gt;= <span class="c-num">0.95</span>) <span class="c-com"># 그 조건에서 precision 최대 지점 선택</span>
+best_thr = thr[idx]
+
+<span class="c-com"># 대응 ③ 평가 지표의 함정</span>
+<span class="c-com"># 정확도 98% = "전부 무해라고 답해도" 달성 가능. 반드시 PR-AUC,</span>
+<span class="c-com"># recall@fixed-precision, 혼동행렬로 판단하세요.</span></pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># "왜 이 알람을 진짜로 판단했나"는 운영자 신뢰의 핵심입니다.</span>
+<span class="c-com"># CatBoost는 SHAP 값을 네이티브로 계산합니다(별도 라이브러리 없이도).</span>
+shap_values = model.<span class="c-fn">get_feature_importance</span>(train_pool, type=<span class="c-str">"ShapValues"</span>)
+<span class="c-com"># shape = (n_samples, n_features + 1). 마지막 열은 기댓값(base value)</span>
+
+<span class="c-kw">def</span> <span class="c-fn">explain_alert</span>(i: <span class="c-cls">int</span>, k: <span class="c-cls">int</span> = <span class="c-num">3</span>) -&gt; <span class="c-cls">str</span>:
+    contrib = shap_values[i, :-<span class="c-num">1</span>]
+    top = np.<span class="c-fn">argsort</span>(np.<span class="c-fn">abs</span>(contrib))[::-<span class="c-num">1</span>][:k]
+    <span class="c-kw">return</span> <span class="c-str">"; "</span>.<span class="c-fn">join</span>(<span class="c-str">f"{X.columns[j]}={X.iloc[i, j]} ({contrib[j]:+.2f})"</span> <span class="c-kw">for</span> j <span class="c-kw">in</span> top)
+
+<span class="c-com"># 알람 메시지 예:</span>
+<span class="c-com"># "장애 확률 0.93 | 근거: new_template_count=4 (+1.8);</span>
+<span class="c-com">#  error_code=DB_CONN_TIMEOUT (+1.2); deploy_flag=none (+0.6)"</span>
+<span class="c-com"># → 이 근거 문자열을 그대로 4단계 LLM의 컨텍스트로 넘기면</span>
+<span class="c-com">#    LLM이 원인 분석을 시작할 "실마리"가 됩니다.</span></pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># 저장/로드 — cbm(네이티브), ONNX, PMML 지원</span>
+model.<span class="c-fn">save_model</span>(<span class="c-str">"alert_clf_v3.cbm"</span>)
+model.<span class="c-fn">save_model</span>(<span class="c-str">"alert_clf_v3.onnx"</span>, format=<span class="c-str">"onnx"</span>)   <span class="c-com"># Triton 등에서 서빙 가능</span>
+
+<span class="c-kw">from</span> catboost <span class="c-kw">import</span> CatBoostClassifier
+clf = <span class="c-cls">CatBoostClassifier</span>()
+clf.<span class="c-fn">load_model</span>(<span class="c-str">"alert_clf_v3.cbm"</span>)
+
+<span class="c-com"># FastAPI 추론 엔드포인트 (7장 아키텍처에서 전체 코드)</span>
+<span class="c-kw">from</span> fastapi <span class="c-kw">import</span> FastAPI
+app = <span class="c-cls">FastAPI</span>()
+
+@app.<span class="c-fn">post</span>(<span class="c-str">"/v1/classify"</span>)
+<span class="c-kw">def</span> <span class="c-fn">classify</span>(candidate: <span class="c-cls">dict</span>):
+    x = [[candidate[c] <span class="c-kw">for</span> c <span class="c-kw">in</span> FEATURE_ORDER]]
+    p = <span class="c-fn">float</span>(clf.<span class="c-fn">predict_proba</span>(x)[<span class="c-num">0</span>, <span class="c-num">1</span>])
+    <span class="c-kw">return</span> {<span class="c-str">"incident_proba"</span>: p, <span class="c-str">"alert"</span>: p &gt; <span class="c-num">0.62</span>}   <span class="c-com"># 임계값은 메타에서 로드</span>
+
+<span class="c-com"># GPU 학습: task_type="GPU", devices="0" 만 추가하면 됩니다.</span>
+<span class="c-com"># 수십만 행 이하에서는 CPU로도 수 분 내 학습됩니다.</span></pre></div>
+  </div>
+
+  <h3>5.4 유사 모델 비교: GBDT 삼국지 + α</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>모델</th><th>트리 성장 방식</th><th>범주형 처리</th><th>과적합 내성</th><th>학습 속도</th><th>실무 한 줄 평</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:var(--catboost)">CatBoost</strong></td><td>대칭(oblivious), level-wise</td><td><span class="pill g">네이티브 (Ordered TS)</span></td><td><span class="pill g">강함 (Ordered Boosting)</span></td><td><span class="pill n">보통 (GPU 강력)</span></td><td>범주형 많고 라벨 적은 AIOps 알람 분류에 최적. 기본값이 우수해 튜닝 부담 최소</td></tr>
+      <tr><td><strong>XGBoost</strong></td><td>level-wise (+옵션)</td><td><span class="pill n">실험적 지원, 사실상 수동 인코딩</span></td><td><span class="pill n">보통 (정규화 옵션 풍부)</span></td><td><span class="pill n">보통</span></td><td>가장 오래된 표준. 생태계·문서 최강, 세밀한 제어 선호 팀에 적합</td></tr>
+      <tr><td><strong>LightGBM</strong></td><td>leaf-wise (최대 손실 감소 우선)</td><td><span class="pill n">네이티브 지원(분할 기반)</span></td><td><span class="pill b">주의 (leaf-wise는 과적합 경향)</span></td><td><span class="pill g">가장 빠름</span></td><td>수백만 행 이상 대규모 학습의 왕. 소규모 데이터에선 과적합 파라미터 관리 필요</td></tr>
+      <tr><td><strong>Random Forest</strong></td><td>독립 트리 배깅</td><td><span class="pill b">수동 인코딩</span></td><td><span class="pill g">강함</span></td><td><span class="pill g">빠름(병렬)</span></td><td>튼튼한 베이스라인. 최고 성능보다는 비교 기준선으로</td></tr>
+      <tr><td><strong>Logistic Regression</strong></td><td>선형 모델</td><td><span class="pill b">수동 인코딩</span></td><td><span class="pill g">강함</span></td><td><span class="pill g">매우 빠름</span></td><td>해석 최강·최경량. 피처가 잘 설계됐다면 의외로 선전. 1차 베이스라인 필수</td></tr>
+      <tr><td><strong>TabNet 등 딥러닝</strong></td><td>신경망</td><td><span class="pill n">임베딩</span></td><td><span class="pill b">데이터 많이 필요</span></td><td><span class="pill b">느림·GPU</span></td><td>정형 데이터에선 GBDT를 이기기 어렵다는 게 여전한 중론. 후순위</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout tip"><span class="co-t">선택 기준 요약</span>
+    <p>알람 분류 문제의 특성은 ① 고카디널리티 범주형 피처가 많고, ② 라벨이 적으며(수백~수천), ③ 오탐 억제(precision)와 놓침 방지(recall)의 균형이 중요하고, ④ 판단 근거 설명이 필요하다는 것. 네 조건 모두에서 CatBoost가 유리합니다. 데이터가 수백만 행으로 커지고 전부 수치형이라면 LightGBM으로 갈아타는 것을 검토하세요. 어떤 경우든 <strong>Logistic Regression 베이스라인을 먼저 만들어 "복잡한 모델이 정말 필요한가"를 검증</strong>하는 습관을 권합니다.</p>
+  </div>
+</section>
+
+<!-- ================= SECTION 6 : 연계 ================= -->
+<section class="lecture" id="sec6">
+  <div class="sec-eyebrow">Section 06 — Integration Design</div>
+  <h2>세 모델의 연계: 파이프라인으로 엮기</h2>
+  <p class="sec-lead">모델 세 개를 아는 것과 하나의 시스템으로 엮는 것은 다른 문제입니다. 이 장에서는 데이터 계약(무엇을 주고받는가), 학습 루프(라벨은 어디서 오는가), 성장 시나리오(시스템이 어떻게 똑똑해지는가)를 설계합니다.</p>
+
+  <h3>6.1 데이터 계약: 단계 간 인터페이스 정의</h3>
+  <p>각 단계의 출력 스키마를 먼저 고정하면, 단계별 팀/컴포넌트가 독립적으로 개발·교체될 수 있습니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>구간</th><th>전달 데이터 (Kafka 토픽 예시)</th><th>스키마 핵심 필드</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td>수집 → <strong style="color:var(--drain)">Drain3</strong></td><td><code class="inline">logs.raw</code></td><td>ts, source(host/pod), level, message</td><td>Fluent Bit/Vector에서 멀티라인 병합 완료 상태</td></tr>
+      <tr><td><strong style="color:var(--drain)">Drain3</strong> → 피처 빌더</td><td><code class="inline">logs.structured</code></td><td>ts, source, <strong>cluster_id</strong>, template, params[], is_new_template</td><td>원본 message는 저비용 스토리지(ClickHouse 등)로 별도 보관</td></tr>
+      <tr><td>피처 빌더 → <strong style="color:var(--iforest)">iForest</strong></td><td><code class="inline">features.window</code></td><td>window_ts, source, feature_vector(고정 순서)</td><td>1분 텀블링 윈도우. 피처 순서·버전을 스키마 레지스트리로 관리</td></tr>
+      <tr><td><strong style="color:var(--iforest)">iForest</strong> → <strong style="color:var(--catboost)">CatBoost</strong></td><td><code class="inline">anomaly.candidates</code></td><td>window_ts, source, <strong>iforest_score</strong>, feature_vector, context(주요 템플릿 top-k)</td><td>임계 초과분만. 전체의 0.1~1% 수준으로 설계</td></tr>
+      <tr><td><strong style="color:var(--catboost)">CatBoost</strong> → 알람/LLM</td><td><code class="inline">alerts.confirmed</code></td><td>incident_proba, <strong>shap_top3</strong>, 후보 원본 참조키</td><td>proba로 우선순위 정렬. SHAP 근거는 LLM 프롬프트에 포함</td></tr>
+      <tr><td>운영자 → 라벨 저장소</td><td><code class="inline">feedback.labels</code></td><td>candidate_id, verdict(진짜/무해/보류), operator, ts</td><td>★시스템 성장의 연료. UI에서 원클릭 판정 가능하게</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout info"><span class="co-t">설계 원칙: 각 단계는 "줄이기만" 한다</span>
+    <p>파이프라인의 어떤 단계도 데이터를 늘리거나 변형해 되돌리지 않습니다. Drain3는 <em>표현을 압축</em>하고, iForest는 <em>양을 압축</em>하고, CatBoost는 <em>의미를 압축</em>합니다. 단방향 축소 구조라서 배압(backpressure) 관리가 단순하고, 각 단계 사이에 Kafka를 두면 단계별 장애가 전체로 전파되지 않습니다.</p>
+  </div>
+
+  <h3>6.2 학습 루프: 시스템은 어떻게 똑똑해지는가</h3>
+  <p>이 아키텍처의 백미는 <strong>비지도에서 지도학습으로의 자연스러운 이행</strong>입니다. 시간 축으로 보면 3막 구조입니다.</p>
+  <div class="grid3">
+    <div class="card"><h5><span class="dot d1"></span>1막 · Day 0~14 — 콜드 스타트</h5><p>라벨 0장. Drain3가 템플릿을 학습하고, iForest가 "평소"의 분포를 배웁니다. 알람은 iForest 점수 그대로 발송(오탐 감수). 운영자는 알람마다 진짜/무해 원클릭 판정 → 라벨이 쌓이기 시작합니다.</p></div>
+    <div class="card"><h5><span class="dot d2"></span>2막 · Day 14~60 — 하이브리드</h5><p>라벨 수백 건 확보. CatBoost 1차 학습 후 <strong>섀도 모드</strong>(판정만 기록, 알람 차단은 안 함)로 검증합니다. PR-AUC가 목표치를 넘으면 실제 필터로 승격. iForest 점수는 CatBoost의 입력 피처로 살아남습니다.</p></div>
+    <div class="card"><h5><span class="dot d3"></span>3막 · Day 60+ — 성숙기</h5><p>주기 재학습 자동화(Airflow). 신규 오탐 유형이 나오면 라벨만 추가하면 다음 학습에서 걸러집니다. LLM은 확정 알람의 원인 분석·조치안 생성에 집중하고, 그 결과 요약이 다시 라벨 품질을 높입니다.</p></div>
+  </div>
+
+  <div class="callout warn"><span class="co-t">주의: 필터 파이프라인의 3대 리스크</span>
+    <p><strong>① 침묵 장애(silent failure)</strong> — CatBoost가 진짜 장애를 "무해"로 오판하면 알람 자체가 사라집니다. 반드시 <em>안전밸브</em>를 두세요: iForest 점수 극단값(상위 0.01%)은 CatBoost 판정과 무관하게 무조건 통보, 그리고 "무해 판정" 건도 대시보드에는 남겨 감사 가능하게. <strong>② 라벨 편향</strong> — 운영자가 바쁠 때 대충 판정한 라벨이 모델을 오염시킵니다. "보류" 옵션을 제공하고 보류는 학습에서 제외하세요. <strong>③ 피드백 루프 고착</strong> — 필터가 특정 유형을 계속 걸러내면 그 유형의 라벨이 더는 쌓이지 않습니다. 걸러진 건의 일부(예: 5%)를 무작위 샘플링해 운영자에게 노출하는 <em>탐사(exploration) 트래픽</em>을 유지하세요.</p>
+  </div>
+
+  <h3>6.3 피처 흐름 한눈에 보기</h3>
+  <p>세 모델이 서로에게 무엇을 물려주는지가 연계 설계의 핵심입니다. 특히 <strong>iForest의 출력이 CatBoost의 입력 피처가 된다</strong>는 점, 그리고 <strong>Drain3의 산출물이 두 모델 모두의 피처 원천</strong>이라는 점을 기억하세요.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>피처</th><th>원천</th><th>iForest 입력</th><th>CatBoost 입력</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code class="inline">count_z</code>, <code class="inline">error_ratio</code>, <code class="inline">template_entropy</code></td><td style="color:var(--drain)">Drain3 집계</td><td>✓</td><td>✓</td><td>윈도우 통계. 계절성 보정(z-score) 필수</td></tr>
+      <tr><td><code class="inline">new_template_count</code></td><td style="color:var(--drain)">Drain3</td><td>✓</td><td>✓</td><td>미등록 패턴 첫 등장 수. 단독으로도 강력</td></tr>
+      <tr><td><code class="inline">iforest_score</code></td><td style="color:var(--iforest)">iForest</td><td>–</td><td>✓ (수치형)</td><td>"통계적 이상함의 정도"를 요약한 사전 점수</td></tr>
+      <tr><td><code class="inline">host</code>, <code class="inline">service</code>, <code class="inline">top_template_id</code>, <code class="inline">error_code</code></td><td style="color:var(--drain)">Drain3 / 메타</td><td>✗ (범주형 불가)</td><td>✓ (네이티브)</td><td>iForest가 못 먹는 범주형을 CatBoost가 회수</td></tr>
+      <tr><td><code class="inline">deploy_flag</code>, <code class="inline">batch_window</code>, <code class="inline">oncall_change</code></td><td>외부 컨텍스트(CI/CD, CMDB)</td><td>선택</td><td>✓</td><td>"배포 직후의 이상은 대개 무해" 같은 운영 지식을 피처화</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================= SECTION 7 : 아키텍처 ================= -->
+<section class="lecture" id="sec7">
+  <div class="sec-eyebrow">Section 07 — Deployment Architecture</div>
+  <h2>구현 아키텍처: Kubernetes 위에 올리기</h2>
+  <p class="sec-lead">마지막으로 이 파이프라인을 프라이빗 클라우드 Kubernetes에 배치하는 구체적인 그림입니다. 폐쇄망(air-gap) 환경까지 고려한 구성입니다.</p>
+
+  <h3>7.1 전체 아키텍처</h3>
+  <div class="arch" aria-label="AIOps 필터링 파이프라인 아키텍처 다이어그램">
+  <svg viewBox="0 0 860 470" xmlns="http://www.w3.org/2000/svg" role="img">
+    <defs>
+      <marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="#5A6178" stroke-width="1.4"/></marker>
+    </defs>
+    <!-- lanes -->
+    <text x="16" y="26" fill="#5A6178" font-size="10" letter-spacing="2">INGEST</text>
+    <text x="16" y="140" fill="#5A6178" font-size="10" letter-spacing="2">STREAM PROCESSING (K8s DEPLOYMENTS)</text>
+    <text x="16" y="306" fill="#5A6178" font-size="10" letter-spacing="2">SERVING &amp; ACTION</text>
+    <text x="16" y="412" fill="#5A6178" font-size="10" letter-spacing="2">TRAINING LOOP (AIRFLOW · 배치)</text>
+    <line x1="16" y1="118" x2="844" y2="118" stroke="#1A2136"/>
+    <line x1="16" y1="284" x2="844" y2="284" stroke="#1A2136"/>
+    <line x1="16" y1="390" x2="844" y2="390" stroke="#1A2136"/>
+    <!-- ingest -->
+    <rect x="20" y="38" width="140" height="52" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="90" y="60" fill="#DEE4F2" font-size="12" text-anchor="middle">Fluent Bit / Vector</text>
+    <text x="90" y="77" fill="#8B94AD" font-size="10" text-anchor="middle">DaemonSet · 멀티라인 병합</text>
+    <rect x="220" y="38" width="130" height="52" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="285" y="60" fill="#DEE4F2" font-size="12" text-anchor="middle">Kafka</text>
+    <text x="285" y="77" fill="#8B94AD" font-size="10" text-anchor="middle">logs.raw</text>
+    <line x1="160" y1="64" x2="218" y2="64" stroke="#5A6178" marker-end="url(#ah)"/>
+    <!-- drain3 -->
+    <rect x="20" y="158" width="170" height="66" rx="9" fill="#111624" stroke="#4FD1C5"/>
+    <text x="105" y="180" fill="#4FD1C5" font-size="12" text-anchor="middle" font-weight="bold">drain3-parser</text>
+    <text x="105" y="196" fill="#8B94AD" font-size="10" text-anchor="middle">Deployment ×N (파티션 키=source)</text>
+    <text x="105" y="211" fill="#8B94AD" font-size="10" text-anchor="middle">상태: Redis snapshot</text>
+    <!-- feature builder -->
+    <rect x="240" y="158" width="160" height="66" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="320" y="180" fill="#DEE4F2" font-size="12" text-anchor="middle">feature-builder</text>
+    <text x="320" y="196" fill="#8B94AD" font-size="10" text-anchor="middle">1min 텀블링 윈도우 집계</text>
+    <text x="320" y="211" fill="#8B94AD" font-size="10" text-anchor="middle">Faust/Flink or pandas 워커</text>
+    <!-- iforest -->
+    <rect x="450" y="158" width="160" height="66" rx="9" fill="#111624" stroke="#F6AD55"/>
+    <text x="530" y="180" fill="#F6AD55" font-size="12" text-anchor="middle" font-weight="bold">iforest-scorer</text>
+    <text x="530" y="196" fill="#8B94AD" font-size="10" text-anchor="middle">joblib 모델 · 분위수 임계</text>
+    <text x="530" y="211" fill="#8B94AD" font-size="10" text-anchor="middle">candidates만 통과 (~0.5%)</text>
+    <!-- catboost -->
+    <rect x="660" y="158" width="180" height="66" rx="9" fill="#111624" stroke="#B794F4"/>
+    <text x="750" y="180" fill="#B794F4" font-size="12" text-anchor="middle" font-weight="bold">catboost-classifier</text>
+    <text x="750" y="196" fill="#8B94AD" font-size="10" text-anchor="middle">FastAPI · cbm 모델 · SHAP</text>
+    <text x="750" y="211" fill="#8B94AD" font-size="10" text-anchor="middle">incident_proba + 근거</text>
+    <line x1="285" y1="90" x2="285" y2="120" stroke="#5A6178"/>
+    <line x1="285" y1="120" x2="105" y2="156" stroke="#5A6178" marker-end="url(#ah)"/>
+    <line x1="190" y1="191" x2="238" y2="191" stroke="#4FD1C5" marker-end="url(#ah)"/>
+    <line x1="400" y1="191" x2="448" y2="191" stroke="#5A6178" marker-end="url(#ah)"/>
+    <line x1="610" y1="191" x2="658" y2="191" stroke="#F6AD55" marker-end="url(#ah)"/>
+    <!-- serving -->
+    <rect x="20" y="320" width="180" height="52" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="110" y="341" fill="#DEE4F2" font-size="12" text-anchor="middle">ClickHouse</text>
+    <text x="110" y="357" fill="#8B94AD" font-size="10" text-anchor="middle">원본·구조화 로그 장기 보관</text>
+    <rect x="250" y="320" width="180" height="52" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="340" y="341" fill="#DEE4F2" font-size="12" text-anchor="middle">Alert Manager / 운영 포털</text>
+    <text x="340" y="357" fill="#8B94AD" font-size="10" text-anchor="middle">원클릭 라벨링 UI ★</text>
+    <rect x="480" y="320" width="170" height="52" rx="9" fill="#111624" stroke="#6C8CFF"/>
+    <text x="565" y="341" fill="#6C8CFF" font-size="12" text-anchor="middle" font-weight="bold">sLLM (vLLM)</text>
+    <text x="565" y="357" fill="#8B94AD" font-size="10" text-anchor="middle">RCA·조치안 생성 (RAG)</text>
+    <rect x="700" y="320" width="140" height="52" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="770" y="341" fill="#DEE4F2" font-size="12" text-anchor="middle">PostgreSQL</text>
+    <text x="770" y="357" fill="#8B94AD" font-size="10" text-anchor="middle">feedback.labels</text>
+    <line x1="750" y1="224" x2="750" y2="290" stroke="#B794F4"/>
+    <line x1="750" y1="290" x2="360" y2="318" stroke="#B794F4" marker-end="url(#ah)"/>
+    <line x1="430" y1="346" x2="478" y2="346" stroke="#5A6178" marker-end="url(#ah)"/>
+    <line x1="340" y1="372" x2="700" y2="386" stroke="#5A6178" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+    <line x1="105" y1="224" x2="105" y2="318" stroke="#5A6178" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+    <!-- training -->
+    <rect x="20" y="404" width="260" height="50" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="150" y="424" fill="#DEE4F2" font-size="12" text-anchor="middle">DAG① iforest-retrain (일 단위)</text>
+    <text x="150" y="440" fill="#8B94AD" font-size="10" text-anchor="middle">최근 14일 features → fit → 임계 재계산</text>
+    <rect x="310" y="404" width="280" height="50" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="450" y="424" fill="#DEE4F2" font-size="12" text-anchor="middle">DAG② catboost-retrain (주 단위)</text>
+    <text x="450" y="440" fill="#8B94AD" font-size="10" text-anchor="middle">labels join candidates → fit → 섀도 평가 → 승격</text>
+    <rect x="620" y="404" width="220" height="50" rx="9" fill="#111624" stroke="#232B41"/>
+    <text x="730" y="424" fill="#DEE4F2" font-size="12" text-anchor="middle">MLflow Registry</text>
+    <text x="730" y="440" fill="#8B94AD" font-size="10" text-anchor="middle">모델·임계값·피처스키마 버저닝</text>
+  </svg>
+  </div>
+
+  <h3>7.2 컴포넌트별 구현 포인트</h3>
+  <div class="codebox">
+    <div class="code-tabs">
+      <button class="code-tab active">① Kafka 컨슈머 + Drain3 워커</button>
+      <button class="code-tab">② iForest 스코어러</button>
+      <button class="code-tab">③ K8s 매니페스트 요점</button>
+      <button class="code-tab">④ Airflow 재학습 DAG</button>
+    </div>
+    <div class="code-pane active"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># drain3-parser: logs.raw 소비 → logs.structured 발행</span>
+<span class="c-kw">from</span> confluent_kafka <span class="c-kw">import</span> Consumer, Producer
+<span class="c-kw">from</span> drain3 <span class="c-kw">import</span> TemplateMiner
+<span class="c-kw">from</span> drain3.redis_persistence <span class="c-kw">import</span> RedisPersistence
+<span class="c-kw">import</span> orjson
+
+miner = <span class="c-cls">TemplateMiner</span>(<span class="c-cls">RedisPersistence</span>(redis_host=<span class="c-str">"redis"</span>, redis_port=<span class="c-num">6379</span>,
+        redis_db=<span class="c-num">0</span>, redis_pass=<span class="c-str">""</span>, is_ssl=<span class="c-kw">False</span>, redis_key=<span class="c-str">"drain3:state"</span>))
+consumer = <span class="c-cls">Consumer</span>({<span class="c-str">"bootstrap.servers"</span>: <span class="c-str">"kafka:9092"</span>,
+                     <span class="c-str">"group.id"</span>: <span class="c-str">"drain3-parser"</span>,
+                     <span class="c-str">"auto.offset.reset"</span>: <span class="c-str">"latest"</span>})
+producer = <span class="c-cls">Producer</span>({<span class="c-str">"bootstrap.servers"</span>: <span class="c-str">"kafka:9092"</span>, <span class="c-str">"linger.ms"</span>: <span class="c-num">20</span>})
+consumer.<span class="c-fn">subscribe</span>([<span class="c-str">"logs.raw"</span>])
+
+<span class="c-kw">while</span> <span class="c-kw">True</span>:
+    msg = consumer.<span class="c-fn">poll</span>(<span class="c-num">0.2</span>)
+    <span class="c-kw">if</span> msg <span class="c-kw">is</span> <span class="c-kw">None</span> <span class="c-kw">or</span> msg.<span class="c-fn">error</span>(): <span class="c-kw">continue</span>
+    rec = orjson.<span class="c-fn">loads</span>(msg.<span class="c-fn">value</span>())
+    r = miner.<span class="c-fn">add_log_message</span>(rec[<span class="c-str">"message"</span>])
+    out = {**rec,
+           <span class="c-str">"cluster_id"</span>: r[<span class="c-str">"cluster_id"</span>],
+           <span class="c-str">"template"</span>: r[<span class="c-str">"template_mined"</span>],
+           <span class="c-str">"is_new_template"</span>: r[<span class="c-str">"change_type"</span>] == <span class="c-str">"cluster_created"</span>}
+    <span class="c-com"># 파티션 키=source → 같은 소스는 같은 워커가 처리(윈도우 집계 일관성)</span>
+    producer.<span class="c-fn">produce</span>(<span class="c-str">"logs.structured"</span>, key=rec[<span class="c-str">"source"</span>].<span class="c-fn">encode</span>(),
+                     value=orjson.<span class="c-fn">dumps</span>(out))</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># iforest-scorer: features.window 소비 → 임계 초과분만 anomaly.candidates 발행</span>
+<span class="c-kw">import</span> joblib, orjson, numpy <span class="c-kw">as</span> np
+
+bundle = joblib.<span class="c-fn">load</span>(<span class="c-str">"/models/iforest/current/model.joblib"</span>)
+clf, thr, cols = bundle[<span class="c-str">"model"</span>], bundle[<span class="c-str">"threshold_q999"</span>], bundle[<span class="c-str">"feature_columns"</span>]
+
+<span class="c-kw">def</span> <span class="c-fn">handle</span>(window: <span class="c-cls">dict</span>):
+    x = np.<span class="c-fn">array</span>([[window[<span class="c-str">"features"</span>][c] <span class="c-kw">for</span> c <span class="c-kw">in</span> cols]])
+    score = <span class="c-fn">float</span>(-clf.<span class="c-fn">score_samples</span>(x)[<span class="c-num">0</span>])
+    <span class="c-kw">if</span> score &gt; thr:
+        producer.<span class="c-fn">produce</span>(<span class="c-str">"anomaly.candidates"</span>, value=orjson.<span class="c-fn">dumps</span>({
+            **window, <span class="c-str">"iforest_score"</span>: score}))
+    <span class="c-com"># 안전밸브: 극단값은 CatBoost와 무관하게 즉시 통보</span>
+    <span class="c-kw">if</span> score &gt; thr * <span class="c-num">1.8</span>:
+        producer.<span class="c-fn">produce</span>(<span class="c-str">"alerts.critical-bypass"</span>, value=orjson.<span class="c-fn">dumps</span>(window))
+
+<span class="c-com"># 모델 핫스왑: /models는 PVC. 재학습 DAG가 current 심볼릭 링크를 교체하면</span>
+<span class="c-com"># 파일 mtime 감시 스레드가 reload → 무중단 갱신</span></pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">yaml</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># 요점만 발췌한 Deployment (drain3-parser 예시)</span>
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: drain3-parser, namespace: aiops }
+spec:
+  replicas: 3                      <span class="c-com"># Kafka 파티션 수와 정합</span>
+  template:
+    spec:
+      containers:
+      - name: parser
+        image: registry.local/aiops/drain3-parser:1.4.2   <span class="c-com"># 폐쇄망: 사설 레지스트리</span>
+        resources:
+          requests: { cpu: "500m", memory: 512Mi }
+          limits:   { cpu: "2",    memory: 1Gi }          <span class="c-com"># CPU만으로 충분</span>
+        env:
+        - { name: DRAIN3_REDIS_HOST, value: redis.aiops.svc }
+        livenessProbe:  { httpGet: { path: /healthz, port: 8080 } }
+        readinessProbe: { httpGet: { path: /ready,   port: 8080 } }
+---
+<span class="c-com"># catboost-classifier는 HPA로 소비 지연(consumer lag) 기반 오토스케일 권장</span>
+<span class="c-com"># (KEDA ScaledObject + Kafka trigger가 가장 깔끔)</span>
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: catboost-scaler, namespace: aiops }
+spec:
+  scaleTargetRef: { name: catboost-classifier }
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  triggers:
+  - type: kafka
+    metadata:
+      topic: anomaly.candidates
+      consumerGroup: catboost-classifier
+      lagThreshold: "500"</pre></div>
+    <div class="code-pane"><div class="code-head"><span class="code-lang">python</span><button class="copy-btn">복사</button></div>
+<pre><span class="c-com"># Airflow DAG② — CatBoost 주간 재학습 (개요)</span>
+<span class="c-kw">from</span> airflow.decorators <span class="c-kw">import</span> dag, task
+<span class="c-kw">import</span> pendulum
+
+@dag(schedule=<span class="c-str">"0 3 * * MON"</span>, start_date=pendulum.<span class="c-fn">datetime</span>(<span class="c-num">2026</span>, <span class="c-num">1</span>, <span class="c-num">1</span>), catchup=<span class="c-kw">False</span>)
+<span class="c-kw">def</span> <span class="c-fn">catboost_retrain</span>():
+    @task <span class="c-kw">def</span> <span class="c-fn">build_dataset</span>():
+        <span class="c-com"># PostgreSQL(labels) ⨝ ClickHouse(candidates) → parquet</span>
+        ...
+    @task <span class="c-kw">def</span> <span class="c-fn">train</span>(path):
+        <span class="c-com"># CatBoost 학습 + 시계열 기준 홀드아웃(무작위 분할 금지!)</span>
+        ...
+    @task <span class="c-kw">def</span> <span class="c-fn">shadow_eval</span>(model_uri):
+        <span class="c-com"># 최근 7일 트래픽 리플레이 → PR-AUC, recall@p90 산출</span>
+        ...
+    @task <span class="c-kw">def</span> <span class="c-fn">promote</span>(metrics, model_uri):
+        <span class="c-com"># 기준 통과 시 MLflow stage=Production + current 링크 교체</span>
+        <span class="c-com"># 미달 시 Slack/Mattermost 통보 후 현행 유지</span>
+        ...
+    <span class="c-fn">promote</span>(<span class="c-fn">shadow_eval</span>(<span class="c-fn">train</span>(<span class="c-fn">build_dataset</span>())), ...)
+
+<span class="c-fn">catboost_retrain</span>()</pre></div>
+  </div>
+
+  <h3>7.3 운영 체크리스트</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>영역</th><th>체크 항목</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>데이터 검증</td><td>피처 스키마 버전 고정, 학습·서빙 피처 순서 일치 검증(해시)</td><td>train-serving skew는 가장 흔하고 조용한 사고 원인</td></tr>
+      <tr><td>드리프트 감시</td><td>iForest 점수 분포·CatBoost proba 분포를 Prometheus 히스토그램으로 노출</td><td>분포가 밀리면 재학습 트리거 or 임계 재보정</td></tr>
+      <tr><td>모델 거버넌스</td><td>모델+임계값+피처 스키마를 하나의 아티팩트로 버저닝(MLflow)</td><td>임계값만 따로 바뀌는 사고 방지, 롤백 1분 내</td></tr>
+      <tr><td>안전밸브</td><td>critical-bypass 경로, 무해 판정 건 대시보드 보존, 5% 탐사 트래픽</td><td>침묵 장애·피드백 고착 방지 (6.2절)</td></tr>
+      <tr><td>폐쇄망</td><td>pip 미러(devpi/Nexus), 이미지 사설 레지스트리, 모델 아티팩트 오브젝트 스토리지(MinIO)</td><td>air-gap에서도 전체 루프가 내부 완결</td></tr>
+      <tr><td>부하 설계</td><td>Drain3 워커 수 = Kafka 파티션 수, 소스 기준 파티셔닝</td><td>윈도우 집계 일관성 + 수평 확장 단순화</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================= SECTION 8 : 퀴즈 ================= -->
+<section class="lecture" id="sec8">
+  <div class="sec-eyebrow">Section 08 — Check Yourself</div>
+  <h2>확인 퀴즈 10문항</h2>
+  <p class="sec-lead">각 보기를 클릭하면 즉시 채점됩니다. 해설까지 읽어야 진짜 복습입니다.</p>
+  <div id="quiz"></div>
+  <div class="quiz-score" id="quizScore">점수: <b>0 / 10</b><div style="font-size:13px;color:var(--text-faint);margin-top:6px" id="quizMsg">문제를 풀어보세요.</div></div>
+</section>
+
+<!-- ================= SECTION 9 : 정리 ================= -->
+<section class="lecture" id="sec9">
+  <div class="sec-eyebrow">Section 09 — Wrap-up</div>
+  <h2>정리: 기억해야 할 것</h2>
+  <div class="grid3">
+    <div class="card"><h5><span class="dot d1"></span>Drain3</h5><p>로그를 <strong>템플릿 ID + 파라미터</strong>로 접는 온라인 파서. 고정 깊이 파스 트리로 상수 시간 처리. 마스킹 설계가 튜닝의 80%, 상태 영속화(Redis/Kafka)는 필수. 이후 모든 단계의 피처 원천.</p></div>
+    <div class="card"><h5><span class="dot d2"></span>Isolation Forest</h5><p>"이상은 빨리 고립된다." 라벨 없이, 거리 계산 없이, 서브샘플 256개로 가볍게 동작하는 비지도 탐지의 기본값. <strong>predict()보다 score_samples() + 분위수 임계</strong>로 운용. 오탐은 숙명 — 다음 단계가 있는 이유.</p></div>
+    <div class="card"><h5><span class="dot d3"></span>CatBoost</h5><p>Ordered TS로 <strong>타깃 누수 없이 범주형을 네이티브 처리</strong>하고, Ordered Boosting으로 소량 라벨에서도 과적합에 강한 GBDT. 운영자 피드백을 학습해 오탐을 걸러내고, SHAP 근거를 LLM에 물려준다.</p></div>
+  </div>
+  <div class="callout info"><span class="co-t">마지막 한 문장</span>
+    <p>AIOps에서 LLM은 마지막 1%를 빛나게 하는 마무리이고, <strong>앞의 99%를 접어내는 것은 오늘 배운 세 개의 "작고 오래된" 모델</strong>입니다. 파이프라인의 지능은 모델 크기가 아니라 단계 설계에서 나옵니다.</p>
+  </div>
+
+  <h3>참고자료</h3>
+  <footer>
+    <div class="refs">
+      · He et al., "Drain: An Online Log Parsing Approach with Fixed Depth Tree" (ICWS 2017)<br>
+      · IBM drain3 — github.com/logpai/Drain3 (마스킹·영속화·설정 레퍼런스)<br>
+      · Liu, Ting, Zhou, "Isolation Forest" (ICDM 2008) / "Isolation-Based Anomaly Detection" (TKDD 2012)<br>
+      · scikit-learn User Guide — sklearn.ensemble.IsolationForest<br>
+      · Prokhorenkova et al., "CatBoost: unbiased boosting with categorical features" (NeurIPS 2018)<br>
+      · CatBoost Docs — catboost.ai/docs (Ordered TS, class weights, SHAP)<br>
+      · LogPai / LogHub — 로그 파서 벤치마크 데이터셋·비교 연구 모음
+    </div>
+    <p style="margin-top:20px">본 문서는 학습용 강의 자료입니다. 코드 예시는 개념 전달을 위해 단순화되었으며, 운영 적용 시 에러 처리·보안·리소스 설정을 보강하세요.</p>
+  </footer>
+</section>
+
+</div></div><!-- /container /main -->
+</div><!-- /layout -->
+
+<script>
+/* ============ 공통: 스크롤 스파이 + 진행바 ============ */
+(function(){
+  const links=[...document.querySelectorAll('#toc a')];
+  const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  const obs=new IntersectionObserver(es=>{
+    es.forEach(e=>{ if(e.isIntersecting){
+      links.forEach(l=>l.classList.remove('active'));
+      const i=secs.indexOf(e.target); if(i>=0)links[i].classList.add('active');
+    }});
+  },{rootMargin:'-20% 0px -70% 0px'});
+  secs.forEach(s=>s&&obs.observe(s));
+  const fill=document.getElementById('pbarFill');
+  addEventListener('scroll',()=>{
+    const h=document.documentElement;
+    fill.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';
+  },{passive:true});
+})();
+
+/* ============ 코드 탭 + 복사 ============ */
+document.querySelectorAll('.codebox').forEach(box=>{
+  const tabs=[...box.querySelectorAll('.code-tab')];
+  const panes=[...box.querySelectorAll('.code-pane')];
+  tabs.forEach((t,i)=>t.addEventListener('click',()=>{
+    tabs.forEach(x=>x.classList.remove('active'));panes.forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');panes[i].classList.add('active');
+  }));
+});
+document.querySelectorAll('.copy-btn').forEach(b=>b.addEventListener('click',()=>{
+  const head=b.closest('.code-head');
+  const pre=head&&head.nextElementSibling&&head.nextElementSibling.tagName==='PRE'
+    ? head.nextElementSibling
+    : b.closest('.code-pane, .codebox').querySelector('pre');
+  if(!pre)return;
+  navigator.clipboard.writeText(pre.innerText).then(()=>{b.textContent='복사됨!';setTimeout(()=>b.textContent='복사',1200);});
+}));
+
+/* ============ 파이프라인 다이어그램 ============ */
+(function(){
+  const detail=document.getElementById('pipeDetail');
+  const data=[
+    {t:'Stage 0 · Raw Logs — 출발점',ul:['수집기(Fluent Bit / Vector)가 노드·Pod에서 로그를 긁어 Kafka logs.raw 토픽으로 전송','멀티라인(스택트레이스) 병합, 타임스탬프 정규화는 이 단계의 책임','규모 감각: 중형 인프라 기준 초당 1만~10만+ 라인']},
+    {t:'Stage 1 · Drain3 — 표현의 압축',ul:['자유 텍스트 → cluster_id(템플릿) + 파라미터로 구조화','수억 라인이 수천 개 템플릿으로 접힘 → 이제 "셀 수 있는" 데이터','신규 템플릿 첫 등장(is_new_template)은 그 자체로 강력한 이상 신호','CPU 1코어로 수십만 line/s. 상태는 Redis 스냅샷으로 영속화']},
+    {t:'Stage 2 · Isolation Forest — 양의 압축',ul:['1분 윈도우 피처(건수 z-score, 에러 비율, 신규 템플릿 수, 엔트로피...)를 입력','라벨 없이 "평소와 다른 윈도우"에 연속 점수 부여','분위수 임계(상위 0.1~0.5%)를 넘는 후보만 다음 단계로 통과','극단값은 안전밸브 경로로 즉시 통보(critical-bypass)']},
+    {t:'Stage 3 · CatBoost — 의미의 압축',ul:['운영자 라벨(진짜 장애/무해)로 학습한 지도 분류기','iforest_score + 범주형 컨텍스트(host, error_code, deploy_flag...)를 입력','출력: incident_proba(우선순위) + SHAP 근거 top-3','배포·배치작업 같은 "무해한 이상" 오탐을 걸러 알람 피로 해소']},
+    {t:'Stage 4 · sLLM/LLM — 해석과 조치',ul:['확정 알람(하루 수십 건)만 입력받아 GPU 비용 최소화','SHAP 근거 + 관련 템플릿 원문 + RAG(운영 문서, 과거 장애 이력)로 원인 분석','조치안 생성, 티켓 초안 작성, 유사 과거 사례 연결','분석 결과 요약이 다시 라벨 품질을 높이는 선순환']}
+  ];
+  const stages=[...document.querySelectorAll('.pipe-stage')];
+  function show(i){
+    stages.forEach(s=>s.classList.remove('sel'));stages[i].classList.add('sel');
+    const d=data[i];
+    detail.innerHTML='<h6>'+d.t+'</h6><ul>'+d.ul.map(x=>'<li>'+x+'</li>').join('')+'</ul>';
+  }
+  stages.forEach((s,i)=>s.addEventListener('click',()=>show(i)));
+  show(1);
+})();
+
+/* ============ Drain3 시뮬레이터 ============ */
+(function(){
+  const LOGS=[
+    'nginx GET /api/users/1042 200 12ms',
+    'nginx GET /api/users/2210 200 9ms',
+    'auth user kim.cs logged in from 10.0.3.17',
+    'nginx GET /api/orders/8912 200 31ms',
+    'auth user lee.jh logged in from 10.0.8.44',
+    'db connection pool acquired conn=42 wait=3ms',
+    'nginx GET /api/users/9931 500 812ms',
+    'db connection pool acquired conn=87 wait=1ms',
+    'auth user park.mj logged in from 10.0.1.9',
+    'db connection pool exhausted retry=1 wait=5001ms',
+    'nginx GET /api/orders/1177 200 22ms',
+    'db connection pool exhausted retry=2 wait=9800ms',
+    'kernel OOM killer invoked for pid 22841',
+    'nginx GET /api/users/3345 200 11ms',
+    'db connection pool exhausted retry=3 wait=15002ms'
+  ];
+  const MASKS=[
+    [/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g,'<IP>'],
+    [/\b\d+ms\b/g,'<DUR>'],
+    [/\b\d+\b/g,'<NUM>']
+  ];
+  let idx=0,clusters=[],timer=null;
+  const feed=document.getElementById('d3Feed'),wrap=document.getElementById('d3Clusters');
+  const cnt=document.getElementById('d3Cnt'),tm=document.getElementById('d3Tmpl'),ra=document.getElementById('d3Ratio');
+  function mask(s){let r=s;MASKS.forEach(m=>r=r.replace(m[0],m[1]));return r;}
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function render(flashId){
+    wrap.innerHTML=clusters.map((c,i)=>{
+      const t=esc(c.tokens.join(' ')).replace(/&lt;\*&gt;|&lt;IP&gt;|&lt;NUM&gt;|&lt;DUR&gt;/g,function(m){return '<span class="wc">'+m+'</span>';});
+      return '<div class="d3-cluster'+(i===flashId?' flash':'')+'"><span class="tmpl">#'+(i+1)+' '+t+'</span><span class="cnt">×'+c.count+'</span></div>';
+    }).join('');
+    cnt.textContent=idx;tm.textContent=clusters.length;
+    ra.textContent=idx&&clusters.length?(idx/clusters.length).toFixed(1)+' : 1':'–';
+  }
+  function step(){
+    if(idx>=LOGS.length){feed.innerHTML='✔ 스트림 종료 — '+LOGS.length+'줄이 '+clusters.length+'개 템플릿으로 접혔습니다. [초기화]로 다시 볼 수 있어요.';stopAuto();return;}
+    const raw=LOGS[idx];const tokens=mask(raw).split(' ');
+    feed.innerHTML='IN ▸ '+esc(raw);
+    let found=-1;
+    for(let i=0;i<clusters.length;i++){
+      const c=clusters[i];
+      if(c.tokens.length!==tokens.length||c.tokens[0]!==tokens[0])continue;
+      let same=0;for(let j=0;j<tokens.length;j++)if(c.tokens[j]===tokens[j])same++;
+      if(same/tokens.length>=0.5){found=i;break;}
+    }
+    if(found>=0){
+      const c=clusters[found];let changed=false;
+      for(let j=0;j<tokens.length;j++)if(c.tokens[j]!==tokens[j]&&c.tokens[j]!=='<*>'){c.tokens[j]='<*>';changed=true;}
+      c.count++;
+      feed.innerHTML+=' &nbsp;→&nbsp; <span class="hl">'+(changed?'템플릿 #'+(found+1)+'에 병합 (틀 갱신: 불일치 토큰 → &lt;*&gt;)':'템플릿 #'+(found+1)+' 매칭')+'</span>';
+    }else{
+      clusters.push({tokens:tokens.slice(),count:1});found=clusters.length-1;
+      feed.innerHTML+=' &nbsp;→&nbsp; <span class="hl">새 템플릿 #'+clusters.length+' 생성</span>';
+    }
+    idx++;render(found);
+  }
+  function stopAuto(){if(timer){clearInterval(timer);timer=null;document.getElementById('d3Auto').textContent='자동 재생';}}
+  document.getElementById('d3Step').addEventListener('click',function(){stopAuto();step();});
+  document.getElementById('d3Auto').addEventListener('click',function(){
+    if(timer){stopAuto();return;}
+    this.textContent='정지';timer=setInterval(step,900);
+  });
+  document.getElementById('d3Reset').addEventListener('click',function(){stopAuto();idx=0;clusters=[];feed.innerHTML='▶ [다음 로그 1건 처리]를 눌러 스트림을 시작하세요.';render(-1);});
+  render(-1);
+})();
+
+/* ============ Isolation Forest 데모 ============ */
+(function(){
+  const cv=document.getElementById('ifCanvas'),ctx=cv.getContext('2d');
+  let pts=[],target=null,splits=[];
+  const W=cv.width,H=cv.height;
+  function gauss(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+  function regen(){
+    pts=[];
+    for(let i=0;i<70;i++)pts.push({x:W*0.42+gauss()*46,y:H*0.52+gauss()*40,o:false});
+    const corners=[[W*0.88,H*0.12],[W*0.9,H*0.85],[W*0.08,H*0.9],[W*0.1,H*0.14],[W*0.82,H*0.5]];
+    corners.forEach(c=>pts.push({x:c[0]+gauss()*6,y:c[1]+gauss()*6,o:true}));
+    pts.forEach(p=>{p.x=Math.min(W-6,Math.max(6,p.x));p.y=Math.min(H-6,Math.max(6,p.y));});
+    target=null;splits=[];draw();setMetrics('–','–','–');
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle='rgba(246,173,85,.55)';ctx.lineWidth=1;
+    splits.forEach(s=>{ctx.beginPath();
+      if(s.dim===0){ctx.moveTo(s.v,s.r.y0);ctx.lineTo(s.v,s.r.y1);}
+      else{ctx.moveTo(s.r.x0,s.v);ctx.lineTo(s.r.x1,s.v);}
+      ctx.stroke();});
+    pts.forEach(p=>{
+      ctx.beginPath();ctx.arc(p.x,p.y,4,0,7);
+      ctx.fillStyle=p.o?'#F6AD55':'#6C8CFF';ctx.fill();
+      if(p===target){ctx.lineWidth=2.5;ctx.strokeStyle='#DEE4F2';ctx.stroke();ctx.lineWidth=1;}
+    });
+  }
+  function inRegion(p,r){return p.x>=r.x0&&p.x<r.x1&&p.y>=r.y0&&p.y<r.y1;}
+  function isolateOnce(t){
+    let region={x0:0,y0:0,x1:W,y1:H};
+    let inside=pts.slice();
+    let depth=0;const local=[];
+    while(inside.length>1&&depth<14){
+      const dim=Math.random()<0.5?0:1;
+      let v;
+      if(dim===0)v=region.x0+Math.random()*(region.x1-region.x0);
+      else v=region.y0+Math.random()*(region.y1-region.y0);
+      local.push({dim,v,r:{x0:region.x0,y0:region.y0,x1:region.x1,y1:region.y1}});
+      if(dim===0){ if(t.x<v)region.x1=v; else region.x0=v; }
+      else { if(t.y<v)region.y1=v; else region.y0=v; }
+      inside=inside.filter(p=>inRegion(p,region));
+      depth++;
+    }
+    return {depth:depth,local:local};
+  }
+  function cofn(n){function Hh(x){return Math.log(x)+0.5772156649;}return n>2?2*Hh(n-1)-2*(n-1)/n:(n===2?1:0);}
+  function run(t){
+    target=t;
+    const one=isolateOnce(t);splits=one.local;
+    let sum=0;for(let i=0;i<20;i++)sum+=isolateOnce(t).depth;
+    const avg=sum/20,score=Math.pow(2,-avg/cofn(pts.length));
+    draw();
+    setMetrics(one.depth+' 회',avg.toFixed(1)+' 회',score.toFixed(2)+(score>0.6?' → 이상!':' → 정상권'));
+  }
+  function setMetrics(a,b,c){document.getElementById('ifDepth').textContent=a;document.getElementById('ifAvg').textContent=b;document.getElementById('ifScore').textContent=c;}
+  cv.addEventListener('click',e=>{
+    const r=cv.getBoundingClientRect();
+    const mx=(e.clientX-r.left)*(cv.width/r.width),my=(e.clientY-r.top)*(cv.height/r.height);
+    let best=null,bd=1e9;
+    pts.forEach(p=>{const d=(p.x-mx)*(p.x-mx)+(p.y-my)*(p.y-my);if(d<bd){bd=d;best=p;}});
+    if(best)run(best);
+  });
+  document.getElementById('ifOutlier').addEventListener('click',()=>{const o=pts.filter(p=>p.o);run(o[Math.floor(Math.random()*o.length)]);});
+  document.getElementById('ifNormal').addEventListener('click',()=>{
+    const cx=W*0.42,cy=H*0.52;
+    const n=pts.filter(p=>!p.o).sort((a,b)=>((a.x-cx)*(a.x-cx)+(a.y-cy)*(a.y-cy))-((b.x-cx)*(b.x-cx)+(b.y-cy)*(b.y-cy))).slice(0,15);
+    run(n[Math.floor(Math.random()*n.length)]);
+  });
+  document.getElementById('ifRegen').addEventListener('click',regen);
+  regen();
+})();
+
+/* ============ CatBoost Ordered TS 데모 ============ */
+(function(){
+  const DATA=[['web',1],['db',0],['web',0],['db',1],['web',1],['cache',0],['db',1],['web',0],['cache',1],['db',1]];
+  const P=DATA.reduce((s,r)=>s+r[1],0)/DATA.length;
+  let mode='ordered',step=0;
+  const tbody=document.querySelector('#cbTable tbody');
+  const formula=document.getElementById('cbFormula');
+  function encOrdered(i){
+    let s=0,c=0;
+    for(let j=0;j<i;j++)if(DATA[j][0]===DATA[i][0]){s+=DATA[j][1];c++;}
+    return {v:(s+P)/(c+1),why:'이전 '+c+'건(합 '+s+') + prior'};
+  }
+  function encLeaky(i){
+    let s=0,c=0;
+    DATA.forEach(r=>{if(r[0]===DATA[i][0]){s+=r[1];c++;}});
+    return {v:s/c,why:'전체 '+c+'건 평균 (자기 자신 포함!)'};
+  }
+  function render(){
+    tbody.innerHTML=DATA.map((r,i)=>{
+      const done=i<step,cur=i===step;
+      let enc='',why='';
+      if(done){const e=mode==='ordered'?encOrdered(i):encLeaky(i);enc=e.v.toFixed(2);why=e.why;}
+      const cls=done?'done':(cur?'current':'pending');
+      const encCls=mode==='ordered'?'enc':'leak';
+      return '<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r[0]+'</td><td>'+r[1]+'</td><td class="'+encCls+'">'+(done?enc:'?')+'</td><td style="color:var(--text-faint);font-size:11px">'+(done?why:(cur?'← 다음 계산 대상':''))+'</td></tr>';
+    }).join('');
+    formula.innerHTML= mode==='ordered'
+      ? 'Ordered TS: enc(i) = ( Σ<sub>j&lt;i, 같은 카테고리</sub> y<sub>j</sub> + a·P ) / ( count<sub>j&lt;i</sub> + a ) &nbsp;— a=1, P=전체평균 '+P.toFixed(2)+'. <b>자기 자신과 미래를 절대 보지 않음.</b>'
+      : '일반 타깃 인코딩: enc(i) = 같은 카테고리 <b>전체</b>의 y 평균. 자기 자신의 정답이 피처에 스며듦 = <b style="color:var(--bad)">타깃 누수</b>. cache처럼 표본이 적은 카테고리일수록 치명적.';
+  }
+  document.getElementById('cbStep').addEventListener('click',()=>{if(step<DATA.length)step++;render();});
+  document.getElementById('cbAll').addEventListener('click',()=>{step=DATA.length;render();});
+  document.getElementById('cbReset').addEventListener('click',()=>{step=0;render();});
+  document.getElementById('cbToggle').addEventListener('click',function(){
+    mode=(mode==='ordered')?'leaky':'ordered';
+    document.getElementById('cbMode').textContent=(mode==='ordered')?'Ordered TS':'일반 타깃 인코딩(누수)';
+    render();
+  });
+  render();
+})();
+
+/* ============ 퀴즈 ============ */
+(function(){
+  const QS=[
+    {q:'Drain 알고리즘에서 파스 트리의 첫 번째 분기 기준은?',
+     o:['로그의 토큰 개수(길이)','로그 레벨(INFO/ERROR)','타임스탬프','알파벳 순서'],a:0,
+     e:'루트 바로 아래 첫 층은 토큰 개수로 분기합니다. 단어 수가 다르면 같은 print 문에서 나왔을 가능성이 낮다는 휴리스틱입니다.'},
+    {q:'Drain3에서 마스킹(masking)의 주된 목적은?',
+     o:['로그의 민감정보 암호화','가변값을 미리 치환해 템플릿 폭발 방지','처리 속도 향상을 위한 압축','로그 레벨 자동 분류'],a:1,
+     e:'IP·숫자·UUID 같은 가변값이 상수로 취급되면 같은 패턴이 수많은 템플릿으로 갈라집니다. 정규식으로 미리 &lt;IP&gt;, &lt;NUM&gt; 등으로 접어주는 것이 마스킹입니다. (부수적으로 민감정보 가림 효과도 있지만 주목적은 아닙니다.)'},
+    {q:'Drain3 상태(학습된 템플릿)를 Redis/Kafka에 저장하는 이유는?',
+     o:['추론 속도를 높이려고','Pod 재시작 시 학습 상태를 잃지 않으려고','로그 원본을 백업하려고','템플릿을 암호화하려고'],a:1,
+     e:'Drain3는 상태를 가진 스트리밍 컴포넌트입니다. 영속화가 없으면 재시작 때마다 템플릿을 처음부터 다시 배우고, cluster_id도 달라져 하류 파이프라인이 깨집니다.'},
+    {q:'Isolation Forest의 핵심 직관으로 가장 알맞은 것은?',
+     o:['이상치는 무작위 분할로 빨리 고립된다','이상치는 평균에서 3σ 밖에 있다','이상치는 이웃과의 거리가 멀다','이상치는 재구성 오차가 크다'],a:0,
+     e:'거리(3번)·재구성(4번)은 각각 다른 계열(LOF/kNN, Autoencoder)의 직관입니다. iForest는 고립 속도(경로 길이) 하나로 점수를 만듭니다.'},
+    {q:'iForest에서 contamination 파라미터가 실제로 결정하는 것은?',
+     o:['트리의 깊이','서브샘플 크기','predict()의 정상/이상 컷라인(임계값)','피처 중요도'],a:2,
+     e:'contamination은 모델 학습 자체에는 영향이 없고, 연속 점수를 +1/-1로 이분할 때의 임계값만 정합니다. 그래서 실무에선 score_samples()로 연속 점수를 받고 분위수 임계를 직접 관리하는 편이 안전합니다.'},
+    {q:'iForest가 기본 서브샘플을 256개처럼 작게 쓰는 이유는?',
+     o:['메모리가 부족해서','표본이 작을수록 masking/swamping이 줄어 이상이 더 잘 보여서','트리 수를 늘리기 위해서','GPU 최적화를 위해서'],a:1,
+     e:'표본을 줄이면 이상치끼리 뭉쳐 서로를 가리는 masking, 정상이 이상 주변을 메우는 swamping이 완화됩니다. "적게 볼수록 잘 보인다"는 iForest의 반직관적 강점이자, 학습이 극도로 가벼운 이유입니다.'},
+    {q:'일반 타깃 인코딩의 치명적 문제이자 CatBoost Ordered TS가 해결한 것은?',
+     o:['카디널리티 폭발','타깃 누수(자기 자신의 정답 참조)','결측치 처리 불가','학습 속도 저하'],a:1,
+     e:'카테고리별 타깃 평균에 자기 자신의 y가 포함되면 피처가 정답을 흉내 냅니다. Ordered TS는 무작위 순서에서 "자기보다 앞의 행"만으로 통계를 계산해 미래 참조를 차단합니다.'},
+    {q:'하루 후보 1000건 중 진짜 장애 20건인 알람 분류기의 평가 지표로 가장 부적절한 것은?',
+     o:['PR-AUC','Recall@고정 Precision','정확도(Accuracy)','혼동행렬'],a:2,
+     e:'전부 "무해"라고 답해도 정확도 98%입니다. 극단적 불균형에서는 PR-AUC나 recall/precision 트레이드오프 기반 지표로 판단해야 합니다.'},
+    {q:'3단 파이프라인에서 iForest와 CatBoost의 연계 방식으로 옳은 것은?',
+     o:['둘은 독립적으로 알람을 각각 발송한다','iForest 점수가 CatBoost의 입력 피처 중 하나가 된다','CatBoost가 iForest를 재학습시킨다','iForest가 CatBoost의 라벨을 만든다'],a:1,
+     e:'iForest가 통과시킨 후보에 대해 CatBoost가 최종 판정하며, iforest_score 자체가 "통계적 이상함"을 요약한 강력한 수치 피처로 입력됩니다. 라벨은 iForest가 아니라 운영자 피드백에서 옵니다.'},
+    {q:'필터 파이프라인의 "침묵 장애"를 막기 위한 설계로 옳은 것은?',
+     o:['CatBoost 임계값을 0.9로 올린다','iForest 극단 점수는 분류기와 무관하게 무조건 통보하는 안전밸브를 둔다','알람을 전부 LLM에게 먼저 보낸다','재학습을 중단한다'],a:1,
+     e:'분류기가 진짜 장애를 "무해"로 오판하면 알람이 조용히 사라집니다. critical-bypass 경로, 무해 판정 건의 대시보드 보존, 5% 탐사 트래픽이 대표적 안전장치입니다. 임계값 상향(1번)은 오히려 놓침을 늘립니다.'}
+  ];
+  const wrap=document.getElementById('quiz');let solved=0,correct=0;
+  wrap.innerHTML=QS.map(function(x,i){
+    return '<div class="quiz-item" data-i="'+i+'"><div class="quiz-q"><span class="qn">Q'+String(i+1).padStart(2,'0')+'</span><span>'+x.q+'</span></div><div class="quiz-opts">'+x.o.map(function(o,j){return '<div class="quiz-opt" data-j="'+j+'">'+o+'</div>';}).join('')+'</div><div class="quiz-exp">'+x.e+'</div></div>';
+  }).join('');
+  wrap.querySelectorAll('.quiz-item').forEach(function(item){
+    const i=+item.dataset.i;
+    item.querySelectorAll('.quiz-opt').forEach(function(opt){opt.addEventListener('click',function(){
+      if(item.dataset.done)return;item.dataset.done='1';solved++;
+      const j=+this.dataset.j,ok=(j===QS[i].a);if(ok)correct++;
+      item.querySelectorAll('.quiz-opt').forEach(function(o,k){
+        if(k===QS[i].a)o.classList.add('correct');
+        else if(k===j)o.classList.add('wrong');
+        else o.classList.add('dim');
+      });
+      item.querySelector('.quiz-exp').classList.add('show');
+      document.querySelector('#quizScore b').textContent=correct+' / '+QS.length;
+      const msg=document.getElementById('quizMsg');
+      if(solved===QS.length){
+        msg.textContent= correct>=9?'훌륭합니다! 파이프라인을 직접 설계할 준비가 됐습니다.':(correct>=6?'좋아요. 틀린 문항의 해설과 해당 절을 다시 읽어보세요.':'3~5장을 한 번 더 정독하고 데모를 다시 돌려보세요.');
+      }else{msg.textContent='진행 중… ('+solved+'문항 풀이 완료)';}
+    });});
+  });
+})();
+</script>
+</body>
+</html>
