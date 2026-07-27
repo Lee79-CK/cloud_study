@@ -1,0 +1,1765 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prophet 완전 입문 — 시계열 예측을 분해해서 이해하기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   DESIGN TOKENS
+   색은 장식이 아니라 모델의 항(term)을 가리킨다.
+   amber=추세 g(t) / teal=계절성 s(t) / rose=휴일 h(t) / slate=잡음 ε
+   ============================================================ */
+:root{
+  --bg:#080D14;
+  --bg2:#0D141E;
+  --panel:#111A25;
+  --panel2:#16212F;
+  --line:#223141;
+  --line-soft:#1A2634;
+  --tx:#E7EEF6;
+  --tx-dim:#95A5B8;
+  --tx-faint:#5F7189;
+
+  --trend:#F5A524;
+  --season:#3FD8BE;
+  --holiday:#F2668B;
+  --noise:#7E8CA3;
+  --fit:#6AA9FF;
+  --obs:#D6E2F0;
+
+  --ok:#4ADE80;
+  --warn:#FBBF24;
+  --bad:#F87171;
+
+  --sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,system-ui,'Malgun Gothic',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --nav:280px;
+  --r:14px;
+  --maxw:900px;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{
+  margin:0;background:var(--bg);color:var(--tx);font-family:var(--sans);
+  font-size:16.5px;line-height:1.78;letter-spacing:-0.005em;
+  -webkit-font-smoothing:antialiased;
+}
+/* 배경: 미세한 격자 = 차트 모눈종이 */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+  background-size:64px 64px;opacity:.35;
+  mask-image:radial-gradient(120% 90% at 70% 0%,#000 0%,transparent 75%);
+  -webkit-mask-image:radial-gradient(120% 90% at 70% 0%,#000 0%,transparent 75%);
+}
+a{color:var(--fit);text-decoration:none;border-bottom:1px solid rgba(106,169,255,.35)}
+a:hover{border-bottom-color:var(--fit)}
+:focus-visible{outline:2px solid var(--season);outline-offset:3px;border-radius:4px}
+
+/* ============================================================ LAYOUT */
+.shell{display:grid;grid-template-columns:var(--nav) minmax(0,1fr);position:relative;z-index:1}
+main{min-width:0;padding:0 clamp(18px,5vw,64px) 140px}
+.wrap{max-width:var(--maxw);margin:0 auto}
+
+/* ============================================================ NAV */
+nav{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  border-right:1px solid var(--line);background:rgba(8,13,20,.86);
+  backdrop-filter:blur(8px);padding:28px 20px 40px;
+}
+nav::-webkit-scrollbar{width:6px}
+nav::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.brand{display:block;margin-bottom:22px;border:0}
+.brand .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;color:var(--trend);text-transform:uppercase}
+.brand h1{font-size:22px;line-height:1.25;margin:6px 0 4px;font-weight:800;letter-spacing:-.03em;color:var(--tx)}
+.brand p{margin:0;font-size:12.5px;color:var(--tx-faint);line-height:1.5}
+.prog{height:3px;background:var(--line-soft);border-radius:2px;margin:18px 0;overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--trend),var(--season));transition:width .15s linear}
+nav ol{list-style:none;margin:0;padding:0;counter-reset:s}
+nav ol li{counter-increment:s}
+nav ol a{
+  display:grid;grid-template-columns:26px 1fr;gap:8px;align-items:baseline;
+  padding:7px 8px;border-radius:8px;border:0;color:var(--tx-dim);font-size:13.5px;line-height:1.4;
+}
+nav ol a::before{content:counter(s,decimal-leading-zero);font-family:var(--mono);font-size:10.5px;color:var(--tx-faint)}
+nav ol a:hover{background:var(--panel);color:var(--tx)}
+nav ol a.on{background:var(--panel2);color:var(--tx);box-shadow:inset 2px 0 0 var(--trend)}
+nav ol a.on::before{color:var(--trend)}
+.navfoot{margin-top:24px;padding-top:16px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--tx-faint);line-height:1.7}
+
+#navBtn{display:none}
+
+/* ============================================================ HERO */
+header.hero{padding:clamp(52px,9vw,104px) 0 44px;position:relative}
+.kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--tx-faint)}
+.kicker b{color:var(--season);font-weight:500}
+h1.title{
+  font-size:clamp(34px,6.4vw,62px);line-height:1.06;letter-spacing:-.045em;font-weight:800;
+  margin:16px 0 0;
+}
+h1.title em{font-style:normal;color:var(--trend)}
+.lede{font-size:clamp(16px,2.2vw,19px);color:var(--tx-dim);max-width:62ch;margin:20px 0 0}
+
+/* 히어로 서명 요소: 방정식 칩 */
+.eqbox{margin:34px 0 0;padding:22px 20px;border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(180deg,var(--panel),rgba(17,26,37,.35))}
+.eqlabel{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--tx-faint);text-transform:uppercase;margin-bottom:14px}
+.eq{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-family:var(--mono);font-size:clamp(15px,2.6vw,21px)}
+.eq .op{color:var(--tx-faint);padding:0 2px}
+.chip{
+  font-family:var(--mono);font-size:inherit;cursor:pointer;background:transparent;
+  border:1px solid currentColor;border-radius:8px;padding:5px 11px;line-height:1.2;
+  display:inline-flex;align-items:center;gap:7px;transition:background .15s,opacity .15s;
+}
+.chip small{font-family:var(--sans);font-size:11px;letter-spacing:0;opacity:.85;font-weight:600}
+.chip[aria-pressed="false"]{opacity:.32}
+.chip[data-k="g"]{color:var(--trend)}
+.chip[data-k="s"]{color:var(--season)}
+.chip[data-k="h"]{color:var(--holiday)}
+.chip[data-k="e"]{color:var(--noise)}
+.chip:hover{background:rgba(255,255,255,.05)}
+.eqhint{margin:14px 0 0;font-size:13px;color:var(--tx-faint)}
+
+/* ============================================================ SECTIONS */
+section{padding:64px 0 8px;scroll-margin-top:20px}
+.shead{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+.snum{font-family:var(--mono);font-size:12px;color:var(--trend);letter-spacing:.1em;flex:none;padding-top:6px}
+h2{font-size:clamp(24px,3.6vw,34px);line-height:1.2;letter-spacing:-.035em;font-weight:800;margin:0}
+.sub{color:var(--tx-dim);margin:10px 0 0;font-size:15.5px}
+h3{font-size:19px;font-weight:700;letter-spacing:-.02em;margin:38px 0 8px}
+h4{font-size:15.5px;font-weight:700;margin:24px 0 6px;color:var(--tx)}
+p{margin:14px 0}
+strong{color:#fff;font-weight:700}
+code:not(pre code){
+  font-family:var(--mono);font-size:.87em;background:var(--panel2);
+  border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:#BFD6F0;white-space:nowrap
+}
+ul,ol{padding-left:22px;margin:14px 0}
+li{margin:7px 0}
+li::marker{color:var(--tx-faint)}
+hr.rule{border:0;border-top:1px solid var(--line);margin:44px 0}
+
+/* ============================================================ CALLOUTS */
+.note{border-left:3px solid var(--fit);background:var(--panel);border-radius:0 10px 10px 0;padding:14px 18px;margin:22px 0;font-size:15px}
+.note.tip{border-color:var(--season)}
+.note.warn{border-color:var(--warn)}
+.note.bad{border-color:var(--bad)}
+.note .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--tx-faint);display:block;margin-bottom:5px}
+.note p:first-of-type{margin-top:0}.note p:last-child{margin-bottom:0}
+
+/* ============================================================ CODE */
+.codeblk{margin:22px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#070C12}
+.tabs{display:flex;gap:2px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.02em;background:transparent;border:0;
+  color:var(--tx-faint);padding:11px 15px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent
+}
+.tabs button:hover{color:var(--tx-dim)}
+.tabs button[aria-selected="true"]{color:var(--trend);border-bottom-color:var(--trend);background:rgba(245,165,36,.05)}
+.panes{position:relative}
+.pane{display:none}
+.pane[data-on="1"]{display:block}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.72;color:#CBD9E8}
+pre .c{color:#5B7085;font-style:italic}
+pre .k{color:#F2668B}
+pre .s{color:#8DE3C6}
+pre .n{color:#F5A524}
+pre .f{color:#6AA9FF}
+.copy{position:absolute;top:8px;right:8px;z-index:2;font-family:var(--mono);font-size:10.5px;background:var(--panel2);color:var(--tx-dim);border:1px solid var(--line);border-radius:6px;padding:5px 9px;cursor:pointer}
+.copy:hover{color:var(--tx);border-color:var(--tx-faint)}
+
+/* ============================================================ LAB (실습 패널) */
+.lab{margin:26px 0;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden}
+.labhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel2);flex-wrap:wrap}
+.labhead h5{margin:0;font-size:13.5px;font-weight:700;letter-spacing:-.01em}
+.labhead .badge{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--trend);text-transform:uppercase}
+.labbody{padding:16px}
+.cv{width:100%;display:block;border-radius:10px;background:#070C12;border:1px solid var(--line-soft)}
+.mini{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px}
+.minicard{border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px 4px;background:#0A1017;transition:opacity .2s}
+.minicard[data-off="1"]{opacity:.22}
+.minicard span{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;display:block;margin-bottom:4px}
+.ctrls{display:grid;gap:12px;margin-top:16px;grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.ctrl label{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--tx-dim);font-family:var(--mono);letter-spacing:.01em}
+.ctrl label b{color:var(--tx);font-weight:500}
+input[type=range]{width:100%;margin:6px 0 0;accent-color:var(--trend);height:22px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{font-family:var(--mono);font-size:11.5px;background:transparent;border:0;color:var(--tx-dim);padding:8px 13px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--panel2);color:var(--trend)}
+.readout{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.stat{border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:#0A1017;min-width:118px}
+.stat span{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--tx-faint);text-transform:uppercase}
+.stat b{font-family:var(--mono);font-size:16px;font-weight:500}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--tx-dim)}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.verdict{margin-top:12px;font-size:14px;padding:10px 14px;border-radius:9px;background:#0A1017;border:1px solid var(--line-soft)}
+
+/* ============================================================ TABLES */
+.tw{overflow-x:auto;margin:24px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:13.8px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+thead th{background:var(--panel2);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx-dim);font-weight:500;position:sticky;top:0;white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:rgba(255,255,255,.02)}
+td.mono,th.mono{font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+.pill{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:20px;border:1px solid currentColor;white-space:nowrap}
+.p-hi{color:var(--ok)}.p-mid{color:var(--warn)}.p-lo{color:var(--bad)}
+
+/* ============================================================ CARDS */
+.grid2{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));margin:22px 0}
+.card{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--panel)}
+.card h4{margin:0 0 6px}
+.card p{margin:0;font-size:14px;color:var(--tx-dim)}
+.card .mono{font-family:var(--mono);font-size:11px;color:var(--trend);letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:8px}
+
+/* 아코디언 */
+details{border:1px solid var(--line);border-radius:11px;background:var(--panel);margin:10px 0;overflow:hidden}
+details summary{cursor:pointer;padding:13px 16px;font-weight:600;font-size:14.5px;list-style:none;display:flex;gap:10px;align-items:baseline}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"+";font-family:var(--mono);color:var(--trend);font-size:14px}
+details[open] summary::before{content:"−"}
+details summary code{flex:none}
+.dbody{padding:0 16px 14px;font-size:14.5px;color:var(--tx-dim)}
+.dbody p:first-child{margin-top:0}
+
+/* ============================================================ QUIZ */
+.q{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:18px;margin:14px 0}
+.q .qn{font-family:var(--mono);font-size:11px;color:var(--trend);letter-spacing:.14em}
+.q p.qt{margin:8px 0 12px;font-weight:600}
+.opt{display:block;border:1px solid var(--line);border-radius:9px;padding:10px 13px;margin:7px 0;cursor:pointer;font-size:14.5px;background:#0A1017;transition:border-color .15s}
+.opt:hover{border-color:var(--tx-faint)}
+.opt input{margin-right:9px;accent-color:var(--season)}
+.opt.right{border-color:var(--ok);background:rgba(74,222,128,.07)}
+.opt.wrong{border-color:var(--bad);background:rgba(248,113,113,.07)}
+.qex{margin-top:10px;font-size:14px;color:var(--tx-dim);border-left:2px solid var(--line);padding-left:12px;display:none}
+.qex[data-on="1"]{display:block}
+.qbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px}
+.btn{font-family:var(--sans);font-weight:700;font-size:14px;background:var(--trend);color:#0B0F14;border:0;border-radius:10px;padding:11px 20px;cursor:pointer}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--tx-dim);border:1px solid var(--line);font-weight:500}
+.score{font-family:var(--mono);font-size:14px;color:var(--tx-dim)}
+
+/* ============================================================ 요약 */
+.summary{border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(180deg,var(--panel2),var(--panel));padding:24px}
+.summary ul{padding-left:20px}
+footer{margin-top:70px;padding-top:22px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--tx-faint);line-height:1.9}
+
+/* ============================================================ RESPONSIVE */
+@media (max-width:960px){
+  .shell{grid-template-columns:1fr}
+  nav{
+    position:fixed;inset:0 auto 0 0;width:288px;z-index:50;height:100vh;
+    transform:translateX(-100%);transition:transform .22s ease;background:var(--bg2)
+  }
+  body.navon nav{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.55)}
+  #navBtn{
+    display:flex;position:fixed;bottom:18px;right:18px;z-index:60;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:12px;background:var(--trend);color:#0B0F14;border:0;
+    border-radius:999px;padding:13px 18px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.5);font-weight:700
+  }
+  main{padding-top:8px}
+  body{font-size:16px}
+}
+@media (max-width:520px){
+  .ctrls{grid-template-columns:1fr}
+  pre{font-size:12px}
+  .eq{font-size:15px}
+}
+@media print{nav,#navBtn,.copy{display:none}.shell{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<button id="navBtn" aria-expanded="false">목차</button>
+<div class="shell">
+<nav aria-label="목차">
+  <a class="brand" href="#top">
+    <span class="eyebrow">Time Series · Lecture</span>
+    <h1>Prophet 완전 입문</h1>
+    <p>예측을 &lsquo;분해&rsquo;로 이해하는 6단계 코스</p>
+  </a>
+  <div class="prog" aria-hidden="true"><i id="progBar"></i></div>
+  <ol>
+    <li><a href="#s1">시계열 예측이 푸는 문제</a></li>
+    <li><a href="#s2">Prophet의 정체</a></li>
+    <li><a href="#s3">추세 g(t)와 변화점</a></li>
+    <li><a href="#s4">계절성 s(t)와 푸리에</a></li>
+    <li><a href="#s5">휴일 h(t)와 불확실성</a></li>
+    <li><a href="#s6">코드 6줄로 첫 예측</a></li>
+    <li><a href="#s7">데이터 준비 규칙</a></li>
+    <li><a href="#s8">하이퍼파라미터 튜닝</a></li>
+    <li><a href="#s9">교차검증과 평가지표</a></li>
+    <li><a href="#s10">회귀변수 · 공휴일 · 상한</a></li>
+    <li><a href="#s11">다른 도구와 비교</a></li>
+    <li><a href="#s12">한계와 비판</a></li>
+    <li><a href="#s13">운영 파이프라인</a></li>
+    <li><a href="#s14">자주 하는 실수 8가지</a></li>
+    <li><a href="#s15">이해도 점검 퀴즈</a></li>
+    <li><a href="#s16">한 장 요약</a></li>
+  </ol>
+  <div class="navfoot">
+    prophet 1.1.x · python 3.9+<br>
+    Meta Core Data Science<br>
+    MIT License
+  </div>
+</nav>
+
+<main id="top">
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">초보 ML 개발자를 위한 <b>실습형 강의</b></div>
+  <h1 class="title">예측은 마법이 아니라<br><em>더하기</em>입니다.</h1>
+  <p class="lede">
+    Prophet은 시계열을 네 조각으로 쪼갠 뒤 다시 더해서 미래를 그립니다.
+    조각의 이름만 알면 이 도구의 90%를 이해한 셈입니다.
+    아래 방정식의 각 항을 눌러 끄고 켜 보세요 — 예측선이 어떻게 만들어지는지 눈으로 확인할 수 있습니다.
+  </p>
+
+  <div class="eqbox">
+    <div class="eqlabel">The Decomposable Model — 클릭해서 항을 켜고 끄기</div>
+    <div class="eq">
+      <span class="op">y(t)&nbsp;=</span>
+      <button class="chip" data-k="g" aria-pressed="true">g(t) <small>추세</small></button>
+      <span class="op">+</span>
+      <button class="chip" data-k="s" aria-pressed="true">s(t) <small>계절성</small></button>
+      <span class="op">+</span>
+      <button class="chip" data-k="h" aria-pressed="true">h(t) <small>휴일</small></button>
+      <span class="op">+</span>
+      <button class="chip" data-k="e" aria-pressed="true">&epsilon;<sub>t</sub> <small>잡음</small></button>
+    </div>
+    <canvas id="cvSum" class="cv" height="230" style="margin-top:18px"></canvas>
+    <div class="mini">
+      <div class="minicard" data-c="g"><span style="color:var(--trend)">g(t) · 추세</span><canvas id="cvG" class="cv" height="76" style="border:0;background:transparent"></canvas></div>
+      <div class="minicard" data-c="s"><span style="color:var(--season)">s(t) · 주간+연간</span><canvas id="cvS" class="cv" height="76" style="border:0;background:transparent"></canvas></div>
+      <div class="minicard" data-c="h"><span style="color:var(--holiday)">h(t) · 휴일 효과</span><canvas id="cvH" class="cv" height="76" style="border:0;background:transparent"></canvas></div>
+      <div class="minicard" data-c="e"><span style="color:var(--noise)">&epsilon;<sub>t</sub> · 설명 못 한 잔차</span><canvas id="cvE" class="cv" height="76" style="border:0;background:transparent"></canvas></div>
+    </div>
+    <p class="eqhint">2년치 일별 매출을 모사한 가상 데이터입니다. 네 조각을 모두 켜면 우리가 현실에서 마주치는 &lsquo;지저분한&rsquo; 그래프가 되고, 하나씩 끄면 각 조각의 정체가 드러납니다.</p>
+  </div>
+</header>
+
+<!-- ===================================================== 1 -->
+<section id="s1">
+  <div class="shead"><div class="snum">01</div><h2>시계열 예측이 실제로 푸는 문제</h2></div>
+  <p class="sub">회귀 문제와 무엇이 다른지부터 정리하고 넘어갑니다.</p>
+
+  <p>
+    일반적인 지도학습에서는 <code>X</code>(특성)로 <code>y</code>(정답)를 맞힙니다. 데이터 순서는 보통 의미가 없어서
+    train/test를 무작위로 섞어도 됩니다. 시계열은 다릅니다. <strong>순서 자체가 정보</strong>이고, 우리가 가진 특성은
+    사실상 &lsquo;시각&rsquo; 하나뿐인 경우가 많습니다.
+  </p>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>구분</th><th>일반 지도학습</th><th>시계열 예측</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">입력</td><td>여러 개의 특성 열</td><td>시각 <code>t</code> + (선택) 외생변수</td></tr>
+        <tr><td class="mono">데이터 분할</td><td>무작위 셔플 가능</td><td>시간순으로만 분할 (미래 유출 금지)</td></tr>
+        <tr><td class="mono">샘플 독립성</td><td>i.i.d. 가정</td><td>자기상관 존재 — 어제가 오늘을 설명</td></tr>
+        <tr><td class="mono">평가</td><td>k-fold CV</td><td>rolling-origin CV (cutoff를 밀어가며)</td></tr>
+        <tr><td class="mono">목표</td><td>보간(interpolation)</td><td><strong>외삽(extrapolation)</strong> — 본 적 없는 구간</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>거의 모든 시계열은 네 성분으로 설명된다</h3>
+  <p>1920년대 고전 통계에서 나온 &lsquo;시계열 분해(decomposition)&rsquo; 아이디어입니다. Prophet은 이 낡고 검증된 발상을 현대적으로 다시 구현한 도구입니다.</p>
+  <div class="grid2">
+    <div class="card"><span class="mono" style="color:var(--trend)">g(t) · Trend</span><h4>장기 추세</h4><p>서비스가 커지는가 줄어드는가. 계단처럼 꺾이는 지점(변화점)이 어디인가. 예측의 <strong>방향</strong>을 결정하는 가장 중요한 항.</p></div>
+    <div class="card"><span class="mono" style="color:var(--season)">s(t) · Seasonality</span><h4>주기적 패턴</h4><p>주말에 오르고 월요일에 죽는 주간 패턴, 여름·연말에 몰리는 연간 패턴처럼 <strong>반복</strong>되는 파동.</p></div>
+    <div class="card"><span class="mono" style="color:var(--holiday)">h(t) · Holiday</span><h4>불규칙 이벤트</h4><p>설날·추석·블랙프라이데이처럼 <strong>날짜가 매년 이동</strong>하고 주기 함수로는 못 잡는 일회성 충격.</p></div>
+    <div class="card"><span class="mono" style="color:var(--noise)">&epsilon;<sub>t</sub> · Noise</span><h4>잔차</h4><p>모델이 설명 못 한 나머지. 이 안에 아직 패턴이 보이면 모델을 더 손봐야 한다는 신호입니다.</p></div>
+  </div>
+
+  <div class="note tip">
+    <span class="tag">기억할 것</span>
+    <p>실무에서 예측 정확도를 가장 크게 흔드는 건 화려한 모델이 아니라 <strong>g(t)의 방향</strong>입니다. 추세를 반대로 잡으면 나머지를 아무리 잘 맞혀도 예측은 실패합니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 2 -->
+<section id="s2">
+  <div class="shead"><div class="snum">02</div><h2>Prophet의 정체: 예측을 &lsquo;곡선 맞추기&rsquo;로 바꾼 도구</h2></div>
+  <p class="sub">Meta(당시 Facebook) Core Data Science 팀이 2017년에 공개한 오픈소스입니다.</p>
+
+  <h3>탄생 배경: 예측 수요는 폭발하는데 전문가는 부족했다</h3>
+  <p>
+    사내에서 &ldquo;이 지표 다음 분기 어떻게 될까요?&rdquo; 같은 요청은 끝없이 들어오는데,
+    ARIMA 차수를 고를 수 있는 통계 전문가는 소수였습니다. 그래서 팀은 목표를 이렇게 잡았습니다.
+  </p>
+  <ul>
+    <li><strong>기본값이 쓸 만해야 한다</strong> — 통계 배경이 없는 분석가도 바로 돌릴 수 있게</li>
+    <li><strong>튜닝 손잡이가 사람의 언어여야 한다</strong> — &ldquo;p, d, q&rdquo;가 아니라 &ldquo;휴일 효과&rdquo;, &ldquo;추세 유연성&rdquo;</li>
+    <li><strong>사람이 개입할 여지를 남긴다</strong> — 논문에서 말하는 <em>analyst-in-the-loop</em>. 도메인 지식(이번 프로모션, 새 공휴일)을 모델에 직접 주입할 수 있어야 한다</li>
+    <li><strong>수천 개 시계열을 자동으로 돌리고, 이상한 것만 사람이 본다</strong></li>
+  </ul>
+
+  <h3>핵심 설계 결정: 시간을 &lsquo;특성&rsquo;으로 쓰는 회귀 문제</h3>
+  <p>
+    ARIMA 계열은 &ldquo;어제 값으로 오늘 값을 설명&rdquo;하는 자기회귀 방식입니다.
+    Prophet은 방향을 완전히 틀어서 <strong>시각 t를 입력으로 하는 곡선 적합(curve fitting)</strong> 문제로 봅니다.
+    이 선택 하나에서 Prophet의 장점과 단점이 모두 따라 나옵니다.
+  </p>
+  <div class="grid2">
+    <div class="card"><span class="mono" style="color:var(--ok)">장점</span><h4>결측·불규칙에 강함</h4><p>이전 값에 의존하지 않으므로 며칠 데이터가 비어도 그냥 그 행을 빼고 학습하면 됩니다. 관측 간격이 불규칙해도 동작합니다.</p></div>
+    <div class="card"><span class="mono" style="color:var(--ok)">장점</span><h4>임의 구간 예측</h4><p>한 번 적합한 곡선에 t만 넣으면 되므로 3일 뒤, 3년 뒤를 같은 방식으로 계산합니다. 재귀 예측이 필요 없습니다.</p></div>
+    <div class="card"><span class="mono" style="color:var(--ok)">장점</span><h4>해석 가능</h4><p><code>plot_components()</code> 한 줄로 &ldquo;주말 +18%, 추석 +40%&rdquo; 같은 설명을 만들 수 있습니다. 보고서에 그대로 쓸 수 있는 예측 근거입니다.</p></div>
+    <div class="card"><span class="mono" style="color:var(--bad)">단점</span><h4>자기상관을 안 씀</h4><p>&ldquo;어제 갑자기 급등&rdquo; 같은 최신 정보를 즉시 반영하지 못합니다. 단기(1~7일) 예측에서 ARIMA·부스팅에 밀리는 주된 이유입니다.</p></div>
+  </div>
+
+  <div class="note">
+    <span class="tag">한 줄 정의</span>
+    <p>Prophet = <strong>Stan으로 MAP 추정하는, 변화점이 있는 일반화가법모형(GAM)</strong>. 즉 딥러닝도 아니고 ARIMA도 아닌, 해석 가능한 회귀 모델입니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 3 -->
+<section id="s3">
+  <div class="shead"><div class="snum">03</div><h2>추세 g(t): 변화점(changepoint)이라는 발명</h2></div>
+  <p class="sub">Prophet에서 가장 중요하고, 가장 자주 잘못 튜닝되는 부분입니다.</p>
+
+  <h3>두 가지 성장 곡선</h3>
+  <p><strong>1) 조각별 선형(piecewise linear)</strong> — 기본값 <code>growth='linear'</code>. 직선을 여러 개 이어붙여 꺾이는 추세를 표현합니다.</p>
+  <div class="codeblk"><div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true">g(t) 수식 개념</button></div><div class="panes"><div class="pane" data-on="1"><pre><span class="c"># k: 기본 성장률, m: 절편</span>
+<span class="c"># s_j: j번째 변화점의 시각, delta_j: 그 시점에서 성장률이 변하는 양</span>
+g(t) = (k + <span class="n">sum</span>(delta_j for s_j &lt; t)) * t + (m + offset)
+
+<span class="c"># delta에 Laplace(0, tau) 사전분포를 준다  → tau = changepoint_prior_scale</span>
+<span class="c"># tau가 작으면: 대부분의 delta가 0으로 눌린다  → 뻣뻣한 추세</span>
+<span class="c"># tau가 크면  : delta가 자유롭게 커진다        → 출렁이는 추세</span></pre></div></div></div>
+
+  <p><strong>2) 로지스틱(logistic)</strong> — <code>growth='logistic'</code>. 시장 크기처럼 상한이 존재할 때 S자 곡선으로 포화시킵니다. 이때는 데이터프레임에 <code>cap</code> 열(상한)이 반드시 있어야 하고, 필요하면 <code>floor</code>(하한)도 줍니다. <code>growth='flat'</code>은 추세를 고정합니다.</p>
+
+  <h3>변화점은 어디에 놓이나</h3>
+  <ul>
+    <li>기본값: 학습 데이터 <strong>앞쪽 80% 구간</strong>에 <strong>25개</strong>의 후보 변화점을 균등 배치 (<code>n_changepoints=25</code>, <code>changepoint_range=0.8</code>)</li>
+    <li>뒤쪽 20%를 비워두는 이유: 데이터 끝부분의 잡음을 &lsquo;새로운 추세&rsquo;로 착각하면 <strong>미래 예측이 엉뚱한 방향으로 발사</strong>됩니다</li>
+    <li>후보 25개를 다 쓰는 게 아니라, L1 성격의 사전분포가 필요 없는 변화점의 delta를 0으로 눌러버립니다 (자동 선택)</li>
+  </ul>
+
+  <div class="lab">
+    <div class="labhead"><h5>실습 1 · changepoint_prior_scale이 예측을 바꾸는 방식</h5><span class="badge">Interactive</span></div>
+    <div class="labbody">
+      <canvas id="cvCp" class="cv" height="300"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--noise)"></i>관측치(300일)</span>
+        <span><i style="background:var(--trend)"></i>적합된 추세</span>
+        <span><i style="background:var(--fit)"></i>미래 60일 예측</span>
+        <span><i style="background:var(--holiday);height:2px;border-top:2px dashed var(--holiday);background:transparent"></i>실제 정답 추세</span>
+      </div>
+      <div class="ctrls">
+        <div class="ctrl">
+          <label for="cpTau">changepoint_prior_scale (&tau;) <b id="cpTauV">0.05</b></label>
+          <input type="range" id="cpTau" min="0" max="6" step="1" value="3">
+        </div>
+      </div>
+      <div class="readout">
+        <div class="stat"><span>선택된 변화점</span><b id="cpN" style="color:var(--trend)">–</b></div>
+        <div class="stat"><span>학습 MAE</span><b id="cpTr" style="color:var(--season)">–</b></div>
+        <div class="stat"><span>미래 60일 MAE</span><b id="cpFu" style="color:var(--holiday)">–</b></div>
+      </div>
+      <div class="verdict" id="cpMsg">슬라이더를 움직여 보세요.</div>
+      <p class="eqhint">Prophet의 delta 사전분포가 Laplace이므로, MAP 추정은 곧 <strong>L1 규제가 걸린 조각별 선형 회귀</strong>입니다. 이 데모는 실제로 그 L1 좌표하강법을 브라우저에서 풀어 그립니다(잡음은 고정 시드).</p>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">핵심 교훈</span>
+    <p><strong>학습 MAE는 &tau;가 커질수록 계속 좋아집니다. 하지만 미래 오차는 U자입니다.</strong> 학습 오차만 보고 &tau;를 올리는 것이 Prophet 최악의 실수입니다. 반드시 9장의 교차검증으로 골라야 합니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 4 -->
+<section id="s4">
+  <div class="shead"><div class="snum">04</div><h2>계절성 s(t): 푸리에 급수로 파동을 그린다</h2></div>
+  <p class="sub">&ldquo;주말에 오른다&rdquo;를 모델에 어떻게 알려줄까요? 사인·코사인을 몇 개 더하는 것으로 해결합니다.</p>
+
+  <p>
+    주간 패턴을 표현하는 가장 단순한 방법은 요일 더미변수 7개를 넣는 것입니다. 그런데 연간 패턴에 같은 방식을 쓰면 365개 변수가 필요해집니다.
+    Prophet은 대신 <strong>주기 P를 갖는 사인·코사인 쌍을 N개만 더해</strong> 매끄러운 파동을 만듭니다.
+  </p>
+
+  <div class="codeblk"><div class="tabs" role="tablist"><button role="tab" aria-selected="true">s(t) 수식 개념</button></div><div class="panes"><div class="pane" data-on="1"><pre><span class="c"># P: 주기 (연간 365.25, 주간 7, 일간 1)</span>
+<span class="c"># N: fourier_order — 파동을 몇 겹 쌓을지</span>
+s(t) = <span class="n">sum</span>( a_n * cos(2*pi*n*t/P) + b_n * sin(2*pi*n*t/P) )   for n = 1..N
+
+<span class="c"># 학습되는 파라미터는 2N개. 사전분포는 Normal(0, sigma)</span>
+<span class="c">#   sigma = seasonality_prior_scale (기본 10.0 = 거의 규제 없음)</span>
+<span class="c"># 기본값:  연간 N=10 (20개 파라미터),  주간 N=3 (6개),  일간 N=4</span></pre></div></div></div>
+
+  <div class="lab">
+    <div class="labhead"><h5>실습 2 · fourier_order를 올리면 무슨 일이 생기나</h5><span class="badge">Interactive</span></div>
+    <div class="labbody">
+      <canvas id="cvFo" class="cv" height="250"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--noise)"></i>실제 연간 패턴(정답)</span>
+        <span><i style="background:var(--season)"></i>푸리에 N겹 근사</span>
+      </div>
+      <div class="ctrls">
+        <div class="ctrl">
+          <label for="foN">yearly_seasonality (fourier_order N) <b id="foNV">10</b></label>
+          <input type="range" id="foN" min="1" max="25" step="1" value="10">
+        </div>
+      </div>
+      <div class="readout">
+        <div class="stat"><span>학습 파라미터</span><b id="foP" style="color:var(--trend)">20</b></div>
+        <div class="stat"><span>근사 오차 RMSE</span><b id="foE" style="color:var(--season)">–</b></div>
+      </div>
+      <div class="verdict" id="foMsg"></div>
+      <p class="eqhint">정답 곡선은 &lsquo;연말에 급등하고 여름에는 낮은&rsquo; 전형적인 리테일 패턴입니다. N=1은 부드러운 사인파 하나라 급등을 놓치고, N을 과하게 올리면 없는 요철까지 만들어냅니다.</p>
+    </div>
+  </div>
+
+  <h3>덧셈이냐 곱셈이냐: seasonality_mode</h3>
+  <p>
+    매출이 100 → 1000으로 커지면 주말 효과도 보통 &ldquo;+20&rdquo;이 아니라 &ldquo;+20%&rdquo;로 함께 커집니다.
+    이때 <code>seasonality_mode='multiplicative'</code>로 바꾸면 계절성이 추세에 <strong>곱해집니다</strong>.
+  </p>
+
+  <div class="lab">
+    <div class="labhead"><h5>실습 3 · additive vs multiplicative</h5><span class="badge">Interactive</span></div>
+    <div class="labbody">
+      <div class="seg" role="group" style="margin-bottom:12px">
+        <button id="mAdd" aria-pressed="true">additive (기본)</button>
+        <button id="mMul" aria-pressed="false">multiplicative</button>
+      </div>
+      <canvas id="cvMode" class="cv" height="230"></canvas>
+      <div class="verdict" id="modeMsg"></div>
+    </div>
+  </div>
+
+  <div class="note tip">
+    <span class="tag">판단 기준</span>
+    <p>그래프를 눈으로 봤을 때 <strong>파동의 진폭이 값이 커질수록 함께 벌어지면 multiplicative</strong>, 진폭이 일정하면 additive입니다. 매출·트래픽·가입자 같은 성장 지표는 곱셈형이 맞는 경우가 많습니다.</p>
+  </div>
+
+  <h3>사용자 정의 계절성</h3>
+  <p>기본 제공되는 연간/주간/일간 외에 월간, 분기, 격주 패턴을 직접 추가할 수 있습니다. 근무일과 주말에 서로 다른 주간 패턴을 주는 &lsquo;조건부 계절성&rsquo;도 가능합니다.</p>
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">월간 계절성 추가</button>
+      <button role="tab" aria-selected="false">조건부 계절성</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre>m = Prophet(weekly_seasonality=<span class="k">True</span>, yearly_seasonality=<span class="n">20</span>)
+m.add_seasonality(name=<span class="s">'monthly'</span>, period=<span class="n">30.5</span>, fourier_order=<span class="n">5</span>)
+m.add_seasonality(name=<span class="s">'quarterly'</span>, period=<span class="n">91.3</span>, fourier_order=<span class="n">3</span>,
+                  prior_scale=<span class="n">5</span>)   <span class="c"># 이 계절성만 따로 규제</span>
+m.fit(df)</pre></div>
+    <div class="pane"><pre><span class="c"># 평일과 주말의 일중 패턴이 완전히 다른 서비스</span>
+<span class="k">def</span> <span class="f">is_weekend</span>(ds):
+    <span class="k">return</span> ds.weekday() &gt;= <span class="n">5</span>
+
+df[<span class="s">'weekend'</span>] = df[<span class="s">'ds'</span>].apply(is_weekend)
+df[<span class="s">'weekday'</span>] = ~df[<span class="s">'weekend'</span>]
+
+m = Prophet(weekly_seasonality=<span class="k">False</span>)
+m.add_seasonality(<span class="s">'daily_weekday'</span>, period=<span class="n">1</span>, fourier_order=<span class="n">6</span>, condition_name=<span class="s">'weekday'</span>)
+m.add_seasonality(<span class="s">'daily_weekend'</span>, period=<span class="n">1</span>, fourier_order=<span class="n">6</span>, condition_name=<span class="s">'weekend'</span>)
+m.fit(df)   <span class="c"># future 데이터프레임에도 같은 불리언 열이 있어야 함</span></pre></div>
+    </div></div>
+</section>
+
+<!-- ===================================================== 5 -->
+<section id="s5">
+  <div class="shead"><div class="snum">05</div><h2>휴일 h(t)와 불확실성 구간</h2></div>
+  <p class="sub">주기 함수로 잡을 수 없는 &lsquo;날짜가 움직이는 사건&rsquo;을 다루는 방법.</p>
+
+  <h3>휴일은 사실 &lsquo;더미변수 모음&rsquo;이다</h3>
+  <p>
+    설날은 매년 양력 날짜가 바뀌므로 연간 사인파로는 절대 표현되지 않습니다.
+    Prophet은 각 휴일마다 더미변수를 만들고 계수 &kappa;를 학습합니다. 앞뒤 며칠까지 영향을 퍼뜨릴 수도 있습니다
+    (<code>lower_window=-2</code>, <code>upper_window=2</code> → 총 5일 창).
+  </p>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">내장 공휴일(한국)</button>
+      <button role="tab" aria-selected="false">직접 정의</button>
+      <button role="tab" aria-selected="false">둘 다 쓰기</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre><span class="k">from</span> prophet <span class="k">import</span> Prophet
+
+m = Prophet()
+m.add_country_holidays(country_name=<span class="s">'KR'</span>)   <span class="c"># 설날·추석·삼일절 ... 자동</span>
+m.fit(df)
+
+<span class="c"># 어떤 휴일이 적용됐는지 확인</span>
+<span class="f">print</span>(m.train_holiday_names)</pre></div>
+    <div class="pane"><pre><span class="k">import</span> pandas <span class="k">as</span> pd
+
+promo = pd.DataFrame({
+    <span class="s">'holiday'</span>: <span class="s">'big_sale'</span>,
+    <span class="s">'ds'</span>: pd.to_datetime([<span class="s">'2024-11-11'</span>, <span class="s">'2025-11-11'</span>, <span class="s">'2026-11-11'</span>]),
+    <span class="s">'lower_window'</span>: -<span class="n">1</span>,   <span class="c"># 전날부터 영향</span>
+    <span class="s">'upper_window'</span>: <span class="n">2</span>,    <span class="c"># 이틀 뒤까지 여운</span>
+})
+outage = pd.DataFrame({
+    <span class="s">'holiday'</span>: <span class="s">'outage'</span>,
+    <span class="s">'ds'</span>: pd.to_datetime([<span class="s">'2025-03-14'</span>]),
+    <span class="s">'lower_window'</span>: <span class="n">0</span>, <span class="s">'upper_window'</span>: <span class="n">0</span>,
+})
+events = pd.concat([promo, outage])
+
+m = Prophet(holidays=events, holidays_prior_scale=<span class="n">10.0</span>)
+m.fit(df)</pre></div>
+    <div class="pane"><pre><span class="c"># 미래 시점의 이벤트 날짜를 반드시 함께 넣어야 예측에 반영된다.</span>
+<span class="c"># 과거에만 있고 미래에 없으면, 모델은 그 효과를 학습만 하고 쓰지 못한다.</span>
+m = Prophet(holidays=events)
+m.add_country_holidays(country_name=<span class="s">'KR'</span>)
+m.fit(df)
+
+future = m.make_future_dataframe(periods=<span class="n">90</span>)
+fcst = m.predict(future)
+fcst[[<span class="s">'ds'</span>, <span class="s">'yhat'</span>, <span class="s">'big_sale'</span>, <span class="s">'holidays'</span>]].tail()</pre></div>
+    </div></div>
+
+  <div class="note warn">
+    <span class="tag">자주 터지는 함정</span>
+    <p>일회성 장애·품절·이벤트를 휴일로 등록하지 않으면, 그 급락을 모델은 <strong>추세 변화로 오해</strong>합니다. 데이터가 깨진 날은 휴일로 등록하거나 <code>y = None</code>으로 비우세요. Prophet은 결측을 그냥 건너뜁니다.</p>
+  </div>
+
+  <h3>불확실성 구간(yhat_lower / yhat_upper)의 정체</h3>
+  <p>Prophet이 내놓는 구간은 세 가지 원천을 합친 값입니다. 특히 첫 번째가 Prophet만의 특징입니다.</p>
+  <ol>
+    <li><strong>미래 추세의 불확실성</strong> — &ldquo;과거에 이 정도 빈도·크기로 추세가 꺾였으니, 미래에도 비슷하게 꺾일 것&rdquo;이라고 가정해 변화점을 무작위로 시뮬레이션합니다. 그래서 &tau;를 키우면 구간이 눈에 띄게 넓어집니다.</li>
+    <li><strong>관측 잡음</strong> &epsilon; — 잔차의 산포</li>
+    <li><strong>계절성의 불확실성</strong> — 기본은 꺼져 있습니다. <code>mcmc_samples&gt;0</code>으로 MCMC를 돌릴 때만 포함됩니다(대신 매우 느립니다)</li>
+  </ol>
+
+  <div class="lab">
+    <div class="labhead"><h5>실습 4 · interval_width와 구간의 의미</h5><span class="badge">Interactive</span></div>
+    <div class="labbody">
+      <canvas id="cvUn" class="cv" height="240"></canvas>
+      <div class="ctrls">
+        <div class="ctrl">
+          <label for="unW">interval_width <b id="unWV">0.80</b></label>
+          <input type="range" id="unW" min="50" max="99" step="1" value="80">
+        </div>
+        <div class="ctrl">
+          <label for="unT">changepoint_prior_scale <b id="unTV">0.05</b></label>
+          <input type="range" id="unT" min="0" max="4" step="1" value="1">
+        </div>
+      </div>
+      <div class="verdict" id="unMsg"></div>
+      <p class="eqhint">기본값 <code>interval_width=0.8</code>은 80% 구간입니다. 95%가 아니라는 점을 보고서에 꼭 명시하세요. 구간은 &lsquo;예측이 얼마나 믿을 만한가&rsquo;가 아니라 &lsquo;모델 가정 안에서의 산포&rsquo;일 뿐입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================== 6 -->
+<section id="s6">
+  <div class="shead"><div class="snum">06</div><h2>코드 6줄로 첫 예측 만들기</h2></div>
+  <p class="sub">이제 손을 움직입니다. Prophet API는 사실상 <code>fit</code> / <code>predict</code> 두 개뿐입니다.</p>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">설치</button>
+      <button role="tab" aria-selected="false">최소 예측 6줄</button>
+      <button role="tab" aria-selected="false">결과 해석</button>
+      <button role="tab" aria-selected="false">시각화</button>
+      <button role="tab" aria-selected="false">저장 · 로드</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre><span class="c"># pip (권장: 가상환경 안에서)</span>
+pip install prophet
+
+<span class="c"># conda 환경이면 의존성 충돌이 훨씬 적습니다</span>
+conda install -c conda-forge prophet
+
+<span class="c"># 확인</span>
+python -c <span class="s">"import prophet; print(prophet.__version__)"</span>
+
+<span class="c"># 참고</span>
+<span class="c">#  - v1.0부터 패키지명이 fbprophet → prophet 으로 변경됨</span>
+<span class="c">#  - 백엔드는 cmdstanpy. 첫 import 때 Stan 모델 컴파일로 수십 초 걸릴 수 있음</span>
+<span class="c">#  - 컨테이너 이미지를 만들 때는 빌드 단계에서 한 번 import 해 캐시를 굽는다</span></pre></div>
+    <div class="pane"><pre><span class="k">import</span> pandas <span class="k">as</span> pd
+<span class="k">from</span> prophet <span class="k">import</span> Prophet
+
+df = pd.read_csv(<span class="s">'sales.csv'</span>)          <span class="c"># 1. 열 이름은 반드시 ds, y</span>
+m = Prophet()                            <span class="c"># 2. 기본값으로 시작</span>
+m.fit(df)                                <span class="c"># 3. 학습 (수 초)</span>
+future = m.make_future_dataframe(periods=<span class="n">90</span>)   <span class="c"># 4. 미래 90일 뼈대</span>
+fcst = m.predict(future)                 <span class="c"># 5. 예측</span>
+fcst[[<span class="s">'ds'</span>, <span class="s">'yhat'</span>, <span class="s">'yhat_lower'</span>, <span class="s">'yhat_upper'</span>]].tail()   <span class="c"># 6. 확인</span></pre></div>
+    <div class="pane"><pre><span class="c"># predict()가 돌려주는 주요 열</span>
+<span class="c">#  ds                    : 시각</span>
+<span class="c">#  yhat                  : 최종 예측값  (= trend + seasonal + holidays)</span>
+<span class="c">#  yhat_lower/upper      : 불확실성 구간</span>
+<span class="c">#  trend                 : g(t)</span>
+<span class="c">#  weekly / yearly       : 각 계절성 기여분</span>
+<span class="c">#  holidays              : 휴일 기여분 합계</span>
+<span class="c">#  extra_regressors_*    : 추가 회귀변수 기여분</span>
+<span class="c">#  multiplicative_terms  : 곱셈형 항의 합</span>
+
+<span class="c"># 예측 근거를 그대로 표로 만들 수 있다 = 이해관계자 설명용</span>
+cols = [<span class="s">'ds'</span>, <span class="s">'yhat'</span>, <span class="s">'trend'</span>, <span class="s">'weekly'</span>, <span class="s">'yearly'</span>, <span class="s">'holidays'</span>]
+fcst[cols].tail(<span class="n">10</span>).round(<span class="n">1</span>)</pre></div>
+    <div class="pane"><pre><span class="k">from</span> prophet.plot <span class="k">import</span> plot_plotly, add_changepoints_to_plot
+
+fig1 = m.plot(fcst)                       <span class="c"># 관측치 + 예측 + 구간</span>
+add_changepoints_to_plot(fig1.gca(), m, fcst)   <span class="c"># 실제 선택된 변화점 표시</span>
+
+fig2 = m.plot_components(fcst)            <span class="c"># 추세/주간/연간/휴일 분해 그림</span>
+
+fig3 = plot_plotly(m, fcst)               <span class="c"># 인터랙티브 (plotly 필요)</span>
+fig3.show()</pre></div>
+    <div class="pane"><pre><span class="k">from</span> prophet.serialize <span class="k">import</span> model_to_json, model_from_json
+
+<span class="c"># pickle 대신 반드시 이 방식을 쓴다 (버전 호환성·보안)</span>
+<span class="k">with</span> <span class="f">open</span>(<span class="s">'model.json'</span>, <span class="s">'w'</span>) <span class="k">as</span> f:
+    f.write(model_to_json(m))
+
+<span class="k">with</span> <span class="f">open</span>(<span class="s">'model.json'</span>, <span class="s">'r'</span>) <span class="k">as</span> f:
+    m2 = model_from_json(f.read())
+
+<span class="c"># 재현성: Prophet은 기본적으로 MAP 최적화라 결과가 결정적이지만,</span>
+<span class="c"># 불확실성 구간은 시뮬레이션이므로 seed 고정이 필요하다</span>
+<span class="k">import</span> numpy <span class="k">as</span> np; np.random.seed(<span class="n">42</span>)</pre></div>
+    </div></div>
+
+  <div class="note">
+    <span class="tag">사고 실험</span>
+    <p><code>make_future_dataframe(periods=90)</code>은 <strong>과거 구간까지 포함한</strong> 전체 날짜표를 만듭니다. 그래서 <code>predict()</code> 결과에는 학습 구간의 적합값도 함께 들어 있습니다. 미래만 보려면 <code>fcst.tail(90)</code>으로 자르세요. <code>freq='H'</code>, <code>freq='W'</code> 등으로 시간 단위도 바꿉니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 7 -->
+<section id="s7">
+  <div class="shead"><div class="snum">07</div><h2>데이터 준비: 여기서 90%의 문제가 생긴다</h2></div>
+  <p class="sub">Prophet의 입력 규칙은 단순하지만, 어기면 조용히 이상한 예측을 냅니다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>규칙</th><th>내용</th><th>어기면</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">열 이름</td><td><code>ds</code>(날짜/시각), <code>y</code>(수치) 정확히 두 개</td><td>즉시 에러</td></tr>
+      <tr><td class="mono">ds 타입</td><td><code>pd.to_datetime()</code>으로 변환. 타임존은 <strong>제거</strong>(tz-naive)</td><td>tz-aware면 에러</td></tr>
+      <tr><td class="mono">y 타입</td><td>수치형. 문자열 &lsquo;1,234&rsquo; 같은 값은 미리 정리</td><td>학습 실패</td></tr>
+      <tr><td class="mono">정렬</td><td>시간 오름차순 권장(내부에서 정렬하지만 습관을 들이세요)</td><td>디버깅 지옥</td></tr>
+      <tr><td class="mono">중복 날짜</td><td>같은 <code>ds</code>가 여러 행이면 먼저 집계</td><td>과대적합·왜곡</td></tr>
+      <tr><td class="mono">결측</td><td><strong>행을 지우거나 <code>y=NaN</code>으로 두면 됨</strong> — 보간 불필요</td><td>0으로 채우면 급락을 학습</td></tr>
+      <tr><td class="mono">최소 길이</td><td>연간 계절성을 쓰려면 최소 2년치. 1년 미만이면 <code>yearly_seasonality=False</code></td><td>없는 연간 패턴을 발명</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">전처리 템플릿</button>
+      <button role="tab" aria-selected="false">이상치 처리</button>
+      <button role="tab" aria-selected="false">로그 변환</button>
+      <button role="tab" aria-selected="false">상한(cap) 설정</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre><span class="k">import</span> pandas <span class="k">as</span> pd
+
+raw = pd.read_csv(<span class="s">'raw.csv'</span>)
+df = (raw
+      .rename(columns={<span class="s">'date'</span>: <span class="s">'ds'</span>, <span class="s">'revenue'</span>: <span class="s">'y'</span>})
+      .assign(ds=<span class="k">lambda</span> d: pd.to_datetime(d[<span class="s">'ds'</span>]).dt.tz_localize(<span class="k">None</span>),
+              y=<span class="k">lambda</span> d: pd.to_numeric(d[<span class="s">'y'</span>], errors=<span class="s">'coerce'</span>))
+      .groupby(<span class="s">'ds'</span>, as_index=<span class="k">False</span>)[<span class="s">'y'</span>].sum()      <span class="c"># 중복 집계</span>
+      .sort_values(<span class="s">'ds'</span>)
+      .reset_index(drop=<span class="k">True</span>))
+
+<span class="c"># 빠진 날짜를 명시적으로 드러내기(값은 NaN으로 둔다)</span>
+full = pd.DataFrame({<span class="s">'ds'</span>: pd.date_range(df.ds.min(), df.ds.max(), freq=<span class="s">'D'</span>)})
+df = full.merge(df, on=<span class="s">'ds'</span>, how=<span class="s">'left'</span>)
+<span class="f">print</span>(df.y.isna().sum(), <span class="s">'개 결측 — Prophet이 알아서 건너뜁니다'</span>)</pre></div>
+    <div class="pane"><pre><span class="c"># Prophet은 이상치에 "적당히" 강하지만, 추세 끝부분의 이상치는 치명적이다.</span>
+<span class="c"># 원인을 아는 이상치 → 휴일로 등록.  원인을 모르는 이상치 → NaN으로 제거.</span>
+
+q1, q3 = df.y.quantile([<span class="n">0.25</span>, <span class="n">0.75</span>])
+iqr = q3 - q1
+mask = (df.y &lt; q1 - <span class="n">3</span>*iqr) | (df.y &gt; q3 + <span class="n">3</span>*iqr)
+<span class="f">print</span>(df.loc[mask, [<span class="s">'ds'</span>, <span class="s">'y'</span>]])          <span class="c"># 먼저 눈으로 확인!</span>
+
+df.loc[mask, <span class="s">'y'</span>] = <span class="k">None</span>                     <span class="c"># 삭제가 아니라 결측 처리</span>
+<span class="c"># 주의: 계절성 피크(연말 급증)를 이상치로 지우면 모델이 바보가 된다</span></pre></div>
+    <div class="pane"><pre><span class="k">import</span> numpy <span class="k">as</span> np
+
+<span class="c"># y의 분포가 오른쪽으로 심하게 치우쳤거나 분산이 값에 비례해 커질 때</span>
+df[<span class="s">'y'</span>] = np.log1p(df[<span class="s">'y'</span>])       <span class="c"># log(1+y): y=0도 안전</span>
+
+m = Prophet().fit(df)
+fcst = m.predict(m.make_future_dataframe(<span class="n">90</span>))
+
+<span class="c"># 원래 단위로 되돌리기 (구간도 함께!)</span>
+<span class="k">for</span> c <span class="k">in</span> [<span class="s">'yhat'</span>, <span class="s">'yhat_lower'</span>, <span class="s">'yhat_upper'</span>]:
+    fcst[c] = np.expm1(fcst[c])
+
+<span class="c"># 참고: 로그 공간의 additive 계절성 = 원 공간의 multiplicative 계절성</span></pre></div>
+    <div class="pane"><pre><span class="c"># 논리적 상한이 있을 때만 logistic을 쓴다 (예: 전체 가입 가능 인구)</span>
+df[<span class="s">'cap'</span>] = <span class="n">50000</span>          <span class="c"># 상수도 되고, 시간에 따라 변하는 열도 된다</span>
+df[<span class="s">'floor'</span>] = <span class="n">0</span>
+
+m = Prophet(growth=<span class="s">'logistic'</span>).fit(df)
+
+future = m.make_future_dataframe(periods=<span class="n">365</span>)
+future[<span class="s">'cap'</span>] = <span class="n">50000</span>      <span class="c"># future에도 반드시 다시 넣어야 한다!</span>
+future[<span class="s">'floor'</span>] = <span class="n">0</span>
+fcst = m.predict(future)</pre></div>
+    </div></div>
+</section>
+
+<!-- ===================================================== 8 -->
+<section id="s8">
+  <div class="shead"><div class="snum">08</div><h2>하이퍼파라미터: 실제로 만질 것은 4개뿐</h2></div>
+  <p class="sub">Prophet 파라미터는 20개가 넘지만, 튜닝 효과가 큰 것은 소수입니다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>파라미터</th><th>기본값</th><th>탐색 범위</th><th>역할</th><th>중요도</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">changepoint_prior_scale</td><td class="mono">0.05</td><td class="mono">0.001 ~ 0.5 (로그)</td><td>추세의 유연성. 가장 영향이 큼</td><td><span class="pill p-hi">최상</span></td></tr>
+      <tr><td class="mono">seasonality_prior_scale</td><td class="mono">10.0</td><td class="mono">0.01 ~ 10 (로그)</td><td>계절성 진폭 규제</td><td><span class="pill p-hi">상</span></td></tr>
+      <tr><td class="mono">seasonality_mode</td><td class="mono">'additive'</td><td class="mono">additive / multiplicative</td><td>계절성이 추세에 더해지나 곱해지나</td><td><span class="pill p-hi">상</span></td></tr>
+      <tr><td class="mono">holidays_prior_scale</td><td class="mono">10.0</td><td class="mono">0.01 ~ 10 (로그)</td><td>휴일 효과 크기 규제</td><td><span class="pill p-mid">중</span></td></tr>
+      <tr><td class="mono">yearly / weekly_seasonality</td><td class="mono">'auto'</td><td class="mono">False, True, 정수 N</td><td>계절성 on/off 또는 fourier_order</td><td><span class="pill p-mid">중</span></td></tr>
+      <tr><td class="mono">growth</td><td class="mono">'linear'</td><td class="mono">linear / logistic / flat</td><td>추세 함수 형태</td><td><span class="pill p-mid">중(도메인으로 결정)</span></td></tr>
+      <tr><td class="mono">changepoint_range</td><td class="mono">0.8</td><td class="mono">0.8 ~ 0.95</td><td>변화점을 놓을 구간 비율</td><td><span class="pill p-lo">하</span></td></tr>
+      <tr><td class="mono">n_changepoints</td><td class="mono">25</td><td class="mono">보통 그대로</td><td>후보 개수. &tau;로 조절하는 게 정석</td><td><span class="pill p-lo">하</span></td></tr>
+      <tr><td class="mono">interval_width</td><td class="mono">0.8</td><td class="mono">0.8 / 0.95</td><td>구간 폭(정확도와 무관)</td><td><span class="pill p-lo">하</span></td></tr>
+      <tr><td class="mono">mcmc_samples</td><td class="mono">0</td><td class="mono">0 또는 300+</td><td>완전 베이지안 추정. 수십 배 느림</td><td><span class="pill p-lo">하</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>증상별 처방전</h3>
+  <p>그래프를 보고 &ldquo;이상하다&rdquo;고 느꼈을 때 무엇을 만질지 찾는 표입니다. 항목을 눌러 펼쳐 보세요.</p>
+
+  <details><summary><span>예측선이 과거의 꺾임을 전혀 따라가지 못하고 뻣뻣하다</span></summary>
+    <div class="dbody"><p><code>changepoint_prior_scale</code>을 <strong>올립니다</strong>(0.05 → 0.1 → 0.3). 그래도 안 되면 <code>changepoint_range</code>를 0.9로 늘려 최근 구간에도 변화점을 허용합니다.</p></div></details>
+
+  <details><summary><span>미래 예측이 비현실적으로 급등/급락하며 발사된다</span></summary>
+    <div class="dbody"><p>&tau;가 너무 큰 대표 증상입니다. <strong>내립니다</strong>(0.05 → 0.01). 데이터 끝부분에 프로모션·장애 같은 일시적 사건이 있다면 그걸 <em>휴일</em>로 등록하는 것이 근본 처방입니다. 상한이 명확하면 <code>growth='logistic'</code>도 고려하세요.</p></div></details>
+
+  <details><summary><span>계절성 파동이 실제보다 과장돼 출렁인다</span></summary>
+    <div class="dbody"><p><code>seasonality_prior_scale</code>을 10 → 1 → 0.1로 낮추거나, <code>yearly_seasonality</code>의 fourier_order를 10 → 5로 줄입니다.</p></div></details>
+
+  <details><summary><span>값이 커질수록 실제 파동은 커지는데 모델 파동은 일정하다</span></summary>
+    <div class="dbody"><p><code>seasonality_mode='multiplicative'</code>로 바꾸거나 <code>y</code>에 로그 변환을 적용합니다.</p></div></details>
+
+  <details><summary><span>1년치 데이터인데 연간 패턴이 이상하게 그려진다</span></summary>
+    <div class="dbody"><p>주기를 한 번도 온전히 못 본 상태입니다. <code>yearly_seasonality=False</code>로 끄세요. 최소 2주기(2년)를 권장합니다.</p></div></details>
+
+  <details><summary><span>불확실성 구간이 실제 변동을 못 담는다(자꾸 벗어난다)</span></summary>
+    <div class="dbody"><p><code>interval_width=0.95</code>로 올려 보고하되, 근본 원인은 보통 모델 부적합입니다. 잔차를 그려서 남은 패턴(요일·이벤트)을 찾아 회귀변수로 추가하세요.</p></div></details>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">그리드 서치 (교차검증 기반)</button>
+      <button role="tab" aria-selected="false">Optuna 버전</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre><span class="k">import</span> itertools, numpy <span class="k">as</span> np, pandas <span class="k">as</span> pd
+<span class="k">from</span> prophet <span class="k">import</span> Prophet
+<span class="k">from</span> prophet.diagnostics <span class="k">import</span> cross_validation, performance_metrics
+
+grid = {
+    <span class="s">'changepoint_prior_scale'</span>: [<span class="n">0.001</span>, <span class="n">0.01</span>, <span class="n">0.05</span>, <span class="n">0.1</span>, <span class="n">0.5</span>],
+    <span class="s">'seasonality_prior_scale'</span>: [<span class="n">0.01</span>, <span class="n">0.1</span>, <span class="n">1.0</span>, <span class="n">10.0</span>],
+    <span class="s">'seasonality_mode'</span>: [<span class="s">'additive'</span>, <span class="s">'multiplicative'</span>],
+}
+keys, vals = <span class="f">zip</span>(*grid.items())
+combos = [<span class="f">dict</span>(<span class="f">zip</span>(keys, v)) <span class="k">for</span> v <span class="k">in</span> itertools.product(*vals)]
+
+rows = []
+<span class="k">for</span> params <span class="k">in</span> combos:                       <span class="c"># 40개 조합</span>
+    m = Prophet(**params).fit(df)
+    cv = cross_validation(m, initial=<span class="s">'730 days'</span>, period=<span class="s">'30 days'</span>,
+                          horizon=<span class="s">'30 days'</span>, parallel=<span class="s">'processes'</span>)
+    p = performance_metrics(cv, rolling_window=<span class="n">1</span>)
+    rows.append({**params, <span class="s">'rmse'</span>: p[<span class="s">'rmse'</span>].values[<span class="n">0</span>], <span class="s">'mape'</span>: p[<span class="s">'mape'</span>].values[<span class="n">0</span>]})
+
+best = pd.DataFrame(rows).sort_values(<span class="s">'rmse'</span>).head()
+<span class="f">print</span>(best)</pre></div>
+    <div class="pane"><pre><span class="k">import</span> optuna
+<span class="k">from</span> prophet <span class="k">import</span> Prophet
+<span class="k">from</span> prophet.diagnostics <span class="k">import</span> cross_validation, performance_metrics
+
+<span class="k">def</span> <span class="f">objective</span>(trial):
+    params = {
+        <span class="s">'changepoint_prior_scale'</span>: trial.suggest_float(<span class="s">'cps'</span>, <span class="n">1e-3</span>, <span class="n">0.5</span>, log=<span class="k">True</span>),
+        <span class="s">'seasonality_prior_scale'</span>: trial.suggest_float(<span class="s">'sps'</span>, <span class="n">1e-2</span>, <span class="n">10</span>, log=<span class="k">True</span>),
+        <span class="s">'seasonality_mode'</span>: trial.suggest_categorical(<span class="s">'mode'</span>, [<span class="s">'additive'</span>, <span class="s">'multiplicative'</span>]),
+    }
+    m = Prophet(**params).fit(df)
+    cv = cross_validation(m, initial=<span class="s">'730 days'</span>, period=<span class="s">'30 days'</span>, horizon=<span class="s">'30 days'</span>)
+    <span class="k">return</span> performance_metrics(cv, rolling_window=<span class="n">1</span>)[<span class="s">'rmse'</span>].values[<span class="n">0</span>]
+
+study = optuna.create_study(direction=<span class="s">'minimize'</span>)
+study.optimize(objective, n_trials=<span class="n">40</span>, n_jobs=<span class="n">1</span>)
+<span class="f">print</span>(study.best_params)</pre></div>
+    </div></div>
+</section>
+
+<!-- ===================================================== 9 -->
+<section id="s9">
+  <div class="shead"><div class="snum">09</div><h2>검증: 시계열에서 k-fold는 반칙이다</h2></div>
+  <p class="sub">미래 데이터로 과거를 예측하는 순간, 오차는 거짓이 됩니다.</p>
+
+  <h3>rolling-origin 교차검증 개념</h3>
+  <p>
+    Prophet의 <code>cross_validation()</code>은 <strong>cutoff</strong>를 뒤로 밀면서 매번 &ldquo;그 시점까지의 데이터만&rdquo;으로 학습하고,
+    이후 <code>horizon</code> 구간을 예측해 실제와 비교합니다. 실제 운영에서 매달 모델을 다시 학습하는 상황을 그대로 재현한 것입니다.
+  </p>
+
+  <div class="codeblk"><div class="tabs" role="tablist"><button role="tab" aria-selected="true">개념도</button></div><div class="panes"><div class="pane" data-on="1"><pre>전체 데이터 ├──────────────────────────────────────────────┤
+
+fold 1  [====== initial(학습) ======]▶[horizon]
+                    cutoff ↑
+fold 2  [====== initial + period ==========]▶[horizon]
+                              cutoff ↑
+fold 3  [====== initial + 2*period ==============]▶[horizon]
+                                     cutoff ↑
+
+initial : 첫 학습 구간 길이   (권장: horizon의 3배 이상, 계절 주기의 2배 이상)
+period  : cutoff를 미는 간격  (기본: horizon / 2)
+horizon : 매번 예측할 미래 길이 (실제 업무에서 필요한 예측 기간과 동일하게!)</pre></div></div></div>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">교차검증 실행</button>
+      <button role="tab" aria-selected="false">지표 해석</button>
+      <button role="tab" aria-selected="false">horizon별 성능 그림</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre><span class="k">from</span> prophet.diagnostics <span class="k">import</span> cross_validation, performance_metrics
+
+cv = cross_validation(
+    m,
+    initial=<span class="s">'1095 days'</span>,    <span class="c"># 3년으로 시작</span>
+    period=<span class="s">'90 days'</span>,       <span class="c"># 분기마다 cutoff 이동</span>
+    horizon=<span class="s">'90 days'</span>,      <span class="c"># 분기 예측 성능을 본다</span>
+    parallel=<span class="s">'processes'</span>,   <span class="c"># 'threads' | 'processes' | 'dask'</span>
+)
+cv.head()   <span class="c"># ds, yhat, yhat_lower, yhat_upper, y, cutoff</span>
+
+perf = performance_metrics(cv)     <span class="c"># horizon 구간별로 집계</span>
+perf[[<span class="s">'horizon'</span>, <span class="s">'mae'</span>, <span class="s">'rmse'</span>, <span class="s">'mape'</span>, <span class="s">'coverage'</span>]].head()</pre></div>
+    <div class="pane"><pre><span class="c"># MAE   : 평균 절대 오차. 단위가 y와 같아 설명하기 쉽다.</span>
+<span class="c"># RMSE  : 큰 오차에 더 민감. 이상치가 중요한 문제에 적합.</span>
+<span class="c"># MAPE  : 퍼센트 오차. y가 0에 가까우면 폭발하므로 주의.</span>
+<span class="c"># MDAPE : MAPE의 중앙값 버전. 이상치에 덜 흔들림.</span>
+<span class="c"># SMAPE : MAPE의 대칭 버전.</span>
+<span class="c"># coverage : 실제값이 [yhat_lower, yhat_upper] 안에 들어온 비율.</span>
+<span class="c">#            interval_width=0.8 이면 0.8 근처가 정상. 0.5라면 구간이 너무 좁다는 뜻.</span>
+
+<span class="c"># 반드시 함께 볼 기준선(baseline): 계절 나이브</span>
+<span class="c">#   "7일 전 값을 그대로 예측" 보다 못하다면 모델을 쓸 이유가 없다.</span>
+baseline_mae = (df[<span class="s">'y'</span>] - df[<span class="s">'y'</span>].shift(<span class="n">7</span>)).abs().mean()
+<span class="f">print</span>(<span class="s">'seasonal naive MAE:'</span>, <span class="f">round</span>(baseline_mae, <span class="n">2</span>))</pre></div>
+    <div class="pane"><pre><span class="k">from</span> prophet.plot <span class="k">import</span> plot_cross_validation_metric
+
+fig = plot_cross_validation_metric(cv, metric=<span class="s">'mape'</span>)
+<span class="c"># x축=예측 시점까지의 거리, y축=오차.</span>
+<span class="c"># 보통 우상향한다 = 멀리 볼수록 부정확하다.</span>
+<span class="c"># 이 곡선을 보고 "우리는 며칠까지 신뢰할 수 있다"를 정한다.</span></pre></div>
+    </div></div>
+
+  <div class="note bad">
+    <span class="tag">절대 금지</span>
+    <p><code>train_test_split(shuffle=True)</code>, <code>KFold</code>, 그리고 <strong>전체 데이터로 스케일링/이상치 제거 후 분할</strong>. 세 가지 모두 미래 정보 유출(data leakage)이며, 실제보다 훨씬 좋은 가짜 성능을 만듭니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 10 -->
+<section id="s10">
+  <div class="shead"><div class="snum">10</div><h2>확장: 외생변수 넣기</h2></div>
+  <p class="sub">기온, 광고비, 접속자 수처럼 예측에 도움이 되는 다른 변수를 추가합니다.</p>
+
+  <div class="note warn">
+    <span class="tag">가장 중요한 제약</span>
+    <p><code>add_regressor()</code>로 넣은 변수는 <strong>미래 구간의 값도 반드시 알아야</strong> 합니다. 미래 기온을 모른다면 그 변수는 쓸 수 없습니다(또는 기온 자체를 먼저 예측해야 하는데, 그 오차가 그대로 전파됩니다). 반면 &lsquo;공휴일 여부&rsquo;, &lsquo;프로모션 예정일&rsquo;, &lsquo;영업일 수&rsquo;처럼 <em>미리 확정된</em> 변수는 최고의 재료입니다.</p>
+  </div>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">회귀변수 추가</button>
+      <button role="tab" aria-selected="false">기여도 확인</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre>m = Prophet(seasonality_mode=<span class="s">'multiplicative'</span>)
+
+<span class="c"># standardize='auto' 가 기본. mode는 additive/multiplicative 개별 지정 가능</span>
+m.add_regressor(<span class="s">'ad_spend'</span>, prior_scale=<span class="n">0.5</span>, mode=<span class="s">'multiplicative'</span>)
+m.add_regressor(<span class="s">'is_open'</span>, prior_scale=<span class="n">10</span>, mode=<span class="s">'additive'</span>, standardize=<span class="k">False</span>)
+m.fit(df)      <span class="c"># df에 ds, y, ad_spend, is_open 열이 모두 있어야 함</span>
+
+future = m.make_future_dataframe(periods=<span class="n">60</span>)
+future = future.merge(plan_df, on=<span class="s">'ds'</span>, how=<span class="s">'left'</span>)   <span class="c"># 미래 계획값 결합</span>
+<span class="k">assert</span> future[[<span class="s">'ad_spend'</span>, <span class="s">'is_open'</span>]].notna().all().all(), <span class="s">'미래 회귀변수 결측!'</span>
+fcst = m.predict(future)</pre></div>
+    <div class="pane"><pre><span class="k">from</span> prophet.utilities <span class="k">import</span> regressor_coefficients
+
+<span class="f">print</span>(regressor_coefficients(m))
+<span class="c"># regressor | regressor_mode | center | coef_lower | coef | coef_upper</span>
+<span class="c"># coef의 부호와 크기로 "광고비 1단위당 매출 x 증가"를 읽는다.</span>
+<span class="c"># 주의: 이것은 상관에 기반한 기여도이며 인과 효과가 아니다.</span>
+
+<span class="c"># 예측 결과에서 각 항의 기여분 보기</span>
+fcst[[<span class="s">'ds'</span>, <span class="s">'yhat'</span>, <span class="s">'trend'</span>, <span class="s">'extra_regressors_multiplicative'</span>]].tail()</pre></div>
+    </div></div>
+
+  <h3>NeuralProphet — Prophet의 이웃 도구</h3>
+  <p>
+    Prophet과 같은 분해 철학을 유지하면서 PyTorch로 다시 쓴 프로젝트입니다.
+    <strong>자기회귀(AR-Net)</strong>를 지원해 Prophet의 약점인 단기 예측을 보완하고, 시차 회귀변수도 넣을 수 있습니다.
+    API가 비슷해 Prophet을 이해했다면 옮겨 타기 쉽습니다. 대신 학습이 느리고 튜닝 손잡이가 늘어납니다.
+  </p>
+  <div class="codeblk"><div class="tabs" role="tablist"><button role="tab" aria-selected="true">NeuralProphet 최소 예제</button></div><div class="panes"><div class="pane" data-on="1"><pre><span class="k">from</span> neuralprophet <span class="k">import</span> NeuralProphet
+
+m = NeuralProphet(
+    n_lags=<span class="n">14</span>,            <span class="c"># ← Prophet에 없는 자기회귀 창</span>
+    n_forecasts=<span class="n">7</span>,
+    yearly_seasonality=<span class="k">True</span>,
+    learning_rate=<span class="n">0.01</span>,
+)
+metrics = m.fit(df, freq=<span class="s">'D'</span>)
+future = m.make_future_dataframe(df, periods=<span class="n">7</span>, n_historic_predictions=<span class="k">True</span>)
+fcst = m.predict(future)</pre></div></div></div>
+</section>
+
+<!-- ===================================================== 11 -->
+<section id="s11">
+  <div class="shead"><div class="snum">11</div><h2>다른 도구와 비교: 무엇을 언제 쓰나</h2></div>
+  <p class="sub">Prophet은 만능이 아닙니다. 이 표가 이 강의에서 가장 실용적인 부분일 수 있습니다.</p>
+
+  <div class="tw"><table>
+    <thead><tr>
+      <th>도구 / 모델</th><th>계열</th><th>데이터 요구</th><th>해석성</th><th>결측·불규칙</th><th>외생변수</th><th>학습 속도</th><th>이럴 때 쓴다</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono">Seasonal&nbsp;Naive</td><td>규칙</td><td>1주기</td><td><span class="pill p-hi">완전</span></td><td>보간 필요</td><td>불가</td><td><span class="pill p-hi">즉시</span></td>
+        <td><strong>모든 프로젝트의 첫 기준선.</strong> 이걸 못 이기면 모델을 버린다</td>
+      </tr>
+      <tr>
+        <td class="mono">ETS / Holt-Winters</td><td>지수평활</td><td>2주기+</td><td><span class="pill p-hi">높음</span></td><td>약함</td><td>불가</td><td><span class="pill p-hi">매우 빠름</span></td>
+        <td>짧고 깔끔한 단일 계절성 시계열. 매우 강력한 기준선</td>
+      </tr>
+      <tr>
+        <td class="mono">ARIMA / SARIMAX</td><td>자기회귀</td><td>50+ 관측</td><td><span class="pill p-mid">중간</span></td><td>약함(등간격 필요)</td><td>가능(exog)</td><td><span class="pill p-hi">빠름</span></td>
+        <td><strong>단기 예측</strong>, 자기상관이 뚜렷할 때. 통계적 검정·신뢰구간이 이론적으로 필요할 때</td>
+      </tr>
+      <tr style="background:rgba(245,165,36,.06)">
+        <td class="mono" style="color:var(--trend)"><strong>Prophet</strong></td><td>가법 GAM</td><td>2년+ 권장</td><td><span class="pill p-hi">매우 높음</span></td><td><span class="pill p-hi">매우 강함</span></td><td>가능(미래값 필요)</td><td><span class="pill p-mid">보통(초 단위)</span></td>
+        <td><strong>다중 계절성 + 휴일 + 결측</strong>이 섞인 일별 비즈니스 지표. 설명이 필요한 중장기(수주~수개월) 예측</td>
+      </tr>
+      <tr>
+        <td class="mono">NeuralProphet</td><td>가법 + AR</td><td>2년+</td><td><span class="pill p-mid">높음</span></td><td>보통</td><td>가능(시차 포함)</td><td><span class="pill p-mid">느림</span></td>
+        <td>Prophet 구조를 유지하며 단기 정확도를 올리고 싶을 때</td>
+      </tr>
+      <tr>
+        <td class="mono">LightGBM / XGBoost</td><td>부스팅</td><td>많을수록</td><td><span class="pill p-mid">중간(SHAP)</span></td><td>강함</td><td><span class="pill p-hi">매우 강함</span></td><td><span class="pill p-hi">빠름</span></td>
+        <td><strong>정확도 우선</strong>. 여러 시계열을 한 모델로(global model), 풍부한 특성이 있을 때. 실무 대회 1순위</td>
+      </tr>
+      <tr>
+        <td class="mono">LSTM / GRU</td><td>딥러닝</td><td>수천+</td><td><span class="pill p-lo">낮음</span></td><td>보간 필요</td><td>가능</td><td><span class="pill p-lo">느림</span></td>
+        <td>비선형 장기 의존이 강한 고빈도 데이터. 요즘은 아래 대안이 더 낫다</td>
+      </tr>
+      <tr>
+        <td class="mono">DeepAR / TFT</td><td>딥러닝(확률)</td><td>시계열 수백+</td><td><span class="pill p-mid">중간(어텐션)</span></td><td>보통</td><td><span class="pill p-hi">매우 강함</span></td><td><span class="pill p-lo">느림·GPU</span></td>
+        <td>수천 개 SKU를 한 번에, 분위수 예측이 필요할 때</td>
+      </tr>
+      <tr>
+        <td class="mono">Chronos / TimesFM / Moirai</td><td>시계열 기반모델</td><td><strong>0 (zero-shot)</strong></td><td><span class="pill p-lo">낮음</span></td><td>보통</td><td>제한적</td><td><span class="pill p-mid">추론만</span></td>
+        <td>학습 없이 즉시 베이스라인이 필요할 때. 새 데이터셋 탐색 단계</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="note">
+    <span class="tag">용어 정리</span>
+    <p>위 표의 &lsquo;모델&rsquo;과 <strong>라이브러리</strong>를 혼동하지 마세요. <code>statsforecast</code>(Nixtla)는 ARIMA·ETS·Theta를 매우 빠르게 구현한 라이브러리, <code>darts</code>·<code>sktime</code>은 여러 모델을 같은 API로 감싼 프레임워크, <code>pytorch-forecasting</code>·<code>GluonTS</code>는 딥러닝 예측 툴킷입니다. Prophet도 <code>darts</code>와 <code>sktime</code> 안에서 하나의 모델로 호출할 수 있습니다.</p>
+  </div>
+
+  <h3>선택 흐름: 다섯 개 질문</h3>
+  <div class="grid2">
+    <div class="card"><span class="mono">Q1</span><h4>기준선을 먼저 만들었나?</h4><p>계절 나이브 → ETS/AutoARIMA 순으로 30분 안에 돌려 보세요. 놀랄 만큼 자주 이깁니다.</p></div>
+    <div class="card"><span class="mono">Q2</span><h4>예측 근거를 설명해야 하나?</h4><p>예 → <strong>Prophet</strong>. &ldquo;추석 +32%, 주말 +18%&rdquo;처럼 항별 기여도를 그대로 보고할 수 있는 도구는 흔치 않습니다.</p></div>
+    <div class="card"><span class="mono">Q3</span><h4>예측 구간이 며칠인가?</h4><p>1~7일 단기 → ARIMA·LightGBM 우세. 수주~수개월 중장기 → Prophet의 영역.</p></div>
+    <div class="card"><span class="mono">Q4</span><h4>시계열이 몇 개인가?</h4><p>1~100개 → Prophet 병렬 학습으로 충분. 1만 개 이상 → statsforecast 또는 LightGBM 글로벌 모델.</p></div>
+    <div class="card"><span class="mono">Q5</span><h4>쓸 만한 외생변수가 있나?</h4><p>많다 → 부스팅. 없고 시간 정보만 있다 → Prophet이 가장 가성비 좋은 출발점.</p></div>
+    <div class="card"><span class="mono">권장</span><h4>실전 조합</h4><p><strong>Prophet으로 추세·계절·휴일을 분해하고, 그 잔차를 LightGBM으로 학습</strong>하는 하이브리드가 현업에서 자주 통합니다.</p></div>
+  </div>
+</section>
+
+<!-- ===================================================== 12 -->
+<section id="s12">
+  <div class="shead"><div class="snum">12</div><h2>한계와 비판: 정직하게 짚고 가기</h2></div>
+  <p class="sub">Prophet을 오래 쓴 사람들이 공통으로 지적하는 지점들입니다.</p>
+
+  <ul>
+    <li><strong>자기상관을 모델링하지 않는다.</strong> 어제 값이 오늘 값에 주는 정보를 구조적으로 버립니다. 그래서 잔차에 자기상관이 그대로 남고, 단기 예측이 약합니다.</li>
+    <li><strong>여러 벤치마크에서 정확도가 상위권이 아니다.</strong> M4·M5 같은 대회와 여러 비교 실험에서 AutoARIMA·ETS·부스팅 계열이 Prophet보다 나은 결과를 낸 사례가 많습니다. Prophet의 가치는 최고 정확도가 아니라 <em>기본값의 견고함과 해석성</em>에 있습니다.</li>
+    <li><strong>추세 반응이 느리다.</strong> 변화점 후보가 앞쪽 80%에만 있으므로, 최근에 생긴 구조 변화(예: 정책 변경 직후)를 늦게 따라갑니다. 이건 버그가 아니라 &lsquo;미래로 잡음을 외삽하지 않겠다&rsquo;는 의도적 설계입니다.</li>
+    <li><strong>불확실성 구간을 과신하기 쉽다.</strong> 계절성 불확실성은 기본적으로 제외되고, 추세 구간은 &ldquo;과거와 비슷한 빈도로 꺾인다&rdquo;는 가정에 의존합니다. <code>coverage</code> 지표로 항상 검증하세요.</li>
+    <li><strong>대규모에서 느리다.</strong> Stan 기반이라 시계열 하나에 수백 ms~수 초가 걸립니다. 시계열 수만 개를 매일 돌리면 statsforecast(수십 배 빠름) 쪽이 현실적입니다.</li>
+    <li><strong>신기능 개발 속도가 둔화됐다.</strong> 성숙·안정 단계로, 새로운 모델링 기능이 활발히 추가되지는 않습니다. 최신 상황은 GitHub 저장소와 PyPI 릴리스 노트를 확인하세요.</li>
+    <li><strong>기본값이 만들어내는 착시.</strong> 1년 미만 데이터에 연간 계절성이 켜지거나, 주 5일 데이터에 주말 예측이 나오는 등 &ldquo;그럴듯하지만 틀린&rdquo; 결과가 쉽게 나옵니다.</li>
+  </ul>
+
+  <div class="note tip">
+    <span class="tag">균형 잡힌 결론</span>
+    <p>Prophet은 <strong>훌륭한 두 번째 모델</strong>입니다. 첫 번째는 나이브 기준선, 마지막은 문제에 맞는 최적 모델이고, Prophet은 그 사이에서 &ldquo;데이터가 무슨 모양인지&rdquo;를 사람에게 가장 빨리 설명해 주는 도구입니다. 분해 결과를 보고 얻은 통찰(주말 효과, 추석 효과, 추세 꺾임)은 이후 어떤 모델을 쓰더라도 특성 설계에 그대로 재활용됩니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 13 -->
+<section id="s13">
+  <div class="shead"><div class="snum">13</div><h2>운영 파이프라인: 노트북에서 프로덕션으로</h2></div>
+  <p class="sub">모델을 &lsquo;돌려본 것&rsquo;과 &lsquo;운영하는 것&rsquo;은 다른 일입니다.</p>
+
+  <div class="codeblk"><div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">파이프라인 구조</button>
+      <button role="tab" aria-selected="false">Airflow 재학습 DAG</button>
+      <button role="tab" aria-selected="false">다중 시계열 병렬 학습</button>
+      <button role="tab" aria-selected="false">모니터링 항목</button>
+    </div><div class="panes">
+    <div class="pane" data-on="1"><pre>[원천 DB/웨어하우스]
+        │  일 1회 적재
+        ▼
+[1] 데이터 검증        ← 스키마, 결측률, 중복 ds, 급격한 분포 변화
+        ▼
+[2] 전처리             ← ds/y 정규화, 이상치 → 휴일 또는 NaN
+        ▼
+[3] 학습 + 교차검증    ← 후보 파라미터 소수만 재확인 (매일 풀 그리드 X)
+        ▼
+[4] 챌린저 비교        ← 계절 나이브 / 이전 챔피언 모델과 CV 지표 비교
+        ▼
+[5] 승격 or 중단       ← 기준 미달이면 이전 모델 유지 + 알림
+        ▼
+[6] model.json 저장    ← 아티팩트 저장소(레지스트리) + 파라미터·지표 기록
+        ▼
+[7] 예측 저장 / 서빙   ← 예측 테이블 적재, 필요 시 API
+        ▼
+[8] 사후 모니터링      ← 실제값이 들어오면 예측과 대조해 드리프트 추적</pre></div>
+    <div class="pane"><pre><span class="k">from</span> airflow.decorators <span class="k">import</span> dag, task
+<span class="k">import</span> pendulum, json
+
+<span class="n">@dag</span>(schedule=<span class="s">'0 3 * * *'</span>, start_date=pendulum.datetime(<span class="n">2026</span>, <span class="n">1</span>, <span class="n">1</span>), catchup=<span class="k">False</span>)
+<span class="k">def</span> <span class="f">prophet_daily</span>():
+
+    <span class="n">@task</span>
+    <span class="k">def</span> <span class="f">extract</span>(ds=<span class="k">None</span>):
+        ...  <span class="c"># 웨어하우스 → parquet</span>
+
+    <span class="n">@task</span>
+    <span class="k">def</span> <span class="f">validate</span>(path):
+        <span class="c"># 결측률 5% 초과, ds 중복, y 음수 → 즉시 실패시켜 나쁜 모델 배포를 막는다</span>
+        ...
+
+    <span class="n">@task</span>
+    <span class="k">def</span> <span class="f">train_and_score</span>(path):
+        <span class="k">from</span> prophet <span class="k">import</span> Prophet
+        <span class="k">from</span> prophet.diagnostics <span class="k">import</span> cross_validation, performance_metrics
+        <span class="k">from</span> prophet.serialize <span class="k">import</span> model_to_json
+        m = Prophet(changepoint_prior_scale=<span class="n">0.05</span>, seasonality_mode=<span class="s">'multiplicative'</span>)
+        m.add_country_holidays(<span class="s">'KR'</span>)
+        m.fit(df)
+        cv = cross_validation(m, initial=<span class="s">'730 days'</span>, period=<span class="s">'30 days'</span>, horizon=<span class="s">'30 days'</span>)
+        rmse = performance_metrics(cv, rolling_window=<span class="n">1</span>)[<span class="s">'rmse'</span>].values[<span class="n">0</span>]
+        <span class="k">return</span> {<span class="s">'model'</span>: model_to_json(m), <span class="s">'rmse'</span>: <span class="f">float</span>(rmse)}
+
+    <span class="n">@task</span>
+    <span class="k">def</span> <span class="f">promote</span>(res):
+        <span class="k">if</span> res[<span class="s">'rmse'</span>] &gt; load_champion_rmse() * <span class="n">1.1</span>:
+            <span class="k">raise</span> <span class="f">ValueError</span>(<span class="s">'챌린저 성능 미달 — 승격 중단'</span>)
+        save_artifact(res[<span class="s">'model'</span>])
+
+    promote(train_and_score(validate(extract())))
+
+prophet_daily()</pre></div>
+    <div class="pane"><pre><span class="k">from</span> concurrent.futures <span class="k">import</span> ProcessPoolExecutor
+<span class="k">from</span> prophet <span class="k">import</span> Prophet
+<span class="k">import</span> pandas <span class="k">as</span> pd, logging
+
+<span class="k">def</span> <span class="f">fit_one</span>(item):
+    key, g = item
+    <span class="k">try</span>:
+        m = Prophet(weekly_seasonality=<span class="k">True</span>, yearly_seasonality=<span class="k">True</span>)
+        m.fit(g[[<span class="s">'ds'</span>, <span class="s">'y'</span>]])
+        f = m.predict(m.make_future_dataframe(<span class="n">30</span>)).tail(<span class="n">30</span>)
+        f[<span class="s">'key'</span>] = key
+        <span class="k">return</span> f[[<span class="s">'key'</span>, <span class="s">'ds'</span>, <span class="s">'yhat'</span>, <span class="s">'yhat_lower'</span>, <span class="s">'yhat_upper'</span>]]
+    <span class="k">except</span> <span class="f">Exception</span> <span class="k">as</span> e:
+        logging.warning(<span class="s">'%s 실패: %s'</span>, key, e)      <span class="c"># 하나 실패가 전체를 막지 않게</span>
+        <span class="k">return</span> <span class="k">None</span>
+
+groups = <span class="f">list</span>(df.groupby(<span class="s">'store_id'</span>))
+<span class="k">with</span> ProcessPoolExecutor(max_workers=<span class="n">8</span>) <span class="k">as</span> ex:
+    out = [r <span class="k">for</span> r <span class="k">in</span> ex.map(fit_one, groups) <span class="k">if</span> r <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>]
+result = pd.concat(out)
+
+<span class="c"># Stan은 스레드보다 프로세스 병렬이 안전하다.</span>
+<span class="c"># 컨테이너에서는 OMP_NUM_THREADS=1 로 두고 워커 수로 병렬을 조절한다.</span></pre></div>
+    <div class="pane"><pre><span class="c"># 예측 시스템에서 실제로 알림을 걸어야 하는 지표</span>
+
+<span class="c"># 1) 입력 드리프트</span>
+<span class="c">#    - y의 최근 30일 평균/분산이 학습 구간 대비 x% 이탈</span>
+<span class="c">#    - 결측률 증가, 신규 ds 누락</span>
+
+<span class="c"># 2) 예측 품질 (실측이 들어온 뒤)</span>
+<span class="c">#    - 롤링 MAE/MAPE가 기준선(계절 나이브) 대비 악화</span>
+<span class="c">#    - coverage가 interval_width에서 크게 벗어남 (예: 0.8 설정에 0.55 관측)</span>
+
+<span class="c"># 3) 모델 안정성</span>
+<span class="c">#    - 재학습마다 선택된 변화점 수가 급증 → τ가 과하거나 데이터가 깨졌다는 신호</span>
+<span class="c">#    - trend 마지막 기울기의 부호가 자주 뒤집힘</span>
+
+<span class="c"># 4) 운영</span>
+<span class="c">#    - 학습 시간, Stan 컴파일 캐시 적중, 실패 시계열 비율</span></pre></div>
+    </div></div>
+
+  <div class="note tip">
+    <span class="tag">컨테이너 팁</span>
+    <p>Prophet 이미지는 첫 <code>import</code> 때 Stan 모델을 컴파일합니다. Dockerfile 빌드 단계에서 <code>RUN python -c "from prophet import Prophet; Prophet()"</code>를 한 번 실행해 캐시를 구워두면, 런타임 콜드 스타트가 수십 초 짧아집니다. ARM64/x86_64 멀티아키 환경이라면 아키텍처별로 캐시가 따로 필요합니다.</p>
+  </div>
+</section>
+
+<!-- ===================================================== 14 -->
+<section id="s14">
+  <div class="shead"><div class="snum">14</div><h2>초보자가 자주 하는 실수 8가지</h2></div>
+  <p class="sub">하나씩만 피해도 예측 품질이 확 올라갑니다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:34px">#</th><th>실수</th><th>왜 문제인가</th><th>바로잡기</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">1</td><td>기준선 없이 바로 Prophet</td><td>모델이 도움이 됐는지 알 수 없다</td><td>계절 나이브 MAE를 먼저 기록</td></tr>
+      <tr><td class="mono">2</td><td>학습 오차로 파라미터 선택</td><td>&tau;가 무조건 커지고 미래 예측이 폭주</td><td><code>cross_validation()</code>으로만 선택</td></tr>
+      <tr><td class="mono">3</td><td>결측을 0으로 채움</td><td>0을 &lsquo;실제 급락&rsquo;으로 학습</td><td>행 삭제 또는 <code>y=NaN</code></td></tr>
+      <tr><td class="mono">4</td><td>1년 미만 데이터에 연간 계절성 사용</td><td>존재하지 않는 주기를 발명</td><td><code>yearly_seasonality=False</code></td></tr>
+      <tr><td class="mono">5</td><td>프로모션·장애를 그냥 방치</td><td>추세 변화로 오해해 미래에 외삽</td><td>휴일/이벤트로 등록</td></tr>
+      <tr><td class="mono">6</td><td>미래 회귀변수 값을 안 채움</td><td>예측이 조용히 NaN 또는 왜곡</td><td><code>assert notna()</code>로 방어</td></tr>
+      <tr><td class="mono">7</td><td>주 5일 데이터에 주말 예측 포함</td><td>0인 주말이 평균을 끌어내림</td><td>미래 프레임에서 주말 행 제거</td></tr>
+      <tr><td class="mono">8</td><td>주가·암호화폐 예측 시도</td><td>거의 랜덤워크 — 미래 정보가 t에 없다</td><td>예측 대신 변동성·리스크 관점으로 접근</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="codeblk"><div class="tabs" role="tablist"><button role="tab" aria-selected="true">7번 실수 해결 코드</button></div><div class="panes"><div class="pane" data-on="1"><pre><span class="c"># 영업일만 존재하는 데이터라면 미래 프레임에서도 주말/휴무를 제거한다</span>
+future = m.make_future_dataframe(periods=<span class="n">60</span>)
+future = future[future[<span class="s">'ds'</span>].dt.dayofweek &lt; <span class="n">5</span>]        <span class="c"># 월~금만</span>
+fcst = m.predict(future)
+
+<span class="c"># 학습 시에도 주말이 애초에 없다면 weekly_seasonality는 5일 패턴만 학습한다.</span>
+<span class="c"># 이 경우 Prophet(weekly_seasonality=3) 정도로 낮춰도 충분하다.</span></pre></div></div></div>
+</section>
+
+<!-- ===================================================== 15 -->
+<section id="s15">
+  <div class="shead"><div class="snum">15</div><h2>이해도 점검 퀴즈</h2></div>
+  <p class="sub">6문항. 답을 고른 뒤 채점하면 해설이 열립니다.</p>
+  <div id="quiz"></div>
+  <div class="qbar">
+    <button class="btn" id="qCheck">채점하기</button>
+    <button class="btn ghost" id="qReset">다시 풀기</button>
+    <span class="score" id="qScore"></span>
+  </div>
+</section>
+
+<!-- ===================================================== 16 -->
+<section id="s16">
+  <div class="shead"><div class="snum">16</div><h2>한 장 요약</h2></div>
+  <p class="sub">이 페이지만 캡처해 두면 됩니다.</p>
+
+  <div class="summary">
+    <h4>모델</h4>
+    <p style="font-family:var(--mono);font-size:15px;margin-top:4px">
+      y(t) = <span style="color:var(--trend)">g(t)</span> + <span style="color:var(--season)">s(t)</span> + <span style="color:var(--holiday)">h(t)</span> + <span style="color:var(--noise)">&epsilon;<sub>t</sub></span>
+    </p>
+    <ul>
+      <li><span style="color:var(--trend)">g(t)</span> 조각별 선형/로지스틱 + 변화점, 손잡이는 <code>changepoint_prior_scale</code></li>
+      <li><span style="color:var(--season)">s(t)</span> 푸리에 급수, 손잡이는 <code>fourier_order</code>와 <code>seasonality_mode</code></li>
+      <li><span style="color:var(--holiday)">h(t)</span> 휴일 더미 + 앞뒤 창(window)</li>
+      <li><span style="color:var(--noise)">&epsilon;</span> 잔차 — 여기 패턴이 남아 있으면 아직 할 일이 있다</li>
+    </ul>
+
+    <h4>최소 작업 순서</h4>
+    <ol>
+      <li>계절 나이브 기준선 MAE 기록</li>
+      <li><code>ds</code>/<code>y</code> 정리 → 결측은 비워두기 → 이상치는 휴일 또는 NaN</li>
+      <li><code>Prophet()</code> 기본값 + <code>add_country_holidays('KR')</code>로 1차 적합</li>
+      <li><code>plot_components()</code>로 분해를 눈으로 확인 (여기서 도메인 지식과 대조)</li>
+      <li><code>cross_validation()</code> + <code>performance_metrics()</code>로 기준선과 비교</li>
+      <li>&tau;, 계절성 규제, 모드만 그리드 서치</li>
+      <li><code>model_to_json()</code>으로 저장 → 파이프라인화 → coverage와 롤링 오차 모니터링</li>
+    </ol>
+
+    <h4>기억할 세 문장</h4>
+    <ul>
+      <li>학습 오차를 보고 튜닝하면 반드시 실패한다.</li>
+      <li>Prophet의 강점은 정확도가 아니라 <strong>설명 가능한 분해</strong>다.</li>
+      <li>기준선을 이기지 못하는 모델은 배포하지 않는다.</li>
+    </ul>
+  </div>
+
+  <h3>다음에 볼 것</h3>
+  <ul>
+    <li>공식 문서와 논문: <a href="https://facebook.github.io/prophet/" target="_blank" rel="noopener">facebook.github.io/prophet</a> · Taylor &amp; Letham, <em>Forecasting at Scale</em> (2018)</li>
+    <li>비교 실습: <code>statsforecast</code>의 AutoARIMA/AutoETS로 같은 데이터를 돌려 Prophet과 CV 지표를 나란히 비교</li>
+    <li>확장: <code>NeuralProphet</code>의 <code>n_lags</code>, LightGBM 시차 특성 기반 글로벌 모델, 잔차 하이브리드</li>
+  </ul>
+</section>
+
+<footer>
+  Prophet 완전 입문 · 시계열 예측을 분해해서 이해하기<br>
+  모든 그래프는 브라우저에서 실시간 계산되는 교육용 시각화입니다(실제 Prophet 실행 결과가 아닙니다).<br>
+  라이브러리 최신 버전과 API는 공식 문서에서 확인하세요.
+</footer>
+
+</div><!-- /wrap -->
+</main>
+</div><!-- /shell -->
+<script>
+/* ============================================================
+   Prophet 강의 인터랙션 — 외부 라이브러리 없음, 캔버스 직접 렌더
+   ============================================================ */
+(function(){
+'use strict';
+var $=function(s,r){return (r||document).querySelector(s);};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+var CO={trend:'#F5A524',season:'#3FD8BE',holiday:'#F2668B',noise:'#7E8CA3',
+        fit:'#6AA9FF',obs:'#D6E2F0',grid:'#1A2634',axis:'#2B3B4D',faint:'#5F7189'};
+var RM=window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+/* ---------- 캔버스 준비 (고해상도 대응) ---------- */
+function prep(cv,hh){
+  var dpr=Math.min(2,window.devicePixelRatio||1);
+  var w=Math.max(200,cv.clientWidth||cv.parentNode.clientWidth||600);
+  var h=hh||parseFloat(cv.getAttribute('height'))||200;
+  cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); cv.style.height=h+'px';
+  var ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  return {ctx:ctx,w:w,h:h};
+}
+/* ---------- 범용 라인 플롯 ---------- */
+function plot(cv,cfg){
+  var P=prep(cv,cfg.h), ctx=P.ctx, w=P.w, h=P.h;
+  var pad=cfg.pad||{l:10,r:10,t:12,b:14};
+  var n=cfg.n, lo=cfg.ymin, hi=cfg.ymax;
+  if(lo===undefined||hi===undefined){
+    lo=Infinity; hi=-Infinity;
+    cfg.series.forEach(function(s){
+      (s.y||[]).forEach(function(v){ if(v==null||isNaN(v))return; if(v<lo)lo=v; if(v>hi)hi=v; });
+      if(s.band){ s.band.lo.forEach(function(v){ if(v!=null&&v<lo)lo=v; });
+                  s.band.hi.forEach(function(v){ if(v!=null&&v>hi)hi=v; }); }
+    });
+    if(!isFinite(lo)){lo=0;hi=1;}
+    var m=(hi-lo)*0.12||1; lo-=m; hi+=m;
+  }
+  var X=function(i){return pad.l+(n<2?0:(i/(n-1))*(w-pad.l-pad.r));};
+  var Y=function(v){return h-pad.b-((v-lo)/((hi-lo)||1))*(h-pad.t-pad.b);};
+  /* 그리드 */
+  if(cfg.grid!==false){
+    ctx.strokeStyle=CO.grid; ctx.lineWidth=1;
+    for(var g=0;g<=4;g++){ var yy=Math.round(pad.t+g*(h-pad.t-pad.b)/4)+.5;
+      ctx.beginPath(); ctx.moveTo(pad.l,yy); ctx.lineTo(w-pad.r,yy); ctx.stroke(); }
+  }
+  /* 밴드 */
+  cfg.series.forEach(function(s){
+    if(!s.band)return; ctx.beginPath(); var st=false;
+    for(var i=0;i<n;i++){ var v=s.band.hi[i]; if(v==null)continue;
+      if(!st){ctx.moveTo(X(i),Y(v));st=true;} else ctx.lineTo(X(i),Y(v)); }
+    for(var j=n-1;j>=0;j--){ var v2=s.band.lo[j]; if(v2==null)continue; ctx.lineTo(X(j),Y(v2)); }
+    ctx.closePath(); ctx.fillStyle=s.band.color||'rgba(106,169,255,.16)'; ctx.fill();
+  });
+  /* 수직 마커 */
+  (cfg.vlines||[]).forEach(function(v){
+    ctx.save(); ctx.setLineDash([3,4]); ctx.strokeStyle=v.color||CO.axis; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X(v.i),pad.t); ctx.lineTo(X(v.i),h-pad.b); ctx.stroke(); ctx.restore();
+    if(v.label){ ctx.fillStyle=v.color||CO.faint; ctx.font='500 10px JetBrains Mono,monospace';
+      ctx.textAlign=v.align||'left'; ctx.fillText(v.label,X(v.i)+4,pad.t+10); }
+  });
+  /* 0 기준선 */
+  if(cfg.zero&&lo<0&&hi>0){ ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle=CO.axis;
+    ctx.beginPath(); ctx.moveTo(pad.l,Y(0)); ctx.lineTo(w-pad.r,Y(0)); ctx.stroke(); ctx.restore(); }
+  /* 라인 */
+  cfg.series.forEach(function(s){
+    if(!s.y)return;
+    ctx.save(); ctx.lineWidth=s.w||1.5; ctx.strokeStyle=s.color||CO.obs;
+    ctx.lineJoin='round'; ctx.lineCap='round';
+    if(s.dash)ctx.setLineDash(s.dash);
+    if(s.dots){ ctx.fillStyle=s.color;
+      for(var i=0;i<n;i++){ var v=s.y[i]; if(v==null)continue;
+        ctx.beginPath(); ctx.arc(X(i),Y(v),s.r||1.1,0,6.284); ctx.fill(); }
+    } else {
+      ctx.beginPath(); var started=false;
+      for(var k=0;k<n;k++){ var vv=s.y[k];
+        if(vv==null||isNaN(vv)){started=false;continue;}
+        if(!started){ctx.moveTo(X(k),Y(vv));started=true;} else ctx.lineTo(X(k),Y(vv)); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+  /* x축 라벨 */
+  if(cfg.xlabels){ ctx.fillStyle=CO.faint; ctx.font='500 9.5px JetBrains Mono,monospace';
+    cfg.xlabels.forEach(function(L){ ctx.textAlign=L.i===0?'left':(L.i>=n-1?'right':'center');
+      ctx.fillText(L.t,X(L.i),h-2); }); }
+  return {X:X,Y:Y,ctx:ctx,w:w,h:h};
+}
+function fmt(v,d){return (Math.round(v*Math.pow(10,d||1))/Math.pow(10,d||1)).toFixed(d||1);}
+function mean(a){var s=0,c=0;for(var i=0;i<a.length;i++){if(a[i]==null)continue;s+=a[i];c++;}return c?s/c:0;}
+
+/* ============================================================
+   1) 목차 스크롤 스파이 + 진행바 + 모바일 토글
+   ============================================================ */
+(function(){
+  var links=$$('nav ol a'), secs=links.map(function(a){return document.getElementById(a.getAttribute('href').slice(1));});
+  var bar=$('#progBar');
+  function onScroll(){
+    var st=window.scrollY||document.documentElement.scrollTop;
+    var dh=document.documentElement.scrollHeight-window.innerHeight;
+    if(bar)bar.style.width=Math.max(0,Math.min(100,(st/(dh||1))*100))+'%';
+    var idx=-1;
+    for(var i=0;i<secs.length;i++){ if(secs[i]&&secs[i].getBoundingClientRect().top<=140) idx=i; }
+    links.forEach(function(a,i){ a.classList.toggle('on',i===idx); });
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  window.addEventListener('resize',onScroll); onScroll();
+  var btn=$('#navBtn');
+  if(btn){ btn.addEventListener('click',function(){
+      var on=document.body.classList.toggle('navon');
+      btn.setAttribute('aria-expanded',on?'true':'false'); btn.textContent=on?'닫기':'목차'; });
+    $$('nav ol a').forEach(function(a){ a.addEventListener('click',function(){
+      document.body.classList.remove('navon'); btn.setAttribute('aria-expanded','false'); btn.textContent='목차'; }); });
+  }
+})();
+
+/* ============================================================
+   2) 코드 탭 + 복사 버튼
+   ============================================================ */
+$$('.codeblk').forEach(function(blk){
+  var tabs=$$('.tabs button',blk), panes=$$('.pane',blk), holder=$('.panes',blk);
+  tabs.forEach(function(t,i){ t.addEventListener('click',function(){
+    tabs.forEach(function(x,j){x.setAttribute('aria-selected',j===i?'true':'false');});
+    panes.forEach(function(p,j){ if(j===i)p.setAttribute('data-on','1'); else p.removeAttribute('data-on'); });
+  });});
+  var cp=document.createElement('button'); cp.className='copy'; cp.textContent='복사';
+  cp.addEventListener('click',function(){
+    var act=$('.pane[data-on="1"]',blk)||panes[0]; var txt=act.innerText;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(function(){cp.textContent='복사됨';
+        setTimeout(function(){cp.textContent='복사';},1400);});
+    } else { cp.textContent='Ctrl+C'; setTimeout(function(){cp.textContent='복사';},1400); }
+  });
+  if(holder)holder.appendChild(cp);
+});
+
+/* ============================================================
+   3) 히어로 — 분해 믹서 (서명 요소)
+   ============================================================ */
+var HERO=(function(){
+  var N=730;
+  function rnd(seed){var a=seed>>>0;return function(){a=(a+0x6D2B79F5)>>>0;
+    var t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;};}
+  var R=rnd(20260726);
+  var WK=[-4,-6,-5,-3,3,11,4];
+  var HD=[[15,25],[120,14],[250,20],[340,38],[380,26],[485,15],[615,21],[705,40]];
+  var g=[],s=[],hh=[],e=[];
+  for(var i=0;i<N;i++){
+    g.push(100+0.055*i+(i>430?0.045*(i-430):0));
+    s.push(WK[(i+3)%7]*1.0 + 14*Math.sin(2*Math.PI*(i-40)/365.25) + 5*Math.sin(4*Math.PI*(i-12)/365.25));
+    e.push((R()+R()+R()-1.5)*7.2);
+    hh.push(0);
+  }
+  HD.forEach(function(d){ var c=d[0],m=d[1];
+    for(var k=-2;k<=2;k++){ var idx=c+k; if(idx<0||idx>=N)continue;
+      hh[idx]+=m*(k===0?1:(Math.abs(k)===1?0.45:0.18)); } });
+  var on={g:true,s:true,h:true,e:true};
+  var gm=mean(g), full=[], i2;
+  for(i2=0;i2<N;i2++) full.push(g[i2]+s[i2]+hh[i2]+e[i2]);
+  var flo=Math.min.apply(null,full), fhi=Math.max.apply(null,full);
+  var pad=(fhi-flo)*0.1; flo-=pad; fhi+=pad;
+  function draw(){
+    var sum=[];
+    for(var i=0;i<N;i++){
+      var v=(on.g?g[i]:gm)+(on.s?s[i]:0)+(on.h?hh[i]:0)+(on.e?e[i]:0);
+      sum.push(v);
+    }
+    var ser=[{y:sum,color:CO.obs,w:1.25}];
+    if(on.g)ser.push({y:g,color:CO.trend,w:2.2});
+    plot($('#cvSum'),{n:N,series:ser,ymin:flo,ymax:fhi,
+      pad:{l:8,r:8,t:12,b:18},
+      xlabels:[{i:0,t:'2024-01'},{i:182,t:'07'},{i:365,t:'2025-01'},{i:547,t:'07'},{i:729,t:'2025-12'}],
+      vlines:[]});
+    var minis=[['#cvG',g,CO.trend],['#cvS',s,CO.season],['#cvH',hh,CO.holiday],['#cvE',e,CO.noise]];
+    minis.forEach(function(m){ var cv=$(m[0]); if(!cv)return;
+      plot(cv,{n:N,series:[{y:m[1],color:m[2],w:1.2}],grid:false,zero:true,
+        pad:{l:2,r:2,t:6,b:6}}); });
+    $$('.minicard').forEach(function(card){
+      var k=card.getAttribute('data-c'); if(on[k])card.removeAttribute('data-off'); else card.setAttribute('data-off','1');
+    });
+  }
+  $$('.chip').forEach(function(ch){ ch.addEventListener('click',function(){
+    var k=ch.getAttribute('data-k'); on[k]=!on[k];
+    ch.setAttribute('aria-pressed',on[k]?'true':'false'); draw(); }); });
+  return {draw:draw};
+})();
+
+/* ============================================================
+   4) 실습 1 — changepoint_prior_scale (실제 L1 좌표하강법)
+   ============================================================ */
+var CPLAB=(function(){
+  var cv=$('#cvCp'); if(!cv)return{draw:function(){}};
+  var EPS=[12.25,-15.33,2.51,-3.41,-2.72,-1.29,-12.12,-1.39,-5.19,19.94,1.35,-2.12,-1.69,-4.01,-6.33,-2.34,2.89,-1.43,5.75,-1.2,0.15,9.27,3.27,-3.03,-1.1,3.24,11.61,-1.62,-1.46,6.01,-5.32,-1.75,5.3,3.48,0.55,4.02,-16.97,6.13,-5.76,-10.01,1.66,4.2,-2.67,-6.46,0.16,-0.32,8.43,4.48,1.16,6.67,-1.23,-5.56,3.5,3.5,-1.29,-4.7,1.37,-14.96,4.14,2.95,-9.83,0.37,-5.78,4.54,-12.21,-5.49,4.26,6.94,-12.95,-2.99,1.97,-3.66,9.54,-7.15,2.13,-6.29,8.44,-0.13,-2.23,-10.31,10.09,4.52,4.52,6.83,2.1,-3.84,-4.8,-4.8,8.22,-8.76,-3.58,-1.93,1.35,3.45,-7.49,-10.38,-0.03,7.28,4.54,1.29,-1.9,1.76,-1.46,4.9,-4.77,0.81,-0.66,3.26,1.35,15.3,8.99,8.98,-12.24,-2.04,-3.65,3.2,-13.67,7.05,6.4,-7.81,-5.87,-4.81,0.26,3.85,12.29,-1.18,4.61,0.93,10.56,4.45,8.21,-6.47,-1.15,-4.88,9.03,3.95,-1.83,-2.71,2.91,-4.21,-5.58,2.89,14.78,-1.48,-3.34,-7.03,-8.01,3.15,5.1,0.06,2.0,0.7,0.83,-9.16,-2.75,0.67,-4.7,-2.86,-4.91,-2.0,5.12,-2.44,-0.92,4.88,3.87,10.17,-12.54,5.14,-2.89,0.81,5.03,6.5,6.24,0.93,9.66,-1.7,-0.85,4.8,-3.31,12.97,6.12,13.05,-0.16,-2.3,1.0,4.41,-3.52,2.28,-0.1,9.69,-3.98,6.28,-3.86,-5.76,-4.26,-7.14,0.88,6.19,0.99,3.75,9.79,1.62,1.17,-1.65,-9.65,4.56,-10.54,3.92,-0.09,6.76,-0.41,-4.94,2.15,-3.36,-1.09,0.25,-0.81,-1.13,-4.99,-1.13,-12.83,-0.94,-7.19,6.72,7.62,-11.71,0.87,-0.76,-6.28,3.19,-2.77,-10.61,-1.6,-0.89,0.64,-7.39,3.69,4.41,-6.87,-3.95,-0.48,-3.4,10.46,1.25,-6.06,-4.73,-0.34,13.77,-1.07,0.76,3.08,-0.24,13.68,-3.19,4.47,0.96,3.73,-7.06,10.61,-0.73,0.2,-5.61,-4.38,3.39,5.92,4.52,7.25,4.29,0.17,5.02,3.56,-0.6,4.36,7.71,1.41,-2.14,4.31,11.4,-1.26,-0.55,-0.82,7.34,-11.02,2.2,7.15,-4.88,8.93,3.21,-3.29,1.22,-9.21,-3.39,10.96,-5.36,11.07,-0.49,5.97,0.26,-13.45,-3.44,1.14,-6.91,-8.08,2.2,-3.9,-10.17,-4.1,5.16,-2.84,5.61,9.16,0.2,-6.78,-7.81,-0.16,5.29,1.61,3.28,-2.66,1.8,-2.83,-1.95,-7.75,-9.43,-2.89,-6.65,-5.75,4.03,-0.64,17.48,5.56,-3.8,4.67,2.14,-4.11,6.62,-4.65,-18.35,4.76,-3.7,8.92,-3.9,-7.09,9.29,-6.45,1.22,8.7,0.69,-0.48,0.61,5.03,-4.84,3.66,3.46,14.0,-2.02,-5.49,4.41,-2.38,1.73];
+  var NTR=300, NFU=60, NAL=NTR+NFU;
+  function tr(i){return 100+0.30*Math.min(i,110)+0.04*Math.max(0,i-110);}
+  var y=[],truth=[];
+  for(var i=0;i<NAL;i++){ truth.push(tr(i)); if(i<NTR) y.push(tr(i)+(EPS[i]||0)); }
+  var NC=25, S=[];
+  for(var j=1;j<=NC;j++) S.push(240*j/NC);
+  function design(i){ var row=[1,i/NTR]; for(var k=0;k<NC;k++) row.push(Math.max(0,i-S[k])/NTR); return row; }
+  var X=[],p=NC+2;
+  for(i=0;i<NTR;i++) X.push(design(i));
+  var nrm=[];
+  for(var c=0;c<p;c++){ var t=0; for(i=0;i<NTR;i++) t+=X[i][c]*X[i][c]; nrm.push(t||1e-9); }
+  var sy=(function(){ var mu=mean(y),v=0; y.forEach(function(a){v+=(a-mu)*(a-mu);}); return Math.sqrt(v/y.length); })();
+  var TAUS=[0.001,0.005,0.01,0.05,0.15,0.3,0.5], cache={};
+  function fit(tau){
+    if(cache[tau])return cache[tau];
+    var thr=0.05*sy/tau, b=new Float64Array(p), r=new Float64Array(NTR);
+    for(i=0;i<NTR;i++) r[i]=y[i];
+    for(var it=0;it<200;it++){
+      for(var cc=0;cc<p;cc++){
+        var rho=0;
+        for(i=0;i<NTR;i++){ r[i]+=X[i][cc]*b[cc]; rho+=X[i][cc]*r[i]; }
+        var nb;
+        if(cc<2) nb=rho/nrm[cc];
+        else { var ab=Math.abs(rho)-thr; nb=(ab>0? (rho>0?ab:-ab):0)/nrm[cc]; }
+        b[cc]=nb;
+        for(i=0;i<NTR;i++) r[i]-=X[i][cc]*nb;
+      }
+    }
+    var pred=[],nz=0;
+    for(i=0;i<NAL;i++){ var row=design(i),v=0; for(cc=0;cc<p;cc++) v+=row[cc]*b[cc]; pred.push(v); }
+    for(cc=2;cc<p;cc++) if(Math.abs(b[cc])>1e-6) nz++;
+    var trm=0,fum=0;
+    for(i=0;i<NTR;i++) trm+=Math.abs(pred[i]-y[i]);
+    for(i=NTR;i<NAL;i++) fum+=Math.abs(pred[i]-truth[i]);
+    cache[tau]={pred:pred,nz:nz,tr:trm/NTR,fu:fum/NFU};
+    return cache[tau];
+  }
+  function draw(){
+    var tau=TAUS[+$('#cpTau').value], F=fit(tau);
+    var obs=[],hist=[],fut=[];
+    for(var i=0;i<NAL;i++){
+      obs.push(i<NTR?y[i]:null);
+      hist.push(i<NTR?F.pred[i]:null);
+      fut.push(i>=NTR-1?F.pred[i]:null);
+    }
+    plot(cv,{n:NAL,ymin:85,ymax:190,pad:{l:10,r:10,t:14,b:18},
+      series:[{y:obs,color:CO.noise,w:1,dots:true,r:1.3},
+              {y:truth,color:CO.holiday,w:1.4,dash:[5,4]},
+              {y:hist,color:CO.trend,w:2.3},
+              {y:fut,color:CO.fit,w:2.3}],
+      vlines:[{i:NTR,color:CO.axis,label:'예측 시작'},{i:240,color:'#2B3B4D',label:'변화점 허용 끝(80%)'}],
+      xlabels:[{i:0,t:'day 0'},{i:NTR,t:'300'},{i:NAL-1,t:'360'}]});
+    $('#cpTauV').textContent=tau;
+    $('#cpN').textContent=F.nz+' / 25';
+    $('#cpTr').textContent=fmt(F.tr,2);
+    $('#cpFu').textContent=fmt(F.fu,2);
+    var msg;
+    if(tau<=0.005) msg='<strong style="color:var(--bad)">과소적합.</strong> 변화점이 0개 선택돼 추세가 직선 하나로 눌렸습니다. 데이터의 꺾임을 무시하니 미래 오차가 가장 큽니다.';
+    else if(tau<=0.01) msg='아직 뻣뻣합니다. 학습 오차는 줄었지만 미래 오차가 여전히 큽니다.';
+    else if(tau<=0.15) msg='<strong style="color:var(--ok)">적정 구간.</strong> 실제 꺾임만 잡아내고 잡음은 무시합니다. 미래 오차가 최소입니다.';
+    else msg='<strong style="color:var(--warn)">과대적합 시작.</strong> 학습 오차는 계속 좋아지지만 잡음까지 추세로 흡수해 미래 오차가 다시 커집니다. 학습 오차만 보면 이 함정을 절대 못 봅니다.';
+    $('#cpMsg').innerHTML=msg;
+  }
+  $('#cpTau').addEventListener('input',draw);
+  return {draw:draw};
+})();
+
+/* ============================================================
+   5) 실습 2 — 푸리에 차수
+   ============================================================ */
+var FOLAB=(function(){
+  var cv=$('#cvFo'); if(!cv)return{draw:function(){}};
+  var M=480, NMAX=25;
+  function G(u,mu,sg){ var d=Math.abs(u-mu); d=Math.min(d,1-d); return Math.exp(-(d*d)/(2*sg*sg)); }
+  var f=[],i,u;
+  for(i=0;i<M;i++){ u=i/M;
+    f.push(0.95*G(u,0.98,0.030)+0.32*G(u,0.46,0.10)-0.30*G(u,0.14,0.085)+0.12*Math.sin(2*Math.PI*u));
+  }
+  var mu0=mean(f); for(i=0;i<M;i++) f[i]=(f[i]-mu0)*22;
+  var A=[],B=[];
+  for(var n=1;n<=NMAX;n++){ var a=0,b=0;
+    for(i=0;i<M;i++){ u=i/M; a+=f[i]*Math.cos(2*Math.PI*n*u); b+=f[i]*Math.sin(2*Math.PI*n*u); }
+    A.push(2*a/M); B.push(2*b/M);
+  }
+  function draw(){
+    var N=+$('#foN').value, ap=[],err=0;
+    for(i=0;i<M;i++){ u=i/M; var v=0;
+      for(var n=0;n<N;n++) v+=A[n]*Math.cos(2*Math.PI*(n+1)*u)+B[n]*Math.sin(2*Math.PI*(n+1)*u);
+      ap.push(v); err+=(v-f[i])*(v-f[i]);
+    }
+    plot(cv,{n:M,series:[{y:f,color:CO.noise,w:1.6},{y:ap,color:CO.season,w:2.2}],
+      zero:true,pad:{l:10,r:10,t:14,b:18},
+      xlabels:[{i:0,t:'1월'},{i:120,t:'4월'},{i:240,t:'7월'},{i:360,t:'10월'},{i:M-1,t:'12월'}]});
+    $('#foNV').textContent=N; $('#foP').textContent=(2*N)+'개';
+    $('#foE').textContent=fmt(Math.sqrt(err/M),2);
+    var m;
+    if(N<=2) m='<strong style="color:var(--bad)">부족.</strong> 부드러운 파동 한두 겹으로는 연말 급등을 표현할 수 없습니다.';
+    else if(N<=6) m='굵은 흐름은 잡았지만 날카로운 피크는 아직 뭉뚝합니다.';
+    else if(N<=14) m='<strong style="color:var(--ok)">기본값 부근(연간 N=10).</strong> 실제 패턴을 충분히 따라갑니다.';
+    else m='<strong style="color:var(--warn)">과도합니다.</strong> 파라미터가 '+(2*N)+'개로 늘고, 평탄해야 할 구간에 없는 요철(Gibbs 물결)이 생깁니다. 잡음을 계절성으로 학습하는 상태입니다.';
+    $('#foMsg').innerHTML=m;
+  }
+  $('#foN').addEventListener('input',draw);
+  return {draw:draw};
+})();
+
+/* ============================================================
+   6) 실습 3 — additive vs multiplicative
+   ============================================================ */
+var MODELAB=(function(){
+  var cv=$('#cvMode'); if(!cv)return{draw:function(){}};
+  var n=520, REL=[-0.35,-0.50,-0.40,-0.20,0.25,0.95,0.25], mode='add';
+  var trend=[],data=[],i;
+  function rnd(seed){var a=seed>>>0;return function(){a=(a+0x6D2B79F5)>>>0;
+    var t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;};}
+  var R=rnd(7);
+  for(i=0;i<n;i++){ var g=60+0.42*i; trend.push(g);
+    data.push(g*(1+0.16*REL[i%7])+(R()-0.5)*7); }
+  var Aa=(function(){ var num=0,den=0; for(i=0;i<n;i++){ var r=REL[i%7];
+      num+=r*(data[i]-trend[i]); den+=r*r; } return num/den; })();
+  var Bb=(function(){ var num=0,den=0; for(i=0;i<n;i++){ var r=REL[i%7]*trend[i];
+      num+=r*(data[i]-trend[i]); den+=r*r; } return num/den; })();
+  function draw(){
+    var model=[],err=0;
+    for(i=0;i<n;i++){ var v=(mode==='add')? trend[i]+Aa*REL[i%7] : trend[i]*(1+Bb*REL[i%7]);
+      model.push(v); err+=Math.abs(v-data[i]); }
+    plot(cv,{n:n,series:[{y:data,color:CO.obs,w:1.1},{y:trend,color:CO.trend,w:1.6,dash:[5,4]},
+                         {y:model,color:CO.fit,w:1.7}],
+      pad:{l:10,r:10,t:14,b:16},
+      xlabels:[{i:0,t:'작을 때'},{i:n-1,t:'커진 뒤'}]});
+    $('#modeMsg').innerHTML=(mode==='add')
+      ? '<strong style="color:var(--bad)">additive:</strong> 파동 폭이 처음부터 끝까지 일정합니다. 왼쪽(작은 값)에서는 과하게, 오른쪽(큰 값)에서는 모자라게 예측합니다. 평균절대오차 <b style="font-family:var(--mono)">'+fmt(err/n,2)+'</b>'
+      : '<strong style="color:var(--ok)">multiplicative:</strong> 파동 폭이 추세에 비례해 함께 벌어지며 데이터와 겹쳐집니다. 평균절대오차 <b style="font-family:var(--mono)">'+fmt(err/n,2)+'</b>';
+  }
+  $('#mAdd').addEventListener('click',function(){ mode='add';
+    $('#mAdd').setAttribute('aria-pressed','true'); $('#mMul').setAttribute('aria-pressed','false'); draw(); });
+  $('#mMul').addEventListener('click',function(){ mode='mul';
+    $('#mMul').setAttribute('aria-pressed','true'); $('#mAdd').setAttribute('aria-pressed','false'); draw(); });
+  return {draw:draw};
+})();
+
+/* ============================================================
+   7) 실습 4 — 불확실성 구간
+   ============================================================ */
+var UNLAB=(function(){
+  var cv=$('#cvUn'); if(!cv)return{draw:function(){}};
+  var NH=200, NF=90, NA=NH+NF, TAUS=[0.01,0.05,0.15,0.3,0.5], SIG=5.2;
+  function rnd(seed){var a=seed>>>0;return function(){a=(a+0x6D2B79F5)>>>0;
+    var t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;};}
+  var R=rnd(99), obs=[],yhat=[],i;
+  for(i=0;i<NA;i++){ var g=100+0.26*i; yhat.push(g);
+    obs.push(i<NH? g+(R()+R()+R()-1.5)*SIG*2 : null); }
+  function probit(pp){
+    var a=[-39.69683028665376,220.9460984245205,-275.9285104469687,138.3577518672690,-30.66479806614716,2.506628277459239],
+        b=[-54.47609879822406,161.5858368580409,-155.6989798598866,66.80131188771972,-13.28068155288572],
+        c=[-0.007784894002430293,-0.3223964580411365,-2.400758277161838,-2.549732539343734,4.374664141464968,2.938163982698783],
+        d=[0.007784695709041462,0.3224671290700398,2.445134137142996,3.754408661907416],
+        pl=0.02425,q,r;
+    if(pp<pl){ q=Math.sqrt(-2*Math.log(pp));
+      return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+    if(pp>1-pl){ q=Math.sqrt(-2*Math.log(1-pp));
+      return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+    q=pp-0.5; r=q*q;
+    return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+  }
+  function draw(){
+    var W=(+$('#unW').value)/100, tau=TAUS[+$('#unT').value];
+    var z=probit((1+W)/2), lo=[],hi=[],inside=0,cnt=0;
+    for(i=0;i<NA;i++){
+      var half;
+      if(i<NH){ half=z*SIG; if(obs[i]!=null){cnt++;
+          if(Math.abs(obs[i]-yhat[i])<=half) inside++; } }
+      else { var h=i-NH+1; half=z*Math.sqrt(SIG*SIG+Math.pow(tau*1.05*h,2)); }
+      lo.push(yhat[i]-half); hi.push(yhat[i]+half);
+    }
+    plot(cv,{n:NA,pad:{l:10,r:10,t:14,b:16},
+      series:[{y:yhat,color:CO.fit,w:2,band:{lo:lo,hi:hi,color:'rgba(106,169,255,.15)'}},
+              {y:obs,color:CO.obs,w:1,dots:true,r:1.2}],
+      vlines:[{i:NH,color:CO.axis,label:'예측 시작'}],
+      xlabels:[{i:0,t:'과거'},{i:NA-1,t:'+90일'}]});
+    $('#unWV').textContent=W.toFixed(2); $('#unTV').textContent=tau;
+    var wid=2*(hi[NA-1]-yhat[NA-1]);
+    $('#unMsg').innerHTML='90일 뒤 구간 폭 <b style="font-family:var(--mono);color:var(--fit)">&plusmn;'
+      +fmt((hi[NA-1]-yhat[NA-1]),1)+'</b> · 과거 구간 실제 포함률 <b style="font-family:var(--mono)">'
+      +fmt(100*inside/(cnt||1),0)+'%</b> (설정 '+Math.round(W*100)+'%)<br>'
+      +'<span style="color:var(--tx-dim);font-size:13.5px">interval_width는 &lsquo;표시할 폭&rsquo;만 바꾸고 예측 정확도는 바꾸지 않습니다. 반면 changepoint_prior_scale을 키우면 미래 추세가 꺾일 가능성이 커진 것으로 간주해 구간이 실제로 넓어집니다.</span>';
+  }
+  $('#unW').addEventListener('input',draw); $('#unT').addEventListener('input',draw);
+  return {draw:draw};
+})();
+
+/* ============================================================
+   8) 퀴즈
+   ============================================================ */
+(function(){
+  var Q=[
+   {q:'Prophet 모델식 y(t)=g(t)+s(t)+h(t)+ε에서 계절성 s(t)는 무엇으로 표현되나요?',
+    o:['요일마다 하나씩 만든 더미변수 365개','주기 P를 갖는 사인·코사인 쌍 N개의 합(푸리에 급수)','직전 7일 값의 이동평균','LSTM이 학습한 은닉 상태'],
+    a:1,e:'푸리에 급수입니다. 파라미터가 2N개뿐이라 매끄럽고 효율적입니다. N은 fourier_order로 조절하며 연간 기본값은 10입니다.'},
+   {q:'changepoint_prior_scale을 0.05에서 0.5로 올렸습니다. 무슨 일이 생기나요?',
+    o:['추세가 더 뻣뻣해지고 구간이 좁아진다','추세가 더 유연해지고 미래 불확실성 구간이 넓어진다','계절성 진폭만 커진다','학습 속도가 10배 빨라진다'],
+    a:1,e:'delta의 Laplace 사전분포가 느슨해져 변화점이 많이 선택됩니다. 학습 오차는 줄지만 잡음까지 추세로 흡수해 미래 예측이 불안정해지고, 추세 시뮬레이션 기반 구간도 넓어집니다.'},
+   {q:'일별 데이터에서 서버 장애로 3일간 값이 비어 있습니다. 가장 좋은 처리는?',
+    o:['0으로 채운다','앞뒤 평균으로 보간한다','해당 행을 지우거나 y를 NaN으로 둔다','전체 시계열을 버린다'],
+    a:2,e:'Prophet은 자기회귀를 쓰지 않으므로 결측 행을 그냥 건너뜁니다. 0으로 채우면 실제 급락으로 학습하고, 억지 보간은 없는 정보를 만들어 넣는 셈입니다.'},
+   {q:'시계열 모델의 성능을 올바르게 검증하는 방법은?',
+    o:['데이터를 무작위로 섞어 5-fold 교차검증','cutoff를 뒤로 밀며 이후 horizon을 예측해 비교(rolling-origin)','학습 데이터의 MAE를 최소화','전체 데이터로 표준화한 뒤 8:2 분할'],
+    a:1,e:'무작위 분할은 미래 정보 유출입니다. Prophet의 cross_validation(initial, period, horizon)이 rolling-origin 방식을 구현합니다.'},
+   {q:'add_regressor(\'ad_spend\')를 쓰기 위한 필수 조건은?',
+    o:['광고비가 y와 상관이 없어야 한다','예측하려는 미래 구간의 광고비 값도 알아야 한다','광고비를 반드시 로그 변환해야 한다','mcmc_samples를 켜야 한다'],
+    a:1,e:'회귀변수는 미래 시점의 값이 future 데이터프레임에 반드시 채워져 있어야 합니다. 그래서 프로모션 계획·영업일 수처럼 미리 확정된 변수가 가장 좋은 재료입니다.'},
+   {q:'매출이 커질수록 주말 효과의 절대 크기도 함께 커지는 데이터입니다. 무엇을 바꿔야 하나요?',
+    o:["seasonality_mode='multiplicative'","growth='logistic'","n_changepoints=100","interval_width=0.95"],
+    a:0,e:'계절성이 추세에 곱해지게 바꿉니다. y에 log1p를 적용한 뒤 additive로 두는 것도 실질적으로 같은 효과입니다.'}
+  ];
+  var box=$('#quiz'); if(!box)return;
+  Q.forEach(function(item,qi){
+    var d=document.createElement('div'); d.className='q';
+    var html='<div class="qn">Q'+(qi+1)+'</div><p class="qt">'+item.q+'</p>';
+    item.o.forEach(function(o,oi){
+      html+='<label class="opt" data-oi="'+oi+'"><input type="radio" name="q'+qi+'" value="'+oi+'">'+o+'</label>';
+    });
+    html+='<div class="qex" id="ex'+qi+'"><b>해설 · </b>'+item.e+'</div>';
+    d.innerHTML=html; box.appendChild(d);
+  });
+  $('#qCheck').addEventListener('click',function(){
+    var score=0;
+    Q.forEach(function(item,qi){
+      var picked=document.querySelector('input[name="q'+qi+'"]:checked');
+      $$('.q')[qi].querySelectorAll('.opt').forEach(function(l){ l.classList.remove('right','wrong'); });
+      $$('.q')[qi].querySelectorAll('.opt').forEach(function(l){
+        var oi=+l.getAttribute('data-oi');
+        if(oi===item.a) l.classList.add('right');
+        else if(picked&&+picked.value===oi) l.classList.add('wrong');
+      });
+      $('#ex'+qi).setAttribute('data-on','1');
+      if(picked&&+picked.value===item.a) score++;
+    });
+    var msg=score===Q.length?'완벽합니다. 실전으로 가세요.':(score>=4?'좋습니다. 틀린 문항의 해설만 다시 읽어보세요.':'해당 장을 다시 훑어볼 만합니다.');
+    $('#qScore').textContent=score+' / '+Q.length+' — '+msg;
+  });
+  $('#qReset').addEventListener('click',function(){
+    $$('.q').forEach(function(q,qi){
+      q.querySelectorAll('.opt').forEach(function(l){ l.classList.remove('right','wrong'); });
+      q.querySelectorAll('input').forEach(function(inp){ inp.checked=false; });
+      $('#ex'+qi).removeAttribute('data-on');
+    });
+    $('#qScore').textContent='';
+    window.scrollTo({top:document.getElementById('s15').offsetTop-20,behavior:RM?'auto':'smooth'});
+  });
+})();
+
+/* ============================================================
+   9) 초기 렌더 + 리사이즈
+   ============================================================ */
+function renderAll(){ HERO.draw(); CPLAB.draw(); FOLAB.draw(); MODELAB.draw(); UNLAB.draw(); }
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(renderAll);
+renderAll();
+var rt; window.addEventListener('resize',function(){ clearTimeout(rt); rt=setTimeout(renderAll,140); });
+})();
+</script>
+</body>
+</html>
