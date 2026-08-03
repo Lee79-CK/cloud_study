@@ -1,0 +1,2564 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ceph 완전 기초 — 분산 스토리지의 원리부터 실무 적용까지</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#070B0F;
+  --surface:#0E141B;
+  --raised:#141E28;
+  --line:#22303E;
+  --line-soft:#1A242F;
+  --text:#E9F0F6;
+  --muted:#8CA1B4;
+  --dim:#5D7387;
+  --aqua:#37D3C0;
+  --violet:#9C8CFF;
+  --amber:#FFB552;
+  --coral:#FF6E76;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  --sans:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif;
+  --maxw:860px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  background:var(--ink);color:var(--text);font-family:var(--sans);
+  font-size:16px;line-height:1.75;letter-spacing:-.01em;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(900px 500px at 88% -8%, rgba(55,211,192,.09), transparent 60%),
+    radial-gradient(700px 480px at 4% 22%, rgba(156,140,255,.07), transparent 62%);
+}
+img,svg{max-width:100%;display:block}
+a{color:var(--aqua);text-decoration:none;border-bottom:1px solid rgba(55,211,192,.3)}
+a:hover{border-bottom-color:var(--aqua)}
+::selection{background:rgba(55,211,192,.28)}
+
+/* ---------- progress ---------- */
+#prog{position:fixed;top:0;left:0;height:2px;background:linear-gradient(90deg,var(--aqua),var(--violet));width:0;z-index:120;transition:width .12s linear}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:268px minmax(0,1fr);gap:0;position:relative;z-index:1}
+nav.side{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  border-right:1px solid var(--line-soft);padding:34px 20px 60px;
+  background:rgba(8,12,17,.72);backdrop-filter:blur(10px);
+}
+nav.side .brand{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;color:var(--dim);text-transform:uppercase;margin-bottom:6px}
+nav.side .btitle{font-size:17px;font-weight:800;letter-spacing:-.03em;line-height:1.3;margin-bottom:22px}
+nav.side .btitle em{font-style:normal;color:var(--aqua)}
+nav.side ol{list-style:none}
+nav.side a{
+  display:flex;gap:11px;align-items:baseline;padding:7px 10px;border-radius:7px;
+  color:var(--muted);font-size:13.5px;border:none;line-height:1.45;
+  transition:color .15s,background .15s;
+}
+nav.side a span.n{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.06em;flex:0 0 20px}
+nav.side a:hover{color:var(--text);background:rgba(255,255,255,.035)}
+nav.side a.on{color:var(--aqua);background:rgba(55,211,192,.09)}
+nav.side a.on span.n{color:var(--aqua)}
+nav.side .foot{margin-top:26px;padding-top:18px;border-top:1px solid var(--line-soft);font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.9;letter-spacing:.03em}
+
+main{min-width:0;padding:0 clamp(20px,5vw,68px) 140px}
+.wrap{max-width:var(--maxw);margin:0 auto}
+
+#menu{
+  display:none;position:fixed;right:16px;bottom:16px;z-index:110;
+  background:var(--raised);border:1px solid var(--line);color:var(--text);
+  font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  padding:12px 15px;border-radius:11px;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.5);
+}
+
+/* ---------- hero ---------- */
+header.hero{padding:clamp(60px,11vh,120px) 0 64px;border-bottom:1px solid var(--line-soft)}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.24em;color:var(--aqua);text-transform:uppercase;margin-bottom:20px}
+h1{font-size:clamp(36px,6.6vw,64px);font-weight:800;letter-spacing:-.045em;line-height:1.04}
+h1 .lo{display:block;color:var(--dim);font-weight:600;font-size:clamp(19px,3vw,28px);letter-spacing:-.03em;margin-top:14px}
+.lede{margin-top:26px;font-size:17px;color:var(--muted);max-width:62ch;line-height:1.85}
+.lede strong{color:var(--text);font-weight:600}
+
+.term{
+  margin-top:40px;background:#04080B;border:1px solid var(--line);border-radius:12px;
+  overflow:hidden;box-shadow:0 22px 60px rgba(0,0,0,.5);
+}
+.term .bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line-soft);background:rgba(255,255,255,.02)}
+.term .bar i{width:9px;height:9px;border-radius:50%;background:#2A3846;display:block}
+.term .bar i:first-child{background:#3A4B5C}
+.term .bar b{margin-left:8px;font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--dim);letter-spacing:.08em}
+.term pre{
+  font-family:var(--mono);font-size:12.5px;line-height:1.95;padding:18px 16px;
+  overflow-x:auto;white-space:pre;color:#B7C9D8;min-height:290px;
+}
+.term .ok{color:var(--aqua)}
+.term .k{color:var(--violet)}
+.term .w{color:var(--amber)}
+.term .c{color:var(--dim)}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--aqua);vertical-align:-2px;animation:blink 1.05s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
+.hstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;margin-top:1px;background:var(--line-soft);border:1px solid var(--line-soft);border-top:none;border-radius:0 0 12px 12px;overflow:hidden}
+.hstats div{background:var(--ink);padding:15px 16px}
+.hstats b{display:block;font-family:var(--mono);font-size:19px;color:var(--text);letter-spacing:-.02em}
+.hstats span{font-family:var(--mono);font-size:9.5px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+
+/* ---------- sections ---------- */
+section{padding:78px 0;border-bottom:1px solid var(--line-soft);scroll-margin-top:20px}
+section:last-of-type{border-bottom:none}
+.snum{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;color:var(--violet);margin-bottom:14px}
+h2{font-size:clamp(26px,4.1vw,38px);font-weight:800;letter-spacing:-.04em;line-height:1.15;margin-bottom:8px}
+h2 + .sub{color:var(--dim);font-size:14.5px;font-family:var(--mono);letter-spacing:-.01em;margin-bottom:34px}
+h3{font-size:19px;font-weight:700;letter-spacing:-.03em;margin:40px 0 14px;padding-left:13px;border-left:2px solid var(--aqua)}
+h4{font-size:15.5px;font-weight:700;letter-spacing:-.02em;margin:26px 0 10px;color:var(--text)}
+p{margin:14px 0;color:#C3D2DE}
+p strong,li strong{color:var(--text);font-weight:600}
+ul,ol{margin:14px 0 14px 4px;padding-left:20px;color:#C3D2DE}
+li{margin:8px 0}
+li::marker{color:var(--dim)}
+code:not(pre code){
+  font-family:var(--mono);font-size:.865em;background:rgba(55,211,192,.09);
+  color:#8FE6DA;padding:2px 6px;border-radius:4px;border:1px solid rgba(55,211,192,.16);
+  white-space:nowrap;
+}
+
+/* ---------- callouts ---------- */
+.note{border-left:2px solid var(--aqua);background:rgba(55,211,192,.05);padding:16px 20px;border-radius:0 9px 9px 0;margin:26px 0}
+.note.v{border-color:var(--violet);background:rgba(156,140,255,.055)}
+.note.a{border-color:var(--amber);background:rgba(255,181,82,.055)}
+.note.c{border-color:var(--coral);background:rgba(255,110,118,.05)}
+.note .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--aqua);margin-bottom:7px}
+.note.v .lbl{color:var(--violet)} .note.a .lbl{color:var(--amber)} .note.c .lbl{color:var(--coral)}
+.note p{margin:6px 0;font-size:14.5px}
+.note ul{font-size:14.5px;margin:8px 0 4px}
+
+.analogy{border:1px dashed var(--line);border-radius:11px;padding:18px 20px;margin:26px 0;background:rgba(255,255,255,.014)}
+.analogy .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase;margin-bottom:8px}
+.analogy p{margin:4px 0;font-size:14.5px;color:#CBD8E3}
+
+/* ---------- cards ---------- */
+.grid{display:grid;gap:12px;margin:26px 0}
+.g2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(185px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line-soft);border-radius:11px;padding:19px 19px 20px;transition:border-color .18s,transform .18s}
+.card:hover{border-color:var(--line);transform:translateY(-2px)}
+.card .tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;margin-bottom:9px}
+.card h5{font-size:15.5px;font-weight:700;letter-spacing:-.025em;margin-bottom:7px}
+.card p{font-size:13.5px;margin:5px 0;color:var(--muted);line-height:1.7}
+.card.hl{border-color:rgba(55,211,192,.3);background:linear-gradient(180deg,rgba(55,211,192,.05),var(--surface))}
+
+/* ---------- daemon table ---------- */
+.tblwrap{overflow-x:auto;margin:26px 0;border:1px solid var(--line-soft);border-radius:11px;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:13.5px}
+th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);background:rgba(255,255,255,.022);font-weight:500;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:rgba(255,255,255,.017)}
+td strong{color:var(--text)}
+td .mono{font-family:var(--mono);font-size:12px;color:var(--aqua)}
+.yes{color:var(--aqua);font-family:var(--mono)}
+.no{color:#48596A;font-family:var(--mono)}
+.part{color:var(--amber);font-family:var(--mono)}
+
+/* ---------- code ---------- */
+.codeset{margin:26px 0;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#04080B}
+.tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--line-soft);background:rgba(255,255,255,.02);scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{
+  background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);
+  font-family:var(--mono);font-size:11.5px;padding:11px 15px;cursor:pointer;white-space:nowrap;
+  letter-spacing:.02em;transition:color .15s,border-color .15s;
+}
+.tabs button:hover{color:var(--muted)}
+.tabs button.on{color:var(--aqua);border-bottom-color:var(--aqua);background:rgba(55,211,192,.05)}
+.pane{display:none;position:relative}
+.pane.on{display:block}
+.pane pre{font-family:var(--mono);font-size:12.5px;line-height:1.9;padding:18px 16px;overflow-x:auto;color:#B7C9D8;white-space:pre}
+.pane .cp{position:absolute;top:9px;right:9px;background:var(--raised);border:1px solid var(--line);color:var(--dim);font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;padding:5px 9px;border-radius:6px;cursor:pointer;opacity:0;transition:opacity .15s}
+.pane:hover .cp{opacity:1}
+.pane .cp:hover{color:var(--aqua);border-color:rgba(55,211,192,.4)}
+pre .c{color:#4C6072}
+pre .k{color:var(--violet)}
+pre .s{color:#8FE6DA}
+pre .o{color:var(--amber)}
+
+/* ---------- interactive shell ---------- */
+.lab{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:30px 0}
+.lab > .head{padding:15px 20px;border-bottom:1px solid var(--line-soft);background:rgba(255,255,255,.022);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lab > .head .dot{width:6px;height:6px;border-radius:50%;background:var(--aqua);box-shadow:0 0 9px var(--aqua);flex:0 0 auto;animation:pulse 2.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.lab > .head b{font-size:14px;font-weight:700;letter-spacing:-.02em}
+.lab > .head span{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.06em}
+.lab > .body{padding:20px}
+.ctl{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:20px}
+.fld label{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+.fld input[type=text],.fld input[type=number],.fld select{
+  width:100%;background:#050A0E;border:1px solid var(--line);color:var(--text);
+  font-family:var(--mono);font-size:13px;padding:9px 11px;border-radius:8px;
+}
+.fld input:focus,.fld select:focus{outline:none;border-color:var(--aqua);box-shadow:0 0 0 3px rgba(55,211,192,.12)}
+.fld input[type=range]{width:100%;accent-color:var(--aqua);background:transparent}
+.fld .val{font-family:var(--mono);font-size:12px;color:var(--aqua)}
+.btn{
+  background:rgba(55,211,192,.11);border:1px solid rgba(55,211,192,.34);color:var(--aqua);
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;padding:9px 16px;
+  border-radius:8px;cursor:pointer;transition:background .15s,transform .1s;
+}
+.btn:hover{background:rgba(55,211,192,.2)}
+.btn:active{transform:scale(.97)}
+.btn.g{background:rgba(255,255,255,.04);border-color:var(--line);color:var(--muted)}
+.btn.g:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.btnrow{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:6px}
+
+/* CRUSH viz */
+.flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;margin-bottom:20px;padding:14px;background:#050A0E;border:1px solid var(--line-soft);border-radius:10px;overflow-x:auto}
+.flow .step{padding:7px 11px;border:1px solid var(--line);border-radius:7px;white-space:nowrap;background:var(--raised)}
+.flow .step em{font-style:normal;color:var(--dim);display:block;font-size:9px;letter-spacing:.14em;margin-bottom:3px}
+.flow .step b{color:var(--aqua);font-weight:500}
+.flow .step.v b{color:var(--violet)}
+.flow .arw{color:var(--dim);flex:0 0 auto}
+
+.topo{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.rack{border:1px solid var(--line-soft);border-radius:10px;padding:12px;background:#060B10}
+.rack > .rname{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;margin-bottom:10px}
+.host{margin-bottom:11px}
+.host:last-child{margin-bottom:0}
+.host .hname{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:6px}
+.osds{display:flex;gap:6px;flex-wrap:wrap}
+.osd{
+  flex:1 1 40px;min-width:40px;text-align:center;font-family:var(--mono);font-size:10.5px;
+  padding:8px 4px;border:1px solid var(--line);border-radius:6px;background:var(--raised);
+  color:var(--dim);cursor:pointer;transition:all .16s;position:relative;user-select:none;
+}
+.osd:hover{border-color:var(--muted);color:var(--text)}
+.osd.pri{background:var(--aqua);border-color:var(--aqua);color:#04080B;font-weight:700}
+.osd.rep{border-color:var(--aqua);color:var(--aqua);background:rgba(55,211,192,.13)}
+.osd.down{background:rgba(255,110,118,.1);border-color:rgba(255,110,118,.45);color:var(--coral);text-decoration:line-through}
+.osd.moved{box-shadow:0 0 0 2px var(--violet)}
+.osd .r{position:absolute;top:-6px;right:-4px;font-size:8px;background:var(--violet);color:#04080B;border-radius:4px;padding:0 3px;font-weight:700}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:14px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+.pgmap{display:flex;flex-wrap:wrap;gap:4px;margin-top:16px}
+.pg{width:20px;height:20px;border-radius:4px;border:1px solid var(--line);background:var(--raised);cursor:pointer;font-family:var(--mono);font-size:8px;color:var(--dim);display:flex;align-items:center;justify-content:center;transition:all .14s}
+.pg:hover{border-color:var(--muted)}
+.pg.sel{border-color:var(--aqua);background:rgba(55,211,192,.2);color:var(--aqua)}
+.pg.deg{background:rgba(255,181,82,.16);border-color:rgba(255,181,82,.4);color:var(--amber)}
+.pg.err{background:rgba(255,110,118,.18);border-color:rgba(255,110,118,.45);color:var(--coral)}
+
+.health{font-family:var(--mono);font-size:12.5px;padding:13px 15px;border-radius:9px;margin-top:16px;line-height:1.8;background:#050A0E;border:1px solid var(--line-soft);white-space:pre-wrap}
+.health.ok{border-color:rgba(55,211,192,.3);color:var(--aqua)}
+.health.warn{border-color:rgba(255,181,82,.35);color:var(--amber)}
+.health.err{border-color:rgba(255,110,118,.4);color:var(--coral)}
+
+/* result readouts */
+.out{display:grid;gap:1px;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));background:var(--line-soft);border:1px solid var(--line-soft);border-radius:10px;overflow:hidden;margin-top:6px}
+.out div{background:#060B10;padding:14px 15px}
+.out b{display:block;font-family:var(--mono);font-size:18px;letter-spacing:-.02em;color:var(--aqua)}
+.out b.v{color:var(--violet)} .out b.a{color:var(--amber)} .out b.c{color:var(--coral)} .out b.t{color:var(--text)}
+.out span{font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--dim);display:block;margin-top:3px}
+.bar{height:7px;border-radius:4px;background:#0C1420;overflow:hidden;margin-top:14px;border:1px solid var(--line-soft)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--aqua),var(--violet));transition:width .35s ease}
+.barlbl{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:7px}
+
+/* chips / filter */
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin:22px 0 8px}
+.chip{background:rgba(255,255,255,.035);border:1px solid var(--line);color:var(--muted);font-family:var(--mono);font-size:11px;padding:7px 13px;border-radius:20px;cursor:pointer;transition:all .15s}
+.chip:hover{color:var(--text);border-color:var(--muted)}
+.chip.on{background:rgba(55,211,192,.13);border-color:rgba(55,211,192,.4);color:var(--aqua)}
+
+/* quiz */
+.q{border:1px solid var(--line-soft);border-radius:11px;padding:18px 19px;margin-bottom:12px;background:var(--surface)}
+.q .qn{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;color:var(--violet);margin-bottom:9px}
+.q .qt{font-size:15px;font-weight:600;letter-spacing:-.02em;line-height:1.6;margin-bottom:14px}
+.opt{
+  display:block;width:100%;text-align:left;background:#060B10;border:1px solid var(--line-soft);
+  color:#C3D2DE;font-family:var(--sans);font-size:14px;padding:11px 14px;border-radius:8px;
+  margin-bottom:7px;cursor:pointer;transition:all .14s;line-height:1.55;
+}
+.opt:hover:not(:disabled){border-color:var(--muted)}
+.opt:disabled{cursor:default}
+.opt.good{border-color:var(--aqua);background:rgba(55,211,192,.1);color:var(--aqua)}
+.opt.bad{border-color:var(--coral);background:rgba(255,110,118,.09);color:var(--coral)}
+.expl{display:none;font-size:13.5px;color:var(--muted);border-left:2px solid var(--violet);background:rgba(156,140,255,.05);padding:12px 15px;border-radius:0 8px 8px 0;margin-top:11px;line-height:1.75}
+.expl.show{display:block}
+#score{font-family:var(--mono);font-size:13px;padding:16px 18px;border:1px solid var(--line);border-radius:11px;margin-top:16px;color:var(--muted);background:var(--surface);line-height:1.9}
+#score b{color:var(--aqua);font-size:22px}
+
+/* misc */
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:20px 0;font-size:14px}
+.kv dt{font-family:var(--mono);font-size:11.5px;color:var(--aqua);padding-top:3px;white-space:nowrap}
+.kv dd{color:#C3D2DE;margin:0}
+.steps{counter-reset:s;list-style:none;padding:0;margin:24px 0}
+.steps li{counter-increment:s;position:relative;padding-left:44px;margin-bottom:18px;color:#C3D2DE;font-size:14.5px}
+.steps li::before{
+  content:counter(s,decimal-leading-zero);position:absolute;left:0;top:1px;
+  font-family:var(--mono);font-size:11px;color:var(--violet);
+  border:1px solid var(--line);border-radius:6px;padding:3px 7px;background:var(--surface);
+}
+.steps li b{display:block;color:var(--text);font-size:15px;margin-bottom:3px;letter-spacing:-.02em}
+hr.soft{border:none;border-top:1px solid var(--line-soft);margin:38px 0}
+footer{padding:52px 0 20px;font-family:var(--mono);font-size:11px;color:var(--dim);line-height:2}
+
+@media (max-width:1000px){
+  .shell{grid-template-columns:1fr}
+  nav.side{
+    position:fixed;inset:0 auto 0 0;width:280px;z-index:115;transform:translateX(-101%);
+    transition:transform .26s cubic-bezier(.4,0,.2,1);background:rgba(6,10,15,.98);
+  }
+  nav.side.open{transform:none;box-shadow:0 0 60px rgba(0,0,0,.65)}
+  #menu{display:block}
+  main{padding:0 20px 120px}
+  section{padding:60px 0}
+}
+@media (max-width:560px){
+  body{font-size:15.5px}
+  .term pre,.pane pre{font-size:11.5px}
+  .ctl{grid-template-columns:1fr 1fr}
+  .out{grid-template-columns:1fr 1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<div id="prog"></div>
+<button id="menu">≡ 목차</button>
+
+<div class="shell">
+<nav class="side" id="side">
+  <div class="brand">Cloud Storage / Lecture</div>
+  <div class="btitle"><em>Ceph</em> 완전 기초<br>분산 스토리지의 원리</div>
+  <ol id="toc">
+    <li><a href="#s1"><span class="n">01</span>Ceph는 무엇인가</a></li>
+    <li><a href="#s2"><span class="n">02</span>왜 분산 스토리지인가</a></li>
+    <li><a href="#s3"><span class="n">03</span>아키텍처와 데몬 5종</a></li>
+    <li><a href="#s4"><span class="n">04</span>데이터가 저장되는 길 · CRUSH</a></li>
+    <li><a href="#s5"><span class="n">05</span>데이터 보호 · 복제 vs EC</a></li>
+    <li><a href="#s6"><span class="n">06</span>세 가지 인터페이스</a></li>
+    <li><a href="#s7"><span class="n">07</span>설치와 운영 기초</a></li>
+    <li><a href="#s8"><span class="n">08</span>Kubernetes와 Ceph</a></li>
+    <li><a href="#s9"><span class="n">09</span>다른 스토리지와 비교</a></li>
+    <li><a href="#s10"><span class="n">10</span>응용 분야</a></li>
+    <li><a href="#s11"><span class="n">11</span>실전 트러블슈팅</a></li>
+    <li><a href="#s12"><span class="n">12</span>이해도 점검 퀴즈</a></li>
+    <li><a href="#s13"><span class="n">13</span>용어집 · 학습 로드맵</a></li>
+  </ol>
+  <div class="foot">
+    RADOS · CRUSH · RBD<br>
+    CephFS · RGW · Rook<br>
+    v20 Tentacle 기준
+  </div>
+</nav>
+
+<main>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Distributed Storage · 초급 클라우드 엔지니어용</div>
+  <h1>Ceph
+    <span class="lo">하나의 클러스터로 블록·파일·오브젝트를 모두 제공하는<br>오픈소스 분산 스토리지</span>
+  </h1>
+  <p class="lede">
+    Ceph를 처음 만나면 낯선 약어가 쏟아집니다. RADOS, OSD, PG, CRUSH, MON, MDS, RGW…
+    하지만 Ceph의 설계는 <strong>단 하나의 질문</strong>에 대한 답으로 정리됩니다.
+    <strong>"이 데이터는 어느 디스크에 있는가?"</strong>
+    이 강의는 그 질문을 따라가면서 Ceph의 구조를 조립하고,
+    <strong>직접 조작해 볼 수 있는 CRUSH 시뮬레이터·용량 계산기</strong>로 감각을 만들고,
+    MinIO·GlusterFS·Longhorn 같은 다른 선택지와 비교해 <strong>언제 Ceph를 써야 하는지</strong>까지 판단할 수 있게 만듭니다.
+  </p>
+
+  <div class="term">
+    <div class="bar"><i></i><i></i><i></i><b>admin@ceph-mon-01 : ~</b></div>
+    <pre id="boot"></pre>
+  </div>
+  <div class="hstats">
+    <div><b>1</b><span>클러스터</span></div>
+    <div><b>3</b><span>인터페이스</span></div>
+    <div><b>0</b><span>단일 장애점</span></div>
+    <div><b>EB</b><span>확장 한계</span></div>
+  </div>
+</header>
+
+<!-- ══════════════ 01 ══════════════ -->
+<section id="s1">
+  <div class="snum">SECTION 01</div>
+  <h2>Ceph는 무엇인가</h2>
+  <div class="sub">"통합 스토리지(Unified Storage)"라는 말의 실제 의미</div>
+
+  <p>
+    Ceph는 여러 대의 <strong>평범한 서버(commodity server)</strong>에 꽂힌 디스크들을 묶어
+    하나의 거대한 스토리지 풀로 만드는 오픈소스 소프트웨어입니다.
+    전용 스토리지 장비(어플라이언스)를 사지 않고, 일반 x86 서버 + 일반 HDD/SSD + 리눅스만으로
+    엔터프라이즈 스토리지를 구성한다는 점이 핵심입니다.
+  </p>
+
+  <p>
+    Ceph의 가장 큰 차별점은 <strong>하나의 클러스터가 세 가지 형태로 동시에 서비스</strong>된다는 것입니다.
+    보통은 블록 스토리지는 SAN, 파일 스토리지는 NAS, 오브젝트 스토리지는 별도 제품을 각각 도입합니다.
+    Ceph는 이 셋을 같은 디스크 풀 위에서 제공합니다.
+  </p>
+
+  <div class="grid g3">
+    <div class="card hl">
+      <div class="tag">Block · RBD</div>
+      <h5>가상 디스크</h5>
+      <p>VM에 붙이는 디스크, 컨테이너의 PVC. 리눅스에서 <code>/dev/rbd0</code> 처럼 블록 디바이스로 보입니다.</p>
+      <p style="color:var(--dim)">대체 대상 → SAN, iSCSI, AWS EBS</p>
+    </div>
+    <div class="card hl">
+      <div class="tag">File · CephFS</div>
+      <h5>공유 파일시스템</h5>
+      <p>POSIX 호환. 여러 서버가 같은 디렉터리를 동시에 mount해서 읽고 씁니다.</p>
+      <p style="color:var(--dim)">대체 대상 → NFS, NAS, AWS EFS</p>
+    </div>
+    <div class="card hl">
+      <div class="tag">Object · RGW</div>
+      <h5>S3 호환 오브젝트</h5>
+      <p>HTTP로 버킷·키 단위 저장. AWS S3 SDK를 그대로 사용할 수 있습니다.</p>
+      <p style="color:var(--dim)">대체 대상 → AWS S3, Swift, MinIO</p>
+    </div>
+  </div>
+
+  <div class="analogy">
+    <div class="lbl">비유로 이해하기</div>
+    <p><strong>블록</strong>은 "빈 노트"입니다. 줄도 없고 형식도 없어서, 쓰는 쪽(OS)이 파일시스템을 직접 만들어 씁니다.</p>
+    <p><strong>파일</strong>은 "칸이 나뉜 서류함"입니다. 폴더·권한·수정시간이 이미 정의되어 있고 여러 사람이 같이 씁니다.</p>
+    <p><strong>오브젝트</strong>는 "택배 보관함"입니다. 이름표(key)를 붙여 통째로 넣고 통째로 꺼냅니다. 일부만 수정하는 건 어렵지만 무한히 늘릴 수 있습니다.</p>
+  </div>
+
+  <h3>탄생 배경과 현재 위치</h3>
+  <dl class="kv">
+    <dt>2004~2007</dt><dd>미국 UCSC에서 Sage Weil의 박사 연구로 시작. CRUSH 알고리즘 논문이 이때 나옵니다.</dd>
+    <dt>2012</dt><dd>Inktank 설립으로 상용 지원 시작.</dd>
+    <dt>2014</dt><dd>Red Hat이 Inktank 인수. Red Hat Ceph Storage로 제품화.</dd>
+    <dt>2018~</dt><dd>Ceph Foundation(Linux Foundation 산하)으로 거버넌스 이관. CERN, 블룸버그, 대형 통신사, 국내 공공/금융 프라이빗 클라우드 등에서 페타바이트급 운영.</dd>
+    <dt>릴리스 규칙</dt><dd>연 1회 메이저 릴리스, 두족류(cephalopod) 이름을 알파벳 순으로 사용. Nautilus(14) → Octopus(15) → Pacific(16) → Quincy(17) → Reef(18) → Squid(19) → <strong>Tentacle(20)</strong>. 각 릴리스는 약 24개월 지원됩니다.</dd>
+  </dl>
+
+  <div class="note a">
+    <div class="lbl">2026년 8월 현재 버전 상황</div>
+    <p>신규 구축이라면 <strong>Tentacle(v20)</strong>, 안정성 우선의 기존 운영 클러스터는 <strong>Squid(v19)</strong>가 일반적인 선택입니다.
+    Reef(v18)는 이미 EOL이므로 아직 Reef를 쓰고 있다면 업그레이드 계획이 필요합니다. Ceph는 릴리스를 건너뛴 업그레이드를 지원하지 않는 경우가 많으니
+    <code>N → N+1</code> 순차 업그레이드를 원칙으로 잡으세요.</p>
+  </div>
+
+  <h3>Ceph의 설계 철학 4가지</h3>
+  <div class="grid g2">
+    <div class="card">
+      <div class="tag">01</div>
+      <h5>단일 장애점 없음</h5>
+      <p>모든 구성요소가 다중화됩니다. 컨트롤러 한 쌍에 의존하는 전통 스토리지와 달리, 노드가 죽어도 서비스가 계속됩니다.</p>
+    </div>
+    <div class="card">
+      <div class="tag">02</div>
+      <h5>메타데이터 조회 없는 위치 계산</h5>
+      <p>"이 데이터 어디 있어?"를 물어볼 중앙 서버가 없습니다. 클라이언트가 <strong>CRUSH로 직접 계산</strong>합니다. 이것이 확장성의 근원입니다.</p>
+    </div>
+    <div class="card">
+      <div class="tag">03</div>
+      <h5>자율 복구(Self-healing)</h5>
+      <p>디스크가 죽으면 관리자 개입 없이 남은 복제본으로 데이터를 다시 만들어 재분산합니다.</p>
+    </div>
+    <div class="card">
+      <div class="tag">04</div>
+      <h5>스케일 아웃</h5>
+      <p>용량이나 성능이 부족하면 서버를 추가합니다. 컨트롤러 교체(scale-up)가 아니라 노드 추가로 늘립니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 02 ══════════════ -->
+<section id="s2">
+  <div class="snum">SECTION 02</div>
+  <h2>왜 분산 스토리지인가</h2>
+  <div class="sub">전통 스토리지가 클라우드에서 막히는 지점</div>
+
+  <p>
+    Ceph의 구조를 이해하려면, Ceph가 해결하려는 문제를 먼저 봐야 합니다.
+    전통적인 스토리지 어레이(SAN/NAS 어플라이언스)는 아주 잘 작동하지만 클라우드 규모에서 세 가지 벽에 부딪힙니다.
+  </p>
+
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>구분</th><th>전통 스토리지 어레이</th><th>Ceph (분산 스토리지)</th></tr></thead>
+    <tbody>
+      <tr><td><strong>확장 방식</strong></td><td>컨트롤러 성능이 상한. 용량 늘려도 컨트롤러가 병목</td><td>노드 추가 시 용량과 성능이 함께 증가</td></tr>
+      <tr><td><strong>장애 도메인</strong></td><td>컨트롤러 이중화 (2대)</td><td>디스크·호스트·랙·데이터센터 단위로 정의 가능</td></tr>
+      <tr><td><strong>하드웨어</strong></td><td>벤더 전용 디스크/컨트롤러, 락인</td><td>일반 서버·일반 디스크 혼용 가능</td></tr>
+      <tr><td><strong>비용 곡선</strong></td><td>초기 도입비 높음, 증설 시 벤더 단가</td><td>초기 진입 낮음, 증설은 서버 단가</td></tr>
+      <tr><td><strong>운영 난이도</strong></td><td>GUI 중심, 학습 곡선 낮음</td><td>개념 학습 필요, 운영 자동화 필수</td></tr>
+      <tr><td><strong>지연시간</strong></td><td>매우 낮음 (전용 ASIC, 짧은 경로)</td><td>네트워크 홉이 있어 상대적으로 높음</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note c">
+    <div class="lbl">솔직한 이야기</div>
+    <p>Ceph가 항상 정답은 아닙니다. <strong>수십 마이크로초 단위 지연시간이 필요한 OLTP DB</strong>나
+    <strong>디스크 10개 규모의 작은 환경</strong>에서는 전통 스토리지나 로컬 NVMe가 더 적합합니다.
+    Ceph는 <strong>수백 TB 이상, 여러 서비스가 공유하는 플랫폼 스토리지</strong>일 때 가치가 폭발합니다.
+    강의 9장에서 이 판단 기준을 구체화합니다.</p>
+  </div>
+
+  <h3>분산 스토리지가 반드시 풀어야 하는 3대 난제</h3>
+  <ol class="steps">
+    <li><b>위치 문제 — 데이터를 어디에 둘 것인가</b>
+      디스크 1,000개 중 어느 것에 저장할지 결정해야 합니다. 중앙 인덱스 서버를 두면 그 서버가 병목이자 단일 장애점이 됩니다.
+      → Ceph의 답: <strong>CRUSH (계산으로 결정)</strong></li>
+    <li><b>내구성 문제 — 디스크는 반드시 고장난다</b>
+      디스크 1,000개 환경에서는 매주 하나씩 죽는 게 정상입니다. 데이터를 잃지 않으려면 중복이 필요합니다.
+      → Ceph의 답: <strong>복제(Replication) 또는 소거 부호(Erasure Coding)</strong></li>
+    <li><b>일관성 문제 — 여러 복제본이 서로 다르면?</b>
+      쓰기 중 노드가 죽으면 복제본 간 내용이 어긋납니다. 누가 최신인지 합의해야 합니다.
+      → Ceph의 답: <strong>MON의 Paxos 합의 + PG 단위 peering + scrub 검증</strong></li>
+  </ol>
+
+  <p>이 세 가지 답이 곧 Ceph 아키텍처입니다. 다음 장에서 실체를 봅니다.</p>
+</section>
+
+<!-- ══════════════ 03 ══════════════ -->
+<section id="s3">
+  <div class="snum">SECTION 03</div>
+  <h2>아키텍처와 데몬 5종</h2>
+  <div class="sub">RADOS라는 심장, 그리고 그 위에 올라간 얼굴들</div>
+
+  <p>
+    Ceph를 그림으로 그리면 아래처럼 <strong>3층</strong>입니다.
+    맨 아래에 <strong>RADOS</strong>가 있고, 그 위에 librados라는 라이브러리, 그 위에 세 가지 인터페이스가 올라갑니다.
+  </p>
+
+  <div class="codeset">
+    <div class="tabs"><button class="on">Ceph 전체 스택</button></div>
+    <div class="pane on">
+<pre>  <span class="c">┌───────────┬─────────────┬──────────────┬─────────────┐</span>
+  <span class="c">│</span>   <span class="k">RBD</span>     <span class="c">│</span>   <span class="k">CephFS</span>    <span class="c">│</span>  <span class="k">RGW</span>         <span class="c">│</span> <span class="k">librados</span>    <span class="c">│</span>  ← 클라이언트 접점
+  <span class="c">│</span> 블록      <span class="c">│</span> POSIX 파일  <span class="c">│</span> S3 / Swift   <span class="c">│</span> 직접 API    <span class="c">│</span>
+  <span class="c">└─────┬─────┴──────┬──────┴───────┬──────┴──────┬──────┘</span>
+        <span class="c">└────────────┴──────────────┴─────────────┘</span>
+                            <span class="c">│</span>
+  <span class="c">┌─────────────────────────────────────────────────────────┐</span>
+  <span class="c">│</span>              <span class="o">RADOS</span>                                      <span class="c">│</span>
+  <span class="c">│</span>   Reliable Autonomic Distributed Object Store            <span class="c">│</span>
+  <span class="c">│</span>   · 모든 데이터는 결국 "오브젝트"로 저장된다               <span class="c">│</span>
+  <span class="c">│</span>   · 복제 / 복구 / 리밸런싱 / 일관성을 담당                 <span class="c">│</span>
+  <span class="c">└─────────────────────────────────────────────────────────┘</span>
+                            <span class="c">│</span>
+  <span class="c">┌──────────┬──────────┬──────────┬──────────┬───────────┐</span>
+  <span class="c">│</span> <span class="s">MON</span> ×3   <span class="c">│</span> <span class="s">MGR</span> ×2   <span class="c">│</span> <span class="s">OSD</span> ×N   <span class="c">│</span> <span class="s">MDS</span> ×N   <span class="c">│</span> <span class="s">RGW</span> ×N    <span class="c">│</span>  ← 데몬
+  <span class="c">│</span> 지도관리 <span class="c">│</span> 모니터링 <span class="c">│</span> 데이터   <span class="c">│</span> FS메타   <span class="c">│</span> S3게이트  <span class="c">│</span>
+  <span class="c">└──────────┴──────────┴──────────┴──────────┴───────────┘</span>
+                            <span class="c">│</span>
+              물리 디스크 (HDD / SSD / NVMe)</pre>
+    </div>
+  </div>
+
+  <h3>데몬별 역할 — 이것만 외우면 됩니다</h3>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>데몬</th><th>역할</th><th>권장 수량</th><th>죽으면?</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="mono">ceph-mon</span><br><strong>Monitor</strong></td>
+        <td>클러스터 지도(MON/OSD/CRUSH/MDS map) 보관. 어떤 OSD가 살아있는지 판정. Paxos로 합의.</td>
+        <td><strong>3 또는 5</strong> (홀수)</td>
+        <td>과반 미달 시 클러스터 전체 I/O 정지</td>
+      </tr>
+      <tr>
+        <td><span class="mono">ceph-mgr</span><br><strong>Manager</strong></td>
+        <td>메트릭 수집, 대시보드, Prometheus exporter, pg_autoscaler, orchestrator.</td>
+        <td>2 (active/standby)</td>
+        <td>I/O는 계속되지만 모니터링·자동화 중단</td>
+      </tr>
+      <tr>
+        <td><span class="mono">ceph-osd</span><br><strong>OSD</strong></td>
+        <td>실제 데이터 저장. <strong>디스크 1개당 데몬 1개.</strong> 복제·복구·리밸런싱·scrub 수행.</td>
+        <td>디스크 수만큼 (최소 3)</td>
+        <td>해당 데이터가 degraded → 자동 복구 시작</td>
+      </tr>
+      <tr>
+        <td><span class="mono">ceph-mds</span><br><strong>Metadata Server</strong></td>
+        <td>CephFS의 디렉터리 트리·권한·inode 관리. <strong>데이터는 취급하지 않음.</strong></td>
+        <td>2+ (active/standby), CephFS 쓸 때만</td>
+        <td>CephFS 접근 불가 (RBD/RGW는 무관)</td>
+      </tr>
+      <tr>
+        <td><span class="mono">radosgw</span><br><strong>RGW</strong></td>
+        <td>HTTP를 RADOS로 번역. S3/Swift API 제공. 사용자·버킷·인증 관리.</td>
+        <td>2+ (LB 뒤에 배치), S3 쓸 때만</td>
+        <td>S3 접근 불가 (RBD/CephFS는 무관)</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note v">
+    <div class="lbl">초보자가 가장 많이 오해하는 지점</div>
+    <p><strong>MON은 데이터가 지나가는 길이 아닙니다.</strong> MON은 "지도 배포처"일 뿐이고,
+    실제 읽기/쓰기는 클라이언트가 <strong>OSD와 직접</strong> 통신합니다.
+    그래서 OSD가 1,000개로 늘어나도 MON이 병목이 되지 않습니다.
+    마찬가지로 <strong>MDS도 파일 데이터를 중계하지 않습니다</strong> — 경로/권한만 알려주고, 데이터는 클라이언트↔OSD 직접 전송입니다.</p>
+  </div>
+
+  <h3>BlueStore — OSD가 디스크를 쓰는 방식</h3>
+  <p>
+    OSD는 예전에는 XFS 같은 파일시스템 위에 데이터를 올렸습니다(FileStore).
+    현재는 <strong>BlueStore</strong>가 표준이며, 파일시스템 없이 <strong>raw 블록 디바이스를 직접</strong> 다룹니다.
+    메타데이터는 내부의 RocksDB에 담습니다. 이중 쓰기(journal double-write)가 사라져 성능과 예측 가능성이 좋아졌습니다.
+  </p>
+  <ul>
+    <li><strong>Data</strong> — 오브젝트 본문. 보통 HDD 또는 SSD 전체.</li>
+    <li><strong>block.db</strong> — RocksDB 메타데이터. HDD OSD라면 <strong>NVMe로 분리하면 성능이 크게 향상</strong>됩니다. (권장 크기: 데이터 용량의 약 1~4%)</li>
+    <li><strong>block.wal</strong> — 쓰기 선행 로그. 보통 block.db와 같은 장치에 둡니다.</li>
+  </ul>
+  <div class="note a">
+    <div class="lbl">설계 팁</div>
+    <p>HDD 기반 클러스터를 만들 때 <strong>NVMe 1개에 HDD 8~12개의 block.db를 몰아주는</strong> 구성이 일반적입니다.
+    단, 그 NVMe가 죽으면 <strong>연결된 OSD 전부가 함께 죽습니다.</strong> 즉 장애 도메인이 커집니다. 복구 트래픽 규모를 미리 계산해 두세요.</p>
+  </div>
+</section>
+
+<!-- ══════════════ 04 ══════════════ -->
+<section id="s4">
+  <div class="snum">SECTION 04</div>
+  <h2>데이터가 저장되는 길 · CRUSH</h2>
+  <div class="sub">Ceph 학습의 최대 관문 — 그러나 원리는 단순합니다</div>
+
+  <p>
+    Ceph에 파일 하나를 쓰면 무슨 일이 벌어질까요. 경로는 <strong>4단계</strong>입니다.
+    이 4단계만 이해하면 Ceph 운영 중 만나는 대부분의 현상(degraded, remapped, backfill…)을 해석할 수 있습니다.
+  </p>
+
+  <ol class="steps">
+    <li><b>파일 → 오브젝트로 쪼갠다</b>
+      100MB RBD 이미지는 기본 4MB 단위로 잘려 25개 오브젝트가 됩니다. 이름은 <code>rbd_data.&lt;id&gt;.0000...0001</code> 형태입니다.</li>
+    <li><b>오브젝트 이름 → PG로 해싱한다</b>
+      오브젝트 이름을 해시해 <code>pg_num</code>으로 나눈 나머지가 <strong>PG(Placement Group) ID</strong>입니다.
+      PG는 "오브젝트들을 담는 논리 바구니"입니다.</li>
+    <li><b>PG → OSD 집합을 CRUSH로 계산한다</b>
+      CRUSH가 PG ID와 CRUSH map(디스크 계층 구조), CRUSH rule을 입력받아
+      <strong>이 PG를 저장할 OSD 3개</strong>를 계산해 냅니다. 조회가 아니라 계산입니다.</li>
+    <li><b>OSD에 직접 쓴다</b>
+      클라이언트는 첫 번째 OSD(<strong>Primary</strong>)에 씁니다. Primary가 나머지 복제본에 전달하고,
+      모두 완료되면 클라이언트에 ack를 보냅니다.</li>
+  </ol>
+
+  <div class="analogy">
+    <div class="lbl">왜 PG라는 중간 단계가 필요한가</div>
+    <p>오브젝트가 1억 개인데 각각의 위치를 따로 관리하면 지도가 너무 커집니다.
+    그래서 오브젝트를 <strong>수백~수천 개의 PG로 먼저 묶고</strong>, "PG가 어느 OSD에 있는지"만 추적합니다.
+    <br><br>택배에 비유하면, 개별 소포 1억 개의 목적지를 추적하는 대신
+    소포를 <strong>1,024개의 컨테이너</strong>에 나눠 담고 "컨테이너가 어느 창고에 있는지"만 관리하는 것입니다.
+    관리 대상이 1억 개에서 1,024개로 줄어듭니다.</p>
+  </div>
+
+  <h3>CRUSH — Controlled Replication Under Scalable Hashing</h3>
+  <p>
+    CRUSH는 <strong>결정론적 함수</strong>입니다. 같은 입력이면 어느 컴퓨터에서 몇 번 실행해도 같은 답이 나옵니다.
+    그래서 클라이언트도, OSD도, MON도 각자 계산해서 <strong>같은 결론</strong>에 도달합니다. 조율이 필요 없습니다.
+  </p>
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">CRUSH 함수</button>
+      <button>CRUSH map 계층</button>
+      <button>CRUSH rule 예시</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 개념적으로 CRUSH는 이런 함수다</span>
+<span class="k">CRUSH</span>( pg_id, cluster_map, rule, replica_count ) <span class="o">→</span> [osd.7, osd.2, osd.11]
+
+<span class="c"># 입력에 "현재 어디에 있나"라는 조회 결과가 없다는 점이 핵심.</span>
+<span class="c"># 클러스터 구조(map)만 알면 위치를 스스로 계산한다.</span>
+
+<span class="c"># 따라서:</span>
+<span class="c">#  · 중앙 메타데이터 서버 불필요  → 병목 없음</span>
+<span class="c">#  · 클라이언트가 직접 OSD 접속  → 홉 최소화</span>
+<span class="c">#  · OSD 추가/제거 시 map만 바뀌면 전원이 새 위치를 동일하게 계산</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># ceph osd tree 출력 = CRUSH map 계층</span>
+ID  CLASS  WEIGHT   TYPE NAME              STATUS
+-1         48.0     <span class="k">root</span> default
+-3         24.0         <span class="k">rack</span> rack-a
+-5          8.0             <span class="k">host</span> node-01
+ 0   hdd    2.0                 <span class="s">osd.0</span>          up
+ 1   hdd    2.0                 <span class="s">osd.1</span>          up
+ 2   hdd    2.0                 <span class="s">osd.2</span>          up
+ 3   hdd    2.0                 <span class="s">osd.3</span>          up
+-7          8.0             <span class="k">host</span> node-02
+ 4   hdd    2.0                 <span class="s">osd.4</span>          up
+ ...
+
+<span class="c"># WEIGHT = 용량 비중 (보통 TB 단위). 4TB 디스크면 4.0</span>
+<span class="c"># CLASS  = 디바이스 종류 (hdd / ssd / nvme) → rule에서 골라 쓸 수 있다</span>
+<span class="c"># root → rack → host → osd 계층이 곧 "장애 도메인" 후보다</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 규칙 1: 호스트 단위로 3개 복제본 분산 (가장 일반적인 기본값)</span>
+rule replicated_host {
+    id 0
+    type replicated
+    step take default              <span class="c"># root default 에서 시작</span>
+    step chooseleaf firstn 0 type <span class="o">host</span>   <span class="c"># 서로 다른 host 를 골라라</span>
+    step emit
+}
+
+<span class="c"># 규칙 2: SSD 만 사용하는 고성능 풀</span>
+rule ssd_only {
+    step take default <span class="k">class ssd</span>
+    step chooseleaf firstn 0 type host
+    step emit
+}
+
+<span class="c"># 규칙 3: 랙 단위 분산 (랙 전체 정전에도 생존)</span>
+rule replicated_rack {
+    step take default
+    step chooseleaf firstn 0 type <span class="o">rack</span>
+    step emit
+}
+<span class="c"># ⚠ 랙 분산은 랙이 최소 3개 있어야 성립한다.</span></pre>
+    </div>
+  </div>
+
+  <div class="note">
+    <div class="lbl">장애 도메인(failure domain)의 의미</div>
+    <p><code>type host</code>는 <strong>"복제본 3개를 서로 다른 서버에 두라"</strong>는 뜻입니다.
+    서버 1대가 통째로 꺼져도 데이터는 살아 있습니다.
+    <code>type osd</code>로 두면 같은 서버 안의 다른 디스크에 복제본이 놓일 수 있어서, <strong>서버 1대만 꺼져도 데이터 유실 위험</strong>이 생깁니다.
+    노드가 3대 미만인 실습 환경에서는 어쩔 수 없이 <code>type osd</code>를 쓰지만, 운영에서는 절대 금물입니다.</p>
+  </div>
+
+  <!-- ═══ CRUSH SIMULATOR ═══ -->
+  <div class="lab">
+    <div class="head">
+      <span class="dot"></span><b>CRUSH 배치 시뮬레이터</b>
+      <span>오브젝트 이름 → PG → OSD 계산을 직접 확인하기</span>
+    </div>
+    <div class="body">
+      <div class="ctl">
+        <div class="fld">
+          <label>오브젝트 이름</label>
+          <input type="text" id="objName" value="vm-disk-01.img" spellcheck="false">
+        </div>
+        <div class="fld">
+          <label>pg_num</label>
+          <select id="pgNum">
+            <option>32</option><option selected>64</option><option>128</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>복제본 수 (size)</label>
+          <select id="repSize">
+            <option>2</option><option selected>3</option><option>4</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>장애 도메인</label>
+          <select id="fdom">
+            <option value="host" selected>host</option>
+            <option value="rack">rack</option>
+            <option value="osd">osd</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flow" id="flow"></div>
+
+      <div class="btnrow">
+        <button class="btn" id="btnRand">랜덤 오브젝트 이름</button>
+        <button class="btn g" id="btnKill">랜덤 OSD 장애 발생</button>
+        <button class="btn g" id="btnHost">호스트 1대 정지</button>
+        <button class="btn g" id="btnHeal">모두 복구</button>
+      </div>
+
+      <p style="font-size:13px;color:var(--dim);margin:12px 0 16px">
+        OSD 칩을 직접 클릭해도 up/down을 전환할 수 있습니다. <b style="color:var(--aqua)">채워진 칩 = Primary</b>,
+        <b style="color:var(--aqua)">테두리 칩 = 복제본</b>, <b style="color:var(--violet)">보라 외곽선 = 장애로 새로 배치된 위치</b>
+      </p>
+
+      <div class="topo" id="topo"></div>
+      <div class="legend">
+        <span><i style="background:var(--aqua)"></i>Primary OSD</span>
+        <span><i style="border:1px solid var(--aqua);background:rgba(55,211,192,.13)"></i>복제본</span>
+        <span><i style="border:1px solid var(--coral);background:rgba(255,110,118,.1)"></i>down</span>
+        <span><i style="box-shadow:0 0 0 2px var(--violet);background:transparent"></i>재배치됨</span>
+      </div>
+
+      <h4 style="margin-top:26px">PG 맵 — 클러스터 전체 PG 상태</h4>
+      <p style="font-size:13px;color:var(--dim);margin:4px 0 0">PG를 클릭하면 해당 PG의 배치를 위 토폴로지에 표시합니다.</p>
+      <div class="pgmap" id="pgmap"></div>
+      <div class="health" id="clHealth"></div>
+    </div>
+  </div>
+
+  <div class="note v">
+    <div class="lbl">시뮬레이터에서 확인해 볼 것</div>
+    <ul>
+      <li>오브젝트 이름을 조금만 바꿔도 <strong>PG가 완전히 다른 값</strong>이 됩니다 → 해시의 균등 분산 효과</li>
+      <li>OSD 하나를 down시키면 그 OSD를 쓰던 PG만 <strong>degraded</strong>가 되고, 나머지는 영향이 없습니다 → 장애 격리</li>
+      <li>호스트 1대를 정지시키면 <code>host</code> 도메인에서는 여전히 데이터가 살아 있습니다. <code>osd</code> 도메인으로 바꿔 보면 위험이 커지는 걸 볼 수 있습니다</li>
+      <li>복제본 수를 4로 올리면 필요한 호스트 수도 4개 이상이어야 합니다 → 부족하면 배치 실패(<code>undersized</code>)</li>
+    </ul>
+  </div>
+
+  <h3>PG 개수는 몇 개가 적당한가</h3>
+  <p>
+    PG 수는 Ceph 운영의 고전적인 고민거리입니다. 너무 적으면 데이터가 불균등하게 쏠리고,
+    너무 많으면 OSD의 CPU/메모리를 잡아먹고 peering이 느려집니다.
+    권장 기준은 <strong>OSD 1개당 약 100개의 PG(복제본 포함)</strong>입니다.
+  </p>
+
+  <div class="lab">
+    <div class="head"><span class="dot"></span><b>PG 개수 계산기</b><span>pg_num 산정 공식 실습</span></div>
+    <div class="body">
+      <div class="ctl">
+        <div class="fld"><label>총 OSD 수</label><input type="number" id="pgOsd" value="36" min="3"></div>
+        <div class="fld"><label>풀(pool) 개수</label><input type="number" id="pgPool" value="3" min="1"></div>
+        <div class="fld"><label>복제본 수</label><input type="number" id="pgRep" value="3" min="1" max="10"></div>
+        <div class="fld"><label>OSD당 목표 PG</label><input type="number" id="pgTarget" value="100" min="20" max="300"></div>
+      </div>
+      <div class="out">
+        <div><b id="pgRaw">—</b><span>계산값</span></div>
+        <div><b class="v" id="pgPow">—</b><span>2의 거듭제곱 보정</span></div>
+        <div><b class="t" id="pgPer">—</b><span>OSD당 실제 PG</span></div>
+        <div><b class="a" id="pgTotal">—</b><span>클러스터 총 PG</span></div>
+      </div>
+      <div class="health" id="pgAdvice"></div>
+      <div class="codeset" style="margin-bottom:0">
+        <div class="tabs"><button class="on">공식</button></div>
+        <div class="pane on">
+<pre>pg_num = ( <span class="k">OSD 수</span> × <span class="k">OSD당 목표 PG</span> ) / ( <span class="k">복제본 수</span> × <span class="k">풀 개수</span> )
+         <span class="o">→ 가까운 2의 거듭제곱으로 반올림</span>
+
+<span class="c"># 실무에서는 대부분 자동 조절 기능을 켜 둔다 (Nautilus 이후 기본 on)</span>
+ceph osd pool set <span class="s">mypool</span> pg_autoscale_mode <span class="o">on</span>
+ceph osd pool autoscale-status   <span class="c"># 권장값 확인</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note a">
+    <div class="lbl">실무 조언</div>
+    <p>요즘은 <code>pg_autoscaler</code>가 알아서 조절해 주므로 직접 계산할 일이 줄었습니다.
+    다만 <strong>풀의 예상 최종 용량 비율</strong>을 알려주면 autoscaler가 훨씬 똑똑해집니다:
+    <code>ceph osd pool set mypool target_size_ratio 0.6</code>.
+    또한 pg_num을 늘리는 작업은 대규모 데이터 이동을 유발하므로 <strong>업무 시간 외</strong>에 진행하세요.</p>
+  </div>
+</section>
+
+<!-- ══════════════ 05 ══════════════ -->
+<section id="s5">
+  <div class="snum">SECTION 05</div>
+  <h2>데이터 보호 · 복제 vs Erasure Coding</h2>
+  <div class="sub">용량 효율과 성능 사이의 교환</div>
+
+  <p>
+    디스크는 반드시 고장납니다. Ceph는 두 가지 보호 방식을 제공하고, <strong>풀(pool) 단위로</strong> 선택합니다.
+  </p>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="tag">Replication</div>
+      <h5>복제 — 통째로 복사</h5>
+      <p>오브젝트를 그대로 N개 복사해 서로 다른 장애 도메인에 둡니다. 기본값은 <code>size=3, min_size=2</code>.</p>
+      <p><strong style="color:var(--aqua)">장점</strong> 읽기 빠름, 복구 단순, 랜덤 소규모 쓰기에 유리</p>
+      <p><strong style="color:var(--coral)">단점</strong> 용량 효율 33% (3배 소모)</p>
+      <p style="color:var(--dim)">적합 → RBD(VM 디스크), CephFS 메타데이터, DB 볼륨</p>
+    </div>
+    <div class="card">
+      <div class="tag">Erasure Coding</div>
+      <h5>EC — 패리티로 복원</h5>
+      <p>데이터를 k개로 쪼개고 패리티 m개를 만들어 총 k+m개를 분산. RAID-6의 일반화 버전입니다.</p>
+      <p><strong style="color:var(--aqua)">장점</strong> 용량 효율 높음 (4+2 = 67%)</p>
+      <p><strong style="color:var(--coral)">단점</strong> CPU 사용↑, 부분 쓰기 느림, 복구 시 여러 OSD 동시 읽기</p>
+      <p style="color:var(--dim)">적합 → RGW 오브젝트, 백업, 아카이브, 로그, 미디어</p>
+    </div>
+  </div>
+
+  <div class="analogy">
+    <div class="lbl">EC를 직관적으로</div>
+    <p>중요한 서류 4장을 지키는 두 가지 방법입니다.
+    <strong>복제</strong>는 4장을 3부씩 복사해 12장을 만들어 세 곳에 나눠 두는 것입니다. 어느 한 곳이 타도 완본이 남습니다.
+    <br><br><strong>EC(4+2)</strong>는 4장 원본에 "검산용 요약지" 2장을 만들어 총 6장을 여섯 곳에 나눠 두는 것입니다.
+    어떤 2장이 사라져도 남은 4장으로 원본을 <strong>계산해 복원</strong>합니다. 종이는 12장이 아니라 6장만 씁니다.
+    대신 읽을 때마다 조각을 모아 조립해야 하므로 손이 더 갑니다.</p>
+  </div>
+
+  <div class="lab">
+    <div class="head"><span class="dot"></span><b>용량 · 내구성 계산기</b><span>같은 하드웨어에서 실제 쓸 수 있는 용량은?</span></div>
+    <div class="body">
+      <div class="ctl">
+        <div class="fld"><label>노드 수</label><input type="number" id="cNode" value="6" min="1" max="60"></div>
+        <div class="fld"><label>노드당 디스크</label><input type="number" id="cDisk" value="12" min="1" max="60"></div>
+        <div class="fld"><label>디스크 크기 (TB)</label><input type="number" id="cSize" value="8" min="1" max="30"></div>
+        <div class="fld"><label>보호 방식</label>
+          <select id="cProt">
+            <option value="r2">복제 2배 (size=2)</option>
+            <option value="r3" selected>복제 3배 (size=3) — 기본</option>
+            <option value="r4">복제 4배 (size=4)</option>
+            <option value="ec22">EC 2+2</option>
+            <option value="ec42">EC 4+2</option>
+            <option value="ec62">EC 6+2</option>
+            <option value="ec83">EC 8+3</option>
+            <option value="ec104">EC 10+4</option>
+          </select>
+        </div>
+      </div>
+      <div class="out">
+        <div><b class="t" id="rRaw">—</b><span>Raw 총용량</span></div>
+        <div><b id="rUse">—</b><span>사용가능 용량</span></div>
+        <div><b class="a" id="rSafe">—</b><span>권장 운영한계 (85%)</span></div>
+        <div><b class="v" id="rEff">—</b><span>용량 효율</span></div>
+        <div><b class="c" id="rFail">—</b><span>동시 장애 허용</span></div>
+      </div>
+      <div class="bar"><i id="rBar" style="width:33%"></i></div>
+      <div class="barlbl"><span>사용가능</span><span id="rBarTxt">—</span></div>
+      <div class="health" id="rNote"></div>
+    </div>
+  </div>
+
+  <div class="note c">
+    <div class="lbl">반드시 기억할 두 가지 함정</div>
+    <ul>
+      <li><strong>size=2 는 운영에서 쓰지 마세요.</strong> 하나가 죽으면 <code>min_size</code> 미달로 쓰기가 즉시 멈추거나,
+      복구 중 두 번째 디스크가 죽으면 데이터를 잃습니다. 재구축에 몇 시간이 걸리는 대용량 HDD 시대에는 현실적인 위험입니다.</li>
+      <li><strong>85% 규칙.</strong> Ceph는 기본적으로 OSD 사용률 85%에서 <code>nearfull</code> 경고, 95%에서 <code>full</code>로 <strong>쓰기를 차단</strong>합니다.
+      또한 노드 장애 시 데이터를 재분산할 여유 공간이 필요합니다. 용량 계획은 <strong>실사용 65~70%</strong>를 목표로 잡으세요.</li>
+    </ul>
+  </div>
+
+  <h3>EC를 선택할 때 지켜야 할 노드 수</h3>
+  <p>
+    <code>host</code> 장애 도메인에서 EC k+m을 쓰려면 <strong>최소 k+m개의 노드</strong>가 필요합니다.
+    노드 장애 중에도 정상 운영하려면 <strong>k+m+1개 이상</strong>을 권장합니다.
+    예를 들어 EC 4+2는 노드 6대가 최소, 7대 이상이 안전합니다. 위 계산기에서 노드 수를 줄여 보면 경고가 뜹니다.
+  </p>
+
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">복제 풀 생성</button>
+      <button>EC 풀 생성</button>
+      <button>풀 설정 확인</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 복제 풀 만들기</span>
+ceph osd pool create <span class="s">vm-pool</span> 64 64 replicated
+ceph osd pool set    <span class="s">vm-pool</span> size 3
+ceph osd pool set    <span class="s">vm-pool</span> min_size 2
+
+<span class="c"># 용도 지정 (권장 — 지정 안 하면 HEALTH_WARN 발생)</span>
+ceph osd pool application enable <span class="s">vm-pool</span> rbd
+
+<span class="c"># size  = 복제본 총 개수</span>
+<span class="c"># min_size = 쓰기를 허용할 최소 정상 복제본 수</span>
+<span class="c">#            (2 미만으로 떨어지면 해당 PG의 쓰기 차단 = 데이터 보호 우선)</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 1) EC 프로파일 정의</span>
+ceph osd erasure-code-profile set <span class="s">ec42</span> \
+    k=4 m=2 \
+    plugin=jerasure technique=reed_sol_van \
+    crush-failure-domain=<span class="o">host</span>
+
+ceph osd erasure-code-profile get <span class="s">ec42</span>
+
+<span class="c"># 2) EC 풀 생성</span>
+ceph osd pool create <span class="s">archive-pool</span> 128 128 erasure <span class="s">ec42</span>
+
+<span class="c"># 3) RBD/CephFS 에서 EC 풀을 쓰려면 덮어쓰기 허용 필요</span>
+ceph osd pool set <span class="s">archive-pool</span> allow_ec_overwrites <span class="o">true</span>
+<span class="c">#    ⚠ BlueStore 필수. 그리고 RBD 는 메타데이터용 복제 풀을 따로 둬야 한다.</span>
+
+<span class="c"># EC 프로파일은 생성 후 변경 불가 → 처음에 잘 정해야 한다.</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 풀 목록과 상세</span>
+ceph osd pool ls detail
+ceph df                      <span class="c"># 풀별 사용량 / 남은 용량</span>
+ceph osd pool get <span class="s">vm-pool</span> all
+
+<span class="c"># 출력 예시</span>
+pool 3 '<span class="s">vm-pool</span>' <span class="k">replicated</span> size 3 min_size 2
+  pg_num 64 pgp_num 64 autoscale_mode on
+  application rbd
+
+<span class="c"># 전체 용량 요약</span>
+ceph df
+<span class="c">--- RAW STORAGE ---</span>
+CLASS  SIZE     AVAIL    USED     RAW USED  %RAW USED
+hdd    576 TiB  402 TiB  174 TiB   174 TiB      30.21</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 06 ══════════════ -->
+<section id="s6">
+  <div class="snum">SECTION 06</div>
+  <h2>세 가지 인터페이스 사용법</h2>
+  <div class="sub">RBD · CephFS · RGW를 실제로 붙여 보기</div>
+
+  <h3>RBD — 블록 스토리지</h3>
+  <p>
+    RBD(RADOS Block Device)는 Ceph 풀 안에 <strong>가상 디스크 이미지</strong>를 만들어 블록 디바이스로 노출합니다.
+    씬 프로비저닝(실제 쓴 만큼만 소모), 스냅샷, 클론, 다른 클러스터로의 미러링을 지원합니다.
+    OpenStack Cinder와 Kubernetes PVC가 가장 대표적인 소비자입니다.
+  </p>
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">이미지 생성·연결</button>
+      <button>스냅샷·클론</button>
+      <button>성능·리사이즈</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 1) 풀 준비</span>
+ceph osd pool create <span class="s">rbd-pool</span> 64
+ceph osd pool application enable <span class="s">rbd-pool</span> rbd
+rbd pool init <span class="s">rbd-pool</span>
+
+<span class="c"># 2) 100GB 이미지 생성 (씬 프로비저닝 — 실제 소모는 0에서 시작)</span>
+rbd create <span class="s">rbd-pool/vm-disk-01</span> --size <span class="o">100G</span>
+rbd ls -l <span class="s">rbd-pool</span>
+rbd info  <span class="s">rbd-pool/vm-disk-01</span>
+
+<span class="c"># 3) 리눅스 호스트에 블록 디바이스로 매핑</span>
+sudo rbd map <span class="s">rbd-pool/vm-disk-01</span> --id admin
+<span class="c"># → /dev/rbd0</span>
+
+sudo mkfs.xfs /dev/rbd0
+sudo mount /dev/rbd0 /mnt/data
+
+<span class="c"># 4) 해제</span>
+sudo umount /mnt/data
+sudo rbd unmap /dev/rbd0</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 스냅샷 — 특정 시점 고정 (COW 방식, 순간 완료)</span>
+rbd snap create   <span class="s">rbd-pool/vm-disk-01@before-upgrade</span>
+rbd snap ls       <span class="s">rbd-pool/vm-disk-01</span>
+
+<span class="c"># 롤백 (되돌리기) — 대상이 unmap 상태여야 안전</span>
+rbd snap rollback <span class="s">rbd-pool/vm-disk-01@before-upgrade</span>
+
+<span class="c"># 클론 — 골든 이미지에서 VM 100대를 순식간에 복제</span>
+rbd snap protect  <span class="s">rbd-pool/golden-ubuntu@v1</span>
+rbd clone         <span class="s">rbd-pool/golden-ubuntu@v1</span> <span class="s">rbd-pool/vm-042</span>
+
+<span class="c"># 클론을 독립시키기 (부모 의존 제거)</span>
+rbd flatten <span class="s">rbd-pool/vm-042</span>
+
+<span class="c"># 원격 클러스터로 비동기 복제 (DR 구성)</span>
+rbd mirror pool enable <span class="s">rbd-pool</span> image
+rbd mirror image enable <span class="s">rbd-pool/vm-disk-01</span> snapshot</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 온라인 확장 (축소는 위험 — 파일시스템 축소 먼저)</span>
+rbd resize <span class="s">rbd-pool/vm-disk-01</span> --size <span class="o">200G</span>
+sudo xfs_growfs /mnt/data
+
+<span class="c"># QoS — 이미지 단위 IOPS/대역폭 제한</span>
+rbd config image set <span class="s">rbd-pool/vm-disk-01</span> rbd_qos_iops_limit 3000
+rbd config image set <span class="s">rbd-pool/vm-disk-01</span> rbd_qos_bps_limit 209715200
+
+<span class="c"># 성능 벤치마크</span>
+rbd bench <span class="s">rbd-pool/vm-disk-01</span> --io-type write \
+    --io-size 4K --io-threads 16 --io-total 1G --io-pattern rand
+
+<span class="c"># 클러스터 전체 처짐 확인</span>
+ceph osd perf          <span class="c"># OSD 별 commit/apply latency</span>
+ceph tell osd.* bench  <span class="c"># OSD 개별 벤치</span></pre>
+    </div>
+  </div>
+
+  <h3>CephFS — 공유 파일시스템</h3>
+  <p>
+    CephFS는 POSIX 호환 분산 파일시스템입니다. 여러 클라이언트가 <strong>같은 경로를 동시에 읽고 쓸 수</strong> 있어서
+    Kubernetes의 <code>ReadWriteMany</code> 볼륨, AI 학습 데이터셋 공유, 홈 디렉터리 등에 씁니다.
+    데이터 풀과 메타데이터 풀을 각각 만들고 MDS를 띄우면 준비됩니다.
+  </p>
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">파일시스템 생성</button>
+      <button>마운트</button>
+      <button>쿼터·스냅샷</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 1) 메타데이터 풀 + 데이터 풀</span>
+<span class="c">#    메타데이터는 작고 IOPS 민감 → SSD 권장, 반드시 복제 풀</span>
+ceph osd pool create <span class="s">cephfs_meta</span> 32
+ceph osd pool create <span class="s">cephfs_data</span> 128
+
+<span class="c"># 2) 파일시스템 생성</span>
+ceph fs new <span class="s">myfs</span> <span class="s">cephfs_meta</span> <span class="s">cephfs_data</span>
+
+<span class="c"># 3) MDS 배치 (cephadm 사용 시)</span>
+ceph orch apply mds <span class="s">myfs</span> --placement=<span class="o">"2 node-01 node-02"</span>
+
+<span class="c"># 4) 확인</span>
+ceph fs ls
+ceph fs status <span class="s">myfs</span>
+ceph mds stat        <span class="c"># myfs:1 {0=mds.node-01=up:active}</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 방법 A: 커널 클라이언트 (성능 우수, 권장)</span>
+ceph fs authorize <span class="s">myfs</span> client.user / rw <span class="o">-o</span> /etc/ceph/ceph.client.user.keyring
+
+sudo mount -t ceph <span class="s">node-01,node-02,node-03:/</span> /mnt/cephfs \
+    -o name=user,secretfile=/etc/ceph/user.secret
+
+<span class="c"># /etc/fstab 등록</span>
+node-01,node-02,node-03:/  /mnt/cephfs  ceph  name=user,secretfile=/etc/ceph/user.secret,_netdev  0 0
+
+<span class="c"># 방법 B: FUSE 클라이언트 (커널 버전 제약 없음, 성능은 낮음)</span>
+sudo ceph-fuse /mnt/cephfs
+
+<span class="c"># 방법 C: NFS 게이트웨이로 재노출 (레거시/Windows 클라이언트용)</span>
+ceph nfs cluster create <span class="s">mynfs</span> <span class="o">"2 node-01 node-02"</span>
+ceph nfs export create cephfs <span class="s">mynfs</span> /export <span class="s">myfs</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 디렉터리 단위 용량 쿼터 (확장 속성으로 설정)</span>
+setfattr -n ceph.quota.max_bytes -v <span class="o">10737418240</span> /mnt/cephfs/team-a   <span class="c"># 10GiB</span>
+setfattr -n ceph.quota.max_files -v <span class="o">100000</span>      /mnt/cephfs/team-a
+getfattr -n ceph.quota.max_bytes /mnt/cephfs/team-a
+
+<span class="c"># 디렉터리 스냅샷 — 숨김 디렉터리에 만들면 된다</span>
+mkdir /mnt/cephfs/team-a/.snap/<span class="s">2026-08-01</span>
+ls    /mnt/cephfs/team-a/.snap/
+rmdir /mnt/cephfs/team-a/.snap/<span class="s">2026-08-01</span>
+
+<span class="c"># 파일 배치 지정 — 특정 디렉터리만 EC 풀로 보내기</span>
+ceph fs add_data_pool <span class="s">myfs</span> <span class="s">cephfs_cold_ec</span>
+setfattr -n ceph.dir.layout.pool -v <span class="s">cephfs_cold_ec</span> /mnt/cephfs/archive</pre>
+    </div>
+  </div>
+
+  <h3>RGW — S3 호환 오브젝트 스토리지</h3>
+  <p>
+    RGW(RADOS Gateway)는 HTTP 요청을 RADOS 연산으로 번역하는 웹 서버입니다.
+    <strong>AWS S3 API와 OpenStack Swift API</strong>를 동시에 제공하므로,
+    boto3나 AWS CLI로 작성된 애플리케이션을 코드 수정 없이 온프레미스로 옮길 수 있습니다.
+  </p>
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">RGW 배치·사용자</button>
+      <button>S3 CLI 사용</button>
+      <button>멀티사이트·라이프사이클</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 1) RGW 데몬 배치</span>
+ceph orch apply rgw <span class="s">myrgw</span> --realm=<span class="s">default</span> --zone=<span class="s">default</span> \
+    --placement=<span class="o">"2 node-01 node-02"</span> --port=8080
+
+<span class="c"># 2) S3 사용자 생성 → access/secret key 발급</span>
+radosgw-admin user create --uid=<span class="s">"appuser"</span> --display-name=<span class="s">"App User"</span>
+<span class="c"># 출력 JSON 의 keys[0].access_key / secret_key 를 사용</span>
+
+<span class="c"># 3) 쿼터 설정</span>
+radosgw-admin quota set --uid=<span class="s">appuser</span> --quota-scope=user --max-size=<span class="o">500G</span>
+radosgw-admin quota enable --uid=<span class="s">appuser</span> --quota-scope=user
+
+<span class="c"># 4) 사용량 확인</span>
+radosgw-admin user info --uid=<span class="s">appuser</span>
+radosgw-admin bucket stats
+radosgw-admin usage show --uid=<span class="s">appuser</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># AWS CLI 를 그대로 사용 — endpoint 만 바꾸면 된다</span>
+aws configure set aws_access_key_id     <span class="s">ACCESSKEY</span>
+aws configure set aws_secret_access_key <span class="s">SECRETKEY</span>
+
+aws --endpoint-url <span class="s">http://ceph-rgw:8080</span> s3 mb s3://<span class="s">backups</span>
+aws --endpoint-url <span class="s">http://ceph-rgw:8080</span> s3 cp ./data.tar s3://<span class="s">backups</span>/
+aws --endpoint-url <span class="s">http://ceph-rgw:8080</span> s3 ls s3://<span class="s">backups</span>/
+
+<span class="c"># Python boto3 도 동일</span>
+<span class="k">import</span> boto3
+s3 = boto3.client(<span class="s">"s3"</span>,
+    endpoint_url=<span class="s">"http://ceph-rgw:8080"</span>,
+    aws_access_key_id=<span class="s">"ACCESSKEY"</span>,
+    aws_secret_access_key=<span class="s">"SECRETKEY"</span>)
+s3.upload_file(<span class="s">"model.safetensors"</span>, <span class="s">"models"</span>, <span class="s">"llama/v1/model.safetensors"</span>)</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 라이프사이클 — 90일 후 자동 삭제 / 30일 후 EC 콜드 풀로 이동</span>
+aws --endpoint-url http://ceph-rgw:8080 s3api put-bucket-lifecycle-configuration \
+  --bucket <span class="s">logs</span> --lifecycle-configuration '{
+    "Rules":[{"ID":"expire","Status":"Enabled",
+      "Filter":{"Prefix":""},"Expiration":{"Days":90}}]}'
+
+<span class="c"># 버전 관리 (실수 삭제 방어)</span>
+aws --endpoint-url http://ceph-rgw:8080 s3api put-bucket-versioning \
+  --bucket <span class="s">important</span> --versioning-configuration Status=Enabled
+
+<span class="c"># 멀티사이트 — 두 데이터센터 간 비동기 복제</span>
+radosgw-admin realm create --rgw-realm=<span class="s">kr</span> --default
+radosgw-admin zonegroup create --rgw-zonegroup=<span class="s">kr-zg</span> --master --default
+radosgw-admin zone create --rgw-zone=<span class="s">seoul</span> --master --default
+<span class="c"># 두 번째 사이트에서 realm pull → zone 추가 → 양방향 동기화</span>
+radosgw-admin sync status</pre>
+    </div>
+  </div>
+
+  <div class="note v">
+    <div class="lbl">어떤 인터페이스를 골라야 하나</div>
+    <ul>
+      <li>VM 디스크, 데이터베이스 볼륨, 단일 파드 전용 PVC → <strong>RBD</strong></li>
+      <li>여러 파드/서버가 같은 디렉터리 공유, 학습 데이터셋, 미디어 작업 공간 → <strong>CephFS</strong></li>
+      <li>백업, 로그, 아티팩트, 모델 저장소, 데이터 레이크 → <strong>RGW(S3)</strong></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════════ 07 ══════════════ -->
+<section id="s7">
+  <div class="snum">SECTION 07</div>
+  <h2>설치와 운영 기초</h2>
+  <div class="sub">cephadm으로 처음부터 끝까지</div>
+
+  <p>
+    과거에는 ceph-deploy나 ceph-ansible을 썼지만, 현재 공식 표준은 <strong>cephadm</strong>입니다.
+    모든 데몬을 컨테이너(podman/docker)로 띄우고 SSH로 노드를 오케스트레이션합니다.
+    OS 패키지 의존성이 사라져 업그레이드가 훨씬 안전해졌습니다.
+  </p>
+
+  <h4>최소 요구사항 체크리스트</h4>
+  <ul>
+    <li><strong>노드 3대 이상</strong> — MON 쿼럼(홀수)과 복제본 3개 배치를 위해</li>
+    <li><strong>OSD용 빈 디스크</strong> — 파티션·파일시스템·LVM 서명이 없어야 합니다</li>
+    <li><strong>네트워크 2개(권장)</strong> — public(클라이언트용)과 cluster(복제/복구 트래픽용) 분리. 10GbE 이상 권장</li>
+    <li><strong>시간 동기화</strong> — chrony/NTP 필수. MON은 시간 오차에 매우 민감합니다</li>
+    <li><strong>메모리</strong> — OSD당 4GB 이상 (BlueStore 기본 osd_memory_target 4GB)</li>
+    <li><strong>podman/docker + python3 + systemd + SSH 키</strong></li>
+  </ul>
+
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">클러스터 부트스트랩</button>
+      <button>노드·OSD 추가</button>
+      <button>일상 운영 명령</button>
+      <button>업그레이드</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 1) 첫 노드에 cephadm 설치</span>
+curl --silent --remote-name --location \
+  https://download.ceph.com/rpm-<span class="s">tentacle</span>/el9/noarch/cephadm
+chmod +x cephadm && sudo mv cephadm /usr/local/bin/
+
+<span class="c"># 2) 부트스트랩 — MON 1개 + MGR 1개로 시작</span>
+sudo cephadm bootstrap \
+  --mon-ip <span class="s">192.168.10.11</span> \
+  --cluster-network <span class="s">10.10.10.0/24</span> \
+  --initial-dashboard-user admin \
+  --initial-dashboard-password <span class="s">'ChangeMe!'</span>
+
+<span class="c"># → 완료되면 대시보드 URL 과 접속 정보가 출력된다 (https://&lt;host&gt;:8443)</span>
+
+<span class="c"># 3) CLI 진입 (컨테이너 안의 ceph 명령 사용)</span>
+sudo cephadm shell
+<span class="c"># 또는 호스트에 클라이언트 도구 설치</span>
+sudo cephadm add-repo --release <span class="s">tentacle</span>
+sudo cephadm install ceph-common
+
+ceph -s     <span class="c"># HEALTH_WARN (OSD 없음) 이 정상 — 아직 디스크를 안 넣었으니까</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 1) SSH 공개키를 새 노드에 배포</span>
+ceph cephadm get-pub-key &gt; ~/ceph.pub
+ssh-copy-id -f -i ~/ceph.pub root@<span class="s">node-02</span>
+ssh-copy-id -f -i ~/ceph.pub root@<span class="s">node-03</span>
+
+<span class="c"># 2) 클러스터에 호스트 등록</span>
+ceph orch host add <span class="s">node-02</span> 192.168.10.12
+ceph orch host add <span class="s">node-03</span> 192.168.10.13
+ceph orch host ls
+
+<span class="c"># 3) MON 을 3대로 확장</span>
+ceph orch apply mon --placement=<span class="o">"3 node-01 node-02 node-03"</span>
+
+<span class="c"># 4) 사용 가능한 디스크 확인</span>
+ceph orch device ls --wide
+<span class="c"># AVAILABLE 컬럼이 Yes 인 디스크만 OSD 로 만들 수 있다</span>
+
+<span class="c"># 5) OSD 생성 — 방법 A: 전부 자동</span>
+ceph orch apply osd --all-available-devices
+
+<span class="c">#    방법 B: 개별 지정</span>
+ceph orch daemon add osd <span class="s">node-02:/dev/sdb</span>
+
+<span class="c">#    방법 C: DB 를 NVMe 로 분리 (HDD 클러스터 권장)</span>
+cat &lt;&lt;EOF | ceph orch apply -i -
+service_type: osd
+service_id: hdd_with_nvme_db
+placement:
+  host_pattern: <span class="s">'node-*'</span>
+spec:
+  data_devices: {rotational: 1}
+  db_devices:   {rotational: 0}
+  db_slots: 8
+EOF
+
+ceph osd tree     <span class="c"># 계층 구조 확인</span>
+ceph -s           <span class="c"># HEALTH_OK 를 기다린다</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c">══ 상태 확인 (가장 많이 쓰는 3종) ══</span>
+ceph -s                    <span class="c"># 한 화면 요약 — 매일 보는 명령</span>
+ceph health detail         <span class="c"># 경고의 구체적 원인</span>
+ceph -w                    <span class="c"># 이벤트 실시간 스트림</span>
+
+<span class="c">══ 용량 ══</span>
+ceph df                    <span class="c"># 풀별 사용량</span>
+ceph osd df tree           <span class="c"># OSD 별 사용률 + 편차 (VAR 컬럼 주목)</span>
+
+<span class="c">══ OSD ══</span>
+ceph osd tree
+ceph osd stat
+ceph osd perf              <span class="c"># 지연시간 이상치 탐색</span>
+ceph osd out <span class="s">3</span>            <span class="c"># osd.3 을 데이터 배치에서 제외 (교체 준비)</span>
+ceph osd in  <span class="s">3</span>
+ceph osd safe-to-destroy <span class="s">3</span>   <span class="c"># 제거해도 안전한지 확인</span>
+
+<span class="c">══ PG ══</span>
+ceph pg stat
+ceph pg dump_stuck          <span class="c"># 멈춘 PG 찾기</span>
+ceph pg <span class="s">3.1a</span> query        <span class="c"># 특정 PG 상세</span>
+
+<span class="c">══ 서비스 관리 ══</span>
+ceph orch ls                <span class="c"># 서비스 목록</span>
+ceph orch ps                <span class="c"># 데몬 목록 + 버전 + 상태</span>
+ceph orch daemon restart <span class="s">osd.3</span>
+ceph orch host maintenance enter <span class="s">node-02</span>   <span class="c"># 점검 모드</span>
+ceph orch host maintenance exit  <span class="s">node-02</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># cephadm 의 최대 장점: 롤링 업그레이드가 한 줄</span>
+ceph orch upgrade start --ceph-version <span class="s">20.2.2</span>
+
+<span class="c"># 진행 상황 확인</span>
+ceph orch upgrade status
+ceph -W cephadm            <span class="c"># 상세 로그 관찰</span>
+
+<span class="c"># 일시 정지 / 재개 / 중단</span>
+ceph orch upgrade pause
+ceph orch upgrade resume
+ceph orch upgrade stop
+
+<span class="c"># 업그레이드 순서는 cephadm 이 알아서 지킨다:</span>
+<span class="c">#   MGR → MON → CRASH → OSD → MDS → RGW</span>
+
+<span class="c">⚠ 업그레이드 전 반드시:</span>
+<span class="c">  1. ceph -s 가 HEALTH_OK 인지 확인 (WARN 상태로 시작하지 말 것)</span>
+<span class="c">  2. 릴리스 노트의 breaking change 확인</span>
+<span class="c">  3. 메이저 버전은 한 단계씩 (19 → 20, 18 → 20 건너뛰기 금지)</span>
+<span class="c">  4. 리밸런싱 억제로 불필요한 데이터 이동 차단</span>
+ceph osd set noout
+<span class="c">     ... 작업 ...</span>
+ceph osd unset noout</pre>
+    </div>
+  </div>
+
+  <h3>ceph -s 출력 읽는 법</h3>
+  <div class="codeset">
+    <div class="tabs"><button class="on">정상 상태 해석</button></div>
+    <div class="pane on">
+<pre>  cluster:
+    id:     a7f3c1e2-...
+    health: <span class="s">HEALTH_OK</span>                        <span class="c">← 여기가 OK 인지가 1순위</span>
+
+  services:
+    mon: <span class="o">3 daemons, quorum node-01,node-02,node-03</span>   <span class="c">← 과반 유지 필수</span>
+    mgr: node-01(active), standbys: node-02
+    osd: <span class="o">36 osds: 36 up, 36 in</span>                <span class="c">← up 과 in 숫자가 같아야 정상</span>
+    mds: myfs:1 {0=node-01=up:active}
+    rgw: 2 daemons active
+
+  data:
+    pools:   4 pools, 289 pgs
+    objects: 12.4M objects, 47 TiB
+    usage:   142 TiB used, 434 TiB / 576 TiB avail
+    pgs:     <span class="s">289 active+clean</span>                  <span class="c">← 전부 active+clean 이 목표</span>
+
+  io:
+    client:   84 MiB/s rd, 1.2 KiB/s wr, 210 op/s rd, 12 op/s wr
+
+<span class="c">──────────────────────────────────────────────────</span>
+<span class="c">용어 정리</span>
+<span class="c">  up   = 데몬이 살아서 통신 중</span>
+<span class="c">  in   = 데이터 배치 대상에 포함됨</span>
+<span class="c">  up/in 불일치 예:</span>
+<span class="c">    up 36, in 35  → 살아있지만 배치에서 빠짐 (교체 준비 중)</span>
+<span class="c">    up 35, in 36  → 죽었지만 아직 배치 대상 → 곧 복구 시작</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 08 ══════════════ -->
+<section id="s8">
+  <div class="snum">SECTION 08</div>
+  <h2>Kubernetes와 Ceph</h2>
+  <div class="sub">Rook 오퍼레이터와 CSI 드라이버</div>
+
+  <p>
+    쿠버네티스에서 Ceph를 쓰는 방법은 두 가지입니다.
+  </p>
+  <div class="grid g2">
+    <div class="card hl">
+      <div class="tag">Pattern A</div>
+      <h5>Rook — 클러스터 안에서 Ceph 운영</h5>
+      <p>Rook 오퍼레이터가 Ceph 자체를 쿠버네티스 워크로드로 관리합니다. CR(YAML)로 선언하면 MON/OSD/MDS를 배치하고 장애 복구까지 자동화합니다.</p>
+      <p style="color:var(--dim)">적합 → 쿠버네티스가 인프라의 중심인 환경, 하이퍼컨버지드 구성</p>
+    </div>
+    <div class="card hl">
+      <div class="tag">Pattern B</div>
+      <h5>외부 Ceph + CSI</h5>
+      <p>Ceph는 별도 클러스터로 두고, ceph-csi 드라이버만 쿠버네티스에 설치해 연결합니다.</p>
+      <p style="color:var(--dim)">적합 → OpenStack과 Ceph를 공유하는 환경, 스토리지 팀이 따로 있는 조직</p>
+    </div>
+  </div>
+
+  <div class="note a">
+    <div class="lbl">어느 쪽을 고를까</div>
+    <p>클러스터가 여러 개거나 VM 워크로드도 함께 쓴다면 <strong>외부 Ceph + CSI</strong>가 안전합니다.
+    쿠버네티스 클러스터를 지웠다가 다시 만들 때 스토리지가 함께 날아가는 위험을 피할 수 있습니다.
+    반대로 단일 클러스터에 모든 걸 담는 엣지·소규모 환경이라면 <strong>Rook</strong>의 운영 편의성이 큽니다.</p>
+  </div>
+
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">Rook 설치</button>
+      <button>StorageClass (RBD)</button>
+      <button>StorageClass (CephFS)</button>
+      <button>PVC 사용</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c"># 1) Rook 오퍼레이터 설치</span>
+helm repo add rook-release https://charts.rook.io/release
+helm install rook-ceph rook-release/rook-ceph \
+  --namespace rook-ceph --create-namespace
+
+<span class="c"># 2) CephCluster CR 로 클러스터 선언</span>
+<span class="k">apiVersion</span>: ceph.rook.io/v1
+<span class="k">kind</span>: <span class="o">CephCluster</span>
+<span class="k">metadata</span>:
+  name: rook-ceph
+  namespace: rook-ceph
+<span class="k">spec</span>:
+  cephVersion:
+    image: quay.io/ceph/ceph:<span class="s">v20.2</span>
+  dataDirHostPath: /var/lib/rook
+  mon:
+    count: <span class="o">3</span>
+    allowMultiplePerNode: <span class="o">false</span>
+  mgr:
+    count: 2
+  dashboard:
+    enabled: true
+  storage:
+    useAllNodes: true
+    useAllDevices: <span class="o">false</span>
+    deviceFilter: <span class="s">"^sd[b-z]"</span>      <span class="c"># sdb 이후 디스크만 OSD 로</span>
+
+<span class="c"># 3) 툴박스로 ceph 명령 사용</span>
+kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph -s</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 블록 풀 + StorageClass (ReadWriteOnce 용)</span>
+<span class="k">apiVersion</span>: ceph.rook.io/v1
+<span class="k">kind</span>: <span class="o">CephBlockPool</span>
+<span class="k">metadata</span>:
+  name: replicapool
+  namespace: rook-ceph
+<span class="k">spec</span>:
+  failureDomain: <span class="s">host</span>
+  replicated:
+    size: <span class="o">3</span>
+    requireSafeReplicaSize: true
+---
+<span class="k">apiVersion</span>: storage.k8s.io/v1
+<span class="k">kind</span>: <span class="o">StorageClass</span>
+<span class="k">metadata</span>:
+  name: <span class="s">rook-ceph-block</span>
+  annotations:
+    storageclass.kubernetes.io/is-default-class: <span class="s">"true"</span>
+<span class="k">provisioner</span>: rook-ceph.rbd.csi.ceph.com
+<span class="k">parameters</span>:
+  clusterID: rook-ceph
+  pool: replicapool
+  imageFormat: <span class="s">"2"</span>
+  imageFeatures: layering
+  csi.storage.k8s.io/fstype: <span class="s">ext4</span>
+<span class="k">reclaimPolicy</span>: <span class="o">Delete</span>          <span class="c"># 운영에서는 Retain 권장</span>
+<span class="k">allowVolumeExpansion</span>: <span class="o">true</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># CephFS — ReadWriteMany 가 필요할 때</span>
+<span class="k">apiVersion</span>: ceph.rook.io/v1
+<span class="k">kind</span>: <span class="o">CephFilesystem</span>
+<span class="k">metadata</span>:
+  name: myfs
+  namespace: rook-ceph
+<span class="k">spec</span>:
+  metadataPool:
+    replicated: {size: 3}
+  dataPools:
+    - name: data0
+      replicated: {size: 3}
+  metadataServer:
+    activeCount: <span class="o">1</span>
+    activeStandby: true
+---
+<span class="k">apiVersion</span>: storage.k8s.io/v1
+<span class="k">kind</span>: <span class="o">StorageClass</span>
+<span class="k">metadata</span>:
+  name: <span class="s">rook-cephfs</span>
+<span class="k">provisioner</span>: rook-ceph.cephfs.csi.ceph.com
+<span class="k">parameters</span>:
+  clusterID: rook-ceph
+  fsName: myfs
+  pool: myfs-data0
+<span class="k">allowVolumeExpansion</span>: true</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 단독 파드용 블록 볼륨</span>
+<span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: <span class="o">PersistentVolumeClaim</span>
+<span class="k">metadata</span>:
+  name: postgres-data
+<span class="k">spec</span>:
+  accessModes: [<span class="s">ReadWriteOnce</span>]
+  storageClassName: <span class="s">rook-ceph-block</span>
+  resources:
+    requests:
+      storage: <span class="o">100Gi</span>
+---
+<span class="c"># 여러 파드가 공유하는 볼륨 (학습 데이터셋 등)</span>
+<span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: <span class="o">PersistentVolumeClaim</span>
+<span class="k">metadata</span>:
+  name: shared-datasets
+<span class="k">spec</span>:
+  accessModes: [<span class="s">ReadWriteMany</span>]      <span class="c">← CephFS 만 가능</span>
+  storageClassName: <span class="s">rook-cephfs</span>
+  resources:
+    requests:
+      storage: <span class="o">2Ti</span>
+
+<span class="c"># 확인</span>
+kubectl get pvc,pv
+kubectl describe pvc postgres-data</pre>
+    </div>
+  </div>
+
+  <div class="note c">
+    <div class="lbl">쿠버네티스에서 자주 만나는 함정</div>
+    <ul>
+      <li><strong>PVC가 Pending에서 멈춤</strong> — 대개 CSI provisioner 파드 로그에 답이 있습니다. <code>kubectl -n rook-ceph logs -l app=csi-rbdplugin-provisioner</code></li>
+      <li><strong>reclaimPolicy: Delete</strong> — PVC를 지우면 데이터가 즉시 사라집니다. 운영 볼륨은 <code>Retain</code>으로.</li>
+      <li><strong>RBD는 ReadWriteMany 불가</strong> — 블록 디바이스를 여러 노드가 동시에 쓰면 파일시스템이 깨집니다. 공유가 필요하면 CephFS를 쓰세요.</li>
+      <li><strong>ARM64/x86 혼합 클러스터</strong> — Ceph 컨테이너 이미지가 멀티아치를 지원하는지 확인해야 합니다. 노드 아키텍처별로 nodeSelector 검토가 필요할 수 있습니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ══════════════ 09 ══════════════ -->
+<section id="s9">
+  <div class="snum">SECTION 09</div>
+  <h2>다른 스토리지 플랫폼과 비교</h2>
+  <div class="sub">Ceph가 강한 지점과, 다른 선택이 나은 지점</div>
+
+  <p>
+    Ceph는 만능이 아닙니다. 아래 표는 실제 도입 검토에서 자주 경쟁하는 선택지들입니다.
+    칩을 눌러 조건에 맞는 후보만 볼 수 있습니다.
+  </p>
+
+  <div class="chips" id="cmpChips">
+    <button class="chip on" data-f="all">전체</button>
+    <button class="chip" data-f="block">블록 제공</button>
+    <button class="chip" data-f="file">파일 제공</button>
+    <button class="chip" data-f="object">오브젝트 제공</button>
+    <button class="chip" data-f="oss">오픈소스</button>
+    <button class="chip" data-f="k8s">K8s 네이티브</button>
+  </div>
+
+  <div class="tblwrap">
+  <table id="cmpTbl">
+    <thead><tr>
+      <th>플랫폼</th><th>블록</th><th>파일</th><th>오브젝트</th><th>강점</th><th>약점 / 주의</th><th>대표 용도</th>
+    </tr></thead>
+    <tbody>
+      <tr data-t="block file object oss k8s">
+        <td><strong>Ceph</strong><br><span class="mono">오픈소스</span></td>
+        <td class="yes">●</td><td class="yes">●</td><td class="yes">●</td>
+        <td>세 인터페이스 통합, EB급 확장, 벤더 락인 없음, 성숙한 생태계</td>
+        <td>학습 곡선 급함, 최소 3노드, 운영 인력 필요, 초저지연 부적합</td>
+        <td>프라이빗 클라우드 통합 스토리지, OpenStack 백엔드</td>
+      </tr>
+      <tr data-t="object oss k8s">
+        <td><strong>MinIO</strong><br><span class="mono">오픈소스/상용</span></td>
+        <td class="no">—</td><td class="no">—</td><td class="yes">●</td>
+        <td>설치 매우 쉬움, S3 호환성 우수, 고성능(NVMe 최적화), 가벼움</td>
+        <td>오브젝트만 지원. 블록/파일 필요하면 별도 솔루션. 라이선스 정책 확인 필요</td>
+        <td>S3 전용 스토리지, AI 모델·데이터셋 저장소, 데이터 레이크</td>
+      </tr>
+      <tr data-t="file oss">
+        <td><strong>GlusterFS</strong><br><span class="mono">오픈소스</span></td>
+        <td class="no">—</td><td class="yes">●</td><td class="part">△</td>
+        <td>구조 단순(브릭 개념), 파일 그대로 저장되어 복구 직관적</td>
+        <td>개발 활력 저하, 소파일 대량 처리 성능 문제, 신규 도입 권장도 낮음</td>
+        <td>레거시 NAS 대체 (신규 프로젝트에는 비권장)</td>
+      </tr>
+      <tr data-t="block oss k8s">
+        <td><strong>Longhorn</strong><br><span class="mono">오픈소스 · CNCF</span></td>
+        <td class="yes">●</td><td class="no">—</td><td class="no">—</td>
+        <td>설치 5분, K8s 전용으로 매우 단순, GUI 좋음, 백업 내장</td>
+        <td>블록만. 대규모(수백 TB)에서 한계. 오브젝트/파일 미지원</td>
+        <td>중소규모 K8s 클러스터 PVC, 엣지 환경</td>
+      </tr>
+      <tr data-t="block file oss k8s">
+        <td><strong>OpenEBS</strong><br><span class="mono">오픈소스 · CNCF</span></td>
+        <td class="yes">●</td><td class="part">△</td><td class="no">—</td>
+        <td>Mayastor 엔진은 NVMe-oF로 매우 낮은 지연, 엔진 선택 가능</td>
+        <td>엔진마다 특성이 크게 달라 학습 필요, 파일 공유 기능 약함</td>
+        <td>지연 민감 K8s DB 워크로드</td>
+      </tr>
+      <tr data-t="file">
+        <td><strong>NFS / NAS 어플라이언스</strong><br><span class="mono">상용/오픈소스</span></td>
+        <td class="no">—</td><td class="yes">●</td><td class="no">—</td>
+        <td>어디서나 동작, 관리 쉬움, 성숙</td>
+        <td>단일 서버 병목·단일 장애점, 수평 확장 어려움</td>
+        <td>소규모 파일 공유, 개발 환경</td>
+      </tr>
+      <tr data-t="block file oss">
+        <td><strong>ZFS (단일 노드)</strong><br><span class="mono">오픈소스</span></td>
+        <td class="yes">●</td><td class="yes">●</td><td class="no">—</td>
+        <td>데이터 무결성 최강(체크섬), 스냅샷/압축/중복제거, 단일 노드에서 최고</td>
+        <td>노드 하나가 확장 상한. 분산 불가 → 노드 장애 = 서비스 중단</td>
+        <td>백업 저장소, 소규모 파일서버, Ceph OSD의 대안이 아님</td>
+      </tr>
+      <tr data-t="block file k8s">
+        <td><strong>Portworx</strong><br><span class="mono">상용</span></td>
+        <td class="yes">●</td><td class="yes">●</td><td class="no">—</td>
+        <td>K8s 네이티브 상용, DR/스냅샷/오토파일럿 등 기능 풍부, 벤더 지원</td>
+        <td>유료. 라이선스 비용이 노드 수에 비례</td>
+        <td>엔터프라이즈 K8s, 지원 계약이 필요한 조직</td>
+      </tr>
+      <tr data-t="block file">
+        <td><strong>VMware vSAN</strong><br><span class="mono">상용</span></td>
+        <td class="yes">●</td><td class="part">△</td><td class="no">—</td>
+        <td>vSphere와 완전 통합, GUI 운영 간편</td>
+        <td>VMware 종속, 라이선스 비용 및 정책 변동 리스크</td>
+        <td>기존 vSphere 기반 HCI</td>
+      </tr>
+      <tr data-t="block object">
+        <td><strong>퍼블릭 클라우드 (EBS/S3/EFS)</strong><br><span class="mono">상용 서비스</span></td>
+        <td class="yes">●</td><td class="yes">●</td><td class="yes">●</td>
+        <td>운영 부담 0, 즉시 사용, 무한 확장</td>
+        <td>데이터 전송(egress) 비용, 장기 대용량 시 총비용 급증, 데이터 주권 이슈</td>
+        <td>클라우드 네이티브 서비스, 가변 워크로드</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="lab">
+    <div class="head"><span class="dot"></span><b>스토리지 선택 가이드</b><span>조건을 고르면 후보를 추천합니다</span></div>
+    <div class="body">
+      <div class="ctl">
+        <div class="fld"><label>필요한 인터페이스</label>
+          <select id="gI">
+            <option value="block">블록만 (VM·DB 볼륨)</option>
+            <option value="file">파일 공유 (RWX)</option>
+            <option value="object">오브젝트 (S3)</option>
+            <option value="multi" selected>둘 이상 함께</option>
+          </select>
+        </div>
+        <div class="fld"><label>예상 용량</label>
+          <select id="gS">
+            <option value="s">10TB 이하</option>
+            <option value="m" selected>10~500TB</option>
+            <option value="l">500TB 이상</option>
+          </select>
+        </div>
+        <div class="fld"><label>운영 환경</label>
+          <select id="gE">
+            <option value="k8s">쿠버네티스만</option>
+            <option value="mixed" selected>K8s + VM 혼합</option>
+            <option value="vm">VM/OpenStack 중심</option>
+          </select>
+        </div>
+        <div class="fld"><label>스토리지 전담 인력</label>
+          <select id="gP">
+            <option value="no">없음 / 겸업</option>
+            <option value="yes" selected>있음</option>
+          </select>
+        </div>
+      </div>
+      <div class="health" id="gOut"></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <div class="lbl">한 문장 요약</div>
+    <p><strong>Ceph를 고를 이유</strong>는 "하나의 클러스터로 블록·파일·오브젝트를 모두 제공하며 페타바이트까지 확장해야 하고, 벤더 락인을 피하고 싶다"입니다.
+    이 조건 중 하나만 필요하다면 더 단순한 도구가 대개 더 나은 선택입니다.
+    오브젝트만 필요하면 MinIO, K8s 블록만 필요하면 Longhorn이 운영 부담을 크게 줄여 줍니다.</p>
+  </div>
+</section>
+
+<!-- ══════════════ 10 ══════════════ -->
+<section id="s10">
+  <div class="snum">SECTION 10</div>
+  <h2>응용 분야</h2>
+  <div class="sub">실제로 Ceph가 어디에 쓰이는가</div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="tag">Private Cloud</div>
+      <h5>OpenStack 통합 백엔드</h5>
+      <p>Ceph의 가장 고전적이고 강력한 용례입니다. 하나의 Ceph 클러스터가 OpenStack의 여러 서비스를 동시에 받칩니다.</p>
+      <p><strong>Cinder</strong> → RBD (VM 볼륨)<br>
+         <strong>Glance</strong> → RBD (VM 이미지)<br>
+         <strong>Nova</strong> → RBD (인스턴스 임시 디스크)<br>
+         <strong>Manila</strong> → CephFS (공유 파일)<br>
+         <strong>Swift API</strong> → RGW</p>
+      <p style="color:var(--dim)">효과: Glance 이미지에서 Cinder 볼륨 생성이 CoW 클론으로 즉시 완료 — VM 부팅이 수 초로 단축</p>
+    </div>
+    <div class="card">
+      <div class="tag">Kubernetes</div>
+      <h5>영구 볼륨 플랫폼</h5>
+      <p>StatefulSet의 DB 볼륨은 RBD, 여러 파드가 공유하는 데이터셋은 CephFS, 아티팩트·로그는 RGW로 한 클러스터에서 모두 처리합니다.</p>
+      <p style="color:var(--dim)">여러 K8s 클러스터가 하나의 Ceph를 공유하는 구조가 흔합니다</p>
+    </div>
+    <div class="card">
+      <div class="tag">AI / ML</div>
+      <h5>학습 데이터·모델 저장소</h5>
+      <p>수십 TB 데이터셋을 <strong>CephFS RWX</strong>로 여러 GPU 노드에 동시 마운트하고,
+      체크포인트와 모델 아티팩트는 <strong>RGW(S3)</strong>에 버전 관리해 저장합니다.
+      MLflow, Kubeflow, Argo Workflows의 아티팩트 백엔드로 S3 엔드포인트를 그대로 지정할 수 있습니다.</p>
+      <p style="color:var(--dim)">주의: 소용량 파일 수백만 개(이미지 데이터셋)는 CephFS 메타데이터 부하가 큽니다 → 메타데이터 풀을 NVMe에, MDS를 다중 active로, 또는 tar/webdataset 형태로 묶어 사용</p>
+    </div>
+    <div class="card">
+      <div class="tag">Backup / Archive</div>
+      <h5>백업 타겟과 장기 보관</h5>
+      <p>EC 풀 + RGW 조합이 비용 효율이 가장 좋습니다. Veeam, Commvault, Restic, Velero 등 대부분의 백업 솔루션이 S3 타겟을 지원합니다.
+      <strong>Object Lock</strong>으로 랜섬웨어 방어용 불변 백업(WORM)을 구성할 수 있습니다.</p>
+    </div>
+    <div class="card">
+      <div class="tag">Data Lake</div>
+      <h5>온프레미스 데이터 레이크</h5>
+      <p>Spark, Trino, Presto가 <code>s3a://</code> 로 RGW에 직접 질의합니다.
+      데이터를 퍼블릭 클라우드로 내보내지 않아도 되어 <strong>전송 비용과 데이터 주권 문제</strong>를 동시에 해결합니다.</p>
+    </div>
+    <div class="card">
+      <div class="tag">Media / HPC</div>
+      <h5>대용량 순차 I/O</h5>
+      <p>영상 편집 작업 공간, 위성·관측 데이터 수집, 유전체 분석 등 대용량 순차 읽기/쓰기 워크로드에 잘 맞습니다.
+      노드를 늘리면 총 대역폭이 선형에 가깝게 증가합니다.</p>
+    </div>
+  </div>
+
+  <h3>워크로드별 풀 설계 예시</h3>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>워크로드</th><th>인터페이스</th><th>보호 방식</th><th>디바이스</th><th>메모</th></tr></thead>
+    <tbody>
+      <tr><td>DB / OLTP 볼륨</td><td>RBD</td><td>복제 3</td><td>NVMe</td><td>EC는 부적합. 지연시간 우선</td></tr>
+      <tr><td>일반 VM 디스크</td><td>RBD</td><td>복제 3</td><td>SSD 또는 HDD+NVMe DB</td><td>가장 표준적인 구성</td></tr>
+      <tr><td>공유 홈/프로젝트</td><td>CephFS</td><td>메타 복제3 / 데이터 복제3</td><td>메타 NVMe, 데이터 HDD</td><td>메타데이터 풀 분리가 핵심</td></tr>
+      <tr><td>AI 학습 데이터셋</td><td>CephFS</td><td>복제 3 또는 EC 4+2</td><td>SSD</td><td>읽기 중심이면 EC도 실용적</td></tr>
+      <tr><td>모델·아티팩트</td><td>RGW</td><td>EC 4+2</td><td>HDD</td><td>버전 관리 활성화 권장</td></tr>
+      <tr><td>백업 / 아카이브</td><td>RGW</td><td>EC 8+3</td><td>대용량 HDD</td><td>용량 효율 최우선</td></tr>
+      <tr><td>로그 수집</td><td>RGW</td><td>EC 4+2</td><td>HDD</td><td>라이프사이클로 자동 삭제</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ══════════════ 11 ══════════════ -->
+<section id="s11">
+  <div class="snum">SECTION 11</div>
+  <h2>실전 트러블슈팅</h2>
+  <div class="sub">현장에서 마주치는 상태 메시지와 대응</div>
+
+  <h3>PG 상태 코드 사전</h3>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>상태</th><th>의미</th><th>대응</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mono" style="color:var(--aqua)">active+clean</span></td><td>정상. 모든 복제본이 최신</td><td>없음 — 목표 상태</td></tr>
+      <tr><td><span class="mono" style="color:var(--amber)">degraded</span></td><td>복제본 일부 없음 (OSD 다운 등)</td><td>자동 복구 진행. 진행률을 지켜본다</td></tr>
+      <tr><td><span class="mono" style="color:var(--amber)">undersized</span></td><td>배치할 OSD가 부족해 복제본 수를 못 채움</td><td>노드/OSD 추가, 또는 CRUSH rule 검토 (장애 도메인 수 부족)</td></tr>
+      <tr><td><span class="mono" style="color:var(--amber)">remapped</span></td><td>임시로 다른 OSD에 배치 중</td><td>backfill 완료를 기다린다</td></tr>
+      <tr><td><span class="mono" style="color:var(--amber)">backfilling / recovering</span></td><td>데이터 이동·복구 중</td><td>정상. 트래픽이 크면 속도 조절</td></tr>
+      <tr><td><span class="mono" style="color:var(--coral)">peering</span> (지속)</td><td>OSD 간 상태 합의가 안 끝남</td><td>네트워크·MTU 확인. 해당 OSD 로그 확인</td></tr>
+      <tr><td><span class="mono" style="color:var(--coral)">incomplete</span></td><td>최신 데이터를 가진 OSD를 찾을 수 없음</td><td><strong>위험.</strong> 다운된 OSD 복구를 우선. 무리한 조작 금지</td></tr>
+      <tr><td><span class="mono" style="color:var(--coral)">inconsistent</span></td><td>scrub이 복제본 간 불일치 발견</td><td><code>ceph pg repair &lt;pgid&gt;</code>. 반복되면 디스크 불량 의심</td></tr>
+      <tr><td><span class="mono" style="color:var(--coral)">stale</span></td><td>PG 상태 보고가 끊김 (Primary 다운)</td><td>해당 OSD 상태 확인</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="codeset">
+    <div class="tabs">
+      <button class="on">HEALTH_WARN 대응</button>
+      <button>OSD 교체 절차</button>
+      <button>복구 속도 조절</button>
+      <button>scrub 관리</button>
+    </div>
+    <div class="pane on">
+<pre><span class="c">══ 1. 원인 확인이 항상 첫 단계 ══</span>
+ceph health detail
+
+<span class="c">══ 자주 보는 경고와 대응 ══</span>
+
+<span class="o">[WRN] OSD_NEARFULL: 1 osds nearfull</span>
+  → ceph osd df tree 로 편차 확인
+  → 임시 완화:  ceph osd reweight-by-utilization
+  → 근본 해결:  ceph balancer on ; ceph balancer mode upmap
+  → 그래도 부족하면 OSD 추가
+
+<span class="o">[WRN] POOL_APP_NOT_ENABLED</span>
+  → ceph osd pool application enable &lt;pool&gt; rbd|cephfs|rgw
+
+<span class="o">[WRN] MON_CLOCK_SKEW: clock skew detected</span>
+  → chronyc sources -v  로 NTP 동기 확인 (가장 흔한 원인)
+
+<span class="o">[WRN] TOO_FEW_PGS / TOO_MANY_PGS</span>
+  → ceph osd pool autoscale-status 로 권장값 확인
+  → ceph osd pool set &lt;pool&gt; pg_num &lt;n&gt;   (업무 시간 외에)
+
+<span class="o">[WRN] PG_NOT_DEEP_SCRUBBED</span>
+  → 클러스터가 바빠 deep-scrub 이 밀린 상태
+  → 부하가 낮은 시간대로 스케줄 조정 (아래 scrub 탭 참고)
+
+<span class="o">[ERR] OSD_SCRUB_ERRORS / PG_DAMAGED</span>
+  → ceph pg repair &lt;pgid&gt;
+  → smartctl 로 해당 디스크 상태 점검. 재발하면 디스크 교체</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 디스크 하나가 죽었거나 SMART 경고가 뜬 경우의 안전한 교체 절차</span>
+
+<span class="c"># 1) 대상 OSD 확인</span>
+ceph osd tree | grep down
+ceph osd find <span class="s">3</span>
+
+<span class="c"># 2) 데이터 배치에서 제외 → 데이터가 다른 OSD 로 이동 시작</span>
+ceph osd out <span class="s">3</span>
+
+<span class="c"># 3) 이동 완료 대기 (여기서 서두르면 데이터 위험)</span>
+watch ceph -s      <span class="c"># active+clean 이 될 때까지</span>
+ceph osd safe-to-destroy <span class="s">3</span>    <span class="c"># "safe to destroy" 확인</span>
+
+<span class="c"># 4) 데몬 정지 및 제거</span>
+ceph orch daemon stop <span class="s">osd.3</span>
+ceph osd purge <span class="s">3</span> --yes-i-really-mean-it
+
+<span class="c"># 5) 물리 디스크 교체 후 새 OSD 생성</span>
+ceph orch device ls --refresh
+ceph orch daemon add osd <span class="s">node-02:/dev/sdb</span>
+
+<span class="c"># 6) 확인</span>
+ceph osd tree
+ceph -s
+
+<span class="c">⚠ 여러 OSD 를 동시에 out 하지 마세요. 순차 진행이 원칙입니다.</span>
+<span class="c">⚠ 노드 전체를 점검할 때는 maintenance 모드를 쓰세요:</span>
+ceph orch host maintenance enter <span class="s">node-02</span> --force</pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># 문제: 복구 트래픽이 클라이언트 I/O 를 밀어낸다 (서비스 체감 저하)</span>
+
+<span class="c"># 진단</span>
+ceph -s      <span class="c"># recovery: 2.1 GiB/s 처럼 복구 대역폭 확인</span>
+
+<span class="c"># 해결 A: 프로파일 변경 (가장 간단, 권장)</span>
+ceph config set osd osd_mclock_profile <span class="s">high_client_ops</span>
+<span class="c">#   high_client_ops  → 클라이언트 우선 (업무 시간)</span>
+<span class="c">#   balanced         → 기본</span>
+<span class="c">#   high_recovery_ops→ 복구 우선 (야간에 빨리 끝내기)</span>
+
+<span class="c"># 해결 B: 동시 작업 수 직접 제한</span>
+ceph config set osd osd_max_backfills <span class="o">1</span>
+ceph config set osd osd_recovery_max_active <span class="o">1</span>
+ceph config set osd osd_recovery_sleep <span class="o">0.1</span>
+
+<span class="c"># 야간에 다시 풀어주기</span>
+ceph config set osd osd_max_backfills <span class="o">8</span>
+
+<span class="c"># 계획된 작업(노드 리부트 등) 중 불필요한 복구 자체를 막기</span>
+ceph osd set noout       <span class="c"># OSD 가 자동으로 out 되지 않게</span>
+ceph osd set norebalance
+<span class="c">   ... 작업 수행 ...</span>
+ceph osd unset noout
+ceph osd unset norebalance
+
+ceph osd stat            <span class="c"># 설정된 flag 확인 — 해제 잊지 말 것!</span></pre>
+    </div>
+    <div class="pane">
+<pre><span class="c"># scrub = 복제본 메타데이터 비교 (가벼움, 매일)</span>
+<span class="c"># deep-scrub = 실제 데이터 바이트 비교 (무거움, 주 1회)</span>
+<span class="c">→ 비트 부패(bit rot)와 디스크 조용한 손상을 잡아내는 안전장치</span>
+
+<span class="c"># 현재 상태</span>
+ceph pg dump | grep -i scrub | head
+ceph config get osd osd_deep_scrub_interval
+
+<span class="c"># 부하가 낮은 시간대(1시~7시)로 제한</span>
+ceph config set osd osd_scrub_begin_hour <span class="o">1</span>
+ceph config set osd osd_scrub_end_hour   <span class="o">7</span>
+
+<span class="c"># 클러스터 부하가 높을 때는 scrub 자체를 걸러내기</span>
+ceph config set osd osd_scrub_load_threshold <span class="o">0.5</span>
+
+<span class="c"># 특정 PG 수동 실행</span>
+ceph pg scrub      <span class="s">3.1a</span>
+ceph pg deep-scrub <span class="s">3.1a</span>
+
+<span class="c"># 긴급 상황에서 일시 중지 (반드시 다시 켜세요)</span>
+ceph osd set noscrub
+ceph osd set nodeep-scrub
+ceph osd unset noscrub
+ceph osd unset nodeep-scrub
+
+<span class="c">⚠ scrub 을 오래 끄면 조용한 데이터 손상을 놓칩니다.</span>
+<span class="c">   PG_NOT_DEEP_SCRUBBED 경고는 무시하지 말고 원인을 해결하세요.</span></pre>
+    </div>
+  </div>
+
+  <h3>운영 체크리스트</h3>
+  <div class="grid g2">
+    <div class="card">
+      <div class="tag">Daily</div>
+      <h5>매일 확인</h5>
+      <p>· <code>ceph -s</code> HEALTH 상태<br>
+         · OSD up/in 개수 일치 여부<br>
+         · 용량 증가 추이 (65% 넘어가면 증설 계획)<br>
+         · 대시보드 알람</p>
+    </div>
+    <div class="card">
+      <div class="tag">Weekly</div>
+      <h5>주간 점검</h5>
+      <p>· <code>ceph osd df tree</code> 사용률 편차 (VAR 1.2 초과 시 balancer 확인)<br>
+         · deep-scrub 진행률<br>
+         · <code>ceph osd perf</code> 지연시간 이상치<br>
+         · SMART 경고 디스크 목록</p>
+    </div>
+    <div class="card">
+      <div class="tag">Monthly</div>
+      <h5>월간 작업</h5>
+      <p>· 릴리스 노트 확인 및 마이너 업그레이드 검토<br>
+         · 용량 예측 재계산<br>
+         · 장애 시나리오 훈련 (테스트 클러스터에서 OSD/노드 강제 정지)<br>
+         · 백업 복원 테스트</p>
+    </div>
+    <div class="card">
+      <div class="tag">Must Have</div>
+      <h5>반드시 준비할 것</h5>
+      <p>· Prometheus + Grafana 연동 (<code>ceph mgr module enable prometheus</code>)<br>
+         · 용량 임계치 알림 (70% / 80% / 85%)<br>
+         · MON 데이터베이스 백업<br>
+         · <code>ceph osd set</code> flag 해제 누락 방지 점검 항목</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 12 ══════════════ -->
+<section id="s12">
+  <div class="snum">SECTION 12</div>
+  <h2>이해도 점검 퀴즈</h2>
+  <div class="sub">12문항 · 정답을 고르면 해설이 열립니다</div>
+  <div id="quiz"></div>
+  <div id="score">답을 고르면 여기에 점수가 표시됩니다.</div>
+  <div class="btnrow" style="margin-top:14px"><button class="btn g" id="qReset">다시 풀기</button></div>
+</section>
+
+<!-- ══════════════ 13 ══════════════ -->
+<section id="s13">
+  <div class="snum">SECTION 13</div>
+  <h2>용어집 · 학습 로드맵</h2>
+  <div class="sub">복습과 다음 단계</div>
+
+  <h3>핵심 용어 30개</h3>
+  <dl class="kv">
+    <dt>RADOS</dt><dd>Ceph의 핵심 오브젝트 저장 계층. 모든 인터페이스가 결국 여기로 내려온다</dd>
+    <dt>librados</dt><dd>RADOS에 직접 접근하는 라이브러리 (C/C++/Python/Java/Go)</dd>
+    <dt>MON</dt><dd>클러스터 맵을 관리하는 모니터. 홀수 개(3/5)로 배치</dd>
+    <dt>MGR</dt><dd>메트릭·대시보드·오케스트레이터를 담당하는 매니저</dd>
+    <dt>OSD</dt><dd>Object Storage Daemon. 디스크 1개당 1개, 실제 데이터 저장</dd>
+    <dt>MDS</dt><dd>CephFS의 메타데이터 서버. 데이터는 다루지 않음</dd>
+    <dt>RGW</dt><dd>RADOS Gateway. S3/Swift API 제공</dd>
+    <dt>RBD</dt><dd>RADOS Block Device. 가상 블록 디바이스</dd>
+    <dt>CephFS</dt><dd>POSIX 호환 분산 파일시스템</dd>
+    <dt>Pool</dt><dd>논리적 저장 구획. 보호 방식·PG 수·CRUSH rule을 여기서 정한다</dd>
+    <dt>PG</dt><dd>Placement Group. 오브젝트를 담는 논리 바구니. Ceph 관리의 최소 단위</dd>
+    <dt>pg_num</dt><dd>풀의 PG 개수. 2의 거듭제곱 권장</dd>
+    <dt>CRUSH</dt><dd>PG를 어느 OSD에 놓을지 계산하는 결정론적 알고리즘</dd>
+    <dt>CRUSH map</dt><dd>디스크의 물리 계층 구조 (root→rack→host→osd) + 가중치</dd>
+    <dt>CRUSH rule</dt><dd>배치 규칙. 장애 도메인과 디바이스 클래스를 지정</dd>
+    <dt>Failure domain</dt><dd>장애 격리 단위. osd / host / rack / room / datacenter</dd>
+    <dt>Primary OSD</dt><dd>PG의 대표 OSD. 클라이언트 I/O를 받아 복제본에 전달</dd>
+    <dt>Acting set</dt><dd>현재 실제로 PG를 담고 있는 OSD 목록</dd>
+    <dt>Up set</dt><dd>CRUSH가 계산한 이상적인 OSD 목록. acting set과 다르면 데이터 이동 중</dd>
+    <dt>size / min_size</dt><dd>복제본 총 개수 / 쓰기를 허용할 최소 복제본 수</dd>
+    <dt>Erasure Coding</dt><dd>데이터 k조각 + 패리티 m조각으로 보호. 용량 효율이 높다</dd>
+    <dt>BlueStore</dt><dd>OSD의 현행 저장 엔진. raw 블록 디바이스 직접 사용</dd>
+    <dt>block.db / WAL</dt><dd>BlueStore 메타데이터·로그 영역. NVMe 분리 시 성능 향상</dd>
+    <dt>Scrub / Deep-scrub</dt><dd>메타데이터 비교 / 실제 데이터 비교로 무결성 검증</dd>
+    <dt>Backfill</dt><dd>PG 전체를 새 OSD로 복사하는 작업</dd>
+    <dt>Recovery</dt><dd>누락된 최신 오브젝트만 채우는 작업 (backfill보다 가벼움)</dd>
+    <dt>Rebalance</dt><dd>OSD 추가/제거로 데이터 분포를 재조정하는 과정</dd>
+    <dt>Balancer</dt><dd>OSD 사용률 편차를 자동으로 줄이는 MGR 모듈 (upmap 모드 권장)</dd>
+    <dt>cephadm</dt><dd>컨테이너 기반 공식 배포·관리 도구</dd>
+    <dt>Rook</dt><dd>쿠버네티스에서 Ceph를 운영하는 오퍼레이터</dd>
+  </dl>
+
+  <h3>다음 단계 학습 로드맵</h3>
+  <ol class="steps">
+    <li><b>가상 환경에 3노드 클러스터 직접 구축</b>
+      VM 3대(각 4vCPU/8GB/디스크 3개)로 cephadm bootstrap부터 OSD 추가까지 해 보세요.
+      <code>ceph -s</code>가 HEALTH_OK가 되는 순간이 첫 관문입니다.</li>
+    <li><b>장애를 일부러 만들어 보기</b>
+      OSD를 강제 정지하고 <code>ceph -s</code>의 변화를 관찰하세요. degraded → recovering → active+clean의 전이를 눈으로 보는 것이
+      문서 100장보다 낫습니다. 노드 1대를 통째로 끄는 실험도 해 보세요.</li>
+    <li><b>세 인터페이스를 모두 붙여 보기</b>
+      RBD를 mount하고, CephFS를 두 대에서 동시에 mount해 파일이 즉시 보이는지 확인하고,
+      aws-cli로 RGW에 파일을 올려 보세요.</li>
+    <li><b>Rook으로 쿠버네티스 연동</b>
+      kind나 소규모 클러스터에 Rook을 설치하고 PVC를 만들어 보세요. RWO와 RWX의 차이를 실습으로 확인합니다.</li>
+    <li><b>성능 측정과 튜닝</b>
+      <code>rbd bench</code>, <code>fio</code>, <code>s3-benchmark</code>로 기준선을 잡고, block.db를 NVMe로 분리했을 때의 차이를 측정해 보세요.</li>
+    <li><b>모니터링 스택 구성</b>
+      Prometheus 모듈을 켜고 Grafana 공식 대시보드를 연결하세요. 어떤 지표를 봐야 하는지 아는 것이 운영 역량의 절반입니다.</li>
+    <li><b>공식 문서와 커뮤니티</b>
+      <code>docs.ceph.com</code>의 Architecture와 Troubleshooting 챕터, ceph.io 블로그,
+      Ceph Days/Cephalocon 발표 자료를 정기적으로 읽으세요. 릴리스 노트는 업그레이드 전 필수입니다.</li>
+  </ol>
+
+  <div class="note">
+    <div class="lbl">마지막 조언</div>
+    <p>Ceph는 <strong>읽어서 익히는 기술이 아니라 부숴 보면서 익히는 기술</strong>입니다.
+    운영 클러스터에서는 절대 실험하지 마세요. 대신 테스트 클러스터를 하나 만들어 두고
+    OSD를 죽이고, 노드를 끄고, 풀을 잘못 만들어 보세요. 그 경험이 새벽 3시 장애 알림 앞에서 당신을 구합니다.</p>
+  </div>
+
+  <footer>
+    Ceph 완전 기초 · 분산 스토리지의 원리부터 실무 적용까지<br>
+    Tentacle(v20) / Squid(v19) 기준 · 2026.08<br>
+    본 자료의 명령어는 학습용 예시입니다. 운영 적용 전 반드시 테스트 환경에서 검증하세요.
+  </footer>
+</section>
+
+</div>
+</main>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ══════════ 진행 바 ══════════ */
+var prog=document.getElementById('prog');
+function onScroll(){
+  var h=document.documentElement;
+  var max=h.scrollHeight-h.clientHeight;
+  prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+/* ══════════ 사이드바 ══════════ */
+var side=document.getElementById('side');
+document.getElementById('menu').addEventListener('click',function(){side.classList.toggle('open');});
+var links=[].slice.call(document.querySelectorAll('#toc a'));
+links.forEach(function(a){a.addEventListener('click',function(){side.classList.remove('open');});});
+var secs=[].slice.call(document.querySelectorAll('section[id]'));
+if('IntersectionObserver' in window){
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});
+      }
+    });
+  },{rootMargin:'-15% 0px -70% 0px'});
+  secs.forEach(function(s){io.observe(s);});
+}
+
+/* ══════════ 탭 ══════════ */
+document.addEventListener('click',function(e){
+  var b=e.target.closest('.tabs button');if(!b)return;
+  var set=b.closest('.codeset');
+  var bs=[].slice.call(set.querySelectorAll('.tabs button'));
+  var ps=[].slice.call(set.querySelectorAll('.pane'));
+  var i=bs.indexOf(b);
+  bs.forEach(function(x,j){x.classList.toggle('on',j===i);});
+  ps.forEach(function(x,j){x.classList.toggle('on',j===i);});
+});
+
+/* ══════════ 복사 버튼 ══════════ */
+[].slice.call(document.querySelectorAll('.pane')).forEach(function(p){
+  var pre=p.querySelector('pre');if(!pre)return;
+  var b=document.createElement('button');
+  b.className='cp';b.textContent='COPY';
+  b.addEventListener('click',function(){
+    var t=pre.innerText;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(function(){
+        b.textContent='COPIED';setTimeout(function(){b.textContent='COPY';},1400);
+      });
+    }
+  });
+  p.appendChild(b);
+});
+
+/* ══════════ 히어로 터미널 타이핑 ══════════ */
+var bootLines=[
+ {t:'$ ceph -s',c:''},
+ {t:'  cluster:',c:'c'},
+ {t:'    id:     8f2c-4d1a-9e77-b3f0',c:'c'},
+ {t:'    health: HEALTH_OK',c:'ok'},
+ {t:'',c:''},
+ {t:'  services:',c:'c'},
+ {t:'    mon: 3 daemons, quorum node-01,node-02,node-03',c:'k'},
+ {t:'    mgr: node-01(active), standbys: node-02',c:'k'},
+ {t:'    osd: 36 osds: 36 up, 36 in',c:'k'},
+ {t:'    mds: myfs:1 {0=node-01=up:active}',c:'k'},
+ {t:'    rgw: 2 daemons active',c:'k'},
+ {t:'',c:''},
+ {t:'  data:',c:'c'},
+ {t:'    pools:   4 pools, 289 pgs',c:''},
+ {t:'    objects: 12.4M objects, 47 TiB',c:''},
+ {t:'    usage:   142 TiB used, 434 TiB / 576 TiB avail',c:''},
+ {t:'    pgs:     289 active+clean',c:'ok'},
+ {t:'',c:''},
+ {t:'  io:',c:'c'},
+ {t:'    client:  84 MiB/s rd, 1.2 KiB/s wr, 210 op/s',c:'w'}
+];
+var bootEl=document.getElementById('boot');
+var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function renderBoot(n){
+  var h='';
+  for(var i=0;i<n;i++){
+    var l=bootLines[i];
+    h+= l.c? '<span class="'+l.c+'">'+esc(l.t)+'</span>\n' : esc(l.t)+'\n';
+  }
+  bootEl.innerHTML=h+'<span class="cursor"></span>';
+}
+if(reduce){renderBoot(bootLines.length);}
+else{
+  var bi=0;
+  (function step(){
+    bi++;renderBoot(bi);
+    if(bi<bootLines.length)setTimeout(step,bi<3?260:120);
+  })();
+}
+
+/* ══════════ CRUSH 시뮬레이터 ══════════ */
+var RACKS=[
+  {name:'rack-a',hosts:[{name:'node-01',osds:[0,1,2]},{name:'node-02',osds:[3,4,5]}]},
+  {name:'rack-b',hosts:[{name:'node-03',osds:[6,7,8]},{name:'node-04',osds:[9,10,11]}]},
+  {name:'rack-c',hosts:[{name:'node-05',osds:[12,13,14]},{name:'node-06',osds:[15,16,17]}]}
+];
+var ALL=[];RACKS.forEach(function(r,ri){r.hosts.forEach(function(h,hi){h.osds.forEach(function(o){
+  ALL.push({id:o,host:h.name,rack:r.name,ri:ri,hi:ri*2+hi});});});});
+var down={};                       // osd id -> true
+var selPG=null;
+
+function h32(){ // 간단한 결정론적 해시 (교육용)
+  var x=2166136261;
+  for(var a=0;a<arguments.length;a++){
+    var v=arguments[a];
+    if(typeof v==='string'){for(var i=0;i<v.length;i++){x^=v.charCodeAt(i);x=(x*16777619)>>>0;}}
+    else{x^=(v>>>0);x=(x*16777619)>>>0;}
+  }
+  x^=x>>>13;x=(x*1274126177)>>>0;x^=x>>>16;
+  return x>>>0;
+}
+function pgOf(name,pgnum){return h32(name)%pgnum;}
+
+/* CRUSH 유사 배치: straw2 스타일로 최고점 후보를 순차 선택 */
+function crush(pgid,n,dom,skipDown){
+  var groups={};
+  ALL.forEach(function(o){
+    var k = dom==='rack'?o.rack : dom==='host'?o.host : ('osd'+o.id);
+    (groups[k]=groups[k]||[]).push(o);
+  });
+  var keys=Object.keys(groups),chosen=[],used={};
+  for(var r=0;r<n;r++){
+    var best=null,bestS=-1;
+    keys.forEach(function(k){
+      if(used[k])return;
+      if(skipDown && !groups[k].some(function(o){return !down[o.id];}))return;
+      var s=h32(pgid,r,k);
+      if(s>bestS){bestS=s;best=k;}
+    });
+    if(best===null)break;
+    used[best]=true;
+    var cand=groups[best].filter(function(o){return !skipDown||!down[o.id];});
+    var bo=null,bs=-1;
+    cand.forEach(function(o){var s=h32(pgid,o.id);if(s>bs){bs=s;bo=o;}});
+    if(bo)chosen.push(bo.id);
+  }
+  return chosen;
+}
+
+var $=function(id){return document.getElementById(id);};
+function cfg(){
+  return {
+    name:$('objName').value||'object',
+    pgnum:parseInt($('pgNum').value,10),
+    size:parseInt($('repSize').value,10),
+    dom:$('fdom').value
+  };
+}
+
+function drawFlow(c,pgid,up,acting){
+  $('flow').innerHTML=
+   '<div class="step"><em>OBJECT</em><b>'+esc(c.name)+'</b></div>'+
+   '<span class="arw">→</span>'+
+   '<div class="step"><em>HASH</em><b>0x'+h32(c.name).toString(16).slice(0,8)+'</b></div>'+
+   '<span class="arw">→</span>'+
+   '<div class="step v"><em>PG (hash % '+c.pgnum+')</em><b>'+pgid+'</b></div>'+
+   '<span class="arw">→</span>'+
+   '<div class="step"><em>UP SET (이상적)</em><b>['+up.join(', ')+']</b></div>'+
+   '<span class="arw">→</span>'+
+   '<div class="step"><em>ACTING SET (실제)</em><b>['+acting.join(', ')+']</b></div>';
+}
+
+function drawTopo(up,acting){
+  var pri=acting[0];
+  var moved={};
+  acting.forEach(function(o){if(up.indexOf(o)<0)moved[o]=true;});
+  var html='';
+  RACKS.forEach(function(r){
+    html+='<div class="rack"><div class="rname">'+r.name+'</div>';
+    r.hosts.forEach(function(h){
+      html+='<div class="host"><div class="hname">'+h.name+'</div><div class="osds">';
+      h.osds.forEach(function(o){
+        var cls='osd',badge='';
+        if(down[o])cls+=' down';
+        else if(o===pri)cls+=' pri';
+        else if(acting.indexOf(o)>=0)cls+=' rep';
+        if(moved[o])cls+=' moved';
+        var idx=acting.indexOf(o);
+        if(idx>=0&&!down[o])badge='<span class="r">'+(idx===0?'P':idx)+'</span>';
+        html+='<div class="'+cls+'" data-osd="'+o+'" title="osd.'+o+'">'+o+badge+'</div>';
+      });
+      html+='</div></div>';
+    });
+    html+='</div>';
+  });
+  $('topo').innerHTML=html;
+}
+
+function drawPGMap(c){
+  var n=Math.min(c.pgnum,64),html='';
+  for(var i=0;i<n;i++){
+    var up=crush(i,c.size,c.dom,false);
+    var alive=up.filter(function(o){return !down[o];}).length;
+    var cls='pg';
+    if(alive<Math.min(2,c.size))cls+=' err';
+    else if(alive<c.size)cls+=' deg';
+    if(selPG===i)cls+=' sel';
+    html+='<div class="'+cls+'" data-pg="'+i+'" title="pg '+i+' · 정상 복제본 '+alive+'/'+c.size+'"></div>';
+  }
+  $('pgmap').innerHTML=html;
+}
+
+function drawHealth(c){
+  var total=Math.min(c.pgnum,64),deg=0,err=0,under=0;
+  for(var i=0;i<total;i++){
+    var up=crush(i,c.size,c.dom,false);
+    var av=crush(i,c.size,c.dom,true);
+    var alive=up.filter(function(o){return !down[o];}).length;
+    if(av.length<c.size)under++;
+    if(alive<Math.min(2,c.size))err++;
+    else if(alive<c.size)deg++;
+  }
+  var nd=Object.keys(down).length;
+  var el=$('clHealth'),txt,cls;
+  if(nd===0){
+    cls='ok';
+    txt='health: HEALTH_OK\n  osd: '+ALL.length+' osds: '+ALL.length+' up, '+ALL.length+' in\n  pgs: '+total+' active+clean';
+  }else if(err>0){
+    cls='err';
+    txt='health: HEALTH_ERR\n  '+nd+' osds down\n  pgs: '+(total-deg-err)+' active+clean, '+deg+' active+undersized+degraded, '+err+' active+degraded (min_size 미달 → 쓰기 차단 가능)'+
+        (under>0?'\n  ⚠ '+under+' pgs 배치 실패: 장애 도메인('+c.dom+') 수가 복제본 수보다 부족합니다':'');
+  }else{
+    cls='warn';
+    txt='health: HEALTH_WARN\n  '+nd+' osds down\n  Degraded data redundancy: '+deg+'/'+total+' pgs degraded\n  → 자동 복구(recovery/backfill) 진행 중'+
+        (under>0?'\n  ⚠ '+under+' pgs undersized: 남은 '+c.dom+' 수 부족':'');
+  }
+  el.className='health '+cls;el.textContent=txt;
+}
+
+function render(){
+  var c=cfg();
+  var pgid = selPG!==null && selPG<c.pgnum ? selPG : pgOf(c.name,c.pgnum);
+  var up=crush(pgid,c.size,c.dom,false);
+  var acting=crush(pgid,c.size,c.dom,true);
+  drawFlow(c,pgid,up,acting);
+  drawTopo(up,acting);
+  drawPGMap(c);
+  drawHealth(c);
+}
+
+['objName','pgNum','repSize','fdom'].forEach(function(id){
+  var el=$(id);
+  el.addEventListener('input',function(){if(id==='objName')selPG=null;render();});
+  el.addEventListener('change',function(){render();});
+});
+$('topo').addEventListener('click',function(e){
+  var d=e.target.closest('.osd');if(!d)return;
+  var o=parseInt(d.getAttribute('data-osd'),10);
+  if(down[o])delete down[o];else down[o]=true;
+  render();
+});
+$('pgmap').addEventListener('click',function(e){
+  var d=e.target.closest('.pg');if(!d)return;
+  selPG=parseInt(d.getAttribute('data-pg'),10);render();
+});
+var SAMPLES=['vm-disk-01.img','rbd_data.1f2e.0000000000000042','backup-2026-08-01.tar.gz',
+  'models/llama-3-70b/model.safetensors','cephfs_meta.00000001','logs/app/2026/08/access.log',
+  'dataset/imagenet/train/n01440764_18.jpg','glance-image-ubuntu-24.04.qcow2'];
+$('btnRand').addEventListener('click',function(){
+  selPG=null;
+  $('objName').value=SAMPLES[Math.floor(Math.random()*SAMPLES.length)];
+  render();
+});
+$('btnKill').addEventListener('click',function(){
+  var alive=ALL.filter(function(o){return !down[o.id];});
+  if(!alive.length)return;
+  down[alive[Math.floor(Math.random()*alive.length)].id]=true;render();
+});
+$('btnHost').addEventListener('click',function(){
+  var hosts=[];RACKS.forEach(function(r){r.hosts.forEach(function(h){
+    if(h.osds.some(function(o){return !down[o];}))hosts.push(h);});});
+  if(!hosts.length)return;
+  hosts[Math.floor(Math.random()*hosts.length)].osds.forEach(function(o){down[o]=true;});
+  render();
+});
+$('btnHeal').addEventListener('click',function(){down={};render();});
+render();
+
+/* ══════════ PG 계산기 ══════════ */
+function pow2(n){
+  if(n<1)return 1;
+  var lo=Math.pow(2,Math.floor(Math.log2(n))),hi=lo*2;
+  return (n-lo)<(hi-n)?lo:hi;
+}
+function pgCalc(){
+  var osd=+$('pgOsd').value||3, pool=+$('pgPool').value||1,
+      rep=+$('pgRep').value||3, tgt=+$('pgTarget').value||100;
+  var raw=(osd*tgt)/(rep*pool);
+  var p=Math.max(pow2(raw),16);
+  var per=(p*pool*rep/osd);
+  $('pgRaw').textContent=Math.round(raw);
+  $('pgPow').textContent=p;
+  $('pgPer').textContent=per.toFixed(0);
+  $('pgTotal').textContent=(p*pool).toLocaleString();
+  var el=$('pgAdvice'),m,c;
+  if(per<50){c='warn';m='OSD당 PG가 '+per.toFixed(0)+'개로 적습니다. 데이터가 불균등하게 쏠릴 수 있습니다.\n→ pg_num을 '+(p*2)+'로 올리는 것을 검토하세요.';}
+  else if(per>200){c='warn';m='OSD당 PG가 '+per.toFixed(0)+'개로 많습니다. OSD 메모리/CPU 부담과 peering 지연이 커집니다.\n→ pg_num을 '+(p/2)+'로 줄이는 것을 검토하세요.';}
+  else{c='ok';m='OSD당 PG '+per.toFixed(0)+'개 — 권장 범위(50~200) 안에 있습니다.\n→ ceph osd pool set <pool> pg_num '+p;}
+  el.className='health '+c;el.textContent=m;
+}
+['pgOsd','pgPool','pgRep','pgTarget'].forEach(function(id){
+  $(id).addEventListener('input',pgCalc);
+});
+pgCalc();
+
+/* ══════════ 용량 계산기 ══════════ */
+var PROT={
+  r2:{eff:1/2,fail:1,label:'복제 2배',minNode:2,warn:'size=2는 운영 금지 수준입니다. 복구 중 두 번째 장애 시 데이터를 잃습니다.'},
+  r3:{eff:1/3,fail:2,label:'복제 3배',minNode:3,warn:''},
+  r4:{eff:1/4,fail:3,label:'복제 4배',minNode:4,warn:'매우 높은 내구성이지만 용량 효율 25%로 비용이 큽니다.'},
+  ec22:{eff:2/4,fail:2,label:'EC 2+2',minNode:4,warn:'k가 작아 효율 이득이 크지 않습니다. 소규모 실습용.'},
+  ec42:{eff:4/6,fail:2,label:'EC 4+2',minNode:6,warn:''},
+  ec62:{eff:6/8,fail:2,label:'EC 6+2',minNode:8,warn:''},
+  ec83:{eff:8/11,fail:3,label:'EC 8+3',minNode:11,warn:''},
+  ec104:{eff:10/14,fail:4,label:'EC 10+4',minNode:14,warn:'조각이 많아 복구 시 부하가 큽니다. 대규모 아카이브 전용.'}
+};
+function fmt(t){
+  if(t>=1024)return (t/1024).toFixed(2)+' PB';
+  return t.toFixed(1)+' TB';
+}
+function capCalc(){
+  var n=+$('cNode').value||1,d=+$('cDisk').value||1,s=+$('cSize').value||1;
+  var key=$('cProt').value,p=PROT[key];
+  var raw=n*d*s, use=raw*p.eff, safe=use*0.85;
+  $('rRaw').textContent=fmt(raw);
+  $('rUse').textContent=fmt(use);
+  $('rSafe').textContent=fmt(safe);
+  $('rEff').textContent=(p.eff*100).toFixed(0)+'%';
+  $('rFail').textContent=p.fail+'개';
+  $('rBar').style.width=(p.eff*100).toFixed(0)+'%';
+  $('rBarTxt').textContent=fmt(use)+' / '+fmt(raw)+'  ('+p.label+')';
+  var msgs=[],cls='ok';
+  msgs.push(p.label+' → 원본 1TB를 저장하면 실제 디스크는 '+(1/p.eff).toFixed(2)+'TB를 소모합니다.');
+  msgs.push('동시에 '+p.fail+'개의 '+(key[0]==='r'?'복제본':'조각')+'을 잃어도 데이터는 안전합니다.');
+  if(n<p.minNode){
+    cls='err';
+    msgs.push('⚠ host 장애 도메인 기준으로 최소 '+p.minNode+'개 노드가 필요합니다. 현재 '+n+'개 → 배치 불가(undersized).');
+  }else if(n===p.minNode){
+    cls='warn';
+    msgs.push('⚠ 노드 수가 최소치와 같습니다. 노드 1대가 죽으면 복제/재구성이 불가능해집니다. '+(p.minNode+1)+'개 이상을 권장합니다.');
+  }
+  if(p.warn){if(cls==='ok')cls='warn';msgs.push('· '+p.warn);}
+  msgs.push('· 실제 운영 계획은 '+fmt(use*0.7)+' 수준(70%)을 상한으로 잡으세요. 장애 시 재분산 여유가 필요합니다.');
+  var el=$('rNote');el.className='health '+cls;el.textContent=msgs.join('\n');
+}
+['cNode','cDisk','cSize','cProt'].forEach(function(id){
+  $(id).addEventListener('input',capCalc);$(id).addEventListener('change',capCalc);
+});
+capCalc();
+
+/* ══════════ 비교 표 필터 ══════════ */
+$('cmpChips').addEventListener('click',function(e){
+  var b=e.target.closest('.chip');if(!b)return;
+  [].slice.call(this.querySelectorAll('.chip')).forEach(function(c){c.classList.toggle('on',c===b);});
+  var f=b.getAttribute('data-f');
+  [].slice.call(document.querySelectorAll('#cmpTbl tbody tr')).forEach(function(tr){
+    var t=tr.getAttribute('data-t')||'';
+    tr.style.display=(f==='all'||t.indexOf(f)>=0)?'':'none';
+  });
+});
+
+/* ══════════ 선택 가이드 ══════════ */
+function guide(){
+  var i=$('gI').value,s=$('gS').value,e=$('gE').value,p=$('gP').value;
+  var rec=[],why=[];
+  if(i==='multi'||s==='l'){
+    rec.push('Ceph');
+    why.push(i==='multi'?'· 블록·파일·오브젝트를 한 클러스터로 통합할 수 있는 선택지는 사실상 Ceph뿐입니다.':'· 500TB 이상 규모에서 검증된 오픈소스는 Ceph입니다.');
+  }
+  if(i==='object'){
+    rec.unshift('MinIO');
+    why.push('· 오브젝트만 필요하면 MinIO가 설치·운영이 훨씬 단순하고 NVMe에서 성능이 좋습니다.');
+    if(s==='l')why.push('· 다만 향후 블록/파일까지 필요해질 가능성이 있다면 Ceph를 함께 검토하세요.');
+  }
+  if(i==='block'&&e==='k8s'&&s!=='l'){
+    rec.unshift('Longhorn');
+    why.push('· 쿠버네티스 블록 볼륨만 필요한 중소규모라면 Longhorn이 가장 빠르게 안착합니다.');
+    why.push('· 지연시간이 특히 중요하면 OpenEBS Mayastor(NVMe-oF)도 후보입니다.');
+  }
+  if(i==='file'&&s==='s'){
+    rec.unshift('NFS 또는 ZFS 파일서버');
+    why.push('· 10TB 이하 파일 공유는 분산 스토리지의 복잡도가 이득보다 큽니다.');
+  }
+  if(e==='vm'||e==='mixed'){
+    if(rec.indexOf('Ceph')<0)rec.push('Ceph');
+    why.push('· VM/OpenStack이 섞인 환경에서는 Ceph가 Cinder·Glance·Nova·Manila를 한 번에 받쳐 줍니다.');
+  }
+  if(p==='no'){
+    why.push('⚠ 전담 인력이 없다면 Ceph 도입 시 상용 지원(Red Hat/SUSE/IBM 등)이나 매니지드 서비스를 함께 검토하세요. Ceph는 자동화·모니터링 없이는 운영 부담이 큽니다.');
+    if(rec[0]==='Ceph'&&s!=='l'&&i!=='multi'){
+      why.push('→ 더 단순한 대안(MinIO/Longhorn)으로 시작해 필요할 때 확장하는 전략도 합리적입니다.');
+    }
+  }else{
+    why.push('· 전담 인력이 있다면 Ceph의 학습 곡선은 충분히 상환됩니다. 테스트 클러스터를 먼저 만들어 장애 훈련부터 하세요.');
+  }
+  if(!rec.length)rec.push('Ceph');
+  var uniq=rec.filter(function(v,ix){return rec.indexOf(v)===ix;});
+  var el=$('gOut');el.className='health '+(p==='no'?'warn':'ok');
+  el.textContent='추천 후보 → '+uniq.join('  |  ')+'\n\n'+why.join('\n');
+}
+['gI','gS','gE','gP'].forEach(function(id){$(id).addEventListener('change',guide);});
+guide();
+
+/* ══════════ 퀴즈 ══════════ */
+var QS=[
+{q:'Ceph에서 실제 데이터를 디스크에 저장하는 데몬은 무엇인가요?',
+ o:['ceph-mon','ceph-osd','ceph-mgr','ceph-mds'],a:1,
+ e:'OSD(Object Storage Daemon)가 실제 데이터를 저장합니다. 보통 디스크 1개당 OSD 1개를 배치합니다. MON은 클러스터 맵, MGR은 모니터링, MDS는 CephFS 메타데이터를 담당하며 모두 데이터 본문은 다루지 않습니다.'},
+{q:'클라이언트가 "내 데이터가 어느 OSD에 있는지" 알아내는 방법은?',
+ o:['MON 서버에 조회한다','메타데이터 DB를 검색한다','CRUSH 알고리즘으로 직접 계산한다','모든 OSD에 브로드캐스트한다'],a:2,
+ e:'클러스터 맵만 받아 두면 클라이언트가 CRUSH로 위치를 직접 계산합니다. 조회할 중앙 서버가 없기 때문에 OSD가 수천 개로 늘어나도 병목이 생기지 않습니다. 이것이 Ceph 확장성의 핵심입니다.'},
+{q:'PG(Placement Group)가 존재하는 이유로 가장 적절한 것은?',
+ o:['데이터를 암호화하기 위해','오브젝트 개별 위치 추적 대신 묶음 단위로 관리해 지도를 작게 유지하기 위해','네트워크 대역폭을 늘리기 위해','파일 권한을 관리하기 위해'],a:1,
+ e:'오브젝트가 1억 개여도 PG를 1,024개만 두면 추적 대상이 1,024개로 줄어듭니다. PG는 "오브젝트를 담는 논리 바구니"이고, Ceph는 PG 단위로 복제·복구·상태 관리를 수행합니다.'},
+{q:'MON 데몬을 3개 또는 5개처럼 홀수로 배치하는 이유는?',
+ o:['성능이 더 좋기 때문','과반수(quorum) 합의를 명확히 결정하기 위해','라이선스 제약 때문','디스크 용량 때문'],a:1,
+ e:'MON은 Paxos 기반 합의를 사용하며 과반수가 살아 있어야 동작합니다. 짝수로 두면 정확히 반으로 갈렸을 때 결정이 불가능해집니다(split-brain). 3개면 1개 장애, 5개면 2개 장애까지 견딥니다.'},
+{q:'CRUSH rule에서 장애 도메인을 type osd 대신 type host로 두는 이유는?',
+ o:['성능이 향상되기 때문','서버 1대가 통째로 죽어도 데이터가 살아남게 하기 위해','디스크 용량이 늘어나기 때문','네트워크 트래픽을 줄이기 위해'],a:1,
+ e:'type osd는 같은 서버 안 여러 디스크에 복제본이 놓일 수 있어, 서버 1대가 꺼지면 복제본 전부를 동시에 잃을 수 있습니다. type host는 복제본을 서로 다른 서버에 강제 분산합니다. 운영에서는 host 이상이 원칙입니다.'},
+{q:'복제 3배(size=3)와 EC 4+2의 용량 효율을 비교하면?',
+ o:['복제 3배가 더 효율적 (약 50% vs 33%)','같다','EC 4+2가 더 효율적 (약 67% vs 33%)','비교할 수 없다'],a:2,
+ e:'복제 3배는 원본 1TB에 3TB를 써서 효율 33%입니다. EC 4+2는 6조각 중 4개가 데이터이므로 4/6 ≈ 67%입니다. 대신 EC는 CPU 사용량이 늘고 작은 랜덤 쓰기 성능이 떨어져서, 백업·아카이브·오브젝트 워크로드에 주로 씁니다.'},
+{q:'min_size=2, size=3인 풀에서 OSD 2개가 동시에 죽어 특정 PG의 정상 복제본이 1개만 남았다면?',
+ o:['정상적으로 계속 읽고 쓸 수 있다','해당 PG의 쓰기가 차단된다','클러스터 전체가 즉시 정지한다','데이터가 자동 삭제된다'],a:1,
+ e:'min_size는 쓰기를 허용할 최소 정상 복제본 수입니다. 1개만 남으면 min_size=2 미달이므로 해당 PG의 쓰기가 차단됩니다. 데이터를 지키기 위한 의도된 동작입니다. 복제본이 복구되면 자동으로 재개됩니다.'},
+{q:'Kubernetes에서 여러 파드가 같은 볼륨을 동시에 읽고 써야 합니다(ReadWriteMany). 무엇을 써야 하나요?',
+ o:['RBD','CephFS','RGW','아무거나 가능'],a:1,
+ e:'RBD는 블록 디바이스여서 여러 노드가 동시에 마운트하면 파일시스템이 손상됩니다. RWX가 필요하면 CephFS를 사용해야 합니다. RGW는 파일시스템이 아니라 S3 API여서 PVC로 마운트하는 용도가 아닙니다.'},
+{q:'OSD 사용률이 85%를 넘어 nearfull 경고가 떴습니다. 가장 먼저 확인할 것은?',
+ o:['클러스터를 재시작한다','ceph osd df tree로 OSD 간 사용률 편차를 확인한다','모든 풀을 삭제한다','복제본 수를 1로 낮춘다'],a:1,
+ e:'전체 용량은 충분한데 특정 OSD만 찬 경우가 많습니다. ceph osd df tree의 VAR 컬럼으로 편차를 확인하고, balancer(upmap 모드)를 켜서 균등화합니다. 전체가 실제로 부족하면 OSD를 추가해야 합니다. 복제본 수를 낮추는 것은 내구성을 포기하는 위험한 선택입니다.'},
+{q:'deep-scrub의 역할은 무엇인가요?',
+ o:['디스크를 물리적으로 청소한다','복제본 간 실제 데이터 바이트를 비교해 조용한 손상을 찾아낸다','불필요한 파일을 삭제한다','네트워크 속도를 측정한다'],a:1,
+ e:'scrub은 메타데이터만 비교하고(가벼움), deep-scrub은 실제 데이터를 읽어 비교합니다(무거움). 비트 부패나 디스크의 조용한 손상을 잡아내는 안전장치이므로, 부하 때문에 오래 끄면 데이터 손상을 놓칠 수 있습니다.'},
+{q:'현재 Ceph 클러스터를 배포·관리하는 공식 표준 도구는?',
+ o:['ceph-deploy','cephadm','puppet-ceph','수동 설치'],a:1,
+ e:'cephadm이 현재 공식 표준입니다. 모든 데몬을 컨테이너로 띄우고 SSH로 노드를 오케스트레이션하며, ceph orch upgrade 한 줄로 롤링 업그레이드가 가능합니다. ceph-deploy는 오래전에 폐기되었습니다.'},
+{q:'오브젝트 스토리지(S3)만 필요한 신규 프로젝트에서 Ceph보다 더 적합할 수 있는 선택은?',
+ o:['MinIO','GlusterFS','NFS','ZFS'],a:0,
+ e:'MinIO는 S3 전용으로 설계되어 설치와 운영이 훨씬 단순하고 NVMe 환경에서 성능이 좋습니다. Ceph의 가치는 블록·파일·오브젝트 통합과 페타바이트 확장성인데, 그 조건이 필요 없다면 더 단순한 도구가 유리합니다. 단, 나중에 블록/파일까지 필요해질 가능성은 미리 따져 보세요.'}
+];
+var qEl=$('quiz'),answered={};
+function buildQuiz(){
+  answered={};
+  qEl.innerHTML=QS.map(function(item,i){
+    return '<div class="q" data-i="'+i+'">'+
+      '<div class="qn">Q'+String(i+1).padStart(2,'0')+'</div>'+
+      '<div class="qt">'+item.q+'</div>'+
+      item.o.map(function(o,j){return '<button class="opt" data-j="'+j+'">'+o+'</button>';}).join('')+
+      '<div class="expl">'+item.e+'</div></div>';
+  }).join('');
+  $('score').textContent='답을 고르면 여기에 점수가 표시됩니다.';
+}
+qEl.addEventListener('click',function(e){
+  var b=e.target.closest('.opt');if(!b)return;
+  var box=b.closest('.q'),i=+box.getAttribute('data-i'),j=+b.getAttribute('data-j');
+  if(answered.hasOwnProperty(i))return;
+  answered[i]=(j===QS[i].a);
+  [].slice.call(box.querySelectorAll('.opt')).forEach(function(x,k){
+    x.disabled=true;
+    if(k===QS[i].a)x.classList.add('good');
+    else if(k===j)x.classList.add('bad');
+  });
+  box.querySelector('.expl').classList.add('show');
+  var keys=Object.keys(answered),ok=keys.filter(function(k){return answered[k];}).length;
+  var msg='진행 '+keys.length+' / '+QS.length+'   ·   정답 ';
+  if(keys.length===QS.length){
+    var pct=Math.round(ok/QS.length*100),cmt;
+    if(pct>=90)cmt='훌륭합니다. 실습 클러스터를 만들어 장애 시뮬레이션 단계로 넘어가세요.';
+    else if(pct>=70)cmt='기초는 잡혔습니다. 4장(CRUSH)과 5장(복제/EC)을 한 번 더 읽어 보세요.';
+    else if(pct>=50)cmt='절반입니다. 3~5장의 시뮬레이터를 직접 조작하며 다시 따라가 보세요.';
+    else cmt='서두르지 마세요. 1~4장을 순서대로 다시 읽고, CRUSH 시뮬레이터로 감각을 만드는 것이 가장 빠릅니다.';
+    $('score').innerHTML=msg+'<b>'+ok+'</b> / '+QS.length+' ('+pct+'%)<br>'+cmt;
+  }else{
+    $('score').innerHTML=msg+'<b>'+ok+'</b> / '+keys.length;
+  }
+});
+$('qReset').addEventListener('click',function(){
+  buildQuiz();
+  document.getElementById('s12').scrollIntoView({behavior:reduce?'auto':'smooth'});
+});
+buildQuiz();
+
+})();
+</script>
+</body>
+</html>
