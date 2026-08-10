@@ -1,0 +1,3620 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PostgreSQL 운영 심화 — DBA 필수 개념 인터랙티브 강의</title>
+<meta name="description" content="MVCC·VACUUM·WAL·PITR·복제·파티셔닝·EXPLAIN·파라미터 튜닝·락·모니터링을 다루는 PostgreSQL DBA 운영 강의.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ============================================================
+   PostgreSQL Lecture Series — shared design system
+   Dark editorial / SQL-comment eyebrows / elephant-slate palette
+   ============================================================ */
+:root{
+  --bg:#0c0f14;
+  --bg-2:#10141b;
+  --surface:#141922;
+  --panel:#181e28;
+  --panel-2:#1d242f;
+  --line:#242d3a;
+  --line-2:#2f3a49;
+  --text:#e7ecf3;
+  --text-2:#b9c3d0;
+  --muted:#8d99a9;
+  --dim:#6b7686;
+
+  --pg:#4a9fe0;          /* PostgreSQL blue, brightened for dark bg */
+  --pg-deep:#336791;     /* brand */
+  --amber:#f0b263;       /* WAL / warning */
+  --green:#54c98d;       /* commit / ok */
+  --red:#ef6f8b;         /* rollback / danger */
+  --violet:#a98bf5;      /* xid / MVCC */
+  --cyan:#5fd4d0;        /* index / cache */
+
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --sans:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,system-ui,"Malgun Gothic",sans-serif;
+
+  --r:14px;
+  --r-s:9px;
+  --sh:0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -24px rgba(0,0,0,.8);
+  --nav-w:296px;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:var(--sans);font-size:16.5px;line-height:1.78;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(900px 500px at 82% -8%, rgba(51,103,145,.20), transparent 60%),
+    radial-gradient(700px 420px at 4% 4%, rgba(169,139,245,.09), transparent 60%);
+  background-attachment:fixed;
+}
+img{max-width:100%}
+a{color:var(--pg);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--pg);outline-offset:2px;border-radius:6px}
+
+/* ---------- progress ---------- */
+#prog{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;
+  background:linear-gradient(90deg,var(--pg-deep),var(--pg),var(--cyan));}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);gap:0;max-width:1500px;margin:0 auto}
+
+/* ---------- sidebar ---------- */
+.nav{
+  position:sticky;top:0;height:100vh;overflow-y:auto;padding:26px 18px 40px;
+  border-right:1px solid var(--line);background:rgba(12,15,20,.72);backdrop-filter:blur(8px);
+}
+.nav::-webkit-scrollbar{width:8px}
+.nav::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.nav__brand{display:flex;gap:10px;align-items:center;margin-bottom:4px}
+.nav__logo{width:34px;height:34px;flex:0 0 34px}
+.nav__title{font-size:14.5px;font-weight:700;letter-spacing:-.2px;line-height:1.3}
+.nav__sub{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+.nav__meter{margin:16px 0 12px;font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.nav__meter b{color:var(--pg)}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:1px 0}
+.toc a{
+  display:flex;gap:9px;align-items:baseline;padding:7px 10px;border-radius:8px;
+  color:var(--text-2);font-size:13.6px;line-height:1.45;border-left:2px solid transparent
+}
+.toc a:hover{background:var(--panel);text-decoration:none;color:var(--text)}
+.toc a.is-on{background:linear-gradient(90deg,rgba(74,159,224,.16),transparent);color:#fff;border-left-color:var(--pg)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--dim);flex:0 0 20px}
+.toc a.is-on .n{color:var(--pg)}
+.nav__note{margin-top:18px;padding:11px 12px;border:1px dashed var(--line-2);border-radius:10px;
+  font-size:12.4px;color:var(--muted);line-height:1.6}
+
+.navbtn{display:none}
+
+/* ---------- main ---------- */
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.wrap{max-width:920px;margin:0 auto}
+
+/* ---------- hero ---------- */
+.hero{padding:74px 0 42px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.hero__eyebrow{font-family:var(--mono);font-size:12px;color:var(--pg);letter-spacing:.1em;margin-bottom:18px}
+.hero h1{font-size:clamp(32px,5.2vw,52px);line-height:1.12;letter-spacing:-1.4px;margin:0 0 18px;font-weight:800}
+.hero h1 em{font-style:normal;color:var(--pg);}
+.hero__lead{font-size:18px;color:var(--text-2);max-width:64ch;margin:0 0 26px}
+.hero__meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--mono);font-size:11.5px;color:var(--text-2);border:1px solid var(--line-2);
+  background:var(--panel);padding:5px 10px;border-radius:999px}
+.chip b{color:var(--pg);font-weight:600}
+
+/* hero terminal */
+.term{margin:30px 0 0;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;background:#0a0d12;box-shadow:var(--sh)}
+.term__bar{display:flex;gap:7px;align-items:center;padding:9px 13px;background:var(--panel);border-bottom:1px solid var(--line)}
+.term__dot{width:9px;height:9px;border-radius:50%;background:var(--line-2)}
+.term__name{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:6px}
+.term__body{padding:16px 18px;font-family:var(--mono);font-size:13px;line-height:1.85;white-space:pre-wrap;color:var(--text-2)}
+.term__body .p{color:var(--green)}
+.term__body .c{color:var(--dim)}
+.term__body .o{color:var(--text)}
+.cursor{display:inline-block;width:8px;height:15px;background:var(--pg);vertical-align:-2px;animation:blink 1.1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* ---------- sections ---------- */
+section{padding:56px 0;border-bottom:1px solid var(--line);scroll-margin-top:12px}
+section:last-of-type{border-bottom:0}
+.eyebrow{font-family:var(--mono);font-size:12px;color:var(--dim);margin-bottom:10px;letter-spacing:.02em}
+.eyebrow b{color:var(--pg);font-weight:500}
+h2{font-size:clamp(25px,3.4vw,33px);line-height:1.22;letter-spacing:-.8px;margin:0 0 14px;font-weight:800}
+h3{font-size:20.5px;letter-spacing:-.3px;margin:38px 0 10px;font-weight:700}
+h4{font-size:16.5px;margin:26px 0 8px;font-weight:700;color:var(--text)}
+p{margin:0 0 16px}
+.lead{font-size:17.4px;color:var(--text-2)}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:6px 0}
+li::marker{color:var(--dim)}
+strong{color:#fff;font-weight:700}
+code:not(pre code){font-family:var(--mono);font-size:.86em;background:var(--panel-2);border:1px solid var(--line);
+  padding:1.5px 6px;border-radius:6px;color:#cfe4f7;white-space:nowrap}
+hr{border:0;border-top:1px dashed var(--line-2);margin:34px 0}
+.small{font-size:13.6px;color:var(--muted)}
+
+/* ---------- cards & grids ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;box-shadow:var(--sh)}
+.card h4{margin-top:0}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:820px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:15px 16px}
+.tile .k{font-family:var(--mono);font-size:11px;color:var(--pg);letter-spacing:.06em;text-transform:uppercase}
+.tile .t{font-weight:700;margin:4px 0 5px;font-size:15.5px}
+.tile .d{font-size:13.8px;color:var(--muted);line-height:1.62}
+
+/* ---------- callouts ---------- */
+.note{border-left:3px solid var(--pg);background:linear-gradient(90deg,rgba(74,159,224,.10),transparent 70%);
+  padding:14px 18px;border-radius:0 var(--r-s) var(--r-s) 0;margin:20px 0;font-size:15.4px}
+.note p:last-child{margin:0}
+.note .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--pg);display:block;margin-bottom:5px}
+.note.warn{border-color:var(--amber);background:linear-gradient(90deg,rgba(240,178,99,.10),transparent 70%)}
+.note.warn .lbl{color:var(--amber)}
+.note.danger{border-color:var(--red);background:linear-gradient(90deg,rgba(239,111,139,.10),transparent 70%)}
+.note.danger .lbl{color:var(--red)}
+.note.ok{border-color:var(--green);background:linear-gradient(90deg,rgba(84,201,141,.10),transparent 70%)}
+.note.ok .lbl{color:var(--green)}
+
+/* ---------- tables ---------- */
+.tbl-wrap{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:var(--r-s)}
+table{border-collapse:collapse;width:100%;font-size:14.2px;min-width:520px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--panel);font-size:12.3px;font-weight:700;color:var(--text);
+  text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;position:sticky;top:0}
+tbody tr:hover{background:rgba(74,159,224,.05)}
+tbody tr:last-child td{border-bottom:0}
+td.mono,th.mono,.mono{font-family:var(--mono);font-size:13px}
+.yes{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.mid{color:var(--amber);font-weight:700}
+
+/* ---------- code blocks ---------- */
+.cb{margin:20px 0;border:1px solid var(--line-2);border-radius:var(--r-s);overflow:hidden;background:#0a0d12;position:relative}
+.cb__hd{display:flex;align-items:center;gap:2px;background:var(--panel);border-bottom:1px solid var(--line);padding:0 6px}
+.cb__tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);
+  font-family:var(--mono);font-size:11.8px;padding:9px 12px;cursor:pointer}
+.cb__tab:hover{color:var(--text)}
+.cb__tab.is-on{color:var(--pg);border-bottom-color:var(--pg)}
+.cb__copy{margin-left:auto;background:none;border:1px solid var(--line-2);color:var(--muted);border-radius:6px;
+  font-family:var(--mono);font-size:10.8px;padding:3px 8px;cursor:pointer}
+.cb__copy:hover{color:var(--pg);border-color:var(--pg)}
+.cb pre{margin:0;padding:15px 17px;overflow-x:auto;font-family:var(--mono);font-size:13.1px;line-height:1.75;display:none;tab-size:2}
+.cb pre.is-on{display:block}
+.cb pre::-webkit-scrollbar{height:8px}
+.cb pre::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.t-c{color:#5f6d7e;font-style:italic}
+.t-s{color:#8fd3a0}
+.t-n{color:#e9b473}
+.t-k{color:#6fb3ea;font-weight:600}
+.t-f{color:#c79ef5}
+.t-t{color:#5fd4d0}
+.t-p{color:#54c98d}
+.cb__cap{padding:8px 15px;border-top:1px solid var(--line);background:rgba(24,30,40,.6);
+  font-size:12.6px;color:var(--muted);font-family:var(--sans)}
+
+/* ---------- demo ---------- */
+.demo{margin:26px 0;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;
+  background:linear-gradient(180deg,var(--panel),var(--surface));box-shadow:var(--sh)}
+.demo__hd{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+  background:rgba(51,103,145,.12)}
+.demo__hd .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--pg);border:1px solid rgba(74,159,224,.4);border-radius:999px;padding:2px 8px}
+.demo__hd h4{margin:0;font-size:15.2px}
+.demo__bd{padding:18px 16px}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.ctl label{font-size:12.8px;color:var(--muted);font-family:var(--mono)}
+.btn{appearance:none;background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);
+  border-radius:8px;padding:7px 13px;font-size:13.4px;font-family:inherit;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--pg);color:#fff}
+.btn.is-on{background:rgba(74,159,224,.18);border-color:var(--pg);color:#fff}
+.btn.pri{background:var(--pg-deep);border-color:var(--pg);color:#fff;font-weight:600}
+.btn.pri:hover{background:var(--pg)}
+.btn.sm{padding:4px 9px;font-size:12.2px}
+.btn.danger{border-color:rgba(239,111,139,.5);color:#ffc2ce}
+.btn.danger:hover{border-color:var(--red)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+select,input[type=text],input[type=number]{background:#0a0d12;border:1px solid var(--line-2);color:var(--text);
+  border-radius:7px;padding:6px 9px;font-family:var(--mono);font-size:13px}
+input[type=range]{accent-color:var(--pg);width:150px}
+.out{background:#0a0d12;border:1px solid var(--line);border-radius:var(--r-s);padding:14px 15px;
+  font-family:var(--mono);font-size:12.9px;line-height:1.7;overflow-x:auto;white-space:pre-wrap}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.4px;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+.rtbl{border-collapse:collapse;font-family:var(--mono);font-size:12.4px;min-width:0;width:auto}
+.rtbl th,.rtbl td{border:1px solid var(--line);padding:5px 10px;white-space:nowrap;position:static;background:none}
+.rtbl th{background:var(--panel);text-transform:none;letter-spacing:0}
+.rtbl td.nul{color:var(--red);font-style:italic}
+.rtbl tr.new{background:rgba(84,201,141,.10)}
+.rtbl tr.dead{background:rgba(239,111,139,.10);text-decoration:line-through;color:var(--dim)}
+
+/* ---------- quiz ---------- */
+.quiz{border:1px solid var(--line-2);border-radius:var(--r);background:var(--surface);padding:20px 22px;margin:26px 0}
+.q{padding:14px 0;border-bottom:1px dashed var(--line)}
+.q:last-of-type{border-bottom:0}
+.q__t{font-weight:600;margin-bottom:9px}
+.q__t span{font-family:var(--mono);color:var(--pg);font-size:12.6px;margin-right:7px}
+.opt{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);
+  color:var(--text-2);border-radius:8px;padding:8px 12px;margin:5px 0;font-size:14px;cursor:pointer;font-family:inherit}
+.opt:hover{border-color:var(--pg)}
+.opt.ok{border-color:var(--green);background:rgba(84,201,141,.13);color:#fff}
+.opt.bad{border-color:var(--red);background:rgba(239,111,139,.13);color:#fff}
+.expl{display:none;margin-top:9px;font-size:13.8px;color:var(--text-2);border-left:2px solid var(--pg);padding-left:12px}
+.expl.show{display:block}
+.score{font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:14px}
+
+/* ---------- misc ---------- */
+.kbd{font-family:var(--mono);font-size:11.6px;border:1px solid var(--line-2);border-bottom-width:2px;
+  border-radius:5px;padding:1px 6px;background:var(--panel-2)}
+.steps{counter-reset:s;list-style:none;padding:0}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin:14px 0}
+.steps li::before{content:counter(s,decimal-leading-zero);position:absolute;left:0;top:2px;font-family:var(--mono);
+  font-size:11.5px;color:var(--pg);border:1px solid var(--line-2);border-radius:6px;padding:1px 6px}
+.bar{height:9px;border-radius:6px;background:var(--panel-2);overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--pg-deep),var(--pg))}
+footer{padding:44px 0 0;color:var(--dim);font-size:13.4px}
+footer .fnote{font-family:var(--mono);font-size:11.6px}
+
+@media(max-width:1024px){
+  .shell{grid-template-columns:1fr}
+  .nav{position:fixed;z-index:50;top:0;left:0;width:min(88vw,320px);transform:translateX(-102%);transition:transform .25s}
+  .nav.open{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.5)}
+  .navbtn{display:block;position:fixed;z-index:55;top:12px;left:12px;background:var(--panel);
+    border:1px solid var(--line-2);color:var(--text);border-radius:9px;padding:7px 12px;font-family:var(--mono);font-size:12px;cursor:pointer}
+  main{padding-top:52px}
+  .hero{padding-top:34px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+
+</style>
+<script>
+/* ===== shared runtime: highlighter / tabs / scrollspy / quiz ===== */
+(function(){
+  var esc = function(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});};
+
+  var SQLKW = "SELECT|FROM|WHERE|GROUP\\s+BY|ORDER\\s+BY|HAVING|LIMIT|OFFSET|INSERT\\s+INTO|VALUES|UPDATE|SET|DELETE|"
+    + "CREATE|REPLACE|ALTER|DROP|TRUNCATE|TABLE|VIEW|MATERIALIZED|INDEX|CONCURRENTLY|SCHEMA|DATABASE|EXTENSION|SEQUENCE|"
+    + "PUBLICATION|SUBSCRIPTION|ROLE|USER|TABLESPACE|FUNCTION|PROCEDURE|TRIGGER|TYPE|DOMAIN|"
+    + "PRIMARY\\s+KEY|FOREIGN\\s+KEY|REFERENCES|UNIQUE|NOT\\s+NULL|CHECK|DEFAULT|GENERATED|IDENTITY|CONSTRAINT|"
+    + "INNER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|LATERAL|JOIN|ON|USING|NATURAL|"
+    + "AND|OR|NOT|IN|EXISTS|BETWEEN|LIKE|ILIKE|SIMILAR|IS|NULL|TRUE|FALSE|AS|DISTINCT|ALL|ANY|ONLY|"
+    + "CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|RETURNING|CONFLICT|DO|NOTHING|UNION|INTERSECT|EXCEPT|"
+    + "BEGIN|COMMIT|ROLLBACK|SAVEPOINT|START\\s+TRANSACTION|ISOLATION\\s+LEVEL|READ\\s+COMMITTED|"
+    + "REPEATABLE\\s+READ|SERIALIZABLE|READ\\s+UNCOMMITTED|FOR\\s+UPDATE|FOR\\s+SHARE|NOWAIT|SKIP\\s+LOCKED|"
+    + "EXPLAIN|ANALYZE|VERBOSE|BUFFERS|VACUUM|REINDEX|CLUSTER|COPY|GRANT|REVOKE|OWNER|"
+    + "PARTITION\\s+BY|RANGE|LIST|HASH|ATTACH|DETACH|INHERITS|OVER|WINDOW|FILTER|WITHIN\\s+GROUP|"
+    + "ASC|DESC|NULLS|FIRST|LAST|INCLUDE|INTO|IF|LANGUAGE|RETURNS|DECLARE|LOOP|PERFORM|RAISE|"
+    + "ENABLE|DISABLE|POLICY|SECURITY|COMMENT|SHOW|RESET|SIGNAL|LOCK|MODE|ACCESS|EXCLUSIVE|SHARE|ROW";
+
+  var SQLTYPE = "int|int2|int4|int8|integer|smallint|bigint|serial|bigserial|numeric|decimal|real|"
+    + "double\\s+precision|money|char|varchar|character\\s+varying|text|bytea|"
+    + "timestamptz|timestamp|date|time|interval|boolean|bool|uuid|json|jsonb|xml|"
+    + "inet|cidr|macaddr|point|line|box|circle|tsvector|tsquery|array|enum|hstore|"
+    + "btree|gin|gist|brin|spgist";
+
+  var SQLFN = "count|sum|avg|min|max|coalesce|nullif|greatest|least|now|current_date|current_timestamp|"
+    + "age|extract|date_trunc|to_char|to_date|to_timestamp|cast|length|char_length|lower|upper|initcap|"
+    + "trim|btrim|ltrim|rtrim|substring|substr|position|replace|split_part|concat|concat_ws|round|ceil|floor|"
+    + "abs|random|generate_series|array_agg|string_agg|jsonb_build_object|jsonb_agg|jsonb_set|json_build_object|"
+    + "row_number|rank|dense_rank|ntile|lag|lead|first_value|last_value|percentile_cont|"
+    + "pg_size_pretty|pg_relation_size|pg_total_relation_size|pg_database_size|pg_stat_reset|"
+    + "pg_current_wal_lsn|pg_last_wal_receive_lsn|pg_last_wal_replay_lsn|pg_wal_lsn_diff|"
+    + "pg_is_in_recovery|pg_promote|pg_create_physical_replication_slot|pg_drop_replication_slot|"
+    + "pg_terminate_backend|pg_cancel_backend|pg_blocking_pids|pg_backend_pid|pg_try_advisory_lock|"
+    + "pg_advisory_lock|pg_advisory_unlock|txid_current|age|version|set_config|current_setting|format";
+
+  var RULES = {
+    sql:[
+      {re:/--[^\n]*/,      cls:'c'},
+      {re:/\/\*[\s\S]*?\*\//,cls:'c'},
+      {re:/'(?:[^']|'')*'/, cls:'s'},
+      {re:/\$\$[\s\S]*?\$\$/,cls:'s'},
+      {re:new RegExp("\\b(?:"+SQLKW+")\\b"),   cls:'k'},
+      {re:new RegExp("\\b(?:"+SQLFN+")(?=\\s*\\()"), cls:'f'},
+      {re:new RegExp("\\b(?:"+SQLTYPE+")\\b"), cls:'t'},
+      {re:/\b\d+(?:\.\d+)?\b/, cls:'n'}
+    ],
+    bash:[
+      {re:/#[^\n]*/, cls:'c'},
+      {re:/"(?:[^"\\]|\\.)*"/, cls:'s'},
+      {re:/'(?:[^'])*'/, cls:'s'},
+      {re:/^[\s]*[$#](?=\s)/m, cls:'p'},
+      {re:/\b(?:psql|pg_dump|pg_dumpall|pg_restore|pg_basebackup|pg_ctl|pg_upgrade|pg_rewind|pgbench|initdb|createdb|dropdb|createuser|pgbackrest|patronictl|kubectl|docker|systemctl|sudo|apt|yum|dnf|brew|export|cd|ls|cat|grep|tail|awk|df|du|free|top|iostat|vmstat|sysctl|crontab|echo|mkdir|chown|chmod)\b/, cls:'f'},
+      {re:/\s--?[A-Za-z][\w-]*/, cls:'k'},
+      {re:/\b\d+(?:\.\d+)?\b/, cls:'n'}
+    ],
+    conf:[
+      {re:/#[^\n]*/, cls:'c'},
+      {re:/'(?:[^'])*'/, cls:'s'},
+      {re:/^[\w.]+(?=\s*=)/m, cls:'k'},
+      {re:/\b(?:on|off|replica|logical|minimal|local|hot_standby|scram-sha-256|md5|trust|peer|reject|all|host|hostssl|hostnossl)\b/, cls:'t'},
+      {re:/\b\d+(?:\.\d+)?(?:kB|MB|GB|ms|s|min|h)?\b/, cls:'n'}
+    ],
+    text:[{re:/^\s*--[^\n]*/m, cls:'c'}]
+  };
+
+  function highlight(src, lang){
+    var rules = RULES[lang] || RULES.sql;
+    var union = new RegExp(rules.map(function(r){return '('+r.re.source+')';}).join('|'),'gim');
+    var out='', last=0, m;
+    while((m = union.exec(src))!==null){
+      if(m[0].length===0){union.lastIndex++;continue;}
+      out += esc(src.slice(last,m.index));
+      var cls='';
+      for(var i=1;i<m.length;i++){ if(m[i]!==undefined){ cls = rules[i-1].cls; break; } }
+      out += '<span class="t-'+cls+'">'+esc(m[0])+'</span>';
+      last = m.index + m[0].length;
+    }
+    out += esc(src.slice(last));
+    return out;
+  }
+  window.pgHighlight = highlight;
+
+  function paint(root){
+    (root||document).querySelectorAll('pre[data-lang] > code:not([data-done])').forEach(function(code){
+      var lang = code.parentNode.getAttribute('data-lang');
+      code.innerHTML = highlight(code.textContent.replace(/^\n/,'').replace(/\s+$/,''), lang);
+      code.setAttribute('data-done','1');
+    });
+  }
+  window.pgPaint = paint;
+
+  function safe(label, fn){ try{ fn(); }catch(e){ if(window.console) console.warn('init failed: '+label, e); } }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    safe('highlight', function(){ paint(document); });
+
+    /* code block tabs + copy */
+    safe('codeblocks', function(){
+    document.querySelectorAll('.cb').forEach(function(cb){
+      var tabs = cb.querySelectorAll('.cb__tab'), panes = cb.querySelectorAll('pre');
+      tabs.forEach(function(t,i){
+        t.addEventListener('click',function(){
+          tabs.forEach(function(x){x.classList.remove('is-on');});
+          panes.forEach(function(x){x.classList.remove('is-on');});
+          t.classList.add('is-on'); panes[i].classList.add('is-on');
+        });
+      });
+      var cp = cb.querySelector('.cb__copy');
+      if(cp) cp.addEventListener('click',function(){
+        var on = cb.querySelector('pre.is-on') || panes[0];
+        navigator.clipboard && navigator.clipboard.writeText(on.textContent.trim());
+        cp.textContent='복사됨'; setTimeout(function(){cp.textContent='복사';},1300);
+      });
+    });
+    });
+
+    /* scroll spy */
+    safe('scrollspy', function(){
+    var links = [].slice.call(document.querySelectorAll('.toc a'));
+    var secs  = links.map(function(a){return document.querySelector(a.getAttribute('href'));}).filter(Boolean);
+    if(!('IntersectionObserver' in window)){
+      links.forEach(function(l,i){ l.classList.toggle('is-on', i===0); });
+      return;
+    }
+    var io = new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(!e.isIntersecting) return;
+        links.forEach(function(l){l.classList.toggle('is-on', l.getAttribute('href')==='#'+e.target.id);});
+        var pct = Math.round((secs.indexOf(e.target)+1)/secs.length*100);
+        var mt = document.getElementById('meter'); if(mt) mt.innerHTML = '진도 <b>'+pct+'%</b> · '+(secs.indexOf(e.target)+1)+'/'+secs.length+' 장';
+      });
+    },{rootMargin:'-15% 0px -70% 0px'});
+    secs.forEach(function(s){io.observe(s);});
+    });
+
+    /* progress bar */
+    safe('progress', function(){
+    var pb = document.getElementById('prog');
+    if(!pb) return;
+    var onScroll = function(){
+      var h = document.documentElement;
+      var p = h.scrollTop/(h.scrollHeight-h.clientHeight||1)*100;
+      pb.style.width = p+'%';
+    };
+    document.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+    });
+
+    /* mobile nav */
+    safe('nav', function(){
+    var nb = document.querySelector('.navbtn'), nv = document.querySelector('.nav');
+    if(nb) nb.addEventListener('click',function(){nv.classList.toggle('open');});
+    if(nv) nv.addEventListener('click',function(e){if(e.target.tagName==='A') nv.classList.remove('open');});
+    });
+
+    /* quiz engine: .quiz > .q[data-a] > .opt */
+    safe('quiz', function(){
+    document.querySelectorAll('.quiz').forEach(function(qz){
+      var total = qz.querySelectorAll('.q').length, done=0, right=0;
+      var sc = document.createElement('div'); sc.className='score';
+      sc.textContent='0 / '+total+' 문항 응답'; qz.appendChild(sc);
+      qz.querySelectorAll('.q').forEach(function(q){
+        var ans = +q.getAttribute('data-a'), locked=false;
+        q.querySelectorAll('.opt').forEach(function(o,i){
+          o.addEventListener('click',function(){
+            if(locked) return; locked=true; done++;
+            if(i===ans){o.classList.add('ok');right++;}
+            else{o.classList.add('bad'); q.querySelectorAll('.opt')[ans].classList.add('ok');}
+            var ex=q.querySelector('.expl'); if(ex) ex.classList.add('show');
+            sc.textContent = done+' / '+total+' 문항 응답 · 정답 '+right+'개'+(done===total?(right===total?' — 완벽합니다.':' — 오답 해설을 다시 확인하세요.'):'');
+          });
+        });
+      });
+    });
+    });
+  });
+})();
+
+</script>
+</head>
+<body>
+<div id="prog"></div>
+<button class="navbtn">☰ 목차</button>
+<div class="shell">
+<aside class="nav">
+  <div class="nav__brand">
+    <svg class="nav__logo" viewBox="0 0 40 40" aria-hidden="true">
+      <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#f0b263"/><stop offset="1" stop-color="#336791"/></linearGradient></defs>
+      <ellipse cx="20" cy="10" rx="13" ry="5.5" fill="none" stroke="url(#g1)" stroke-width="2"/>
+      <path d="M7 10v20c0 3 5.8 5.5 13 5.5s13-2.5 13-5.5V10" fill="none" stroke="url(#g1)" stroke-width="2"/>
+      <path d="M7 20c0 3 5.8 5.5 13 5.5s13-2.5 13-5.5" fill="none" stroke="#f0b263" stroke-width="1.4" opacity=".6"/>
+      <circle cx="20" cy="30" r="2.4" fill="#f0b263"/>
+    </svg>
+    <div>
+      <div class="nav__title">PostgreSQL 운영 심화</div>
+      <div class="nav__sub">DBA · Lecture 02</div>
+    </div>
+  </div>
+  <div class="nav__meter" id="meter">진도 <b>0%</b> · 0/16 장</div>
+  <ul class="toc">
+    <li><a href="#a1"><span class="n">01</span>프로세스 · 메모리 아키텍처</a></li>
+    <li><a href="#a2"><span class="n">02</span>MVCC와 튜플 가시성</a></li>
+    <li><a href="#a3"><span class="n">03</span>VACUUM · Bloat · Freeze</a></li>
+    <li><a href="#a4"><span class="n">04</span>WAL · 체크포인트 · 아카이브</a></li>
+    <li><a href="#a5"><span class="n">05</span>백업과 복구 · PITR</a></li>
+    <li><a href="#a6"><span class="n">06</span>복제와 고가용성</a></li>
+    <li><a href="#a7"><span class="n">07</span>파티셔닝</a></li>
+    <li><a href="#a8"><span class="n">08</span>인덱스 심화</a></li>
+    <li><a href="#a9"><span class="n">09</span>플래너와 EXPLAIN 읽기</a></li>
+    <li><a href="#a10"><span class="n">10</span>파라미터 튜닝</a></li>
+    <li><a href="#a11"><span class="n">11</span>락 · 안전한 DDL</a></li>
+    <li><a href="#a12"><span class="n">12</span>모니터링 지표 체계</a></li>
+    <li><a href="#a13"><span class="n">13</span>보안 · 권한 · 감사</a></li>
+    <li><a href="#a14"><span class="n">14</span>업그레이드 · 확장 관리</a></li>
+    <li><a href="#a15"><span class="n">15</span>클라우드 · 쿠버네티스</a></li>
+    <li><a href="#a16"><span class="n">16</span>런북 · 용어집 · 퀴즈</a></li>
+  </ul>
+  <div class="nav__note">데모 12종은 실제 운영 판단을 연습하도록 설계했습니다. 특히 <b>파라미터 계산기</b>와 <b>EXPLAIN 리더</b>, <b>장애 대응 트리</b>는 실무에 그대로 활용할 수 있습니다.</div>
+</aside>
+
+<main><div class="wrap">
+
+<header class="hero">
+  <div class="hero__eyebrow">-- lecture 02 · for database administrators</div>
+  <h1>PostgreSQL 운영 심화<br><em>DBA가 반드시 아는 것들</em></h1>
+  <p class="hero__lead">MVCC와 VACUUM, WAL과 PITR, 복제와 페일오버, 실행계획과 파라미터 튜닝, 락과 무중단 DDL. 운영 중 장애가 났을 때 <strong>어디를 보고 무엇을 판단해야 하는지</strong>를 개념·용어·명령 단위로 정리했습니다. 각 장에는 그대로 복사해 쓸 수 있는 진단 쿼리를 넣었습니다.</p>
+  <div class="hero__meta">
+    <span class="chip"><b>대상</b> DBA · SRE · 플랫폼 엔지니어</span>
+    <span class="chip"><b>기준</b> PostgreSQL 16 / 17</span>
+    <span class="chip"><b>데모</b> 12종</span>
+    <span class="chip"><b>선수</b> 기본 SQL과 psql 사용</span>
+  </div>
+
+  <div class="term">
+    <div class="term__bar"><i class="term__dot"></i><i class="term__dot"></i><i class="term__dot"></i><span class="term__name">psql — 아침에 가장 먼저 보는 쿼리</span></div>
+<div class="term__body"><span class="p">prod=#</span> SELECT now()-pg_postmaster_start_time() AS uptime,
+       pg_size_pretty(pg_database_size(current_database())) AS db_size,
+       (SELECT count(*) FROM pg_stat_activity) AS conns,
+       (SELECT max(age(datfrozenxid)) FROM pg_database) AS max_xid_age;
+<span class="o">     uptime      | db_size | conns | max_xid_age
+ ----------------+---------+-------+-------------
+  21 days 04:11  | 842 GB  |   187 |   148392011</span>
+
+<span class="c">-- uptime, 용량, 연결 수, XID 나이. 이 네 줄이 시스템의 생존 신호입니다.
+-- 각각이 무엇을 뜻하고 어떤 값에서 위험한지가 이 강의의 내용입니다.</span>
+<span class="p">prod=#</span> <span class="cursor"></span></div>
+  </div>
+</header>
+
+<!-- ============================ 01 ============================ -->
+<section id="a1">
+  <div class="eyebrow">-- <b>01</b> · architecture</div>
+  <h2>프로세스 · 메모리 아키텍처</h2>
+  <p class="lead">PostgreSQL은 <strong>멀티 프로세스</strong> 모델입니다(스레드가 아닙니다). 접속 하나당 백엔드 프로세스 하나가 fork되고, 이들이 <strong>공유 메모리</strong>를 통해 협력합니다. 이 구조를 이해하면 "왜 연결 풀러가 필수인가", "왜 shared_buffers를 무한정 늘리면 안 되는가"가 자연히 설명됩니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 01</span><h4>아키텍처 맵 — 구성 요소를 클릭하면 역할과 관련 파라미터가 나옵니다</h4></div>
+    <div class="demo__bd">
+      <div style="overflow-x:auto">
+      <svg id="a1-svg" viewBox="0 0 780 470" style="min-width:700px;width:100%" font-family="JetBrains Mono, monospace" font-size="11">
+        <style>
+          #a1-svg .box{fill:#181e28;stroke:#2f3a49;stroke-width:1.2;cursor:pointer;rx:6}
+          #a1-svg .box:hover{stroke:#4a9fe0;fill:#1d242f}
+          #a1-svg .box.on{stroke:#4a9fe0;stroke-width:2;fill:rgba(74,159,224,.16)}
+          #a1-svg .lbl{fill:#cfd8e3;pointer-events:none}
+          #a1-svg .sub{fill:#8d99a9;font-size:9.5px;pointer-events:none}
+          #a1-svg .grp{fill:none;stroke:#242d3a;stroke-dasharray:4 3}
+          #a1-svg .gt{fill:#6b7686;font-size:10px}
+          #a1-svg .ar{stroke:#3b4757;stroke-width:1.2;marker-end:url(#ah)}
+        </style>
+        <defs><marker id="ah" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#3b4757"/></marker></defs>
+
+        <text class="gt" x="8" y="16">클라이언트</text>
+        <g data-k="client"><rect class="box" x="8" y="24" width="118" height="30"/><text class="lbl" x="20" y="43">앱 / psql / pgbouncer</text></g>
+        <path class="ar" d="M126 39 H 236"/>
+
+        <g data-k="postmaster"><rect class="box" x="240" y="20" width="150" height="38"/>
+          <text class="lbl" x="256" y="37">postmaster</text><text class="sub" x="256" y="50">감시 · fork · 리스닝</text></g>
+
+        <text class="gt" x="8" y="90">백엔드 프로세스 (접속 1개 = 프로세스 1개)</text>
+        <g data-k="backend"><rect class="box" x="8" y="98" width="120" height="44"/><text class="lbl" x="22" y="118">backend #1</text><text class="sub" x="22" y="132">파싱·플랜·실행</text></g>
+        <g data-k="backend"><rect class="box" x="136" y="98" width="120" height="44"/><text class="lbl" x="150" y="118">backend #2</text><text class="sub" x="150" y="132">work_mem 사용</text></g>
+        <g data-k="parallel"><rect class="box" x="264" y="98" width="126" height="44"/><text class="lbl" x="278" y="118">parallel worker</text><text class="sub" x="278" y="132">Gather 노드용</text></g>
+        <path class="ar" d="M315 58 V 96"/>
+
+        <rect class="grp" x="8" y="166" width="500" height="104" rx="8"/>
+        <text class="gt" x="16" y="182">공유 메모리 (shared memory) — 모든 프로세스가 함께 사용</text>
+        <g data-k="sb"><rect class="box" x="18" y="190" width="150" height="44"/><text class="lbl" x="30" y="209">shared_buffers</text><text class="sub" x="30" y="223">페이지 캐시 · 8kB 블록</text></g>
+        <g data-k="wb"><rect class="box" x="176" y="190" width="120" height="44"/><text class="lbl" x="188" y="209">wal_buffers</text><text class="sub" x="188" y="223">WAL 임시 버퍼</text></g>
+        <g data-k="lock"><rect class="box" x="304" y="190" width="94" height="44"/><text class="lbl" x="315" y="209">lock table</text><text class="sub" x="315" y="223">잠금 관리</text></g>
+        <g data-k="clog"><rect class="box" x="406" y="190" width="92" height="44"/><text class="lbl" x="416" y="209">CLOG/SLRU</text><text class="sub" x="416" y="223">XID 커밋 상태</text></g>
+        <path class="ar" d="M68 142 V 188"/><path class="ar" d="M196 142 V 188"/>
+
+        <rect class="grp" x="524" y="166" width="248" height="104" rx="8"/>
+        <text class="gt" x="532" y="182">세션 개별 메모리</text>
+        <g data-k="workmem"><rect class="box" x="534" y="190" width="110" height="44"/><text class="lbl" x="546" y="209">work_mem</text><text class="sub" x="546" y="223">정렬·해시용</text></g>
+        <g data-k="mwm"><rect class="box" x="652" y="190" width="110" height="44"/><text class="lbl" x="660" y="209">maint_work_mem</text><text class="sub" x="660" y="223">VACUUM·인덱스</text></g>
+
+        <text class="gt" x="8" y="296">백그라운드 프로세스</text>
+        <g data-k="ckpt"><rect class="box" x="8" y="304" width="118" height="42"/><text class="lbl" x="20" y="322">checkpointer</text><text class="sub" x="20" y="336">더티 페이지 flush</text></g>
+        <g data-k="bgw"><rect class="box" x="134" y="304" width="118" height="42"/><text class="lbl" x="146" y="322">bg writer</text><text class="sub" x="146" y="336">점진적 flush</text></g>
+        <g data-k="walw"><rect class="box" x="260" y="304" width="112" height="42"/><text class="lbl" x="272" y="322">WAL writer</text><text class="sub" x="272" y="336">WAL 디스크 기록</text></g>
+        <g data-k="av"><rect class="box" x="380" y="304" width="130" height="42"/><text class="lbl" x="392" y="322">autovacuum</text><text class="sub" x="392" y="336">launcher + workers</text></g>
+        <g data-k="walsend"><rect class="box" x="518" y="304" width="122" height="42"/><text class="lbl" x="530" y="322">walsender</text><text class="sub" x="530" y="336">복제 전송</text></g>
+        <g data-k="arch"><rect class="box" x="648" y="304" width="114" height="42"/><text class="lbl" x="660" y="322">archiver</text><text class="sub" x="660" y="336">WAL 보관</text></g>
+
+        <text class="gt" x="8" y="386">디스크</text>
+        <g data-k="heap"><rect class="box" x="8" y="394" width="176" height="44"/><text class="lbl" x="22" y="413">base/ — 힙 · 인덱스</text><text class="sub" x="22" y="427">테이블 데이터 파일</text></g>
+        <g data-k="wal"><rect class="box" x="192" y="394" width="176" height="44"/><text class="lbl" x="206" y="413">pg_wal/ — WAL</text><text class="sub" x="206" y="427">16MB 세그먼트</text></g>
+        <g data-k="archdir"><rect class="box" x="376" y="394" width="176" height="44"/><text class="lbl" x="390" y="413">archive — 백업 저장소</text><text class="sub" x="390" y="427">PITR의 재료</text></g>
+        <g data-k="stat"><rect class="box" x="560" y="394" width="202" height="44"/><text class="lbl" x="574" y="413">pg_stat / pg_control</text><text class="sub" x="574" y="427">통계 · 클러스터 상태</text></g>
+        <path class="ar" d="M60 346 V 392"/><path class="ar" d="M300 346 V 392"/><path class="ar" d="M700 346 V 392"/>
+      </svg>
+      </div>
+      <div class="out" id="a1-out" style="margin-top:14px">구성 요소를 클릭해 역할과 관련 파라미터를 확인하세요.</div>
+    </div>
+  </div>
+
+  <h3>읽기와 쓰기가 흐르는 경로</h3>
+  <ol class="steps">
+    <li><strong>접속</strong> — 클라이언트가 5432로 접속하면 postmaster가 인증(<code>pg_hba.conf</code>) 후 backend 프로세스를 fork합니다. fork는 비싸므로(수 ms + 메모리) 짧은 접속이 많은 서비스에서는 <strong>pgbouncer 같은 풀러가 사실상 필수</strong>입니다.</li>
+    <li><strong>조회</strong> — 백엔드가 필요한 8kB 블록을 <code>shared_buffers</code>에서 찾습니다. 있으면 hit, 없으면 OS 캐시/디스크에서 읽어 올립니다.</li>
+    <li><strong>변경</strong> — 메모리상의 페이지를 수정하고(더티 페이지) 변경 내역을 <strong>WAL 레코드로 먼저 기록</strong>합니다.</li>
+    <li><strong>커밋</strong> — WAL을 디스크에 <code>fsync</code>합니다. 이 순간 지속성이 확보됩니다. 데이터 파일은 아직 옛 상태여도 무관합니다.</li>
+    <li><strong>체크포인트</strong> — checkpointer가 더티 페이지를 데이터 파일에 반영하고, 그 지점 이전 WAL은 재사용 가능해집니다.</li>
+  </ol>
+
+  <div class="note"><span class="lbl">핵심 원리 — WAL 우선 기록</span>
+    <p><strong>Write-Ahead Logging</strong>: 데이터 파일을 바꾸기 전에 "무엇을 바꿀 것인지"를 WAL에 먼저 씁니다. 데이터 파일에 대한 랜덤 쓰기를 뒤로 미루고 <strong>순차 쓰기 하나만 기다리면 되므로</strong> 성능과 안정성을 동시에 얻습니다. 크래시 후 재시작하면 마지막 체크포인트부터 WAL을 재생(REDO)해 일관된 상태로 복구합니다. 백업·복제·PITR이 모두 이 하나의 메커니즘에서 파생됩니다.</p>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">프로세스 확인</button><button class="cb__tab">메모리 현황</button><button class="cb__tab">캐시 적중률</button><button class="cb__copy">복사</button></div>
+<pre data-lang="bash" class="is-on"><code>
+# 서버에서 프로세스 구조 직접 보기
+ps -ef | grep -E "postgres:" | head -20
+# postgres: checkpointer
+# postgres: background writer
+# postgres: walwriter
+# postgres: autovacuum launcher
+# postgres: logical replication launcher
+# postgres: app shop 10.0.0.5(51234) idle          ← 백엔드 (접속당 1개)
+# postgres: app shop 10.0.0.6(51288) SELECT
+
+# 프로세스별 메모리는 대부분 공유분(shared_buffers)이므로
+# RSS 단순 합산은 실제 사용량을 크게 과대평가합니다.
+sudo pmap -x $(pgrep -f "postgres: checkpointer") | tail -1
+</code></pre>
+<pre data-lang="sql"><code>
+-- 주요 메모리 파라미터 한눈에
+SELECT name, setting, unit, source, pending_restart
+FROM pg_settings
+WHERE name IN ('shared_buffers','work_mem','maintenance_work_mem','wal_buffers',
+               'effective_cache_size','max_connections','temp_buffers','huge_pages')
+ORDER BY name;
+
+-- 실제 shared_buffers 내용 살펴보기 (pg_buffercache 확장)
+CREATE EXTENSION IF NOT EXISTS pg_buffercache;
+SELECT c.relname,
+       count(*) AS buffers,
+       pg_size_pretty(count(*) * 8192) AS size,
+       round(100.0 * count(*) FILTER (WHERE b.isdirty) / count(*), 1) AS dirty_pct
+FROM pg_buffercache b
+JOIN pg_class c ON c.relfilenode = b.relfilenode
+GROUP BY c.relname ORDER BY buffers DESC LIMIT 15;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 버퍼 캐시 적중률: OLTP는 99% 이상이 정상, 90% 미만이면 원인 조사
+SELECT datname,
+       blks_hit, blks_read,
+       round(100.0 * blks_hit / NULLIF(blks_hit + blks_read, 0), 2) AS cache_hit_pct
+FROM pg_stat_database
+WHERE datname = current_database();
+
+-- 테이블별 적중률과 순차 스캔 비율
+SELECT relname,
+       heap_blks_hit, heap_blks_read,
+       round(100.0*heap_blks_hit/NULLIF(heap_blks_hit+heap_blks_read,0),1) AS hit_pct,
+       seq_scan, idx_scan
+FROM pg_statio_user_tables s
+JOIN pg_stat_user_tables u USING (relid)
+ORDER BY heap_blks_read DESC LIMIT 15;
+
+-- 주의: blks_read는 'shared_buffers에 없었다'는 뜻이며,
+--       OS 페이지 캐시에서 읽혔을 수 있으므로 실제 디스크 I/O와 동일하지 않습니다.
+</code></pre>
+    <div class="cb__cap">PostgreSQL 17에서는 I/O 통계가 <code>pg_stat_io</code>로 통합되어 read/write/extend를 컨텍스트별로 구분해 볼 수 있습니다.</div>
+  </div>
+
+  <h3>디스크 레이아웃 — PGDATA 안에 무엇이 있는가</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>경로</th><th>내용</th><th>운영 시 의미</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">base/&lt;dboid&gt;/&lt;relfilenode&gt;</td><td>테이블·인덱스 데이터 파일. 1GB 단위로 분할되고 <code>.1</code>, <code>.2</code>가 붙습니다.</td><td>파일명은 OID가 아니라 relfilenode입니다. <code>VACUUM FULL</code>이나 <code>REINDEX</code> 후 번호가 바뀝니다.</td></tr>
+        <tr><td class="mono">pg_wal/</td><td>WAL 세그먼트(기본 16MB)</td><td><strong>여기가 차면 DB가 멈춥니다.</strong> 아카이브 실패와 미사용 복제 슬롯이 주된 원인입니다.</td></tr>
+        <tr><td class="mono">pg_xact/, pg_multixact/</td><td>트랜잭션 커밋 상태(CLOG)</td><td>XID wraparound 관리와 직결됩니다.</td></tr>
+        <tr><td class="mono">global/pg_control</td><td>클러스터 제어 파일</td><td><code>pg_controldata</code>로 최근 체크포인트 LSN·타임라인 확인. 손상되면 치명적입니다.</td></tr>
+        <tr><td class="mono">pg_tblspc/</td><td>테이블스페이스 심볼릭 링크</td><td>테이블스페이스를 쓰면 백업 절차가 복잡해집니다.</td></tr>
+        <tr><td class="mono">*_fsm, *_vm</td><td>Free Space Map, Visibility Map</td><td>VM은 Index Only Scan과 VACUUM 건너뛰기의 근거가 됩니다.</td></tr>
+        <tr><td class="mono">pg_logical/, pg_replslot/</td><td>논리 복제 상태, 복제 슬롯</td><td>슬롯이 남아 있으면 WAL이 무한정 쌓입니다. 정기 점검 대상.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn"><span class="lbl">TOAST — 큰 값의 저장</span>
+    <p>한 행은 8kB 페이지를 넘을 수 없습니다. 약 2kB를 넘는 값은 자동으로 압축되고, 그래도 크면 <strong>TOAST 테이블</strong>(<code>pg_toast.pg_toast_&lt;oid&gt;</code>)에 조각으로 분리 저장됩니다. 그래서 <code>pg_relation_size</code>(본체)와 <code>pg_total_relation_size</code>(TOAST·인덱스 포함)의 값이 크게 다를 수 있습니다. 큰 jsonb·text를 다루는 테이블에서 "테이블 크기가 안 맞다"는 혼란은 대부분 TOAST 때문입니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 02 ============================ -->
+<section id="a2">
+  <div class="eyebrow">-- <b>02</b> · mvcc</div>
+  <h2>MVCC와 튜플 가시성</h2>
+  <p class="lead">PostgreSQL 운영 난이도의 <strong>거의 모든 것</strong>이 이 장에서 출발합니다. UPDATE가 왜 새 행을 만드는지, 왜 삭제해도 용량이 줄지 않는지, 왜 VACUUM이 필요한지, 왜 XID가 소진될 수 있는지가 하나의 원리로 연결됩니다.</p>
+
+  <h3>모든 행에는 숨은 시스템 컬럼이 있습니다</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>컬럼</th><th>뜻</th><th>가시성 판단에서의 역할</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">xmin</td><td>이 행 버전을 만든 트랜잭션 ID</td><td>내 스냅샷보다 나중에 시작한 트랜잭션이 만든 것은 보이지 않습니다.</td></tr>
+        <tr><td class="mono">xmax</td><td>이 행 버전을 삭제/갱신한 트랜잭션 ID (0이면 유효)</td><td>xmax가 커밋되었고 내 스냅샷 이전이면 그 행은 보이지 않습니다.</td></tr>
+        <tr><td class="mono">ctid</td><td>물리적 위치 <code>(블록번호, 오프셋)</code></td><td>UPDATE되면 새 위치로 바뀝니다. 안정적 식별자가 아닙니다.</td></tr>
+        <tr><td class="mono">cmin / cmax</td><td>트랜잭션 내부 명령 순번</td><td>같은 트랜잭션 안에서의 순서를 구분합니다.</td></tr>
+        <tr><td class="mono">tableoid</td><td>이 행이 실제로 속한 테이블 OID</td><td>파티션 테이블 조회 시 어느 파티션인지 확인할 때 유용합니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 02</span><h4>MVCC 튜플 시뮬레이터 — DML이 물리적으로 무엇을 하는지 보세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <button class="btn sm" id="m-ins">INSERT 1행</button>
+        <button class="btn sm" id="m-upd">UPDATE id=1</button>
+        <button class="btn sm" id="m-del">DELETE id=2</button>
+        <button class="btn sm" id="m-rb">UPDATE 후 ROLLBACK</button>
+        <button class="btn pri" id="m-vac">VACUUM</button>
+        <button class="btn sm" id="m-reset">초기화</button>
+      </div>
+      <div class="ctl small mono" id="m-xid"></div>
+      <div style="overflow-x:auto"><table class="rtbl" id="m-tbl"></table></div>
+      <div class="grid g4" style="margin-top:14px">
+        <div class="tile"><div class="k">전체 튜플</div><div class="t mono" id="m-all">0</div><div class="d">물리적으로 존재</div></div>
+        <div class="tile"><div class="k">유효 튜플</div><div class="t mono" id="m-live">0</div><div class="d">현재 보이는 행</div></div>
+        <div class="tile"><div class="k">dead 튜플</div><div class="t mono" id="m-dead">0</div><div class="d">VACUUM 대상</div></div>
+        <div class="tile"><div class="k">추정 bloat</div><div class="t mono" id="m-bloat">0%</div><div class="d">dead / 전체</div></div>
+      </div>
+      <div class="out" id="m-out" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">시스템 컬럼 관찰</button><button class="cb__tab">스냅샷과 XID</button>
+      <button class="cb__tab">HOT 업데이트</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+CREATE TABLE t (id int PRIMARY KEY, v text);
+INSERT INTO t VALUES (1,'a'), (2,'b');
+
+SELECT ctid, xmin, xmax, id, v FROM t;
+--  ctid  | xmin | xmax | id | v
+-- (0,1)  |  812 |    0 |  1 | a
+-- (0,2)  |  812 |    0 |  2 | b
+
+UPDATE t SET v = 'a2' WHERE id = 1;
+SELECT ctid, xmin, xmax, id, v FROM t;
+--  ctid  | xmin | xmax | id | v
+-- (0,2)  |  812 |    0 |  2 | b
+-- (0,3)  |  813 |    0 |  1 | a2     ← 새 위치에 새 버전이 생성됨
+-- (0,1)의 옛 버전은 xmax=813이 찍힌 채 남아 있습니다 (dead tuple)
+
+-- 물리 페이지를 직접 들여다보기
+CREATE EXTENSION IF NOT EXISTS pageinspect;
+SELECT lp, t_ctid, t_xmin, t_xmax, t_infomask
+FROM heap_page_items(get_raw_page('t', 0));
+</code></pre>
+<pre data-lang="sql"><code>
+SELECT txid_current();                    -- 현재 트랜잭션 ID (호출 시 XID 소비)
+SELECT pg_current_snapshot();             -- xmin:xmax:진행중 목록
+SELECT pg_current_xact_id_if_assigned();  -- XID를 소비하지 않고 확인 (PG13+)
+
+-- 오래 열린 트랜잭션이 VACUUM을 막습니다. 가장 흔한 bloat 원인입니다.
+SELECT pid, state, wait_event_type, wait_event,
+       now()-xact_start AS xact_age,
+       now()-state_change AS idle_for,
+       left(query, 70) AS query
+FROM pg_stat_activity
+WHERE backend_type = 'client backend' AND xact_start IS NOT NULL
+ORDER BY xact_start
+LIMIT 10;
+
+-- 이 값들이 곧 VACUUM의 '지울 수 있는 한계선'입니다
+SELECT min(age(backend_xmin)) AS oldest_backend_xmin_age FROM pg_stat_activity;
+SELECT slot_name, active, age(xmin) AS slot_xmin_age,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS wal_retained
+FROM pg_replication_slots;
+</code></pre>
+<pre data-lang="sql"><code>
+/* HOT (Heap Only Tuple) 업데이트
+   조건: 인덱스에 포함된 컬럼을 바꾸지 않고, 같은 페이지에 빈 공간이 있을 때
+   효과: 새 버전을 같은 페이지에 만들고 인덱스는 갱신하지 않음
+         → 인덱스 bloat 방지, 쓰기 비용 대폭 감소                          */
+
+SELECT relname, n_tup_upd, n_tup_hot_upd,
+       round(100.0*n_tup_hot_upd/NULLIF(n_tup_upd,0),1) AS hot_pct
+FROM pg_stat_user_tables
+WHERE n_tup_upd &gt; 0
+ORDER BY n_tup_upd DESC LIMIT 10;
+
+-- hot_pct가 낮다면:
+--   1) 자주 갱신되는 컬럼에 걸린 불필요한 인덱스를 제거
+--   2) fillfactor를 낮춰 같은 페이지에 여유 공간 확보
+ALTER TABLE t SET (fillfactor = 85);
+VACUUM FULL t;      -- 또는 pg_repack (fillfactor는 재작성 시 적용)
+</code></pre>
+    <div class="cb__cap">자주 UPDATE되는 테이블에서 <b>HOT 비율</b>은 가장 저평가된 튜닝 지표입니다. 불필요한 인덱스 하나를 지우는 것만으로 쓰기 성능이 눈에 띄게 개선되는 경우가 많습니다.</div>
+  </div>
+
+  <div class="note danger"><span class="lbl">DBA가 기억할 결론</span>
+    <p><strong>1)</strong> UPDATE는 제자리 수정이 아니라 새 버전 추가 + 옛 버전 무효화입니다. <strong>2)</strong> DELETE는 표시만 하고 공간은 남습니다. <strong>3)</strong> 옛 버전을 회수하는 것은 VACUUM이며, <strong>가장 오래된 열린 트랜잭션보다 최근의 것은 회수할 수 없습니다</strong>. <strong>4)</strong> 따라서 <code>idle in transaction</code> 세션 하나가 수백 GB의 bloat를 만들 수 있습니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 03 ============================ -->
+<section id="a3">
+  <div class="eyebrow">-- <b>03</b> · vacuum</div>
+  <h2>VACUUM · Bloat · Freeze</h2>
+  <p class="lead">VACUUM은 청소가 아니라 <strong>세 가지 서로 다른 일</strong>을 합니다. ① dead 튜플 공간을 재사용 가능하게 만들고 ② 통계를 갱신하며(ANALYZE) ③ 오래된 XID를 동결(freeze)해 wraparound를 막습니다. 셋 중 ③을 놓치면 데이터베이스가 <strong>강제 정지</strong>합니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 03</span><h4>Bloat 시뮬레이터 — autovacuum 설정이 테이블 크기에 미치는 영향</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>초당 UPDATE</label><input type="range" id="b-rate" min="10" max="500" value="150" step="10">
+        <span class="small mono" id="b-rateV">150</span>
+        <label style="margin-left:10px">autovacuum</label>
+        <select id="b-av"><option value="on">on (기본값)</option><option value="tuned">on + 튜닝(scale 0.02)</option><option value="off">off</option></select>
+        <label style="margin-left:10px">장기 트랜잭션</label>
+        <select id="b-long"><option value="0">없음</option><option value="1">idle in transaction 존재</option></select>
+        <button class="btn pri" id="b-run">60초 시뮬레이션</button>
+      </div>
+      <svg id="b-chart" viewBox="0 0 720 190" style="width:100%;min-width:600px"></svg>
+      <div class="grid g4" style="margin-top:6px">
+        <div class="tile"><div class="k">최종 테이블 크기</div><div class="t mono" id="b-size">—</div><div class="d">초기 100MB 기준</div></div>
+        <div class="tile"><div class="k">dead 튜플</div><div class="t mono" id="b-dead">—</div><div class="d">회수 대기</div></div>
+        <div class="tile"><div class="k">autovacuum 실행</div><div class="t mono" id="b-runs">—</div><div class="d">발동 횟수</div></div>
+        <div class="tile"><div class="k">bloat 비율</div><div class="t mono" id="b-pct">—</div><div class="d">낭비 공간</div></div>
+      </div>
+      <div class="legend"><span><i style="background:#4a9fe0"></i>테이블 파일 크기</span><span><i style="background:#ef6f8b"></i>dead 튜플</span><span><i style="background:#54c98d"></i>autovacuum 발동</span></div>
+      <div class="out" id="b-out" style="margin-top:12px">설정을 바꿔가며 실행해 보세요.</div>
+    </div>
+  </div>
+
+  <h3>autovacuum이 언제 발동하는가</h3>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">발동 공식</button><button class="cb__tab">권장 설정</button>
+      <button class="cb__tab">진단 쿼리</button><button class="cb__tab">수동 VACUUM</button><button class="cb__copy">복사</button></div>
+<pre data-lang="conf" class="is-on"><code>
+# VACUUM 발동 임계값
+#   dead_tuples &gt; autovacuum_vacuum_threshold
+#                 + autovacuum_vacuum_scale_factor * reltuples
+autovacuum_vacuum_threshold = 50            # 기본값
+autovacuum_vacuum_scale_factor = 0.2        # 기본값 = 전체 행의 20%
+
+# 1억 행 테이블이면 2천만 행이 죽어야 발동합니다 → 큰 테이블에서 너무 늦습니다.
+
+# ANALYZE 발동 임계값
+autovacuum_analyze_threshold = 50
+autovacuum_analyze_scale_factor = 0.1
+
+# INSERT 전용 테이블용 (PG13+): 삽입만 되는 테이블도 freeze/VM 갱신 필요
+autovacuum_vacuum_insert_threshold = 1000
+autovacuum_vacuum_insert_scale_factor = 0.2
+
+# 동시 실행 워커와 속도 제한
+autovacuum_max_workers = 3                  # 기본값
+autovacuum_vacuum_cost_limit = -1           # -1 = vacuum_cost_limit(200) 사용
+autovacuum_vacuum_cost_delay = 2ms          # PG12+ 기본값
+autovacuum_naptime = 1min
+</code></pre>
+<pre data-lang="conf" class="is-on"><code>
+# ── 일반적인 운영 서버 권장 출발점 ──
+autovacuum_vacuum_scale_factor = 0.05       # 20% → 5%로 더 자주
+autovacuum_analyze_scale_factor = 0.02
+autovacuum_vacuum_cost_limit = 2000         # 기본 200은 최신 스토리지에서 과도한 제한
+autovacuum_vacuum_cost_delay = 2ms
+autovacuum_max_workers = 5
+maintenance_work_mem = 1GB                  # VACUUM 속도에 직접적으로 기여
+log_autovacuum_min_duration = 1s            # 실행 기록을 남겨 추적 가능하게
+
+# ── 특정 테이블만 개별 지정 (대용량 테이블에 권장) ──
+ALTER TABLE orders SET (
+  autovacuum_vacuum_scale_factor = 0.01,
+  autovacuum_vacuum_cost_limit = 4000,
+  autovacuum_analyze_scale_factor = 0.005,
+  fillfactor = 90
+);
+
+# ── 배치 적재 전용 테이블 ──
+ALTER TABLE staging_load SET (autovacuum_enabled = off);
+-- 단, 이 경우 적재 후 수동 VACUUM ANALYZE를 반드시 잡아 주세요.
+--     autovacuum_enabled=off 라도 wraparound 방어 VACUUM은 강제 실행됩니다.
+</code></pre>
+<pre data-lang="sql"><code>
+-- 1) 테이블별 dead 튜플과 마지막 VACUUM 시각
+SELECT schemaname||'.'||relname AS tbl,
+       n_live_tup, n_dead_tup,
+       round(100.0*n_dead_tup/NULLIF(n_live_tup+n_dead_tup,0),1) AS dead_pct,
+       last_autovacuum, last_autoanalyze, autovacuum_count
+FROM pg_stat_user_tables
+WHERE n_dead_tup &gt; 10000
+ORDER BY n_dead_tup DESC LIMIT 20;
+
+-- 2) 지금 돌고 있는 VACUUM의 진행률 (PG9.6+)
+SELECT p.pid, a.query, p.phase,
+       pg_size_pretty(p.heap_blks_total*8192) AS total,
+       round(100.0*p.heap_blks_scanned/NULLIF(p.heap_blks_total,0),1) AS scanned_pct,
+       p.index_vacuum_count, p.max_dead_tuples, p.num_dead_tuples
+FROM pg_stat_progress_vacuum p JOIN pg_stat_activity a USING (pid);
+
+-- 3) VACUUM이 왜 공간을 못 지우는지 — 가장 오래된 방해 요소 찾기
+SELECT 'long transaction' AS reason, pid::text AS detail, now()-xact_start AS age
+FROM pg_stat_activity WHERE xact_start IS NOT NULL
+  AND now()-xact_start &gt; interval '5 min'
+UNION ALL
+SELECT 'replication slot', slot_name, NULL FROM pg_replication_slots WHERE NOT active
+UNION ALL
+SELECT 'prepared xact', gid, now()-prepared FROM pg_prepared_xacts;
+
+-- 4) 인덱스별 사용/미사용 (bloat 정리 대상 판단)
+SELECT relname, indexrelname, idx_scan,
+       pg_size_pretty(pg_relation_size(indexrelid)) AS size
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0 AND pg_relation_size(indexrelid) &gt; 1024*1024
+ORDER BY pg_relation_size(indexrelid) DESC;
+</code></pre>
+<pre data-lang="sql"><code>
+VACUUM orders;                     -- 공간 재사용 표시만, 잠금 약함(SHARE UPDATE EXCLUSIVE)
+VACUUM (ANALYZE) orders;           -- 통계까지 갱신
+VACUUM (VERBOSE, ANALYZE) orders;  -- 진행 내역 출력
+VACUUM (FREEZE) orders;            -- 적극적 동결
+VACUUM (PARALLEL 4) orders;        -- 인덱스 정리를 병렬로 (PG13+)
+
+-- VACUUM FULL: 테이블을 새로 써서 파일 크기를 실제로 줄임
+--   ACCESS EXCLUSIVE 잠금 → 그 시간 동안 조회조차 불가. 운영 시간에 금지.
+--   원본 크기만큼 추가 디스크 필요.
+VACUUM FULL orders;
+
+-- 무중단 대안: pg_repack (잠금을 거의 걸지 않고 재작성)
+--   pg_repack -h host -d shop -t orders --jobs 4
+-- 인덱스만 재작성하려면
+REINDEX INDEX CONCURRENTLY idx_orders_customer;
+REINDEX TABLE CONCURRENTLY orders;      -- PG12+
+</code></pre>
+  </div>
+
+  <h3>XID Wraparound — 반드시 알아야 하는 정지 조건</h3>
+  <p>트랜잭션 ID는 32비트(약 42억, 사용 가능 범위 약 21억)입니다. 순환 구조이므로 "과거"와 "미래"를 구분하기 위해 오래된 행의 XID를 <strong>FrozenXID로 동결</strong>해야 합니다. 동결이 밀리면 다음 단계로 악화됩니다.</p>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>남은 XID</th><th>상태</th><th>동작</th><th>대응</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">2억 (age &gt; 200M)</td><td>정상 동결 시작</td><td><code>autovacuum_freeze_max_age</code> 도달 → 강제 anti-wraparound VACUUM 실행</td><td>정상. 단 대형 테이블에서 I/O가 튈 수 있음</td></tr>
+        <tr><td class="mono">약 5억 (PG14+ 16억 age)</td><td>failsafe</td><td><code>vacuum_failsafe_age</code> 도달 → 비용 제한을 무시하고 인덱스 정리를 건너뛰며 전력 질주</td><td>이미 늦은 상태. 원인 조사 필요</td></tr>
+        <tr><td class="mono">4천만</td><td class="mid">경고</td><td>로그에 경고 출력</td><td>즉시 조치 시작</td></tr>
+        <tr><td class="mono">300만</td><td class="no">정지</td><td><strong>새 트랜잭션 거부. 단일 사용자 모드에서 VACUUM만 가능</strong></td><td>서비스 중단. 반드시 이 전에 막아야 함</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">XID 나이 모니터링</button><button class="cb__tab">해소 절차</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 데이터베이스 단위 (경보 임계값: 10억 = 약 50% 소진)
+SELECT datname, age(datfrozenxid) AS xid_age,
+       round(100.0*age(datfrozenxid)/2147483647, 1) AS pct_used
+FROM pg_database ORDER BY xid_age DESC;
+
+-- 테이블 단위로 범인 찾기
+SELECT c.oid::regclass AS tbl,
+       age(c.relfrozenxid) AS xid_age,
+       mxid_age(c.relminmxid) AS mxid_age,
+       pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
+       s.last_autovacuum
+FROM pg_class c
+LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+WHERE c.relkind IN ('r','m','t')
+ORDER BY age(c.relfrozenxid) DESC LIMIT 20;
+
+-- MultiXact도 같이 봐야 합니다 (FOR SHARE 잠금이 많은 워크로드)
+SELECT datname, mxid_age(datminmxid) FROM pg_database ORDER BY 2 DESC;
+</code></pre>
+<pre data-lang="bash"><code>
+# 1) 원인 제거 — VACUUM이 진행되지 못하게 막던 요소들
+#    · 장기 트랜잭션 / idle in transaction  → pg_terminate_backend()
+#    · 비활성 복제 슬롯                     → pg_drop_replication_slot()
+#    · 남아 있는 prepared transaction        → ROLLBACK PREPARED '...'
+
+# 2) 문제 테이블만 우선 동결 (병렬로 여러 개)
+vacuumdb --freeze --jobs=4 --analyze --table=public.big_events -d prod -v
+
+# 3) 이미 정지된 경우 (새 접속 거부 상태)
+pg_ctl stop -D $PGDATA
+postgres --single -D $PGDATA prod
+#   backend&gt; VACUUM FREEZE VERBOSE public.big_events;
+
+# 4) 재발 방지: 대형 테이블 개별 파라미터 + 모니터링 경보 등록
+#    age(datfrozenxid) &gt; 1_000_000_000 이면 알림
+</code></pre>
+  </div>
+
+  <div class="note ok"><span class="lbl">Bloat에 대한 현실적 감각</span>
+    <p>Bloat 0%는 목표가 아닙니다. 갱신이 잦은 테이블에서 <strong>10~20% 여유 공간은 오히려 정상</strong>이며 HOT 업데이트의 재료가 됩니다. 문제가 되는 것은 <strong>계속 증가하는</strong> 추세입니다. 절대값보다 <em>추세</em>를 모니터링하고, 원인(장기 트랜잭션·슬롯·너무 느슨한 scale_factor)을 제거하는 것이 <code>VACUUM FULL</code>을 반복하는 것보다 항상 낫습니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 04 ============================ -->
+<section id="a4">
+  <div class="eyebrow">-- <b>04</b> · wal &amp; checkpoint</div>
+  <h2>WAL · 체크포인트 · 아카이브</h2>
+  <p class="lead">WAL은 PostgreSQL의 심장입니다. 크래시 복구, 복제, PITR, 논리적 CDC가 모두 하나의 WAL 스트림에서 나옵니다. LSN·타임라인·세그먼트라는 세 용어를 정확히 쓸 수 있어야 복구 작업을 안전하게 지휘할 수 있습니다.</p>
+
+  <div class="grid g3">
+    <div class="tile"><div class="k">lsn</div><div class="t">Log Sequence Number</div><div class="d"><code>0/16B3A48</code> 형식의 WAL 스트림 내 바이트 위치입니다. 복제 지연·복구 목표를 표현하는 기준 좌표입니다.</div></div>
+    <div class="tile"><div class="k">segment</div><div class="t">WAL 세그먼트 파일</div><div class="d">기본 16MB 파일 하나. 파일명 24자리는 타임라인(8) + 논리 파일(8) + 세그먼트(8)입니다.</div></div>
+    <div class="tile"><div class="k">timeline</div><div class="t">타임라인 ID</div><div class="d">복구나 승격이 일어나면 1 증가합니다. 서로 다른 타임라인의 WAL을 섞으면 복구가 실패합니다.</div></div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">핵심 파라미터</button><button class="cb__tab">체크포인트 튜닝</button>
+      <button class="cb__tab">아카이빙</button><button class="cb__tab">WAL 상태 확인</button><button class="cb__copy">복사</button></div>
+<pre data-lang="conf" class="is-on"><code>
+# ── 무엇을 기록할지 ──
+wal_level = replica            # minimal | replica(기본) | logical
+                               #   replica : 물리 복제·PITR 가능
+                               #   logical : 논리 복제·CDC(Debezium) 추가 가능
+fsync = on                     # 절대 off 하지 마십시오 (크래시 시 데이터 손상)
+synchronous_commit = on        # 커밋 시 WAL fsync 완료까지 대기
+full_page_writes = on          # 페이지 부분 쓰기(torn page) 방어
+
+# ── 얼마나 쌓을지 ──
+max_wal_size = 8GB             # 체크포인트 간 WAL 총량 상한(소프트)
+min_wal_size = 2GB             # 이만큼은 파일을 재활용해 유지
+wal_compression = zstd         # PG15+ 알고리즘 선택 가능. full page 이미지 압축
+wal_buffers = 16MB             # -1이면 shared_buffers의 1/32 자동
+
+# ── 언제 flush할지 ──
+checkpoint_timeout = 15min     # 기본 5min → 늘리면 WAL 증가, 복구 시간 증가
+checkpoint_completion_target = 0.9   # PG14+ 기본값. flush를 구간에 고르게 분산
+checkpoint_warning = 30s
+
+# ── 보관 (복제 슬롯이 있으면 슬롯이 우선) ──
+wal_keep_size = 2GB            # 슬롯 없이 표준 복제를 유지할 최소 보관량
+archive_mode = on
+archive_timeout = 60s          # 조용한 시스템에서도 강제 세그먼트 전환(RPO 상한)
+</code></pre>
+<pre data-lang="sql"><code>
+-- 체크포인트가 너무 잦은지 확인 (PG17: pg_stat_checkpointer, 이전: pg_stat_bgwriter)
+SELECT num_timed, num_requested,
+       round(100.0*num_requested/NULLIF(num_timed+num_requested,0),1) AS requested_pct,
+       write_time, sync_time,
+       buffers_written
+FROM pg_stat_checkpointer;
+-- PG16 이하:
+-- SELECT checkpoints_timed, checkpoints_req, checkpoint_write_time,
+--        checkpoint_sync_time, buffers_checkpoint FROM pg_stat_bgwriter;
+
+/* 판단 기준
+   requested_pct 가 높다  → max_wal_size 부족. WAL이 먼저 차서 강제 체크포인트 발생
+                            → max_wal_size를 늘리세요 (디스크 여유가 있는 한 관대하게)
+   sync_time 이 크다      → 스토리지 fsync 지연. 디스크·파일시스템 점검
+   checkpoint_timeout ↑   → 쓰기 부담 감소, 대신 크래시 복구 시간(RTO) 증가
+                            5min→15min은 대부분의 시스템에서 안전한 개선입니다      */
+
+-- 로그로 남기기 (필수 설정)
+ALTER SYSTEM SET log_checkpoints = on;
+SELECT pg_reload_conf();
+</code></pre>
+<pre data-lang="conf" class="is-on"><code>
+# ── 방법 1: archive_command (전통적) ──
+archive_mode = on
+archive_command = 'test ! -f /arch/%f &amp;&amp; cp %p /arch/%f'
+#   %p = 원본 경로, %f = 파일명
+#   반드시 성공 시 0, 실패 시 0이 아닌 값을 반환해야 합니다.
+#   실패하면 PostgreSQL은 재시도하며 WAL을 계속 보관합니다 → pg_wal 폭증 위험
+
+# ── 방법 2: 전용 백업 도구 (권장) ──
+archive_command = 'pgbackrest --stanza=prod archive-push %p'
+#   병렬 전송, 압축, 체크섬, 오브젝트 스토리지(S3) 지원, 재시도 로직 내장
+
+# ── 방법 3: archive_library (PG15+) ──
+archive_library = 'basic_archive'   # 셸 fork 없이 라이브러리로 처리 (성능 유리)
+</code></pre>
+<pre data-lang="sql"><code>
+-- 현재 위치와 WAL 사용량
+SELECT pg_current_wal_lsn(), pg_walfile_name(pg_current_wal_lsn());
+SELECT pg_size_pretty(sum(size)) AS pg_wal_total, count(*) AS segments
+FROM pg_ls_waldir();
+
+-- 아카이브 상태: failed_count가 늘고 있으면 즉시 대응 (디스크 폭증 직전)
+SELECT archived_count, last_archived_wal, last_archived_time,
+       failed_count, last_failed_wal, last_failed_time
+FROM pg_stat_archiver;
+
+-- WAL 생성 속도 추정 (두 시점 차이로 계산)
+SELECT pg_size_pretty(
+  pg_wal_lsn_diff(pg_current_wal_lsn(), '0/16000000'::pg_lsn)) AS since_lsn;
+
+-- 슬롯이 붙잡고 있는 WAL — pg_wal 폭증의 1순위 원인
+SELECT slot_name, slot_type, active, wal_status,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained
+FROM pg_replication_slots ORDER BY 5 DESC;
+-- wal_status: reserved / extended / unreserved / lost
+--   lost가 되면 그 슬롯을 쓰던 복제/구독은 재구축이 필요합니다.
+ALTER SYSTEM SET max_slot_wal_keep_size = '64GB';   -- 슬롯 때문에 DB가 죽는 것 방지
+</code></pre>
+    <div class="cb__cap"><b>pg_wal 100% 사용은 서비스 정지로 직결됩니다.</b> 원인 3종(아카이브 실패, 비활성 복제 슬롯, 거대 트랜잭션)에 대한 경보를 반드시 걸어 두세요.</div>
+  </div>
+
+  <div class="note warn"><span class="lbl">synchronous_commit 트레이드오프</span>
+    <p><code>synchronous_commit = off</code>는 커밋 시 WAL fsync를 기다리지 않아 처리량이 크게 오르지만, 크래시 시 <strong>최근 수백 밀리초의 커밋된 트랜잭션이 사라집니다</strong>(데이터는 손상되지 않고 일부 커밋만 유실). 로그·통계 적재 같은 워크로드에서는 합리적 선택이며, 세션·트랜잭션 단위로 지정할 수도 있습니다: <code>SET LOCAL synchronous_commit = off;</code> 결제·원장 테이블에는 절대 적용하지 않습니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 05 ============================ -->
+<section id="a5">
+  <div class="eyebrow">-- <b>05</b> · backup &amp; pitr</div>
+  <h2>백업과 복구 · PITR</h2>
+  <p class="lead">백업의 성공 기준은 "백업이 돌았는가"가 아니라 <strong>"복구가 되는가"</strong>입니다. 복구 훈련을 하지 않은 백업은 백업이 아닙니다. 먼저 목표를 숫자로 정의하고, 그 목표를 만족하는 방식을 고릅니다.</p>
+
+  <div class="grid g2">
+    <div class="card"><h4>RPO — 얼마까지 잃어도 되는가</h4><p class="small">Recovery Point Objective. "최대 5분 손실 허용"이면 WAL 아카이브 주기(<code>archive_timeout</code>)와 복제 방식이 그 수치를 결정합니다. 하루 한 번 <code>pg_dump</code>만 있다면 RPO는 최대 24시간입니다.</p></div>
+    <div class="card"><h4>RTO — 얼마 안에 살려야 하는가</h4><p class="small">Recovery Time Objective. 1TB DB를 논리 백업에서 복원하면 인덱스 재생성까지 수 시간이 걸립니다. RTO가 30분이면 물리 백업 + 대기 서버(standby)가 필요합니다.</p></div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>방식</th><th>단위</th><th>RPO</th><th>RTO</th><th>적합한 상황</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">pg_dump / pg_restore</td><td>DB·테이블 논리</td><td class="no">백업 시점</td><td class="no">느림(재적재+인덱스)</td><td>버전·플랫폼 이전, 특정 테이블 복원, 소규모 DB</td></tr>
+        <tr><td class="mono">pg_basebackup</td><td>클러스터 물리</td><td class="mid">백업 시점(WAL 있으면 개선)</td><td class="mid">중간(파일 복사)</td><td>standby 구축, 단순 물리 백업</td></tr>
+        <tr><td class="mono">basebackup + WAL 아카이브 (PITR)</td><td>클러스터 물리</td><td class="yes">초 단위</td><td class="mid">중간</td><td><strong>운영 표준</strong>. 원하는 시점으로 복구</td></tr>
+        <tr><td class="mono">pgBackRest / barman</td><td>클러스터 물리</td><td class="yes">초 단위</td><td class="yes">빠름(병렬·증분)</td><td>대용량 운영 환경 권장</td></tr>
+        <tr><td class="mono">스트리밍 복제 standby</td><td>클러스터</td><td class="yes">≈0(동기 시)</td><td class="yes">수십 초(승격)</td><td>HA. <strong>백업의 대체물이 아닙니다</strong></td></tr>
+        <tr><td class="mono">스토리지 스냅샷</td><td>볼륨</td><td class="mid">스냅샷 시점</td><td class="yes">매우 빠름</td><td>PGDATA와 WAL이 같은 정합 그룹일 때만 유효</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note danger"><span class="lbl">복제는 백업이 아닙니다</span>
+    <p><code>DROP TABLE orders;</code>는 <strong>0.2초 뒤에 복제 서버에서도 실행됩니다</strong>. 실수·악의·논리적 손상으로부터 보호하려면 시간을 되돌릴 수 있는 백업(PITR)이 별도로 있어야 합니다. 지연 복제(<code>recovery_min_apply_delay</code>)를 1시간 걸어 두면 사고 직후 대응 창을 확보할 수 있습니다.</p>
+  </div>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 04</span><h4>PITR 타임라인 — 복구 목표 시각을 정하면 필요한 파일과 절차가 나옵니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>복구 목표 시각</label>
+        <input type="range" id="p-t" min="0" max="47" value="34" step="1">
+        <span class="small mono" id="p-tv"></span>
+        <label style="margin-left:10px">시나리오</label>
+        <select id="p-sc">
+          <option value="drop">14:20 실수로 DROP TABLE</option>
+          <option value="crash">서버 완전 손실</option>
+          <option value="corrupt">03:00 배치가 데이터 오염</option>
+        </select>
+      </div>
+      <svg id="p-svg" viewBox="0 0 720 130" style="width:100%;min-width:620px" font-family="JetBrains Mono, monospace" font-size="10"></svg>
+      <div class="out" id="p-out" style="margin-top:8px"></div>
+      <div class="cb" style="margin-top:14px"><div class="cb__hd"><span class="cb__tab is-on">복구 절차</span></div>
+        <pre class="is-on" style="display:block"><code id="p-cmd"></code></pre></div>
+    </div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">논리 백업</button><button class="cb__tab">물리 백업</button>
+      <button class="cb__tab">PITR 복구 실행</button><button class="cb__tab">pgBackRest</button><button class="cb__tab">검증</button><button class="cb__copy">복사</button></div>
+<pre data-lang="bash" class="is-on"><code>
+# 커스텀 포맷(권장): 압축·병렬 복원·선택 복원 가능
+pg_dump -h prod -U postgres -Fc -Z 6 -f shop.dump shop
+pg_dump -Fd -j 8 -f /backup/shop_dir shop        # 디렉터리 포맷 + 병렬 덤프
+
+# 스키마만 / 데이터만 / 특정 테이블만
+pg_dump -s -f schema.sql shop
+pg_dump -a -t public.orders -f orders_data.sql shop
+
+# 롤·테이블스페이스 등 클러스터 전역 객체는 별도로! (자주 빠뜨리는 부분)
+pg_dumpall --globals-only -f globals.sql
+
+# 복원
+createdb shop_restore
+pg_restore -d shop_restore -j 8 shop.dump
+pg_restore -d shop_restore -t orders --data-only shop.dump   # 테이블 하나만
+
+# pg_dump는 하나의 일관된 스냅샷을 보므로 서비스 중에도 안전하지만,
+# 장시간 실행되면 그 트랜잭션이 VACUUM을 막습니다(2장 참고).
+</code></pre>
+<pre data-lang="bash"><code>
+# 클러스터 전체 물리 백업 + 필요한 WAL 포함
+pg_basebackup -h prod -U replicator -D /backup/base_$(date +%F) \
+  -Ft -z -Xs -P -c fast -R
+#   -Ft  tar 포맷      -z 압축        -Xs WAL 스트리밍 동시 수신
+#   -P   진행률        -c fast 즉시 체크포인트  -R standby 설정파일 생성
+
+# PG17: 증분 백업 (WAL 요약 기능 필요)
+#   postgresql.conf: summarize_wal = on
+pg_basebackup -D /backup/full  -c fast
+pg_basebackup -D /backup/incr1 --incremental=/backup/full/backup_manifest
+pg_combinebackup /backup/full /backup/incr1 -o /restore/target
+
+# 저수준 API를 직접 쓰는 경우 (스토리지 스냅샷과 조합)
+psql -c "SELECT pg_backup_start('snap', fast =&gt; true);"
+#   ... 스토리지 스냅샷 생성 ...
+psql -c "SELECT * FROM pg_backup_stop();"    # 반환된 label 파일을 함께 보관
+</code></pre>
+<pre data-lang="bash"><code>
+# ── 시나리오: 14:20에 실수로 테이블을 지웠고, 14:19:00으로 되돌린다 ──
+
+# 1) 서비스 정지 및 현재 PGDATA 보존 (덮어쓰지 말고 반드시 별도 보관)
+systemctl stop postgresql
+mv /var/lib/pgsql/17/data /var/lib/pgsql/17/data.broken
+
+# 2) 사고 이전의 베이스 백업 복원
+mkdir -p /var/lib/pgsql/17/data &amp;&amp; chmod 700 /var/lib/pgsql/17/data
+tar -xzf /backup/base_2026-08-10/base.tar.gz -C /var/lib/pgsql/17/data
+
+# 3) 복구 파라미터 설정
+cat &gt;&gt; /var/lib/pgsql/17/data/postgresql.auto.conf &lt;&lt;'EOF'
+restore_command = 'cp /arch/%f %p'
+recovery_target_time = '2026-08-10 14:19:00+09'
+recovery_target_action = 'pause'
+EOF
+#   recovery_target_* 는 time | xid | lsn | name | immediate 중 하나만 사용
+#   pause: 목표 도달 후 멈춤 → 데이터 확인 후 결정 (권장)
+
+# 4) 복구 모드로 기동
+touch /var/lib/pgsql/17/data/recovery.signal      # PG12+ (구버전은 recovery.conf)
+systemctl start postgresql
+tail -f /var/log/postgresql/*.log                  # "recovery stopping before..." 확인
+
+# 5) 데이터 확인 후 승격 (되돌릴 지점을 잘못 잡았으면 3번부터 다시)
+psql -c "SELECT count(*) FROM orders;"
+psql -c "SELECT pg_wal_replay_resume();"           # pause 해제
+psql -c "SELECT pg_promote();"                     # 읽기전용 해제, 타임라인 +1
+
+# 6) 승격 후 즉시 새 베이스 백업 (타임라인이 바뀌어 기존 백업 체인과 분리됨)
+</code></pre>
+<pre data-lang="bash"><code>
+# /etc/pgbackrest/pgbackrest.conf
+# [global]
+# repo1-path=/var/lib/pgbackrest
+# repo1-retention-full=2
+# repo1-cipher-type=aes-256-cbc
+# process-max=8
+# start-fast=y
+# [prod]
+# pg1-path=/var/lib/pgsql/17/data
+
+pgbackrest --stanza=prod stanza-create
+pgbackrest --stanza=prod check                  # 아카이브 경로까지 검증
+
+pgbackrest --stanza=prod --type=full backup     # 주 1회
+pgbackrest --stanza=prod --type=diff backup     # 일 1회
+pgbackrest --stanza=prod --type=incr backup     # 시간당
+
+pgbackrest --stanza=prod info                   # 백업 목록·크기·보관 상태
+
+# 특정 시점 복구
+pgbackrest --stanza=prod --delta \
+  --type=time --target="2026-08-10 14:19:00+09" --target-action=pause restore
+</code></pre>
+<pre data-lang="bash"><code>
+# ① 복원 리허설을 자동화하세요 (월 1회 이상, 가능하면 매일)
+#    별도 서버에 복구 → 스키마 개수·행 수·핵심 집계값 비교 → 결과 리포트
+
+# ② 물리 백업 무결성 검증
+pg_verifybackup /backup/base_2026-08-10           # manifest 기반 검증
+
+# ③ 데이터 체크섬 활성화 확인 (블록 손상 조기 발견)
+psql -c "SHOW data_checksums;"                    # on 이어야 함
+#   off인 기존 클러스터는 정지 후 pg_checksums --enable 로 전환 가능
+
+# ④ 논리 백업 복원 가능성 확인
+pg_restore --list shop.dump &gt; /dev/null &amp;&amp; echo "manifest OK"
+
+# ⑤ 백업 자체의 모니터링 항목
+#    · 마지막 성공 시각, 소요 시간, 크기 추이
+#    · pg_stat_archiver.failed_count
+#    · 저장소 여유 공간과 보관 정책 실제 적용 여부
+</code></pre>
+    <div class="cb__cap">복구 리허설에서 반드시 측정할 값: <b>실제 RTO</b>(명령 시작부터 서비스 가능까지)와 <b>실제 RPO</b>(마지막 복구 가능 시점). 문서의 목표치와 다르면 문서를 고치거나 구성을 고쳐야 합니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 06 ============================ -->
+<section id="a6">
+  <div class="eyebrow">-- <b>06</b> · replication &amp; ha</div>
+  <h2>복제와 고가용성</h2>
+  <p class="lead">PostgreSQL은 복제를 내장하지만 <strong>자동 페일오버는 내장하지 않습니다</strong>. 이 사실이 아키텍처 설계의 출발점입니다. 물리 복제(스트리밍)와 논리 복제는 목적이 다르므로 구분해서 이해해야 합니다.</p>
+
+  <div class="grid g2">
+    <div class="card"><h4>물리 복제 (스트리밍)</h4>
+      <p class="small">WAL 바이트를 그대로 전송해 <strong>클러스터 전체를 블록 단위로 동일하게</strong> 유지합니다. 대기 서버는 읽기 전용(hot standby)으로 조회를 받을 수 있습니다. 같은 메이저 버전·같은 아키텍처가 필수이며, 테이블 단위 선택은 불가능합니다. HA와 읽기 확장의 기본입니다.</p></div>
+    <div class="card"><h4>논리 복제</h4>
+      <p class="small">변경을 행 단위 논리 이벤트로 디코딩해 전송합니다. <strong>테이블 단위 선택, 다른 메이저 버전 간, 양방향·부분 복제</strong>가 가능합니다. 무중단 메이저 업그레이드와 CDC 파이프라인의 기반입니다. 대신 DDL은 자동 전파되지 않고, 대상 테이블에 <code>REPLICA IDENTITY</code>가 필요합니다.</p></div>
+  </div>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 05</span><h4>동기 복제 트레이드오프 계산기 — 내구성과 지연은 반비례합니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>synchronous_commit</label>
+        <select id="r-mode">
+          <option value="off">off</option>
+          <option value="local">local</option>
+          <option value="on" selected>on (기본값)</option>
+          <option value="remote_write">remote_write</option>
+          <option value="remote_apply">remote_apply</option>
+        </select>
+        <label style="margin-left:8px">네트워크 RTT</label>
+        <input type="range" id="r-rtt" min="0" max="40" value="2" step="1"><span class="small mono" id="r-rttv">2 ms</span>
+        <label style="margin-left:8px">스탠바이 상태</label>
+        <select id="r-st"><option value="up">정상</option><option value="down">1대 장애</option></select>
+      </div>
+      <div class="grid g3">
+        <div class="tile"><div class="k">커밋 지연</div><div class="t mono" id="r-lat">—</div><div class="d">한 트랜잭션 기준</div></div>
+        <div class="tile"><div class="k">예상 TPS 상한</div><div class="t mono" id="r-tps">—</div><div class="d">단일 세션 순차 커밋</div></div>
+        <div class="tile"><div class="k">데이터 손실 위험(RPO)</div><div class="t mono" id="r-rpo">—</div><div class="d">주 서버 급정지 시</div></div>
+      </div>
+      <div class="out" id="r-out" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">스트리밍 복제 구축</button><button class="cb__tab">동기 복제 설정</button>
+      <button class="cb__tab">지연 감시</button><button class="cb__tab">논리 복제</button><button class="cb__tab">페일오버</button><button class="cb__copy">복사</button></div>
+<pre data-lang="bash" class="is-on"><code>
+# ── 주 서버(primary) ──
+# postgresql.conf
+#   wal_level = replica
+#   max_wal_senders = 10
+#   max_replication_slots = 10
+#   hot_standby = on
+#   wal_keep_size = 2GB
+psql -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'xxx';"
+# pg_hba.conf
+#   host replication replicator 10.0.0.0/24 scram-sha-256
+
+# 복제 슬롯을 만들어 WAL 보관을 보장 (권장)
+psql -c "SELECT pg_create_physical_replication_slot('standby1');"
+
+# ── 대기 서버(standby) ──
+pg_basebackup -h primary -U replicator -D $PGDATA -Fp -Xs -P -R -S standby1
+#   -R : primary_conninfo 와 standby.signal 을 자동 생성
+
+# postgresql.auto.conf 에 생성된 내용 확인
+#   primary_conninfo = 'host=primary user=replicator application_name=standby1'
+#   primary_slot_name = 'standby1'
+# 추가 권장 설정
+#   hot_standby_feedback = on        # standby의 쿼리가 primary의 VACUUM에 반영됨
+#   max_standby_streaming_delay = 30s # 복제 적용과 조회 충돌 시 허용 지연
+#   recovery_min_apply_delay = 0      # 지연 복제용 (예: '1h')
+
+systemctl start postgresql
+psql -c "SELECT pg_is_in_recovery();"   # t 이면 정상적으로 standby
+</code></pre>
+<pre data-lang="conf" class="is-on"><code>
+# ── primary: 어떤 스탠바이의 응답을 기다릴지 ──
+synchronous_standby_names = 'ANY 1 (standby1, standby2)'
+#   'standby1'                → 그 한 대만 (그 대가 죽으면 커밋이 멈춤!)
+#   'FIRST 1 (s1, s2)'        → 우선순위 순으로 1대
+#   'ANY 1 (s1, s2)'          → 둘 중 아무 1대 (권장: 1대 장애에 견딤)
+#   'ANY 2 (s1, s2, s3)'      → 3대 중 2대
+
+synchronous_commit = on
+#   off          : WAL fsync조차 기다리지 않음 (로컬 손실 가능)
+#   local        : 로컬 fsync만 대기, 복제는 비동기
+#   remote_write : 스탠바이 OS까지 전달 (스탠바이 프로세스 크래시는 견딤)
+#   on           : 스탠바이 디스크 fsync까지 대기  ← 동기 복제의 기본
+#   remote_apply : 스탠바이가 적용까지 완료 (읽기 일관성 보장, 가장 느림)
+
+# 세션/트랜잭션 단위로 완화할 수 있습니다
+# BEGIN; SET LOCAL synchronous_commit = local;  -- 이 트랜잭션만 빠르게
+</code></pre>
+<pre data-lang="sql"><code>
+-- ① primary에서: 각 스탠바이의 지연을 바이트와 시간으로
+SELECT application_name, client_addr, state, sync_state,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), sent_lsn))   AS pending_send,
+       pg_size_pretty(pg_wal_lsn_diff(sent_lsn, flush_lsn))             AS pending_flush,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)) AS total_lag,
+       write_lag, flush_lag, replay_lag
+FROM pg_stat_replication;
+--   state: startup | catchup | streaming(정상) | backup
+--   sync_state: async | potential | sync | quorum
+
+-- ② standby에서: 시간 기준 지연 (경보에 쓰기 좋은 지표)
+SELECT pg_is_in_recovery() AS is_standby,
+       pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(),
+       CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn()
+            THEN 0 ELSE EXTRACT(epoch FROM now()-pg_last_xact_replay_timestamp())
+       END AS lag_seconds;
+
+-- ③ 지연 원인 구분
+--   pending_send 큼            → 네트워크 대역폭·거리 문제
+--   pending_flush 큼           → 스탠바이 디스크 성능
+--   replay_lag만 큼            → 스탠바이의 조회가 적용을 막는 중
+--                                (max_standby_streaming_delay / 충돌 확인)
+SELECT * FROM pg_stat_database_conflicts;
+</code></pre>
+<pre data-lang="sql"><code>
+-- ── 발행자(publisher) ──
+-- postgresql.conf: wal_level = logical
+CREATE PUBLICATION pub_core FOR TABLE customers, orders;
+CREATE PUBLICATION pub_all  FOR ALL TABLES;
+-- 행 필터와 컬럼 목록 (PG15+)
+CREATE PUBLICATION pub_kr FOR TABLE orders (id, amount, ordered_at)
+  WHERE (country = 'KR');
+
+-- PK가 없는 테이블은 REPLICA IDENTITY 지정이 필요합니다
+ALTER TABLE logs REPLICA IDENTITY FULL;       -- 전체 행을 키로 (비용 큼)
+ALTER TABLE logs REPLICA IDENTITY USING INDEX uq_logs;
+
+-- ── 구독자(subscriber): 테이블 스키마는 미리 만들어 두어야 합니다 ──
+CREATE SUBSCRIPTION sub_core
+  CONNECTION 'host=publisher dbname=shop user=repl password=xxx'
+  PUBLICATION pub_core
+  WITH (copy_data = true, streaming = on, origin = none);
+
+-- 상태 확인
+SELECT * FROM pg_stat_subscription;
+SELECT * FROM pg_replication_slots;           -- 발행자 측 슬롯
+SELECT * FROM pg_stat_subscription_stats;     -- 적용 오류 통계 (PG15+)
+
+-- 주의사항
+--   · DDL은 전파되지 않습니다 (양쪽에 각각 적용)
+--   · 시퀀스 값도 전파되지 않습니다 (전환 시 setval 필요)
+--   · TRUNCATE는 PG11+ 지원
+--   · 충돌 발생 시 적용이 멈춥니다 → pg_stat_subscription_stats로 감시
+</code></pre>
+<pre data-lang="bash"><code>
+# ── 계획된 전환 (스위치오버) ──
+# 1) 애플리케이션 쓰기 차단, 2) primary 정상 종료(-m fast),
+# 3) 스탠바이 지연 0 확인, 4) 승격, 5) 옛 primary를 pg_rewind로 스탠바이 전환
+pg_ctl stop -D $PGDATA -m fast
+psql -h standby -c "SELECT pg_promote(wait =&gt; true);"
+pg_rewind --target-pgdata=$PGDATA --source-server="host=newprimary user=postgres"
+
+# ── 자동 페일오버: Patroni (사실상 표준) ──
+# etcd/consul/k8s 를 분산 합의 저장소로 사용, DCS의 리더 키로 스플릿브레인 방지
+patronictl -c /etc/patroni.yml list
+# + Cluster: pg-prod ------+---------+---------+----+-----------+
+# | Member | Host      | Role    | State   | TL | Lag in MB |
+# | pg-1   | 10.0.0.11 | Leader  | running | 12 |           |
+# | pg-2   | 10.0.0.12 | Replica | running | 12 |         0 |
+patronictl -c /etc/patroni.yml switchover --candidate pg-2
+patronictl -c /etc/patroni.yml reinit pg-3
+
+# 페일오버 시 반드시 확인할 것
+#   · 애플리케이션 접속 경로 (HAProxy/VIP/서비스 디스커버리)가 새 리더를 가리키는가
+#   · 복제 슬롯이 새 리더에도 존재하는가 (PG17: 슬롯 동기화 sync_replication_slots)
+#   · 타임라인이 증가했으므로 백업 체인을 갱신했는가
+</code></pre>
+    <div class="cb__cap">스플릿브레인(양쪽이 primary가 되는 상태)은 가장 치명적인 사고입니다. 반드시 <b>분산 합의 기반 도구</b>(Patroni + etcd, CloudNativePG)나 관리형 서비스를 사용하고, 수동 승격 스크립트는 피하세요.</div>
+  </div>
+</section>
+
+<!-- ============================ 07 ============================ -->
+<section id="a7">
+  <div class="eyebrow">-- <b>07</b> · partitioning</div>
+  <h2>파티셔닝</h2>
+  <p class="lead">파티셔닝의 진짜 이득은 조회 성능보다 <strong>운영 편의성</strong>입니다. 3년 지난 로그를 <code>DELETE</code>로 지우면 수 시간의 I/O와 거대한 bloat가 남지만, <code>DETACH</code> + <code>DROP</code>은 초 단위로 끝나고 bloat도 없습니다. VACUUM·인덱스 재생성도 파티션 단위로 나뉘어 관리 가능한 크기가 됩니다.</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>방식</th><th>기준</th><th>주 용도</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">RANGE</td><td>범위 (날짜·숫자)</td><td>시계열 로그·주문·이벤트. 가장 흔합니다.</td><td>미래 파티션을 미리 만들어야 합니다. 없으면 INSERT 실패</td></tr>
+        <tr><td class="mono">LIST</td><td>값 목록 (지역·테넌트)</td><td>멀티테넌시, 국가별 분리</td><td>DEFAULT 파티션을 두면 새 값도 받지만 ATTACH 시 검사 비용 발생</td></tr>
+        <tr><td class="mono">HASH</td><td>해시 나머지</td><td>균등 분산으로 경합 완화</td><td>범위 조회에서 pruning 효과가 없습니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">생성</button><button class="cb__tab">운영(추가·분리)</button>
+      <button class="cb__tab">pruning 확인</button><button class="cb__tab">기존 테이블 전환</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 월별 RANGE 파티션. 파티션 키는 PK에 반드시 포함되어야 합니다.
+CREATE TABLE events (
+  id         bigint GENERATED ALWAYS AS IDENTITY,
+  tenant_id  int         NOT NULL,
+  payload    jsonb       NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (id, created_at)          -- created_at 없이 PK(id) 불가
+) PARTITION BY RANGE (created_at);
+
+CREATE TABLE events_2026_08 PARTITION OF events
+  FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+CREATE TABLE events_2026_09 PARTITION OF events
+  FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+
+-- 어디에도 속하지 않는 값을 받는 안전망 (권장하되 정기적으로 비우세요)
+CREATE TABLE events_default PARTITION OF events DEFAULT;
+
+-- 부모에 만든 인덱스는 모든 파티션에 자동 생성·유지됩니다
+CREATE INDEX ON events (tenant_id, created_at DESC);
+
+-- 2단계 파티셔닝(서브파티션)도 가능하지만 관리 복잡도가 급격히 늘어납니다
+</code></pre>
+<pre data-lang="sql"><code>
+-- ① 미래 파티션 사전 생성 (자동화 필수. cron 또는 pg_partman)
+CREATE TABLE events_2026_10 PARTITION OF events
+  FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+
+-- ② 오래된 데이터 분리 — 즉시 완료, bloat 없음
+ALTER TABLE events DETACH PARTITION events_2026_02 CONCURRENTLY;  -- PG14+
+--   분리 후 선택지: 압축 아카이브 → DROP, 또는 콜드 스토리지 이전
+DROP TABLE events_2026_02;
+
+-- ③ 외부에서 만든 테이블 붙이기 (검사 비용 줄이는 요령)
+CREATE TABLE events_new (LIKE events INCLUDING DEFAULTS INCLUDING CONSTRAINTS);
+ALTER TABLE events_new ADD CONSTRAINT ck_range
+  CHECK (created_at &gt;= '2026-11-01' AND created_at &lt; '2026-12-01');
+-- 위 CHECK가 있으면 ATTACH 시 전체 스캔을 건너뜁니다
+ALTER TABLE events ATTACH PARTITION events_new
+  FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
+
+-- ④ pg_partman으로 자동화
+-- SELECT partman.create_parent('public.events','created_at','native','monthly',
+--                              p_premake =&gt; 4);
+-- SELECT partman.run_maintenance();      -- cron 등록
+</code></pre>
+<pre data-lang="sql"><code>
+-- pruning: 조건에 맞는 파티션만 읽는 것. 이게 되지 않으면 파티셔닝 이득이 사라집니다.
+EXPLAIN (ANALYZE, COSTS OFF)
+SELECT count(*) FROM events
+WHERE created_at &gt;= '2026-08-01' AND created_at &lt; '2026-08-08';
+--  Append
+--    -&gt;  Seq Scan on events_2026_08     ← 한 파티션만 등장하면 성공
+
+-- pruning이 안 되는 대표 패턴
+--   · 파티션 키에 함수 적용:  WHERE date_trunc('month', created_at) = ...
+--   · 키 조건 자체가 없음:    WHERE tenant_id = 5
+--   · 준비된 문장의 파라미터: 실행 시점 pruning으로 처리됨(EXPLAIN에는 다 보임)
+
+SHOW enable_partition_pruning;              -- on 이어야 함
+SET enable_partitionwise_join = on;         -- 기본 off. 파티션 대 파티션 조인
+SET enable_partitionwise_aggregate = on;    -- 기본 off. 파티션별 집계 후 병합
+
+-- 파티션 크기 점검
+SELECT c.relname, pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
+       (SELECT count(*) FROM pg_stat_user_tables WHERE relid = c.oid) AS tracked
+FROM pg_class c JOIN pg_inherits i ON i.inhrelid = c.oid
+WHERE i.inhparent = 'events'::regclass
+ORDER BY c.relname;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 이미 운영 중인 대형 테이블을 무중단에 가깝게 파티션으로 전환하는 절차
+
+-- 1) 새 파티션 부모 테이블 생성 (events_new)
+-- 2) 과거 데이터를 배치로 이관 (기간별로 나눠 부하 분산)
+INSERT INTO events_new
+SELECT * FROM events_old
+WHERE created_at &gt;= '2026-07-01' AND created_at &lt; '2026-08-01';
+
+-- 3) 신규 쓰기를 양쪽으로 보내거나(듀얼 라이트), 트리거로 미러링
+-- 4) 짧은 잠금 창에서 이름 교체
+BEGIN;
+  SET lock_timeout = '3s';
+  ALTER TABLE events_old RENAME TO events_archive;
+  ALTER TABLE events_new RENAME TO events;
+COMMIT;
+
+-- 5) 잔여 데이터 검증 후 아카이브 정리
+
+-- 참고: 기존 테이블 자체를 파티션의 일부로 ATTACH 하는 방법도 있습니다.
+--       CHECK 제약을 미리 걸어두면 전체 스캔 없이 붙습니다.
+</code></pre>
+    <div class="cb__cap">파티션 개수는 무한정 늘릴 수 없습니다. 수천 개가 되면 계획 수립 시간과 락 획득 비용이 커집니다. 실무 감각으로는 <b>테이블당 수십~수백 개</b>를 상한으로 두고, 파티션 하나가 수십 GB를 넘지 않게 주기를 설계합니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 08 ============================ -->
+<section id="a8">
+  <div class="eyebrow">-- <b>08</b> · indexes</div>
+  <h2>인덱스 심화</h2>
+  <p class="lead">DBA의 인덱스 업무는 "만들기"보다 <strong>고르기와 정리하기</strong>입니다. 데이터 타입과 연산자에 맞는 인덱스 종류를 고르고, 쓰이지 않는 인덱스를 걷어내고, 무중단으로 재생성하는 절차를 갖추는 것이 핵심입니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 06</span><h4>인덱스 종류 선택기 — 데이터와 조건을 고르면 적합한 종류를 제안합니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>데이터 성격</label><select id="i-kind"></select>
+        <label>주요 조건</label><select id="i-cond"></select>
+      </div>
+      <div class="out" id="i-out"></div>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>종류</th><th>지원 연산</th><th>전형적 용도</th><th>특징</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">B-tree</td><td class="mono">= &lt; &lt;= &gt; &gt;= BETWEEN IN, LIKE '접두%', ORDER BY</td><td>기본값. 대부분의 컬럼</td><td>정렬 지원, Index Only Scan 가능, 크기 중간</td></tr>
+        <tr><td class="mono">Hash</td><td class="mono">= 만</td><td>등호 전용 대용량 키</td><td>PG10부터 WAL 기록됨(크래시 안전). B-tree보다 작을 수 있으나 이득이 제한적</td></tr>
+        <tr><td class="mono">GIN</td><td class="mono">@&gt; ? &amp;&amp; @@ (포함·존재)</td><td>jsonb, 배열, 전문 검색(tsvector), pg_trgm</td><td>다중 값 색인. 삽입 비용 큼 → <code>fastupdate</code>와 <code>gin_pending_list_limit</code> 조정</td></tr>
+        <tr><td class="mono">GiST</td><td class="mono">&amp;&amp; @&gt; &lt;-&gt; (겹침·근접)</td><td>지리정보(PostGIS), 범위 타입, EXCLUDE 제약, KNN 검색</td><td>손실 압축 기반이라 재검사가 필요할 수 있음</td></tr>
+        <tr><td class="mono">SP-GiST</td><td class="mono">공간 분할형</td><td>IP 접두사, 텍스트 접두사, 비겹침 데이터</td><td>특정 패턴에서 GiST보다 작고 빠름</td></tr>
+        <tr><td class="mono">BRIN</td><td class="mono">범위 조건</td><td>물리 순서와 값 순서가 일치하는 초대형 테이블(시계열 append-only)</td><td><strong>인덱스 크기가 극단적으로 작음</strong>(GB → MB). 정확도는 낮지만 대용량 스캔 축소에 효과적</td></tr>
+        <tr><td class="mono">HNSW / IVFFlat</td><td class="mono">&lt;=&gt; &lt;-&gt; (벡터 거리)</td><td>pgvector 임베딩 유사도 검색</td><td>HNSW는 정확도·속도 우수, 빌드 시간과 메모리 요구 큼</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">고급 기법</button><button class="cb__tab">무중단 생성·재생성</button>
+      <button class="cb__tab">정리 대상 찾기</button><button class="cb__tab">bloat 측정</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- ① 커버링 인덱스 (INCLUDE, PG11+): 키가 아닌 컬럼을 리프에 담아 Index Only Scan 유도
+CREATE INDEX idx_ord_cover ON orders (customer_id, ordered_at DESC)
+  INCLUDE (amount, status);
+--   → SELECT amount, status ... WHERE customer_id=? 가 힙을 읽지 않습니다
+--   → 단, Visibility Map이 최신이어야 하므로 VACUUM 상태가 중요합니다
+
+-- ② 부분 인덱스: 대상 행이 소수일 때 압도적으로 효율적
+CREATE INDEX idx_ord_pending ON orders (created_at)
+  WHERE status IN ('PENDING','RETRY');
+--   전체 1억 행 중 수천 건만 색인 → 인덱스 수 MB, 큐 조회가 즉시 응답
+
+-- ③ 표현식 인덱스
+CREATE INDEX idx_cust_email_ci ON customers (lower(email));
+CREATE INDEX idx_evt_user ON events (((payload-&gt;'user'-&gt;&gt;'id')::int));
+
+-- ④ 정렬 방향과 NULL 위치를 쿼리와 일치시키기
+CREATE INDEX idx_ord_sort ON orders (ordered_at DESC NULLS LAST);
+
+-- ⑤ 중복·부분 문자열 검색
+CREATE EXTENSION pg_trgm;
+CREATE INDEX idx_prod_trgm ON products USING gin (name gin_trgm_ops);
+--   → WHERE name ILIKE '%키보드%' 가 인덱스를 사용합니다
+
+-- ⑥ 확장 통계: 컬럼 간 상관관계로 인한 추정 오차 교정
+CREATE STATISTICS st_city_zip (dependencies, ndistinct)
+  ON city, zipcode FROM addresses;
+ANALYZE addresses;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 운영 중에는 반드시 CONCURRENTLY (쓰기를 막지 않음)
+CREATE INDEX CONCURRENTLY idx_x ON t (col);
+--   · 트랜잭션 블록 안에서 실행할 수 없습니다
+--   · 두 번 스캔하므로 느립니다
+--   · 실패하면 INVALID 인덱스가 남습니다 → 반드시 확인하고 정리
+
+-- INVALID 인덱스 확인 및 정리
+SELECT i.indexrelid::regclass AS idx, i.indrelid::regclass AS tbl
+FROM pg_index i WHERE NOT i.indisvalid;
+DROP INDEX CONCURRENTLY idx_x;          -- 그리고 다시 생성
+
+-- 재생성 (bloat 해소). PG12+ 는 CONCURRENTLY 지원
+REINDEX INDEX CONCURRENTLY idx_x;
+REINDEX TABLE CONCURRENTLY orders;
+REINDEX DATABASE CONCURRENTLY shop;     -- 유지보수 창에서
+
+-- 제약조건과 함께 무중단으로 유니크 만들기
+CREATE UNIQUE INDEX CONCURRENTLY uq_email ON customers (email);
+ALTER TABLE customers ADD CONSTRAINT uq_email UNIQUE USING INDEX uq_email;
+</code></pre>
+<pre data-lang="sql"><code>
+-- ① 한 번도 쓰이지 않은 인덱스 (PK·UNIQUE 제약은 제외해서 판단)
+SELECT s.relname AS tbl, s.indexrelname AS idx, s.idx_scan,
+       pg_size_pretty(pg_relation_size(s.indexrelid)) AS size,
+       i.indisunique, i.indisprimary
+FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid
+WHERE s.idx_scan = 0 AND NOT i.indisprimary AND NOT i.indisunique
+ORDER BY pg_relation_size(s.indexrelid) DESC;
+--   주의: 통계는 pg_stat_reset() 이후 누적입니다. 최소 한 달, 월말 배치까지 관찰 후 판단하세요.
+--   삭제 전 안전장치: 먼저 비활성화해 영향 확인
+--     UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'idx'::regclass; -- 신중히
+
+-- ② 중복 인덱스 (선두 컬럼이 겹치는 경우)
+SELECT indrelid::regclass AS tbl,
+       array_agg(indexrelid::regclass) AS 겹치는_인덱스들,
+       (indkey::int2[])[0:0] AS 선두컬럼
+FROM pg_index GROUP BY indrelid, (indkey::int2[])[0:0]
+HAVING count(*) &gt; 1;
+--   (a) 와 (a,b) 가 함께 있으면 (a)는 대개 불필요합니다.
+
+-- ③ 인덱스가 없어서 순차 스캔이 많은 테이블
+SELECT relname, seq_scan, seq_tup_read, idx_scan,
+       seq_tup_read / NULLIF(seq_scan,0) AS avg_rows_per_seq
+FROM pg_stat_user_tables
+WHERE seq_scan &gt; 1000 AND pg_relation_size(relid) &gt; 100*1024*1024
+ORDER BY seq_tup_read DESC LIMIT 15;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 정확한 bloat 측정 (pgstattuple 확장; 전체 스캔이므로 부하 주의)
+CREATE EXTENSION IF NOT EXISTS pgstattuple;
+
+SELECT * FROM pgstattuple('orders');
+--   tuple_count, dead_tuple_count, dead_tuple_percent, free_percent
+
+SELECT * FROM pgstatindex('idx_orders_customer');
+--   avg_leaf_density (낮으면 bloat), leaf_fragmentation
+
+-- 대용량에서는 샘플링 버전을 사용
+SELECT * FROM pgstattuple_approx('orders');
+
+-- 처방
+--   테이블 bloat 심함 → pg_repack (무중단) 또는 VACUUM FULL (정지 필요)
+--   인덱스 bloat 심함 → REINDEX ... CONCURRENTLY
+--   재발 방지        → autovacuum 강화, 장기 트랜잭션 차단, fillfactor 조정
+</code></pre>
+    <div class="cb__cap">인덱스 추가는 조회를 빠르게 하지만 <b>쓰기·VACUUM·디스크·HOT 비율</b> 모두에 비용을 부과합니다. 새 인덱스를 만들 때는 항상 "어떤 쿼리를 위한 것이고, 기존 인덱스로 대체 불가능한가"를 기록해 두세요.</div>
+  </div>
+</section>
+
+<!-- ============================ 09 ============================ -->
+<section id="a9">
+  <div class="eyebrow">-- <b>09</b> · planner &amp; explain</div>
+  <h2>플래너와 EXPLAIN 읽기</h2>
+  <p class="lead">PostgreSQL은 <strong>비용 기반 옵티마이저</strong>입니다. 통계로 행 수를 추정하고, 가능한 실행 경로들의 비용을 계산해 가장 싼 것을 고릅니다. 따라서 느린 쿼리의 원인은 대개 셋 중 하나입니다: <strong>통계가 틀렸다 / 인덱스가 없다 / 비용 상수가 하드웨어와 맞지 않는다</strong>.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 07</span><h4>EXPLAIN 플랜 리더 — 노드를 클릭하면 해석과 처방이 나옵니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl" id="e-btns"></div>
+      <div class="grid g2" style="gap:16px">
+        <div>
+          <div class="small mono" id="e-q" style="margin-bottom:8px"></div>
+          <div id="e-tree" style="font-family:var(--mono);font-size:12.4px"></div>
+        </div>
+        <div><div class="out" id="e-out" style="min-height:220px"></div></div>
+      </div>
+      <div class="legend"><span><i style="background:#54c98d"></i>정상</span><span><i style="background:#f0b263"></i>주의</span><span><i style="background:#ef6f8b"></i>병목</span><span class="small">막대 길이 = 그 노드가 소비한 시간 비중</span></div>
+    </div>
+  </div>
+
+  <h3>플랜 노드 사전</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>노드</th><th>의미</th><th>좋은 신호 / 나쁜 신호</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Seq Scan</td><td>테이블 전체 순차 읽기</td><td>소형 테이블·대량 반환이면 정상. 대형 테이블에서 소량 반환이면 인덱스 부재</td></tr>
+        <tr><td class="mono">Index Scan</td><td>인덱스로 찾아 힙을 방문</td><td>소량 반환에 최적. 반환 비율이 높으면 랜덤 I/O가 커져 오히려 불리</td></tr>
+        <tr><td class="mono">Index Only Scan</td><td>인덱스만 읽고 힙 방문 없음</td><td>가장 빠른 형태. <code>Heap Fetches</code>가 크면 VM이 낡은 것 → VACUUM</td></tr>
+        <tr><td class="mono">Bitmap Index/Heap Scan</td><td>인덱스로 위치를 모아 정렬 후 일괄 읽기</td><td>중간 규모 반환에 적합. <code>lossy</code>가 뜨면 <code>work_mem</code> 부족</td></tr>
+        <tr><td class="mono">Nested Loop</td><td>외부 행마다 내부를 반복 조회</td><td>외부 행이 적을 때 최적. <code>loops</code>가 수만이면 대표적 병목</td></tr>
+        <tr><td class="mono">Hash Join</td><td>한쪽으로 해시 테이블을 만들어 조인</td><td>대량 조인의 기본. <code>Batches &gt; 1</code>이면 <code>work_mem</code> 부족으로 디스크 사용</td></tr>
+        <tr><td class="mono">Merge Join</td><td>양쪽을 정렬해 병합</td><td>이미 정렬된 인덱스가 있을 때 유리</td></tr>
+        <tr><td class="mono">Sort</td><td>정렬</td><td><code>Sort Method: quicksort Memory</code>는 정상, <code>external merge Disk</code>는 work_mem 부족</td></tr>
+        <tr><td class="mono">Incremental Sort</td><td>부분 정렬된 입력을 이어서 정렬</td><td>PG13+. LIMIT과 조합될 때 큰 이득</td></tr>
+        <tr><td class="mono">HashAggregate / GroupAggregate</td><td>그룹 집계</td><td>Hash가 메모리 초과 시 디스크로 흘러갑니다(PG13+ spill)</td></tr>
+        <tr><td class="mono">Gather / Gather Merge</td><td>병렬 워커 결과 수집</td><td><code>Workers Launched</code>가 계획보다 적으면 워커 슬롯 부족</td></tr>
+        <tr><td class="mono">Memoize</td><td>Nested Loop 내부 결과 캐시</td><td>PG14+. 반복 조회가 많을 때 효과적</td></tr>
+        <tr><td class="mono">Materialize</td><td>중간 결과를 저장해 재사용</td><td>—</td></tr>
+        <tr><td class="mono">Subquery/CTE Scan</td><td>서브쿼리·CTE 결과 스캔</td><td>PG12+ CTE는 기본 인라인. <code>MATERIALIZED</code> 명시 시 분리 실행</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">EXPLAIN 옵션</button><button class="cb__tab">읽는 순서와 체크리스트</button>
+      <button class="cb__tab">통계 점검</button><button class="cb__tab">느린 쿼리 찾기</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 실무에서 쓰는 조합 (실제로 실행됩니다. UPDATE/DELETE는 트랜잭션으로 감싸세요)
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE, SETTINGS, WAL, FORMAT TEXT)
+SELECT ...;
+
+--   ANALYZE  : 실제 실행하고 실측 시간·행 수를 표시 (필수)
+--   BUFFERS  : shared hit/read/dirtied/written — 실제 I/O량 (필수)
+--   SETTINGS : 기본값과 다른 플래너 파라미터 표시 (PG12+)
+--   WAL      : 생성된 WAL 양 (PG13+, 쓰기 쿼리 분석에 유용)
+--   TIMING off: 시간 측정 오버헤드를 줄일 때
+--   FORMAT JSON: 도구 연동용
+
+BEGIN;
+EXPLAIN (ANALYZE, BUFFERS) DELETE FROM orders WHERE ordered_at &lt; '2020-01-01';
+ROLLBACK;
+
+-- 운영 중인 세션의 현재 계획 엿보기 (PG14+)
+CREATE EXTENSION pg_stat_statements;  -- 통계용
+-- pg_show_plans / auto_explain 으로 실계획 로깅
+ALTER SYSTEM SET auto_explain.log_min_duration = '3s';
+ALTER SYSTEM SET auto_explain.log_analyze = on;
+ALTER SYSTEM SET auto_explain.log_buffers = on;
+ALTER SYSTEM SET session_preload_libraries = 'auto_explain';
+</code></pre>
+<pre data-lang="text"><code>
+플랜은 안쪽(가장 깊게 들여쓰인 곳)부터 밖으로 실행됩니다.
+아래 순서로 점검하면 대부분의 원인이 잡힙니다.
+
+1. actual time 이 가장 큰 노드를 찾는다
+   → "(actual time=시작..종료 rows=행 loops=반복)" 에서 (종료 × loops)가 실제 소비 시간
+
+2. rows 추정 vs 실제 차이를 본다
+   rows=100 인데 actual rows=250000  → 통계 문제. ANALYZE 또는 확장 통계 필요
+   차이가 10배 이상이면 조인 순서·방식 선택이 틀어졌을 가능성이 큽니다
+
+3. loops 를 본다
+   Nested Loop 안쪽 노드가 loops=50000 이면 그 노드에 인덱스가 필요합니다
+
+4. Buffers 를 본다
+   shared read 가 크다        → 캐시 미스. 데이터가 메모리에 없음
+   temp read/written 이 있다  → work_mem 부족으로 디스크 사용
+   dirtied 가 크다            → 쓰기 부하 유발
+
+5. Filter 와 Rows Removed by Filter 를 본다
+   Rows Removed 가 매우 크다  → 인덱스로 미리 걸러야 할 조건이 뒤늦게 적용됨
+
+6. Sort Method / Batches 를 본다
+   external merge Disk        → work_mem 상향 후보
+   Hash Batches: 8            → 해시가 메모리에 안 들어감
+
+7. 마지막에 Planning Time 과 Execution Time 을 비교
+   Planning Time 이 지나치게 크다 → 파티션이 너무 많거나 준비된 문장 활용 검토
+</code></pre>
+<pre data-lang="sql"><code>
+-- 통계 신선도 확인
+SELECT relname, last_analyze, last_autoanalyze,
+       n_mod_since_analyze, n_live_tup
+FROM pg_stat_user_tables
+ORDER BY n_mod_since_analyze DESC LIMIT 15;
+
+-- 컬럼 통계 상세 (선택도 추정의 근거)
+SELECT attname, n_distinct, null_frac, avg_width,
+       most_common_vals, most_common_freqs
+FROM pg_stats
+WHERE tablename = 'orders' AND attname IN ('customer_id','status');
+--   n_distinct 가 음수면 '전체 행에 대한 비율'입니다 (-1 = 모두 유일)
+
+-- 히스토그램 정밀도 올리기 (기본 100)
+ALTER TABLE orders ALTER COLUMN customer_id SET STATISTICS 500;
+ANALYZE orders;
+ALTER SYSTEM SET default_statistics_target = 200;   -- 전역, OLAP에서 유용
+
+-- 컬럼 간 상관관계로 인한 과소 추정 교정
+CREATE STATISTICS st_ord (dependencies, ndistinct, mcv)
+  ON status, region FROM orders;
+ANALYZE orders;
+</code></pre>
+<pre data-lang="sql"><code>
+-- pg_stat_statements: 운영 튜닝의 출발점 (shared_preload_libraries 필요)
+SELECT substr(query, 1, 70) AS query,
+       calls,
+       round(total_exec_time::numeric, 0)  AS total_ms,
+       round(mean_exec_time::numeric, 2)   AS mean_ms,
+       rows,
+       shared_blks_hit, shared_blks_read,
+       round(100.0*shared_blks_hit/NULLIF(shared_blks_hit+shared_blks_read,0),1) AS hit_pct
+FROM pg_stat_statements
+ORDER BY total_exec_time DESC LIMIT 20;
+--   개별 mean_ms 가 작아도 calls 가 많아 total 이 큰 쿼리가 진짜 범인인 경우가 많습니다.
+
+-- 임시 파일을 많이 쓰는 쿼리 (work_mem 후보 식별)
+SELECT substr(query,1,60), calls, temp_blks_read, temp_blks_written
+FROM pg_stat_statements WHERE temp_blks_written &gt; 0
+ORDER BY temp_blks_written DESC LIMIT 10;
+
+-- 통계 초기화 (튜닝 전후 비교 시)
+SELECT pg_stat_statements_reset();
+
+-- 느린 쿼리 로그 (pg_stat_statements와 병행 권장)
+ALTER SYSTEM SET log_min_duration_statement = '1s';
+ALTER SYSTEM SET log_temp_files = 0;          -- 모든 임시 파일 기록
+ALTER SYSTEM SET log_lock_waits = on;         -- 잠금 대기 기록
+ALTER SYSTEM SET log_line_prefix = '%m [%p] %q%u@%d %a ';
+SELECT pg_reload_conf();
+</code></pre>
+    <div class="cb__cap">플래너를 힌트로 강제하는 기능은 없습니다(<code>pg_hint_plan</code> 확장 제외). 대신 <b>통계를 정확하게 만들고, 필요한 인덱스를 주고, 비용 상수를 하드웨어에 맞추는</b> 정공법을 씁니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 10 ============================ -->
+<section id="a10">
+  <div class="eyebrow">-- <b>10</b> · configuration</div>
+  <h2>파라미터 튜닝</h2>
+  <p class="lead">기본값은 <strong>어떤 하드웨어에서도 기동은 되게</strong> 맞춰져 있어, 현대 서버에서는 대부분 지나치게 보수적입니다. 아래 계산기는 널리 쓰이는 산정 기준을 정리한 것이며, 출발점으로 삼고 워크로드를 관찰해 조정하는 것이 원칙입니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 08</span><h4>파라미터 계산기 — 서버 사양과 워크로드를 입력하세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>RAM(GB)</label><input type="number" id="c-ram" value="64" min="1" max="2048" style="width:76px">
+        <label>vCPU</label><input type="number" id="c-cpu" value="16" min="1" max="256" style="width:66px">
+        <label>스토리지</label><select id="c-disk"><option value="ssd">NVMe/SSD</option><option value="net">네트워크 스토리지</option><option value="hdd">HDD</option></select>
+        <label>워크로드</label><select id="c-wl">
+          <option value="oltp">OLTP (웹/API)</option><option value="olap">OLAP (분석/배치)</option>
+          <option value="mixed">혼합</option><option value="write">쓰기 집중(로그·IoT)</option></select>
+        <label>최대 동시 접속</label><input type="number" id="c-conn" value="200" min="10" max="5000" style="width:80px">
+        <label>풀러</label><select id="c-pool"><option value="yes">pgbouncer 사용</option><option value="no">직접 접속</option></select>
+      </div>
+      <div class="grid g2" style="gap:16px">
+        <div class="cb" style="margin:0"><div class="cb__hd"><span class="cb__tab is-on">postgresql.conf</span></div>
+          <pre class="is-on" style="display:block"><code id="c-conf"></code></pre></div>
+        <div class="out" id="c-note"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">메모리 파라미터의 의미</button><button class="cb__tab">적용 방법</button>
+      <button class="cb__tab">OS·커널</button><button class="cb__tab">연결 관리</button><button class="cb__copy">복사</button></div>
+<pre data-lang="text"><code>
+shared_buffers          PostgreSQL 자체 페이지 캐시. RAM의 25%가 통상 출발점.
+                        너무 크게 잡으면 OS 캐시와 이중 캐싱이 되고 체크포인트 시
+                        flush할 더티 페이지가 늘어 지연이 튑니다. 40%를 넘기는 경우는
+                        충분한 벤치마크 근거가 있을 때만.
+
+effective_cache_size    실제 메모리를 할당하지 않습니다. "OS 캐시까지 포함해 이만큼은
+                        캐시되어 있을 것"이라는 플래너 힌트입니다. RAM의 70% 전후.
+                        낮게 두면 플래너가 인덱스 스캔을 과소평가합니다.
+
+work_mem                정렬·해시 노드 하나당 상한. 쿼리 하나가 여러 노드를 가질 수
+                        있고, 접속마다 별개이므로 최악의 경우
+                        max_connections × 노드수 × work_mem 이 필요합니다.
+                        전역은 보수적으로, 무거운 배치는 세션에서 올리는 것이 안전합니다:
+                          SET work_mem = '512MB';   -- 이 세션만
+
+maintenance_work_mem    VACUUM, CREATE INDEX, ALTER TABLE 용. 크게 줘도 동시 실행 수가
+                        제한적이라 안전합니다. 1~2GB 권장.
+                        autovacuum_work_mem 을 따로 지정하면 워커별로 분리됩니다.
+
+temp_buffers            임시 테이블용 세션별 버퍼. 임시 테이블을 많이 쓰면 상향.
+
+wal_buffers             커밋 전 WAL을 담는 공유 버퍼. -1(자동, shared_buffers/32)이면
+                        대개 충분하며 16~64MB로 고정해도 무해합니다.
+</code></pre>
+<pre data-lang="sql"><code>
+-- 적용 범위와 재시작 필요 여부 확인이 먼저입니다
+SELECT name, setting, unit, context, pending_restart, source, sourcefile
+FROM pg_settings WHERE name = 'shared_buffers';
+--   context: internal | postmaster(재시작 필요) | sighup(reload) | superuser | user
+
+-- ① ALTER SYSTEM: postgresql.auto.conf 에 기록 (권장)
+ALTER SYSTEM SET work_mem = '32MB';
+SELECT pg_reload_conf();                   -- sighup 계열은 즉시 반영
+--   postmaster 계열(shared_buffers, max_connections 등)은 재시작 필요
+
+-- ② 되돌리기
+ALTER SYSTEM RESET work_mem;
+ALTER SYSTEM RESET ALL;
+
+-- ③ 범위를 좁혀 적용
+ALTER DATABASE analytics SET work_mem = '256MB';
+ALTER ROLE batch_user SET work_mem = '512MB';
+ALTER ROLE batch_user SET statement_timeout = '30min';
+
+-- ④ 세션/트랜잭션
+SET work_mem = '128MB';
+SET LOCAL statement_timeout = '5s';        -- 현재 트랜잭션만
+
+-- ⑤ 재시작 대기 중인 변경 확인
+SELECT name, setting, pending_restart FROM pg_settings WHERE pending_restart;
+</code></pre>
+<pre data-lang="bash"><code>
+# ── Huge Pages: TLB 미스를 줄여 대용량 shared_buffers에서 효과적 ──
+# 필요한 페이지 수 계산
+head -1 $PGDATA/postmaster.pid    # PID 확인
+grep ^VmPeak /proc/$(head -1 $PGDATA/postmaster.pid)/status
+# VmPeak / 2048(kB) = 필요한 2MB 페이지 수 (여유 10% 추가)
+sudo sysctl -w vm.nr_hugepages=9000
+# postgresql.conf
+#   huge_pages = try        # on 으로 하면 확보 실패 시 기동 실패
+
+# ── Transparent Huge Pages(THP)는 비활성화 권장 ──
+echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+
+# ── 더티 페이지 flush 정책: 한 번에 몰리지 않게 ──
+sudo sysctl -w vm.dirty_background_ratio=5
+sudo sysctl -w vm.dirty_ratio=10
+
+# ── OOM Killer로부터 postmaster 보호 ──
+sudo sysctl -w vm.overcommit_memory=2
+sudo sysctl -w vm.overcommit_ratio=90
+echo -900 | sudo tee /proc/$(head -1 $PGDATA/postmaster.pid)/oom_score_adj
+
+# ── 파일시스템·스케줄러 ──
+#   ext4/xfs 모두 무난. barrier/journal 옵션을 임의로 끄지 마십시오.
+#   NVMe: echo none &gt; /sys/block/nvme0n1/queue/scheduler
+#   readahead: blockdev --setra 256 /dev/nvme0n1
+</code></pre>
+<pre data-lang="text"><code>
+왜 연결 풀러가 필요한가
+  · 접속 하나 = 프로세스 하나. fork 비용 + 수 MB 메모리 + 컨텍스트 스위치
+  · 활성 쿼리 수가 CPU 코어 수를 크게 넘으면 처리량이 오히려 떨어집니다
+  · 경험 기준: 동시 활성 쿼리 = vCPU × 2 ~ 4 근처가 상한
+
+pgbouncer 권장 설정 (transaction 모드)
+  pool_mode = transaction        # 트랜잭션 단위 재사용. 가장 효율적
+  default_pool_size = 25         # DB·유저 쌍당 실제 백엔드 수
+  max_client_conn = 5000         # 앱이 붙는 쪽 상한
+  server_idle_timeout = 600
+  query_wait_timeout = 120
+
+  transaction 모드에서 쓸 수 없는 것들:
+    · 세션 단위 기능 (advisory lock, LISTEN/NOTIFY, WITH HOLD 커서,
+      준비된 문장 — PG14+ 와 pgbouncer 1.21+ 에서는 일부 지원)
+    · SET 으로 세션 상태를 유지하는 패턴 → SET LOCAL 로 대체
+
+애플리케이션 풀 크기 계산
+  전체 앱 인스턴스 풀 합계 &lt; pgbouncer max_client_conn
+  pgbouncer default_pool_size 합계 &lt; PostgreSQL max_connections - 예약분(10)
+
+반드시 함께 설정할 타임아웃
+  statement_timeout                   = '30s'    (앱 롤별로 조정)
+  idle_in_transaction_session_timeout = '60s'    ← VACUUM 방해 세션 자동 종료
+  lock_timeout                        = '3s'     (DDL 실행 롤에 필수)
+  tcp_keepalives_idle / _interval / _count       (좀비 접속 정리)
+</code></pre>
+    <div class="cb__cap">파라미터 변경은 한 번에 하나씩, 근거와 함께 기록하고, 변경 전후 지표(TPS·p99 지연·캐시 적중률·체크포인트 빈도)를 비교하세요. 여러 개를 동시에 바꾸면 무엇이 효과였는지 알 수 없습니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 11 ============================ -->
+<section id="a11">
+  <div class="eyebrow">-- <b>11</b> · locks &amp; safe ddl</div>
+  <h2>락 · 안전한 DDL</h2>
+  <p class="lead">운영 중 장애의 상당수는 "잘못된 쿼리"가 아니라 <strong>잘못된 시점의 DDL</strong>에서 발생합니다. <code>ALTER TABLE</code> 한 줄이 ACCESS EXCLUSIVE 락을 얻지 못해 대기하면, 그 뒤에 줄을 서는 모든 SELECT까지 멈춥니다. 락 종류와 호환성을 아는 것은 선택이 아니라 필수입니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 09</span><h4>락 호환성 매트릭스 — 락 이름을 클릭하면 충돌 관계와 관련 명령이 나옵니다</h4></div>
+    <div class="demo__bd">
+      <div id="l-grid" style="overflow-x:auto"></div>
+      <div class="out" id="l-out" style="margin-top:14px">행 머리글을 클릭해 보세요. 붉은 칸이 서로 대기하는 조합입니다.</div>
+    </div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">막힌 세션 진단</button><button class="cb__tab">안전한 DDL 패턴</button>
+      <button class="cb__tab">위험한 DDL 목록</button><button class="cb__tab">교착상태</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- ① 누가 누구를 막고 있는가 (가장 먼저 실행할 쿼리)
+SELECT a.pid, a.usename, a.state, a.wait_event_type, a.wait_event,
+       now()-a.xact_start AS xact_age,
+       pg_blocking_pids(a.pid) AS blocked_by,
+       left(a.query, 80) AS query
+FROM pg_stat_activity a
+WHERE cardinality(pg_blocking_pids(a.pid)) &gt; 0
+ORDER BY xact_age DESC;
+
+-- ② 락 대기 사슬 전체 보기
+SELECT w.pid AS waiter, w.mode AS want_mode, w.relation::regclass AS tbl,
+       b.pid AS blocker, b.mode AS held_mode,
+       left(bq.query, 60) AS blocker_query, now()-bq.xact_start AS blocker_age
+FROM pg_locks w
+JOIN pg_locks b ON w.relation = b.relation AND b.granted AND NOT w.granted
+JOIN pg_stat_activity bq ON bq.pid = b.pid
+WHERE w.relation IS NOT NULL;
+
+-- ③ 조치 — 취소 먼저, 종료는 그다음
+SELECT pg_cancel_backend(12345);      -- 실행 중 쿼리만 취소 (안전)
+SELECT pg_terminate_backend(12345);   -- 세션 강제 종료 (트랜잭션 롤백됨)
+
+-- ④ 대기 이벤트 분포 — 병목 유형 파악
+SELECT wait_event_type, wait_event, count(*)
+FROM pg_stat_activity WHERE state = 'active'
+GROUP BY 1,2 ORDER BY 3 DESC;
+--   Lock: 잠금 경합 / LWLock: 내부 경합 / IO: 디스크 / Client: 앱 대기(정상)
+</code></pre>
+<pre data-lang="sql"><code>
+-- 원칙 1: DDL 세션에는 반드시 lock_timeout을 걸고 재시도한다
+--          (무한 대기하며 뒤에 줄을 세우는 것을 방지)
+SET lock_timeout = '3s';
+SET statement_timeout = '30s';
+ALTER TABLE orders ADD COLUMN memo text;   -- 실패하면 잠시 후 재시도
+
+-- 원칙 2: 컬럼 추가는 기본값이 있어도 즉시 완료된다 (PG11+)
+ALTER TABLE orders ADD COLUMN status text NOT NULL DEFAULT 'NEW';  -- 테이블 재작성 없음
+--   단, volatile 기본값(예: random())이나 타입 변경은 재작성이 발생합니다
+
+-- 원칙 3: NOT NULL 추가는 두 단계로 (전체 스캔 잠금 회피)
+ALTER TABLE orders ADD CONSTRAINT ck_memo_nn CHECK (memo IS NOT NULL) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT ck_memo_nn;   -- 약한 잠금으로 검증
+ALTER TABLE orders ALTER COLUMN memo SET NOT NULL;   -- PG12+ 는 위 CHECK를 근거로 스캔 생략
+
+-- 원칙 4: FK 추가도 두 단계로
+ALTER TABLE orders ADD CONSTRAINT fk_cust
+  FOREIGN KEY (customer_id) REFERENCES customers(id) NOT VALID;
+ALTER TABLE orders VALIDATE CONSTRAINT fk_cust;
+
+-- 원칙 5: 타입 변경은 새 컬럼 + 백필 + 교체로 우회
+ALTER TABLE orders ADD COLUMN amount_new numeric(18,2);
+-- 배치로 나눠 백필 (한 번에 UPDATE 하면 거대한 트랜잭션 + bloat)
+UPDATE orders SET amount_new = amount WHERE id BETWEEN 1 AND 100000;
+-- 트리거로 신규 쓰기 동기화 → 짧은 잠금 창에서 컬럼 교체
+
+-- 원칙 6: 인덱스는 CONCURRENTLY, 대량 삭제는 배치로
+DELETE FROM logs WHERE created_at &lt; now()-interval '1 year'
+  AND id IN (SELECT id FROM logs WHERE created_at &lt; now()-interval '1 year' LIMIT 10000);
+--   또는 파티셔닝으로 DETACH (7장)
+</code></pre>
+<pre data-lang="text"><code>
+ACCESS EXCLUSIVE (읽기조차 막음) — 운영 시간에 절대 피할 것
+  DROP TABLE, TRUNCATE, VACUUM FULL, CLUSTER
+  REINDEX (CONCURRENTLY 아닌 것), REFRESH MATERIALIZED VIEW (CONCURRENTLY 아닌 것)
+  ALTER TABLE 대부분: 컬럼 타입 변경, 컬럼 삭제, SET NOT NULL(구버전),
+                      RENAME, SET TABLESPACE, 제약 추가(NOT VALID 아닌 경우)
+  → 짧게 끝나는 작업이라도 "락을 얻기까지의 대기"가 위험합니다.
+     선행 트랜잭션이 5분간 열려 있으면 그 5분간 서비스가 멈춥니다.
+
+SHARE (쓰기 차단, 읽기 허용)
+  CREATE INDEX (CONCURRENTLY 아닌 것)
+
+SHARE UPDATE EXCLUSIVE (동시 DML 허용 — 상대적으로 안전)
+  VACUUM(FULL 아닌 것), ANALYZE
+  CREATE INDEX CONCURRENTLY, REINDEX CONCURRENTLY
+  ALTER TABLE VALIDATE CONSTRAINT, ALTER TABLE SET (파라미터)
+  DETACH PARTITION CONCURRENTLY
+
+ROW EXCLUSIVE (일반 DML)
+  INSERT, UPDATE, DELETE, MERGE, COPY FROM
+
+체크리스트 — 마이그레이션 전에 확인
+  □ lock_timeout 설정했는가
+  □ 실패 시 재시도 로직이 있는가
+  □ 장시간 트랜잭션이 열려 있지 않은가 (pg_stat_activity 확인)
+  □ 되돌리는 절차(down migration)가 준비되어 있는가
+  □ 대상 테이블 크기와 예상 소요 시간을 스테이징에서 측정했는가
+</code></pre>
+<pre data-lang="sql"><code>
+-- 교착상태는 PostgreSQL이 자동 감지해 한쪽을 취소합니다 (deadlock_timeout, 기본 1s)
+-- 로그에서 확인
+--   ERROR: deadlock detected
+--   DETAIL: Process 123 waits for ShareLock on transaction 456; blocked by process 789.
+
+ALTER SYSTEM SET log_lock_waits = on;
+ALTER SYSTEM SET deadlock_timeout = '1s';
+
+-- 발생 추이
+SELECT datname, deadlocks, conflicts, temp_files,
+       pg_size_pretty(temp_bytes) AS temp_bytes
+FROM pg_stat_database WHERE datname = current_database();
+
+-- 예방 원칙
+--   1) 여러 행을 갱신할 때 항상 같은 순서로 접근 (예: ORDER BY id 후 처리)
+--   2) 트랜잭션을 짧게 유지하고, 사용자 입력 대기를 트랜잭션 안에 두지 않기
+--   3) 필요한 잠금은 처음에 한 번에 획득 (잠금 승격 회피)
+--   4) 재시도 로직을 애플리케이션에 구현 (deadlock은 정상적인 발생 가능 상황)
+--      SQLSTATE 40P01 = deadlock_detected, 40001 = serialization_failure
+
+-- 작업 큐 패턴: 경합 없이 나눠 처리
+SELECT id FROM jobs WHERE state = 'ready'
+ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 20;
+</code></pre>
+  </div>
+</section>
+
+<!-- ============================ 12 ============================ -->
+<section id="a12">
+  <div class="eyebrow">-- <b>12</b> · observability</div>
+  <h2>모니터링 지표 체계</h2>
+  <p class="lead">"CPU가 높다"는 정보로는 아무것도 판단할 수 없습니다. PostgreSQL 운영에는 <strong>고유한 지표 체계</strong>가 있고, 각 지표에는 <strong>왜 위험한지</strong>와 <strong>임계값에서 무엇을 하는지</strong>가 짝지어져 있어야 합니다.</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>지표</th><th>출처</th><th>경보 기준(예시)</th><th>넘으면 무슨 일이 생기는가</th></tr></thead>
+      <tbody>
+        <tr><td><strong>연결 사용률</strong></td><td class="mono">pg_stat_activity / max_connections</td><td>&gt; 80%</td><td>신규 접속 실패(<code>too many clients</code>). 앱 전체 장애로 번짐</td></tr>
+        <tr><td><strong>XID 나이</strong></td><td class="mono">age(datfrozenxid)</td><td>&gt; 10억</td><td>방치하면 DB 강제 정지. 가장 치명적</td></tr>
+        <tr><td><strong>복제 지연</strong></td><td class="mono">pg_stat_replication.replay_lag</td><td>&gt; 30초 또는 &gt; 1GB</td><td>페일오버 시 데이터 손실, 읽기 전용 조회 결과 불일치</td></tr>
+        <tr><td><strong>비활성 복제 슬롯</strong></td><td class="mono">pg_replication_slots</td><td>존재 자체</td><td>WAL 무한 보관 → pg_wal 포화 → DB 정지</td></tr>
+        <tr><td><strong>아카이브 실패</strong></td><td class="mono">pg_stat_archiver.failed_count</td><td>증가 추세</td><td>PITR 불가 + pg_wal 포화</td></tr>
+        <tr><td><strong>dead 튜플 비율</strong></td><td class="mono">pg_stat_user_tables</td><td>&gt; 20% 지속</td><td>테이블 팽창, 조회 성능 저하, 디스크 낭비</td></tr>
+        <tr><td><strong>장기 트랜잭션</strong></td><td class="mono">now()-xact_start</td><td>&gt; 5분</td><td>VACUUM 차단 → bloat + XID 누적</td></tr>
+        <tr><td><strong>캐시 적중률</strong></td><td class="mono">pg_stat_database</td><td>&lt; 95% (OLTP)</td><td>디스크 I/O 증가로 지연 상승. 메모리·인덱스 검토 신호</td></tr>
+        <tr><td><strong>체크포인트 요청 비율</strong></td><td class="mono">pg_stat_checkpointer</td><td>requested &gt; timed</td><td>max_wal_size 부족. 쓰기 지연 스파이크</td></tr>
+        <tr><td><strong>임시 파일</strong></td><td class="mono">pg_stat_database.temp_bytes</td><td>급증</td><td>work_mem 부족. 정렬·해시가 디스크 사용</td></tr>
+        <tr><td><strong>교착상태</strong></td><td class="mono">pg_stat_database.deadlocks</td><td>증가 추세</td><td>애플리케이션 잠금 순서 문제</td></tr>
+        <tr><td><strong>pg_wal 사용량</strong></td><td class="mono">pg_ls_waldir() / df</td><td>&gt; 70%</td><td>가득 차면 즉시 정지. 최우선 경보</td></tr>
+        <tr><td><strong>디스크 여유</strong></td><td class="mono">OS</td><td>&lt; 20%</td><td>VACUUM FULL·인덱스 재생성 여지 상실</td></tr>
+        <tr><td><strong>대기 이벤트 분포</strong></td><td class="mono">pg_stat_activity.wait_event</td><td>Lock/IO 편중</td><td>병목 유형 판별의 근거</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">아침 점검 스크립트</button><button class="cb__tab">Prometheus 구성</button>
+      <button class="cb__tab">로그 설정</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+\pset title '── 1. 클러스터 상태 ──'
+SELECT version() AS ver, pg_is_in_recovery() AS is_standby,
+       now()-pg_postmaster_start_time() AS uptime,
+       pg_size_pretty(pg_database_size(current_database())) AS db_size;
+
+\pset title '── 2. 연결 현황 ──'
+SELECT state, count(*), max(now()-state_change) AS longest
+FROM pg_stat_activity GROUP BY 1 ORDER BY 2 DESC;
+SELECT setting::int AS max_conn,
+       (SELECT count(*) FROM pg_stat_activity) AS used,
+       round(100.0*(SELECT count(*) FROM pg_stat_activity)/setting::int,1) AS pct
+FROM pg_settings WHERE name='max_connections';
+
+\pset title '── 3. 위험 신호 ──'
+SELECT 'xid_age' AS metric, max(age(datfrozenxid))::text AS val FROM pg_database
+UNION ALL SELECT 'inactive_slots', count(*)::text FROM pg_replication_slots WHERE NOT active
+UNION ALL SELECT 'archive_failed', failed_count::text FROM pg_stat_archiver
+UNION ALL SELECT 'pg_wal_size', pg_size_pretty(sum(size)) FROM pg_ls_waldir()
+UNION ALL SELECT 'long_xacts', count(*)::text FROM pg_stat_activity
+          WHERE xact_start &lt; now()-interval '5 min'
+UNION ALL SELECT 'blocked_sessions', count(*)::text FROM pg_stat_activity
+          WHERE cardinality(pg_blocking_pids(pid)) &gt; 0;
+
+\pset title '── 4. 복제 ──'
+SELECT application_name, state, sync_state,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)) AS lag,
+       replay_lag FROM pg_stat_replication;
+
+\pset title '── 5. bloat 상위 ──'
+SELECT relname, n_dead_tup,
+       round(100.0*n_dead_tup/NULLIF(n_live_tup+n_dead_tup,0),1) AS dead_pct,
+       last_autovacuum
+FROM pg_stat_user_tables WHERE n_dead_tup &gt; 50000
+ORDER BY n_dead_tup DESC LIMIT 10;
+
+\pset title '── 6. 느린 쿼리 상위 ──'
+SELECT substr(query,1,60) AS q, calls, round(mean_exec_time::numeric,1) AS mean_ms,
+       round(total_exec_time::numeric/1000,1) AS total_s
+FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10;
+</code></pre>
+<pre data-lang="bash"><code>
+# postgres_exporter + Prometheus + Grafana 가 표준 조합입니다
+docker run -d --name pgexporter -p 9187:9187 \
+  -e DATA_SOURCE_NAME="postgresql://monitor:pw@pg:5432/postgres?sslmode=disable" \
+  quay.io/prometheuscommunity/postgres-exporter
+
+# 모니터링 전용 롤 (최소 권한)
+# CREATE ROLE monitor WITH LOGIN PASSWORD 'pw';
+# GRANT pg_monitor TO monitor;      -- 통계 뷰 조회용 내장 롤 (PG10+)
+
+# 핵심 경보 규칙 예시 (Prometheus)
+# - alert: PGXidWraparoundRisk
+#   expr: pg_database_xid_age &gt; 1000000000
+#   for: 10m
+#   labels: {severity: critical}
+#
+# - alert: PGReplicationLagHigh
+#   expr: pg_replication_lag_seconds &gt; 30
+#   for: 5m
+#
+# - alert: PGConnectionsSaturated
+#   expr: sum(pg_stat_activity_count) / pg_settings_max_connections &gt; 0.8
+#
+# - alert: PGInactiveReplicationSlot
+#   expr: pg_replication_slots_active == 0
+#   for: 15m
+#
+# - alert: PGWalDirectoryGrowing
+#   expr: pg_wal_size_bytes &gt; 50e9
+
+# 대안: pgwatch2, Datadog DBM(쿼리 샘플·플랜 수집), Percona PMM
+# LLMOps/AI 워크로드라면 pgvector 인덱스 빌드 시간과 HNSW 메모리도 함께 보세요.
+</code></pre>
+<pre data-lang="conf" class="is-on"><code>
+# 최소한 이 정도는 켜 두어야 사후 분석이 가능합니다
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+log_rotation_age = 1d
+log_rotation_size = 500MB
+
+log_line_prefix = '%m [%p] %q%u@%d/%a %h '   # 시각, PID, 유저/DB/앱, 클라이언트IP
+log_min_duration_statement = 1000            # 1초 이상 쿼리 기록
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_lock_waits = on                          # deadlock_timeout 초과 대기 기록
+log_temp_files = 0                           # 모든 임시 파일 기록
+log_autovacuum_min_duration = 1s
+log_statement = 'ddl'                        # DDL은 전부 기록 (감사 추적)
+log_error_verbosity = default
+log_timezone = 'Asia/Seoul'
+
+# 분석 도구: pgBadger (로그 → HTML 리포트)
+#   pgbadger -j 8 /var/log/postgresql/*.log -o report.html
+</code></pre>
+    <div class="cb__cap">경보는 <b>행동 가능한 것만</b> 만드세요. 대응 절차가 없는 경보는 무시되기 시작하고, 그러면 진짜 경보도 함께 묻힙니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 13 ============================ -->
+<section id="a13">
+  <div class="eyebrow">-- <b>13</b> · security</div>
+  <h2>보안 · 권한 · 감사</h2>
+  <p class="lead">PostgreSQL 보안은 <strong>세 겹</strong>으로 구성됩니다. ① 누가 접속할 수 있는가(<code>pg_hba.conf</code>) ② 접속한 뒤 무엇을 할 수 있는가(롤과 권한) ③ 무엇을 했는지 남는가(감사). 세 겹 중 하나만 비어도 나머지가 무력화됩니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">pg_hba.conf</button><button class="cb__tab">롤과 권한 설계</button>
+      <button class="cb__tab">RLS</button><button class="cb__tab">암호화</button><button class="cb__tab">감사</button><button class="cb__copy">복사</button></div>
+<pre data-lang="conf" class="is-on"><code>
+# TYPE   DATABASE      USER         ADDRESS          METHOD
+# ── 위에서 아래로 읽고, 처음 일치한 줄에서 멈춥니다. 순서가 핵심입니다. ──
+local    all           postgres                      peer
+hostssl  all           +dba         10.0.10.0/24     scram-sha-256   clientcert=verify-full
+hostssl  shop          app          10.0.20.0/24     scram-sha-256
+host     replication   replicator   10.0.30.0/24     scram-sha-256
+hostssl  all           +readonly    10.0.0.0/8       scram-sha-256
+host     all           all          0.0.0.0/0        reject          # 명시적 거부로 마감
+
+# METHOD
+#   scram-sha-256 : 표준 권장. md5는 취약하므로 전환하세요
+#   peer / ident  : OS 사용자 기반 (로컬 전용)
+#   cert          : 클라이언트 인증서만으로 인증
+#   ldap / gss    : 조직 디렉터리 연동
+#   trust         : 무인증 — 운영에서 절대 사용 금지
+#
+# hostssl 을 쓰면 TLS 없는 접속은 거부됩니다. host는 평문도 허용합니다.
+# +롤이름 은 그 롤을 상속받은 모든 멤버를 의미합니다.
+
+# 적용
+#   pg_ctl reload  또는  SELECT pg_reload_conf();
+# 확인 (PG10+)
+#   SELECT * FROM pg_hba_file_rules;   -- 문법 오류와 실제 적용 순서 확인
+</code></pre>
+<pre data-lang="sql"><code>
+-- PostgreSQL에서 사용자와 그룹은 모두 '롤'입니다 (LOGIN 속성 유무로 구분).
+-- 권장 3계층: 소유자 / 애플리케이션 / 읽기전용
+
+-- ① 객체 소유 전용 롤 (로그인 불가) — 스키마 소유자
+CREATE ROLE shop_owner NOLOGIN;
+-- ② 권한 묶음(그룹) 롤
+CREATE ROLE app_rw NOLOGIN;
+CREATE ROLE app_ro NOLOGIN;
+-- ③ 실제 접속 계정
+CREATE ROLE app_user LOGIN PASSWORD 'xxx' IN ROLE app_rw CONNECTION LIMIT 100;
+CREATE ROLE bi_user  LOGIN PASSWORD 'yyy' IN ROLE app_ro;
+
+-- 스키마 설계 (PG15부터 public 스키마의 CREATE 권한이 기본 회수되었습니다)
+CREATE SCHEMA shop AUTHORIZATION shop_owner;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON DATABASE shop FROM PUBLIC;
+GRANT CONNECT ON DATABASE shop TO app_rw, app_ro;
+GRANT USAGE ON SCHEMA shop TO app_rw, app_ro;
+
+-- 기존 객체 권한
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shop TO app_rw;
+GRANT SELECT ON ALL TABLES IN SCHEMA shop TO app_ro;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA shop TO app_rw;
+
+-- 앞으로 만들어질 객체까지 자동 적용 (이걸 빠뜨리면 배포마다 권한 사고가 납니다)
+ALTER DEFAULT PRIVILEGES FOR ROLE shop_owner IN SCHEMA shop
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_rw;
+ALTER DEFAULT PRIVILEGES FOR ROLE shop_owner IN SCHEMA shop
+  GRANT SELECT ON TABLES TO app_ro;
+ALTER DEFAULT PRIVILEGES FOR ROLE shop_owner IN SCHEMA shop
+  GRANT USAGE, SELECT ON SEQUENCES TO app_rw;
+
+-- 내장 롤 활용 (슈퍼유저를 나눠주지 않기 위한 도구)
+GRANT pg_monitor        TO monitoring;   -- 통계 뷰 전체 조회
+GRANT pg_read_all_data  TO auditor;      -- 모든 데이터 읽기 (PG14+)
+GRANT pg_signal_backend TO oncall;       -- 세션 취소·종료 권한
+
+-- 점검
+\du
+SELECT grantee, table_schema, table_name, privilege_type
+FROM information_schema.role_table_grants WHERE grantee = 'app_ro' LIMIT 20;
+SELECT has_table_privilege('app_ro','shop.orders','UPDATE');   -- false 여야 정상
+</code></pre>
+<pre data-lang="sql"><code>
+-- Row Level Security: 같은 테이블에서 롤·조건별로 보이는 행을 제한합니다.
+-- 멀티테넌시에서 애플리케이션 버그로 인한 테넌트 간 데이터 유출을 DB가 차단합니다.
+
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders FORCE ROW LEVEL SECURITY;   -- 소유자에게도 적용
+
+-- 테넌트 격리 정책
+CREATE POLICY tenant_isolation ON orders
+  USING (tenant_id = current_setting('app.tenant_id')::int)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id')::int);
+--   USING      : 조회·갱신 대상 행 제한
+--   WITH CHECK : 삽입·갱신 결과 행 제한 (남의 테넌트로 옮기는 것 방지)
+
+-- 애플리케이션은 트랜잭션 시작 시 컨텍스트를 설정합니다
+BEGIN;
+  SET LOCAL app.tenant_id = '42';
+  SELECT count(*) FROM orders;     -- 42번 테넌트 행만 보입니다
+COMMIT;
+
+-- 읽기 전용 감사 롤에는 전체 허용
+CREATE POLICY auditor_all ON orders FOR SELECT TO auditor USING (true);
+
+-- 주의: RLS는 성능에 영향을 줍니다. 정책 조건이 인덱스를 쓸 수 있는지 반드시 EXPLAIN으로 확인하세요.
+--       BYPASSRLS 속성을 가진 롤과 슈퍼유저는 정책을 우회합니다.
+SELECT * FROM pg_policies WHERE tablename = 'orders';
+</code></pre>
+<pre data-lang="conf" class="is-on"><code>
+# ── 전송 구간 암호화 ──
+ssl = on
+ssl_cert_file = '/etc/ssl/pg/server.crt'
+ssl_key_file  = '/etc/ssl/pg/server.key'
+ssl_ca_file   = '/etc/ssl/pg/ca.crt'
+ssl_min_protocol_version = 'TLSv1.3'
+ssl_ciphers = 'HIGH:!aNULL'
+
+# 클라이언트는 반드시 서버를 검증해야 합니다 (중간자 공격 방어)
+#   psql "host=pg dbname=shop sslmode=verify-full sslrootcert=ca.crt"
+#   sslmode: disable &lt; allow &lt; prefer &lt; require &lt; verify-ca &lt; verify-full
+#   require 는 암호화만 하고 서버 신원을 확인하지 않습니다. verify-full 을 쓰세요.
+
+# 접속 상태 확인
+#   SELECT pid, ssl, version, cipher, client_dn
+#   FROM pg_stat_ssl JOIN pg_stat_activity USING (pid);
+
+# ── 저장 구간 암호화 ──
+# PostgreSQL에는 상용 DB의 TDE(투명 데이터 암호화)가 내장되어 있지 않습니다.
+#   방법 1: 파일시스템/블록 암호화 (LUKS, dm-crypt, 클라우드 디스크 암호화) ← 표준 접근
+#   방법 2: 컬럼 단위 암호화 (pgcrypto) — 키 관리 부담을 애플리케이션이 짐
+#   방법 3: 상용 배포판(EDB 등)의 TDE 기능
+#   백업도 함께 암호화해야 합니다 (pgbackrest repo1-cipher-type)
+
+# ── 컬럼 암호화 예 ──
+#   CREATE EXTENSION pgcrypto;
+#   INSERT INTO t(secret) VALUES (pgp_sym_encrypt('내용', :key));
+#   SELECT pgp_sym_decrypt(secret, :key) FROM t;
+#   주의: 암호화된 컬럼은 인덱스 검색·범위 조회가 불가능합니다.
+</code></pre>
+<pre data-lang="sql"><code>
+-- ① 최소한의 감사: DDL과 접속 기록
+ALTER SYSTEM SET log_statement = 'ddl';
+ALTER SYSTEM SET log_connections = on;
+ALTER SYSTEM SET log_disconnections = on;
+
+-- ② 본격적 감사: pgaudit 확장
+-- shared_preload_libraries = 'pgaudit'
+CREATE EXTENSION pgaudit;
+ALTER SYSTEM SET pgaudit.log = 'ddl, role, write';   -- read를 넣으면 로그량이 급증
+ALTER SYSTEM SET pgaudit.log_parameter = on;
+ALTER SYSTEM SET pgaudit.log_relation = on;
+-- 특정 테이블만 세밀하게
+ALTER TABLE payments SET (pgaudit.log = 'read, write');
+
+-- ③ 변경 이력을 데이터로 남기기 (감사 테이블 + 트리거)
+CREATE TABLE audit_log (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  at timestamptz NOT NULL DEFAULT now(),
+  usr text NOT NULL DEFAULT current_user,
+  addr inet DEFAULT inet_client_addr(),
+  tbl text NOT NULL, op char(1) NOT NULL,
+  old_row jsonb, new_row jsonb
+);
+
+CREATE OR REPLACE FUNCTION f_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO audit_log (tbl, op, old_row, new_row)
+  VALUES (TG_TABLE_NAME, left(TG_OP,1),
+          CASE WHEN TG_OP &lt;&gt; 'INSERT' THEN to_jsonb(OLD) END,
+          CASE WHEN TG_OP &lt;&gt; 'DELETE' THEN to_jsonb(NEW) END);
+  RETURN NULL;
+END $$;
+
+CREATE TRIGGER trg_audit_payments AFTER INSERT OR UPDATE OR DELETE ON payments
+  FOR EACH ROW EXECUTE FUNCTION f_audit();
+
+-- ④ 정기 점검 항목
+--   · 슈퍼유저 롤 목록과 사용 이력
+--   · 비밀번호 없는 롤, 만료 없는 롤 (VALID UNTIL)
+--   · pg_hba.conf 의 trust/md5 잔존 여부
+--   · 미사용 계정 회수, 권한 상승 이력
+SELECT rolname, rolsuper, rolbypassrls, rolvaliduntil FROM pg_roles WHERE rolcanlogin;
+</code></pre>
+    <div class="cb__cap">감사 로그는 <b>DB 외부의 append-only 저장소</b>로 즉시 전송해야 의미가 있습니다. DB 안에만 있으면 DB 권한을 가진 사람이 지울 수 있습니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 14 ============================ -->
+<section id="a14">
+  <div class="eyebrow">-- <b>14</b> · upgrade</div>
+  <h2>업그레이드 · 확장 관리</h2>
+  <p class="lead">PostgreSQL은 매년 한 번 메이저 버전을 내고, 각 버전을 <strong>5년간</strong> 지원합니다. 마이너 업그레이드는 쉽고 반드시 해야 하는 일이며, 메이저 업그레이드는 계획이 필요한 프로젝트입니다.</p>
+
+  <div class="grid g2">
+    <div class="card"><h4>마이너 (17.2 → 17.4)</h4>
+      <p class="small">디스크 포맷이 동일합니다. <strong>바이너리 교체 후 재시작</strong>이면 끝이고, 보안 패치와 데이터 손상 버그 수정이 담기므로 미루면 안 됩니다. 다운타임은 재시작 시간(수 초~수십 초)입니다. 릴리스 노트에서 "이 릴리스 후 REINDEX 필요" 같은 예외 안내만 확인하세요.</p></div>
+    <div class="card"><h4>메이저 (16 → 17)</h4>
+      <p class="small">내부 카탈로그 구조가 바뀌므로 데이터 변환이 필요합니다. <code>pg_upgrade</code>(짧은 다운타임) 또는 <strong>논리 복제</strong>(거의 무중단)를 선택합니다. 완료 후 <code>ANALYZE</code>로 통계를 다시 만들어야 하며(그 전까지 쿼리가 느립니다), 확장 호환성을 먼저 확인해야 합니다.</p></div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">사전 점검</button><button class="cb__tab">pg_upgrade</button>
+      <button class="cb__tab">논리 복제 방식</button><button class="cb__tab">확장 관리</button><button class="cb__copy">복사</button></div>
+<pre data-lang="bash" class="is-on"><code>
+# ① 호환성 사전 검사 (실제 변환 없이 검증만)
+/usr/pgsql-17/bin/pg_upgrade \
+  --old-datadir=/var/lib/pgsql/16/data --new-datadir=/var/lib/pgsql/17/data \
+  --old-bindir=/usr/pgsql-16/bin      --new-bindir=/usr/pgsql-17/bin \
+  --check
+
+# ② 확장 목록과 새 버전 지원 여부 확인 (가장 흔한 실패 원인)
+psql -c "SELECT extname, extversion FROM pg_extension ORDER BY 1;"
+#   PostGIS, TimescaleDB, pgvector 등은 반드시 새 버전용 패키지를 먼저 설치
+
+# ③ 콜레이션 변경 주의 — 조용한 인덱스 손상의 원인
+psql -c "SHOW lc_collate;"
+psql -c "SELECT version FROM pg_collation WHERE collname='default';"
+#   OS의 glibc 메이저 버전이 바뀌면 문자 정렬 순서가 달라져
+#   text 컬럼의 B-tree 인덱스가 잘못된 결과를 반환할 수 있습니다.
+#   → OS를 함께 올릴 때는 업그레이드 후 REINDEX 를 계획에 반드시 포함하세요.
+#     또는 ICU 콜레이션을 사용해 OS 의존성을 끊습니다 (PG15+ 기본 ICU 지원).
+
+# ④ 사전 준비 체크리스트
+#   □ 최신 백업 + 복원 검증 완료
+#   □ 스테이징에서 동일 절차 리허설 (소요 시간 측정)
+#   □ 애플리케이션 드라이버 호환성 확인
+#   □ 제거된 기능 확인 (릴리스 노트의 "Migration to Version" 절)
+#   □ 되돌리기 계획 (pg_upgrade --link 사용 시 되돌릴 수 없음에 주의)
+#   □ 새 버전 파라미터 이름 변경 여부 확인
+</code></pre>
+<pre data-lang="bash"><code>
+# ── pg_upgrade: 다운타임 수 분 ~ 수십 분 ──
+systemctl stop postgresql-16
+/usr/pgsql-17/bin/initdb -D /var/lib/pgsql/17/data --data-checksums \
+  --locale=C.UTF-8 --encoding=UTF8
+
+/usr/pgsql-17/bin/pg_upgrade \
+  --old-datadir=/var/lib/pgsql/16/data --new-datadir=/var/lib/pgsql/17/data \
+  --old-bindir=/usr/pgsql-16/bin      --new-bindir=/usr/pgsql-17/bin \
+  --link --jobs=8
+#   --link  : 하드링크로 파일 재사용 → 용량 무관하게 매우 빠름
+#             단, 성공 후 옛 클러스터를 사용할 수 없습니다 (되돌리기 불가)
+#   --clone : CoW 파일시스템(XFS reflink, btrfs)에서 안전하게 빠름 (권장)
+#   --jobs  : 병렬 처리
+
+# 설정 파일 이관 (자동으로 옮겨지지 않습니다)
+diff /var/lib/pgsql/16/data/postgresql.conf /var/lib/pgsql/17/data/postgresql.conf
+cp /var/lib/pgsql/16/data/pg_hba.conf /var/lib/pgsql/17/data/
+
+systemctl start postgresql-17
+
+# 통계 재생성 — 이걸 빼면 업그레이드 직후 쿼리가 매우 느립니다
+/usr/pgsql-17/bin/vacuumdb --all --analyze-in-stages --jobs=8
+#   --analyze-in-stages: 대략적 통계를 먼저 만들어 서비스를 빨리 정상화
+
+# 스탠바이는 재구축하거나 rsync 방식으로 동기화 (pg_upgrade 문서의 절차 준수)
+./delete_old_cluster.sh     # 충분히 검증한 뒤에만 실행
+</code></pre>
+<pre data-lang="bash"><code>
+# ── 논리 복제 방식: 다운타임 수십 초 (전환 시점만) ──
+# 1) 새 버전 클러스터를 별도로 구축하고 스키마만 이관
+pg_dump -s -h old -d shop | psql -h new -d shop
+
+# 2) 발행/구독 설정 (old: wal_level=logical 필요)
+psql -h old -c "CREATE PUBLICATION pub_all FOR ALL TABLES;"
+psql -h new -c "CREATE SUBSCRIPTION sub_all
+  CONNECTION 'host=old dbname=shop user=repl password=xxx'
+  PUBLICATION pub_all WITH (copy_data = true, streaming = on);"
+
+# 3) 초기 복사 완료와 지연 0 확인
+psql -h new -c "SELECT * FROM pg_stat_subscription;"
+psql -h old -c "SELECT slot_name, active,
+  pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn)) AS lag
+  FROM pg_replication_slots;"
+
+# 4) 전환 (짧은 정지)
+#    · 앱 쓰기 중단 → 지연 0 확인 → 시퀀스 값 이관 → 접속 경로 변경 → 앱 재개
+psql -h old -At -c "SELECT format('SELECT setval(%L,%s);', c.oid::regclass,
+  last_value) FROM pg_sequences s JOIN pg_class c ON c.relname=s.sequencename" \
+  | psql -h new -d shop
+
+# 5) 정리
+psql -h new -c "DROP SUBSCRIPTION sub_all;"
+psql -h old -c "DROP PUBLICATION pub_all;"
+psql -h new -c "ANALYZE;"
+
+# 장점: 되돌리기가 쉽고(옛 클러스터가 그대로 살아 있음) 다운타임이 짧습니다.
+# 단점: DDL 미전파, 대용량 초기 복사 시간, 구성 복잡도.
+</code></pre>
+<pre data-lang="sql"><code>
+-- 설치 가능한 확장과 현재 버전
+SELECT name, default_version, installed_version, comment
+FROM pg_available_extensions
+WHERE installed_version IS NOT NULL OR name IN ('pgvector','pg_stat_statements');
+
+-- 확장 업데이트 (패키지 교체 후 SQL 정의 갱신)
+ALTER EXTENSION pg_stat_statements UPDATE;
+ALTER EXTENSION postgis UPDATE TO '3.4.2';
+
+-- 스키마 지정 설치 (public 오염 방지)
+CREATE SCHEMA ext;
+CREATE EXTENSION pg_trgm WITH SCHEMA ext;
+-- search_path 에 ext 를 포함시켜야 합니다
+
+-- 운영에서 자주 쓰는 확장 정리
+--   pg_stat_statements  쿼리 통계 (사실상 필수, shared_preload_libraries 등록)
+--   auto_explain        느린 쿼리 실계획 로깅
+--   pgstattuple         정확한 bloat 측정
+--   pg_buffercache      버퍼 캐시 내용 관찰
+--   pgcrypto            암호화·해시
+--   pg_trgm             부분 문자열 검색
+--   pg_repack           무중단 테이블 재작성
+--   pgaudit             감사
+--   postgres_fdw/dblink 외부 DB 연동
+--   pgvector            임베딩 유사도 검색
+--   pg_partman          파티션 자동 관리
+--   pg_cron             DB 내 스케줄러
+
+-- shared_preload_libraries 는 재시작이 필요합니다 (사전에 목록을 정해두세요)
+SHOW shared_preload_libraries;
+ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements,auto_explain,pgaudit';
+</code></pre>
+    <div class="cb__cap">메이저 업그레이드 후 성능이 나빠졌다는 신고의 대부분은 <b>통계 미생성</b>과 <b>파라미터 미이관</b>입니다. 두 항목을 절차서 맨 앞에 두세요.</div>
+  </div>
+</section>
+
+<!-- ============================ 15 ============================ -->
+<section id="a15">
+  <div class="eyebrow">-- <b>15</b> · cloud &amp; kubernetes</div>
+  <h2>클라우드 · 쿠버네티스 운영</h2>
+  <p class="lead">관리형 서비스를 쓰면 백업·HA·패치가 해결되지만, <strong>슈퍼유저 권한과 파일시스템 접근이 사라집니다</strong>. 무엇을 잃는지 알고 선택해야 하고, 그에 맞춰 운영 절차를 다시 써야 합니다.</p>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>항목</th><th>자체 구축</th><th>관리형(RDS·Flexible Server 등)</th><th>K8s 오퍼레이터(CloudNativePG 등)</th></tr></thead>
+      <tbody>
+        <tr><td>슈퍼유저</td><td class="yes">보유</td><td class="no">없음(제한된 관리자 롤)</td><td class="mid">대체로 보유</td></tr>
+        <tr><td>확장 설치</td><td class="yes">자유</td><td class="no">허용 목록 내에서만</td><td class="yes">이미지에 포함시켜 자유</td></tr>
+        <tr><td>파라미터 변경</td><td class="yes">전체</td><td class="mid">파라미터 그룹 내 일부</td><td class="yes">CR 스펙으로 관리</td></tr>
+        <tr><td>백업·PITR</td><td class="no">직접 구성·검증</td><td class="yes">자동 (보관 기간 설정)</td><td class="mid">오퍼레이터가 S3로 자동화</td></tr>
+        <tr><td>HA·페일오버</td><td class="no">Patroni 등 직접</td><td class="yes">자동 (다중 AZ)</td><td class="yes">오퍼레이터가 관리</td></tr>
+        <tr><td>OS·로그 접근</td><td class="yes">전체</td><td class="no">로그 다운로드만</td><td class="yes">파드 접근 가능</td></tr>
+        <tr><td>버전 선택</td><td class="yes">자유</td><td class="mid">지원 버전 내에서</td><td class="yes">이미지 태그로</td></tr>
+        <tr><td>비용 구조</td><td>인프라 + 인력</td><td>시간당 요금 + 스토리지·IO</td><td>인프라 + 플랫폼 운영 인력</td></tr>
+        <tr><td>적합한 경우</td><td>극단적 튜닝·특수 확장 필요</td><td>운영 인력이 적고 표준 요구</td><td>이미 K8s 플랫폼을 운영 중</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn"><span class="lbl">관리형 환경에서 달라지는 것들</span>
+    <p><code>ALTER SYSTEM</code>이 막히고 파라미터 그룹으로 관리합니다. <code>pg_stat_statements</code>는 대개 기본 제공되지만 <code>pgstattuple</code>·<code>pg_repack</code>은 허용 여부를 확인해야 합니다. 물리 복제 슬롯을 직접 만들 수 없는 경우가 있고, <code>pg_terminate_backend</code>는 전용 관리 함수로 대체될 수 있습니다. 무엇보다 <strong>IOPS와 버스트 크레딧이 성능의 실질적 상한</strong>이 되므로, 자체 구축에서는 없던 지표를 새로 감시해야 합니다.</p>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">CloudNativePG</button><button class="cb__tab">컨테이너 운영 주의</button>
+      <button class="cb__tab">AI/LLMOps 워크로드</button><button class="cb__copy">복사</button></div>
+<pre data-lang="conf" class="is-on"><code>
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-prod
+spec:
+  instances: 3                      # 1 primary + 2 replica
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      shared_buffers: "8GB"
+      effective_cache_size: "24GB"
+      max_wal_size: "8GB"
+      checkpoint_timeout: "15min"
+      work_mem: "32MB"
+      maintenance_work_mem: "1GB"
+      autovacuum_vacuum_scale_factor: "0.05"
+      log_min_duration_statement: "1000"
+      shared_preload_libraries: "pg_stat_statements"
+    pg_hba:
+      - hostssl all all 10.0.0.0/8 scram-sha-256
+
+  storage:
+    size: 500Gi
+    storageClass: fast-nvme         # 지연이 낮은 로컬 NVMe 계열 권장
+  walStorage:                       # WAL을 별도 볼륨으로 분리 (권장)
+    size: 100Gi
+    storageClass: fast-nvme
+
+  resources:
+    requests: { cpu: "4", memory: "32Gi" }
+    limits:   { cpu: "8", memory: "32Gi" }   # requests=limits 로 QoS Guaranteed
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://pg-backup/pg-prod
+      s3Credentials:
+        accessKeyId:     { name: s3-creds, key: ACCESS_KEY_ID }
+        secretAccessKey: { name: s3-creds, key: ACCESS_SECRET_KEY }
+      wal:      { compression: gzip, maxParallel: 8 }
+      data:     { compression: gzip, jobs: 4 }
+    retentionPolicy: "30d"
+
+  monitoring:
+    enablePodMonitor: true
+
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: topology.kubernetes.io/zone
+---
+# 접속은 오퍼레이터가 만드는 서비스로 (역할이 바뀌어도 이름은 유지됩니다)
+#   pg-prod-rw : 현재 primary
+#   pg-prod-ro : replica 라운드로빈
+#   pg-prod-r  : 모든 인스턴스
+</code></pre>
+<pre data-lang="bash"><code>
+# ① 메모리 한계와 OOM
+#    컨테이너 memory limit 을 넘으면 커널이 프로세스를 죽입니다.
+#    PostgreSQL은 백엔드 프로세스가 많아 work_mem 폭주 시 순식간에 한계에 도달합니다.
+#    → limits = requests (Guaranteed) + work_mem 보수적 설정 + statement_timeout 필수
+#    → shared_buffers + (max_connections × work_mem × 2) 가 limit 안에 들어오는지 계산
+
+# ② 스토리지 지연이 전부입니다
+#    네트워크 블록 스토리지의 fsync 지연이 커밋 지연을 지배합니다.
+kubectl exec -it pg-prod-1 -- pgbench -i -s 100 shop
+kubectl exec -it pg-prod-1 -- pgbench -c 32 -j 4 -T 120 -P 10 shop
+#    fsync 성능 직접 측정
+kubectl exec -it pg-prod-1 -- pg_test_fsync -f /var/lib/postgresql/data/tmp
+
+# ③ 반드시 확인할 항목
+#    □ StorageClass의 volumeBindingMode (WaitForFirstConsumer 권장)
+#    □ 파드가 노드·AZ 분산되어 있는가 (anti-affinity)
+#    □ PodDisruptionBudget 설정 (노드 드레인 시 동시 종료 방지)
+#    □ 종료 유예 시간 terminationGracePeriodSeconds (체크포인트 완료 여유)
+#    □ readiness probe 가 primary/replica를 정확히 구분하는가
+#    □ HugePages 사용 시 노드 설정과 파드 리소스 요청 일치
+
+# ④ 하지 말아야 할 것
+#    · 여러 파드가 같은 PVC를 공유 (데이터 손상)
+#    · emptyDir 이나 hostPath 로 운영 데이터 저장
+#    · 검증 없는 자동 스케일링 (연결 수 폭증 → 백엔드 폭증)
+</code></pre>
+<pre data-lang="sql"><code>
+-- RAG/LLM 서비스에서 PostgreSQL을 벡터 스토어로 쓸 때 운영 포인트
+CREATE EXTENSION vector;
+
+CREATE TABLE chunks (
+  id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  doc_id     bigint NOT NULL,
+  tenant_id  int    NOT NULL,
+  content    text   NOT NULL,
+  meta       jsonb  NOT NULL DEFAULT '{}',
+  embedding  vector(1536) NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- HNSW 인덱스: 빌드에 시간과 메모리가 많이 필요합니다
+SET maintenance_work_mem = '4GB';
+SET max_parallel_maintenance_workers = 4;
+CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
+
+-- 조회 시 정확도/속도 조절
+SET hnsw.ef_search = 100;
+
+-- 메타데이터 필터 + 벡터 검색을 한 쿼리로 (PostgreSQL의 핵심 강점)
+SELECT id, content, 1 - (embedding &lt;=&gt; :q) AS score
+FROM chunks
+WHERE tenant_id = :tenant AND meta @&gt; '{"lang":"ko"}'
+ORDER BY embedding &lt;=&gt; :q
+LIMIT 10;
+
+/* 운영 시 주의
+   · 선택도 높은 필터 + HNSW 조합은 결과 수가 부족해질 수 있습니다
+     → 부분 인덱스(테넌트별)나 ef_search 상향으로 대응
+   · 임베딩 재계산(모델 교체) 시 전체 UPDATE는 거대한 bloat를 만듭니다
+     → 새 컬럼/새 테이블 생성 후 교체하는 방식이 안전합니다
+   · 벡터 컬럼은 TOAST 대상이 되어 테이블 크기 추정이 어긋납니다
+     → pg_total_relation_size 로 확인
+   · 인덱스 빌드 중 maintenance_work_mem 초과 시 디스크를 사용해 매우 느려집니다  */
+</code></pre>
+  </div>
+</section>
+
+<!-- ============================ 16 ============================ -->
+<section id="a16">
+  <div class="eyebrow">-- <b>16</b> · runbook</div>
+  <h2>장애 대응 런북 · 용어집 · 자기 점검</h2>
+  <p class="lead">장애 상황에서 필요한 것은 지식이 아니라 <strong>순서</strong>입니다. 증상에서 출발해 확인 → 판단 → 조치로 이어지는 경로를 미리 정해 두고, 그 경로를 훈련해 두어야 합니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 10</span><h4>장애 대응 트리 — 증상을 고르면 확인·판단·조치 순서가 나옵니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl" id="t-btns"></div>
+      <div id="t-out"></div>
+    </div>
+  </div>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 11</span><h4>DBA 용어집 — 검색해서 확인하세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <input type="text" id="g-q" placeholder="예: WAL, bloat, LSN, HOT, 슬롯" style="width:260px">
+        <span class="small mono" id="g-cnt"></span>
+      </div>
+      <div id="g-out" style="max-height:420px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <h3>운영 주기 체크리스트</h3>
+  <div class="grid g3">
+    <div class="card"><h4>매일</h4><ul style="margin:0" class="small">
+      <li>백업 성공 여부와 소요 시간</li>
+      <li>복제 지연, 슬롯 상태</li>
+      <li>XID 나이, pg_wal 사용량</li>
+      <li>디스크 여유, 연결 사용률</li>
+      <li>느린 쿼리 상위 10개 변화</li>
+      <li>에러 로그 요약(FATAL/PANIC)</li></ul></div>
+    <div class="card"><h4>매주</h4><ul style="margin:0" class="small">
+      <li>bloat 상위 테이블 추세</li>
+      <li>미사용·중복 인덱스 검토</li>
+      <li>autovacuum 지연 테이블 확인</li>
+      <li>파티션 사전 생성 상태</li>
+      <li>마이너 버전 릴리스 확인</li></ul></div>
+    <div class="card"><h4>매월 / 분기</h4><ul style="margin:0" class="small">
+      <li><strong>복구 리허설(RTO/RPO 실측)</strong></li>
+      <li>페일오버 훈련</li>
+      <li>권한·계정 점검</li>
+      <li>용량 증가 추세로 6개월 예측</li>
+      <li>파라미터 재검토, 통계 목표 조정</li>
+      <li>확장·OS 패치 계획</li></ul></div>
+  </div>
+
+  <h3>이해도 점검 — 12문항</h3>
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 12</span><h4>운영 판단 퀴즈</h4></div>
+    <div class="demo__bd" style="padding:0">
+    <div class="quiz" style="margin:0;border:0">
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q1</span>테이블에서 100만 행을 DELETE 했는데 디스크 사용량이 줄지 않았습니다. 이유는?</div>
+        <button class="opt">DELETE는 트랜잭션이 커밋되지 않았기 때문</button>
+        <button class="opt">인덱스가 남아 있기 때문</button>
+        <button class="opt">MVCC 특성상 dead 튜플이 남아 있고, VACUUM은 공간을 재사용 가능하게만 표시하기 때문</button>
+        <button class="opt">WAL이 아직 아카이브되지 않았기 때문</button>
+        <div class="expl">일반 <code>VACUUM</code>은 dead 튜플 공간을 <strong>재사용 가능</strong>하게 만들지만 파일 크기를 OS에 반환하지는 않습니다. 실제로 줄이려면 <code>VACUUM FULL</code>(ACCESS EXCLUSIVE 잠금) 또는 <code>pg_repack</code>이 필요합니다. 다만 해당 테이블에 다시 데이터가 쌓일 예정이라면 그대로 재사용하는 것이 더 효율적입니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q2</span>VACUUM이 dead 튜플을 회수하지 못하는 가장 흔한 원인은?</div>
+        <button class="opt">maintenance_work_mem 부족</button>
+        <button class="opt">오래 열려 있는 트랜잭션 또는 비활성 복제 슬롯</button>
+        <button class="opt">인덱스가 너무 많음</button>
+        <button class="opt">체크포인트 주기가 짧음</button>
+        <div class="expl">VACUUM은 <strong>가장 오래된 스냅샷보다 최근의 튜플 버전을 지울 수 없습니다</strong>. 장기 트랜잭션, <code>idle in transaction</code> 세션, 비활성 복제 슬롯, 미해결 prepared transaction이 모두 이 한계선을 붙잡습니다. <code>idle_in_transaction_session_timeout</code> 설정이 기본 방어책입니다.</div>
+      </div>
+      <div class="q" data-a="3">
+        <div class="q__t"><span>Q3</span><code>pg_wal</code> 디렉터리가 계속 커지고 있습니다. 확인 순서로 가장 적절한 것은?</div>
+        <button class="opt">shared_buffers를 늘린다</button>
+        <button class="opt">즉시 오래된 WAL 파일을 rm으로 삭제한다</button>
+        <button class="opt">checkpoint_timeout을 줄인다</button>
+        <button class="opt">pg_stat_archiver의 실패 여부, 비활성 복제 슬롯, 장기 트랜잭션을 순서대로 확인한다</button>
+        <div class="expl">pg_wal 증가의 3대 원인은 <strong>아카이브 실패</strong>, <strong>비활성 복제 슬롯</strong>, <strong>거대·장기 트랜잭션</strong>입니다. WAL 파일을 직접 <code>rm</code>하면 복구 불가능한 손상이 발생합니다. 절대 하지 마세요. 응급 조치로는 불필요한 슬롯 삭제와 <code>max_slot_wal_keep_size</code> 설정이 있습니다.</div>
+      </div>
+      <div class="q" data-a="0">
+        <div class="q__t"><span>Q4</span>EXPLAIN ANALYZE 결과에서 <code>rows=12</code>, <code>actual rows=240000</code>이었습니다. 1차 조치는?</div>
+        <button class="opt">ANALYZE 실행, 필요하면 확장 통계(CREATE STATISTICS)와 통계 목표 상향</button>
+        <button class="opt">work_mem을 늘린다</button>
+        <button class="opt">enable_nestloop을 off로 설정한다</button>
+        <button class="opt">shared_buffers를 늘린다</button>
+        <div class="expl">추정과 실제의 큰 차이는 <strong>통계 문제</strong>입니다. 특히 여러 컬럼이 상관관계를 가질 때(예: 도시와 우편번호) 독립 가정으로 과소 추정됩니다. <code>CREATE STATISTICS</code>로 상관관계를 알려주는 것이 정공법이며, <code>enable_nestloop=off</code>는 증상만 가리는 임시방편입니다.</div>
+      </div>
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q5</span>운영 중 대형 테이블에 인덱스를 추가해야 합니다. 올바른 방법은?</div>
+        <button class="opt">BEGIN; CREATE INDEX ...; COMMIT;</button>
+        <button class="opt">CREATE INDEX ... (기본 방식, 빠르므로)</button>
+        <button class="opt">CREATE INDEX CONCURRENTLY ... 후 인덱스 유효성(indisvalid) 확인</button>
+        <button class="opt">REINDEX TABLE 실행</button>
+        <div class="expl">기본 <code>CREATE INDEX</code>는 SHARE 락으로 <strong>쓰기를 차단</strong>합니다. <code>CONCURRENTLY</code>는 쓰기를 막지 않지만 트랜잭션 블록 안에서 실행할 수 없고, 실패 시 INVALID 인덱스가 남으므로 <code>pg_index.indisvalid</code> 확인이 절차에 포함되어야 합니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q6</span><code>synchronous_standby_names = 'standby1'</code>로 동기 복제를 구성했고, standby1이 장애로 내려갔습니다. 무슨 일이 생기나요?</div>
+        <button class="opt">자동으로 비동기 모드로 전환된다</button>
+        <button class="opt">주 서버의 커밋이 무한 대기하며 쓰기 서비스가 멈춘다</button>
+        <button class="opt">주 서버가 자동으로 재시작된다</button>
+        <button class="opt">아무 영향 없다</button>
+        <div class="expl">지정된 동기 스탠바이가 응답하지 않으면 커밋이 대기합니다. 그래서 실무에서는 <code>'ANY 1 (standby1, standby2)'</code>처럼 <strong>여러 후보 중 하나</strong>를 요구하도록 구성해 1대 장애를 견디게 합니다. 응급 시에는 <code>synchronous_standby_names</code>를 비우고 reload 하면 비동기로 전환됩니다.</div>
+      </div>
+      <div class="q" data-a="0">
+        <div class="q__t"><span>Q7</span>XID 나이가 18억에 도달했습니다. 가장 먼저 할 일은?</div>
+        <button class="opt">VACUUM을 막고 있던 요소(장기 트랜잭션·비활성 슬롯·prepared xact)를 제거하고 대상 테이블을 FREEZE VACUUM</button>
+        <button class="opt">데이터베이스를 재시작한다</button>
+        <button class="opt">autovacuum_freeze_max_age를 20억으로 올린다</button>
+        <button class="opt">pg_resetwal을 실행한다</button>
+        <div class="expl">약 21억에서 새 트랜잭션이 거부됩니다. 임계값을 올리는 것은 문제를 미루는 것이고, <code>pg_resetwal</code>은 데이터 손실을 유발하는 최후 수단입니다. 방해 요소를 제거하고 <code>vacuumdb --freeze --jobs</code>로 병렬 동결을 진행하는 것이 정답입니다.</div>
+      </div>
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q8</span>운영 표준으로 가장 적절한 백업 구성은?</div>
+        <button class="opt">스트리밍 복제 스탠바이 2대 (백업은 별도로 두지 않음)</button>
+        <button class="opt">매일 pg_dump 1회</button>
+        <button class="opt">주기적 베이스 백업 + WAL 연속 아카이브(PITR) + 정기 복구 리허설</button>
+        <button class="opt">스토리지 스냅샷만 6시간마다</button>
+        <div class="expl">복제는 <strong>실수와 논리적 손상을 막지 못합니다</strong>(<code>DROP TABLE</code>이 그대로 전파됨). 논리 백업만으로는 RPO가 하루에 이르고 RTO도 깁니다. 베이스 백업 + WAL 아카이브 조합이 초 단위 RPO를 제공하며, <strong>복구 리허설이 없으면 그 백업은 검증되지 않은 것</strong>입니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q9</span><code>ALTER TABLE ... ADD COLUMN memo text</code>가 5분간 완료되지 않고, 그 뒤로 모든 SELECT까지 멈췄습니다. 원인은?</div>
+        <button class="opt">테이블 전체를 재작성하고 있기 때문</button>
+        <button class="opt">ACCESS EXCLUSIVE 락을 대기 중이며, 대기 중인 DDL 뒤로 다른 요청들이 줄을 섰기 때문</button>
+        <button class="opt">인덱스를 재생성하고 있기 때문</button>
+        <button class="opt">WAL이 부족하기 때문</button>
+        <div class="expl">기본값 없는 컬럼 추가는 카탈로그만 바꾸므로 <strong>작업 자체는 즉시</strong>입니다. 문제는 앞선 장기 트랜잭션 때문에 락을 얻지 못하고, 락 대기 큐에 걸린 DDL이 이후 모든 요청을 막는 것입니다. 대응은 <code>SET lock_timeout</code> 후 재시도이며, 사전에 장기 트랜잭션을 확인해야 합니다.</div>
+      </div>
+      <div class="q" data-a="3">
+        <div class="q__t"><span>Q10</span><code>work_mem</code>을 설정할 때 반드시 고려해야 하는 것은?</div>
+        <button class="opt">shared_buffers와 합쳐 RAM의 25%를 넘지 않게</button>
+        <button class="opt">디스크 용량</button>
+        <button class="opt">WAL 세그먼트 크기</button>
+        <button class="opt">쿼리 하나가 여러 정렬·해시 노드를 가질 수 있고 접속마다 별개로 할당되므로, 최악의 경우 합계가 메모리를 초과할 수 있다는 점</button>
+        <div class="expl"><code>work_mem</code>은 <strong>노드당·세션당</strong> 상한입니다. 전역 값은 보수적으로 두고, 무거운 배치는 세션에서 <code>SET work_mem</code>으로 올리는 방식이 안전합니다. 컨테이너 환경에서는 이 폭주가 OOM Kill로 직결됩니다.</div>
+      </div>
+      <div class="q" data-a="0">
+        <div class="q__t"><span>Q11</span>3년 지난 로그 데이터를 매월 정리해야 합니다. 가장 좋은 구조는?</div>
+        <button class="opt">월별 RANGE 파티셔닝 후 오래된 파티션을 DETACH·DROP</button>
+        <button class="opt">매월 DELETE 후 VACUUM FULL</button>
+        <button class="opt">TRUNCATE 후 필요한 데이터 재적재</button>
+        <button class="opt">매월 pg_dump로 옮기고 DELETE</button>
+        <div class="expl">대량 <code>DELETE</code>는 긴 시간, 대량 WAL, 거대한 bloat를 남기고 <code>VACUUM FULL</code>은 서비스 정지를 부릅니다. 파티션 <code>DROP</code>은 <strong>파일 삭제 수준</strong>으로 즉시 끝나고 bloat도 없습니다. 미래 파티션 사전 생성을 <code>pg_partman</code>이나 cron으로 자동화하는 것이 필수 조건입니다.</div>
+      </div>
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q12</span>메이저 업그레이드(16→17) 직후 모든 쿼리가 느려졌습니다. 가장 먼저 확인할 것은?</div>
+        <button class="opt">복제 지연</button>
+        <button class="opt">디스크 IOPS</button>
+        <button class="opt">통계 재생성 여부(ANALYZE)와 파라미터 이관 여부</button>
+        <button class="opt">인덱스 손상</button>
+        <div class="expl"><code>pg_upgrade</code>는 <strong>통계를 이관하지 않습니다</strong>. <code>vacuumdb --all --analyze-in-stages</code>로 재생성해야 하며, <code>postgresql.conf</code>의 튜닝 값도 자동으로 옮겨지지 않습니다. 두 항목이 업그레이드 절차서의 필수 단계입니다. (OS를 함께 올렸다면 콜레이션 변경으로 인한 인덱스 재작성 필요성도 확인하세요.)</div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <div class="note ok"><span class="lbl">마지막으로</span>
+    <p>좋은 DBA를 만드는 것은 암기가 아니라 <strong>습관</strong>입니다. 변경은 하나씩 근거와 함께, 조치 전에는 항상 현재 상태를 기록하고, 백업은 복구해 봐야 백업이며, 경보는 대응 절차와 함께 만듭니다. 이 강의의 진단 쿼리를 팀 위키에 옮겨 두고 장애 때 바로 꺼내 쓸 수 있게 정리하는 것이 첫 실천 항목입니다.</p>
+  </div>
+
+  <footer>
+    <hr>
+    <p class="fnote">-- PostgreSQL 운영 심화 · DBA 필수 개념 · 기준 버전 16/17 · 인터랙티브 데모 12종<br>
+    -- 함께 보기: 「PostgreSQL 기초」 입문 강의 · 공식 문서 postgresql.org/docs/current</p>
+  </footer>
+</section>
+
+</div></main>
+</div>
+
+<script>
+/* ================= demo 01 : 아키텍처 맵 ================= */
+(function(){
+  var INFO={
+    client:['클라이언트 / 커넥션 풀러','앱, psql, pgbouncer가 5432 포트로 접속합니다. 접속 하나당 서버 프로세스 하나가 생기므로, 짧은 접속이 잦은 서비스에서는 풀러로 접속을 재사용해야 합니다.','pgbouncer: pool_mode=transaction, default_pool_size'],
+    postmaster:['postmaster (메인 프로세스)','리스닝, 인증 판정(pg_hba.conf), 백엔드 fork, 자식 프로세스 감시와 재기동을 담당합니다. 이 프로세스가 죽으면 클러스터 전체가 내려갑니다. OOM Killer로부터 우선 보호해야 하는 대상입니다.','listen_addresses, port, max_connections'],
+    backend:['백엔드 프로세스','접속 하나를 전담합니다. SQL 파싱 → 리라이트 → 플랜 생성 → 실행을 수행하고, 정렬·해시에 필요한 메모리를 개별로 할당합니다. 프로세스 수가 CPU 코어를 크게 넘으면 컨텍스트 스위치 때문에 처리량이 오히려 떨어집니다.','work_mem, temp_buffers, statement_timeout'],
+    parallel:['병렬 워커','플랜에 Gather 노드가 있으면 백엔드가 워커를 요청해 스캔·집계를 나눠 처리합니다. 워커 슬롯은 클러스터 전체 공유 자원이라 부족하면 계획보다 적게 실행됩니다(EXPLAIN의 Workers Launched로 확인).','max_parallel_workers, max_parallel_workers_per_gather, max_worker_processes'],
+    sb:['shared_buffers','PostgreSQL 자체 페이지 캐시입니다. 8kB 블록 단위로 데이터·인덱스 페이지를 담습니다. RAM의 25% 전후가 통상 출발점이며, 과도하게 크면 OS 캐시와 이중 캐싱이 되고 체크포인트 때 flush할 더티 페이지가 늘어 지연이 튑니다.','shared_buffers, pg_buffercache로 내용 관찰'],
+    wb:['wal_buffers','커밋되기 전 WAL 레코드를 담는 공유 버퍼입니다. -1이면 shared_buffers의 1/32로 자동 산정되며, 16~64MB로 고정해도 무해합니다.','wal_buffers, wal_writer_delay'],
+    lock:['락 테이블','테이블·행·트랜잭션 잠금 정보를 공유 메모리에 보관합니다. 잠금 슬롯은 유한하므로 파티션이 수천 개인 테이블을 다루면 부족해질 수 있습니다.','max_locks_per_transaction, max_pred_locks_per_transaction, pg_locks'],
+    clog:['CLOG / SLRU 캐시','각 트랜잭션 ID의 커밋 여부를 담습니다. MVCC 가시성 판정에 매번 참조되며, XID 동결(freeze)과 wraparound 관리의 대상입니다.','pg_xact/, autovacuum_freeze_max_age'],
+    workmem:['work_mem','정렬·해시 조인·해시 집계 노드 하나당 상한입니다. 쿼리 하나가 여러 노드를 가질 수 있고 세션마다 별개로 할당되므로, 전역 값은 보수적으로 두고 무거운 배치만 세션에서 올리는 것이 안전합니다. 초과하면 임시 파일로 흘러 급격히 느려집니다.','work_mem, log_temp_files, hash_mem_multiplier'],
+    mwm:['maintenance_work_mem','VACUUM, CREATE INDEX, ALTER TABLE 등 유지보수 작업용입니다. 동시 실행 수가 적어 크게 줘도 비교적 안전하며 VACUUM 속도에 직접 기여합니다. autovacuum_work_mem으로 워커 몫을 따로 지정할 수 있습니다.','maintenance_work_mem, autovacuum_work_mem, max_parallel_maintenance_workers'],
+    ckpt:['checkpointer','체크포인트를 수행합니다. 더티 페이지를 데이터 파일에 반영하고 그 지점까지의 WAL을 재사용 가능하게 만듭니다. 너무 잦으면 쓰기 스파이크가 생기고, 너무 드물면 크래시 복구 시간이 늘어납니다.','checkpoint_timeout, max_wal_size, checkpoint_completion_target, log_checkpoints'],
+    bgw:['background writer','체크포인트를 기다리지 않고 더티 페이지를 조금씩 미리 내려 백엔드가 직접 flush하는 상황을 줄입니다.','bgwriter_delay, bgwriter_lru_maxpages'],
+    walw:['WAL writer','wal_buffers의 내용을 주기적으로 디스크에 씁니다. synchronous_commit=off일 때 커밋 지연을 줄여주는 핵심 프로세스입니다.','wal_writer_delay, wal_writer_flush_after'],
+    av:['autovacuum launcher / workers','launcher가 주기적으로 대상 테이블을 찾아 워커를 띄웁니다. 워커는 dead 튜플 회수, 통계 갱신, XID 동결을 수행합니다. 대형 테이블에서는 기본 임계값이 너무 느슨하므로 테이블별 설정이 필요합니다.','autovacuum_max_workers, autovacuum_vacuum_scale_factor, autovacuum_vacuum_cost_limit'],
+    walsend:['walsender / walreceiver','walsender는 스탠바이나 논리 구독자에게 WAL을 전송하고, 스탠바이의 walreceiver가 받아 적용합니다. 복제 슬롯을 쓰면 전송이 확인될 때까지 WAL 보관을 보장합니다.','max_wal_senders, wal_keep_size, max_slot_wal_keep_size, pg_stat_replication'],
+    arch:['archiver','완료된 WAL 세그먼트를 지정된 명령/라이브러리로 백업 저장소에 보냅니다. 실패하면 재시도하며 WAL을 계속 보관하므로 pg_wal 폭증의 주요 원인이 됩니다.','archive_mode, archive_command, archive_library, pg_stat_archiver'],
+    heap:['base/ — 힙과 인덱스 파일','테이블·인덱스 데이터가 relfilenode 번호의 파일로 저장되며 1GB 단위로 분할됩니다. VACUUM FULL이나 REINDEX 후 번호가 바뀝니다. 큰 값은 TOAST 테이블로 분리됩니다.','pg_relation_filepath(), pg_total_relation_size()'],
+    wal:['pg_wal/ — WAL 세그먼트','기본 16MB 파일들입니다. 이 디렉터리가 가득 차면 데이터베이스가 정지합니다. 파일을 직접 삭제하면 복구 불가 손상이 생기므로 절대 하지 마십시오.','pg_ls_waldir(), max_wal_size, wal_segment_size'],
+    archdir:['아카이브 / 백업 저장소','베이스 백업과 연속 WAL이 함께 있어야 PITR이 가능합니다. 보관 정책, 암호화, 무결성 검증, 복구 리허설이 모두 이 저장소를 대상으로 이루어집니다.','pgBackRest, barman, pg_verifybackup'],
+    stat:['통계와 제어 파일','pg_stat_* 뷰의 근거가 되는 누적 통계(PG15부터 공유 메모리 기반)와 클러스터 상태를 담은 pg_control이 있습니다. pg_control이 손상되면 클러스터를 열 수 없습니다.','pg_controldata, pg_stat_reset(), track_io_timing'],
+    stats:['','','']
+  };
+  var svg=document.getElementById('a1-svg'), out=document.getElementById('a1-out');
+  if(!svg) return;
+  svg.querySelectorAll('g[data-k]').forEach(function(g){
+    g.addEventListener('click',function(){
+      svg.querySelectorAll('rect.box').forEach(function(r){r.classList.remove('on');});
+      g.querySelector('rect').classList.add('on');
+      var d=INFO[g.getAttribute('data-k')];
+      if(!d) return;
+      out.innerHTML='<div style="color:#4a9fe0;font-size:15px;font-weight:700;margin-bottom:6px">'+d[0]+'</div>'
+        +'<div style="margin-bottom:8px">'+d[1]+'</div>'
+        +'<div style="color:#8d99a9">관련 파라미터 · '+d[2]+'</div>';
+    });
+  });
+})();
+
+/* ================= demo 02 : MVCC 튜플 시뮬레이터 ================= */
+(function(){
+  var xid=800, rows=[], nextCtid=1, page=0;
+  var T=document.getElementById('m-tbl'), out=document.getElementById('m-out');
+  if(!T) return;
+  function reset(){
+    xid=812; nextCtid=3; page=0;
+    rows=[{ctid:'(0,1)',xmin:812,xmax:0,id:1,v:'a',dead:false},
+          {ctid:'(0,2)',xmin:812,xmax:0,id:2,v:'b',dead:false}];
+    render('초기 상태: 두 행을 INSERT하고 커밋했습니다. 각 행에 xmin=812이 찍혔고 xmax=0이므로 유효합니다. 버튼을 눌러 DML이 물리적으로 무엇을 하는지 확인하세요.');
+  }
+  function ct(){ return '(0,'+(nextCtid++)+')'; }
+  function render(msg){
+    var h='<thead><tr><th>ctid</th><th>xmin</th><th>xmax</th><th>id</th><th>v</th><th>상태</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      h+='<tr class="'+(r.dead?'dead':(r.xmin>=812&&r.xmax===0?'':''))+'">'
+        +'<td>'+r.ctid+'</td><td>'+r.xmin+'</td><td>'+(r.xmax||0)+'</td>'
+        +'<td>'+r.id+'</td><td>'+r.v+'</td>'
+        +'<td style="color:'+(r.dead?'#ef6f8b':'#54c98d')+'">'+(r.dead?'dead':'live')+'</td></tr>';
+    });
+    T.innerHTML=h+'</tbody>';
+    var live=rows.filter(function(r){return !r.dead;}).length, all=rows.length, dead=all-live;
+    document.getElementById('m-all').textContent=all;
+    document.getElementById('m-live').textContent=live;
+    document.getElementById('m-dead').textContent=dead;
+    document.getElementById('m-bloat').textContent=(all?Math.round(100*dead/all):0)+'%';
+    document.getElementById('m-xid').innerHTML='현재 트랜잭션 ID: <b style="color:#a98bf5">'+xid+'</b> &nbsp;·&nbsp; 물리 페이지 0';
+    out.innerHTML=msg;
+  }
+  document.getElementById('m-ins').onclick=function(){
+    xid++; var id=Math.max.apply(null,rows.map(function(r){return r.id;}))+1;
+    rows.push({ctid:ct(),xmin:xid,xmax:0,id:id,v:'new',dead:false});
+    render('<b>INSERT</b> — xid '+xid+'가 새 튜플을 페이지 끝에 추가했습니다. xmin='+xid+'가 찍히고 xmax=0입니다. 이 트랜잭션이 커밋되면 다른 세션에게도 보이기 시작합니다.');
+  };
+  document.getElementById('m-upd').onclick=function(){
+    var old=rows.filter(function(r){return r.id===1 && !r.dead;})[0];
+    if(!old){ render('id=1 행이 이미 없습니다. 초기화 후 다시 시도하세요.'); return; }
+    xid++;
+    old.xmax=xid; old.dead=true;
+    rows.push({ctid:ct(),xmin:xid,xmax:0,id:1,v:old.v+"'",dead:false});
+    render('<b>UPDATE</b> — 제자리 수정이 아닙니다. 옛 튜플 '+old.ctid+'에 xmax='+xid+'를 찍어 무효화하고, <b>새 위치에 새 버전</b>을 만들었습니다. '
+      +'옛 버전은 여전히 물리적으로 존재하며(dead) VACUUM 대상이 됩니다. 이것이 UPDATE만으로도 테이블이 커지는 이유입니다. '
+      +'만약 인덱스 컬럼을 바꾸지 않고 같은 페이지에 공간이 있었다면 HOT 업데이트가 되어 인덱스 갱신을 생략할 수 있었습니다.');
+  };
+  document.getElementById('m-del').onclick=function(){
+    var t=rows.filter(function(r){return r.id===2 && !r.dead;})[0];
+    if(!t){ render('id=2 행이 이미 없습니다.'); return; }
+    xid++; t.xmax=xid; t.dead=true;
+    render('<b>DELETE</b> — 데이터를 지우지 않았습니다. xmax='+xid+'만 기록해 "이 트랜잭션 이후에는 보이지 않음"으로 표시했을 뿐입니다. '
+      +'그래서 DELETE 직후 디스크 사용량은 <b>줄지 않습니다</b>. 오히려 WAL이 생성되어 늘어납니다.');
+  };
+  document.getElementById('m-rb').onclick=function(){
+    var t=rows.filter(function(r){return !r.dead;})[0];
+    if(!t){ render('유효한 행이 없습니다.'); return; }
+    xid++;
+    rows.push({ctid:ct(),xmin:xid,xmax:0,id:t.id,v:t.v+'?',dead:true});
+    render('<b>UPDATE 후 ROLLBACK</b> — 새 버전이 이미 물리적으로 기록된 뒤 롤백되었습니다. 옛 버전은 그대로 유효하게 남고, '
+      +'<b>새로 쓴 버전이 dead가 됩니다</b>. 즉 롤백된 트랜잭션도 디스크 공간과 WAL을 소비합니다. '
+      +'실패하는 배치를 반복 재시도하면 아무 데이터 변화 없이 테이블이 계속 커집니다.');
+  };
+  document.getElementById('m-vac').onclick=function(){
+    var before=rows.length;
+    rows=rows.filter(function(r){return !r.dead;});
+    var freed=before-rows.length;
+    render('<b>VACUUM</b> — dead 튜플 '+freed+'개의 공간을 회수해 <b>같은 테이블의 새 행이 재사용할 수 있게</b> 표시했습니다. '
+      +'주의: 파일 크기가 OS에 반환되지는 않습니다(맨 끝의 빈 페이지만 예외). 실제로 파일을 줄이려면 VACUUM FULL이나 pg_repack이 필요합니다. '
+      +'또한 VACUUM은 <b>가장 오래된 스냅샷보다 최근의 버전은 지울 수 없습니다</b>. 장기 트랜잭션이 열려 있으면 이 작업이 아무것도 회수하지 못합니다.');
+  };
+  document.getElementById('m-reset').onclick=reset;
+  reset();
+})();
+
+/* ================= demo 03 : Bloat 시뮬레이터 ================= */
+(function(){
+  var rate=document.getElementById('b-rate'); if(!rate) return;
+  var rv=document.getElementById('b-rateV'), av=document.getElementById('b-av'),
+      lng=document.getElementById('b-long'), chart=document.getElementById('b-chart'), out=document.getElementById('b-out');
+  rate.oninput=function(){rv.textContent=rate.value;};
+  function run(){
+    var r=+rate.value, mode=av.value, blocked=lng.value==='1';
+    var live=100000, scale = mode==='tuned'?0.02:0.2, thr=50+scale*live;
+    var size=100, free=0, dead=0, runs=0, cool=0, hist=[], vacTicks=[];
+    for(var t=0;t<60;t++){
+      dead+=r;
+      var need=r/1024;                       // 1KB per updated tuple
+      if(free>=need){ free-=need; } else { size += need-free; free=0; }
+      if(mode!=='off' && cool<=0 && dead>thr){
+        runs++; cool=3;
+        if(!blocked){ free += dead/1024; dead=0; }
+      }
+      cool--;
+      hist.push({s:size,d:dead}); if(cool===2) vacTicks.push(t);
+    }
+    var maxS=Math.max.apply(null,hist.map(function(h){return h.s;})),
+        maxD=Math.max.apply(null,hist.map(function(h){return h.d;}))||1;
+    var W=720,H=190,pl=46,pb=22,pt=10, cw=(W-pl-8)/60;
+    var s='<g font-family="JetBrains Mono, monospace" font-size="9" fill="#6b7686">';
+    s+='<line x1="'+pl+'" y1="'+(H-pb)+'" x2="'+(W-4)+'" y2="'+(H-pb)+'" stroke="#2f3a49"/>';
+    s+='<line x1="'+pl+'" y1="'+pt+'" x2="'+pl+'" y2="'+(H-pb)+'" stroke="#2f3a49"/>';
+    s+='<text x="4" y="'+(pt+8)+'">'+Math.round(maxS)+'MB</text>';
+    s+='<text x="4" y="'+(H-pb)+'">100MB</text>';
+    // dead bars
+    hist.forEach(function(h,i){
+      var hh=(h.d/maxD)*(H-pt-pb)*0.55;
+      s+='<rect x="'+(pl+i*cw)+'" y="'+(H-pb-hh)+'" width="'+(cw-1.2)+'" height="'+hh+'" fill="#ef6f8b" opacity=".45"/>';
+    });
+    // size area
+    var pts=hist.map(function(h,i){
+      var y=H-pb-((h.s-100)/(maxS-100||1))*(H-pt-pb)*0.92;
+      return (pl+i*cw+cw/2)+','+y;
+    });
+    s+='<polyline points="'+pts.join(' ')+'" fill="none" stroke="#4a9fe0" stroke-width="2"/>';
+    vacTicks.forEach(function(t){
+      s+='<line x1="'+(pl+t*cw+cw/2)+'" y1="'+pt+'" x2="'+(pl+t*cw+cw/2)+'" y2="'+(H-pb)+'" stroke="#54c98d" stroke-width="1" opacity=".55"/>';
+    });
+    for(var k=0;k<=60;k+=10) s+='<text x="'+(pl+k*cw)+'" y="'+(H-6)+'">'+k+'s</text>';
+    chart.innerHTML=s+'</g>';
+
+    var bloatPct=Math.round(100*((dead/1024)+free)/size);
+    document.getElementById('b-size').textContent=Math.round(size)+' MB';
+    document.getElementById('b-dead').textContent=Math.round(dead).toLocaleString();
+    document.getElementById('b-runs').textContent=runs+' 회';
+    document.getElementById('b-pct').textContent=bloatPct+'%';
+
+    var msg='';
+    if(mode==='off'){
+      msg='<b>autovacuum off</b> — dead 튜플이 전혀 회수되지 않아 테이블이 단조 증가합니다. 재사용 가능한 공간이 생기지 않으므로 모든 UPDATE가 새 페이지를 요구합니다. '
+        +'적재 전용 스테이징 테이블에는 합리적일 수 있지만, 그 경우에도 적재 후 수동 VACUUM ANALYZE가 반드시 필요합니다. '
+        +'참고로 autovacuum_enabled=off라도 XID wraparound 방어 VACUUM은 강제로 실행됩니다.';
+    } else if(blocked){
+      msg='<b>장기 트랜잭션이 열려 있음</b> — autovacuum이 '+runs+'회 실행되었지만 <b>아무것도 회수하지 못했습니다</b>. '
+        +'가장 오래된 스냅샷보다 최근의 튜플 버전은 지울 수 없기 때문입니다. 실무에서 "VACUUM이 도는데도 bloat가 계속 늘어난다"는 신고의 1순위 원인입니다. '
+        +'대응: pg_stat_activity에서 xact_start가 오래된 세션 확인 → idle_in_transaction_session_timeout 설정 → 비활성 복제 슬롯 정리.';
+    } else if(mode==='tuned'){
+      msg='<b>scale_factor 0.02로 튜닝</b> — 임계값이 '+Math.round(thr).toLocaleString()+'행이라 자주 발동해 dead 튜플이 낮게 유지됩니다. '
+        +'테이블 크기가 초기 근처에서 안정되는 것을 보세요. 회수된 공간이 다음 UPDATE에 재사용되므로 파일이 더 이상 커지지 않습니다. '
+        +'큰 테이블에서는 이렇게 테이블별로 낮춰 주는 것이 표준 처방입니다.';
+    } else {
+      msg='<b>기본 설정(scale_factor 0.2)</b> — 임계값이 '+Math.round(thr).toLocaleString()+'행입니다. '
+        +(runs? 'VACUUM이 '+runs+'회 발동했습니다. ' : '60초 동안 한 번도 발동하지 않았습니다. ')
+        +'행 수가 큰 테이블에서는 이 20% 기준이 매우 늦게 도달하므로, 그 사이 테이블이 크게 팽창합니다. '
+        +'1억 행 테이블이라면 2천만 행이 죽어야 VACUUM이 시작됩니다.';
+    }
+    out.innerHTML=msg;
+  }
+  document.getElementById('b-run').onclick=run;
+  av.onchange=run; lng.onchange=run; rate.onchange=run;
+  run();
+})();
+
+/* ================= demo 04 : PITR 타임라인 ================= */
+(function(){
+  var sl=document.getElementById('p-t'); if(!sl) return;
+  var tv=document.getElementById('p-tv'), sc=document.getElementById('p-sc'),
+      svg=document.getElementById('p-svg'), out=document.getElementById('p-out'), cmd=document.getElementById('p-cmd');
+  var BASE=[2,26];                     // 베이스 백업 시각(시간 인덱스)
+  var SC={ drop:{inc:38, name:'14:20 실수로 DROP TABLE', sug:38,
+            d:'사고 직전으로 되돌립니다. 목표를 사고 시각보다 <b>조금 이전</b>으로 잡고 recovery_target_action=pause로 멈춰 데이터를 확인한 뒤 승격하는 것이 안전합니다.'},
+           crash:{inc:-1, name:'서버 완전 손실', sug:47,
+            d:'가장 최근 아카이브된 WAL까지 재생해 손실을 최소화합니다. recovery_target을 지정하지 않으면 아카이브의 끝까지 재생합니다.'},
+           corrupt:{inc:27, name:'03:00 배치가 데이터 오염', sug:26,
+            d:'오염 시작 직전이 목표입니다. 오염 범위가 특정 테이블에 한정된다면, 전체 복구 대신 별도 서버에 복구해 해당 테이블만 논리적으로 옮기는 방법이 서비스 영향이 적습니다.'} };
+  function hh(i){ var d=9+Math.floor(i/24), h=i%24; return '08-'+(d<10?'0':'')+d+' '+(h<10?'0':'')+h+':00'; }
+  function draw(){
+    var t=+sl.value, s=SC[sc.value];
+    tv.textContent=hh(t);
+    var W=720,H=130,pl=10,y=64, cw=(W-pl-14)/48;
+    var base=null; BASE.forEach(function(b){ if(b<=t) base=b; });
+    var g='<g font-family="JetBrains Mono, monospace" font-size="9">';
+    g+='<line x1="'+pl+'" y1="'+y+'" x2="'+(W-8)+'" y2="'+y+'" stroke="#2f3a49"/>';
+    for(var i=0;i<48;i++){
+      var need = base!==null && i>=base && i<=t;
+      g+='<rect x="'+(pl+i*cw+0.6)+'" y="'+(y-11)+'" width="'+(cw-1.6)+'" height="22" rx="2" fill="'
+        +(need?'#f0b263':'#1d242f')+'" opacity="'+(need?0.85:1)+'" stroke="#2f3a49" stroke-width=".6"/>';
+    }
+    for(var k=0;k<48;k+=6) g+='<text x="'+(pl+k*cw)+'" y="'+(y+30)+'" fill="#6b7686">'+hh(k).slice(6)+'</text>';
+    BASE.forEach(function(b){
+      var x=pl+b*cw+cw/2;
+      g+='<path d="M'+(x-6)+' '+(y-20)+' L'+(x+6)+' '+(y-20)+' L'+x+' '+(y-12)+' z" fill="'+(b===base?'#4a9fe0':'#3b4757')+'"/>';
+      g+='<text x="'+(x-26)+'" y="'+(y-24)+'" fill="'+(b===base?'#4a9fe0':'#6b7686')+'">base '+hh(b).slice(6)+'</text>';
+    });
+    if(s.inc>=0){
+      var xi=pl+s.inc*cw+cw/2;
+      g+='<line x1="'+xi+'" y1="'+(y-18)+'" x2="'+xi+'" y2="'+(y+16)+'" stroke="#ef6f8b" stroke-width="1.6" stroke-dasharray="3 2"/>';
+      g+='<text x="'+(xi+4)+'" y="'+(y+26)+'" fill="#ef6f8b">사고</text>';
+    }
+    var xt=pl+t*cw+cw/2;
+    g+='<line x1="'+xt+'" y1="'+(y-26)+'" x2="'+xt+'" y2="'+(y+16)+'" stroke="#54c98d" stroke-width="2"/>';
+    g+='<text x="'+(xt-16)+'" y="'+(y+44)+'" fill="#54c98d">복구 목표</text>';
+    g+='<text x="'+pl+'" y="16" fill="#8d99a9">▮ 재생에 필요한 WAL 세그먼트</text>';
+    svg.innerHTML=g+'</g>';
+
+    var msg='';
+    if(base===null){
+      msg='<b style="color:#ef6f8b">복구 불가</b> — 목표 시각('+hh(t)+') 이전에 베이스 백업이 없습니다. PITR은 '
+        +'<b>베이스 백업 + 그 이후의 연속 WAL</b>이 모두 있어야 성립합니다. 백업 보관 정책을 세울 때 "가장 오래된 복구 가능 시점"을 반드시 문서화하세요.';
+      cmd.innerHTML=window.pgHighlight('# 이 시점으로는 복구할 수 없습니다.\n# 사용 가능한 복구 시점 확인:\npgbackrest --stanza=prod info','bash');
+    } else {
+      var n=t-base+1;
+      msg='<b>'+s.name+'</b> — '+s.d+'<br><br>'
+        +'사용할 베이스 백업: <b style="color:#4a9fe0">'+hh(base)+'</b> · 재생할 WAL 세그먼트: <b style="color:#f0b263">'+n+'개</b> ('+hh(base)+' → '+hh(t)+')<br>'
+        +'재생 구간이 길수록 복구 시간(RTO)이 늘어납니다. 베이스 백업 주기를 짧게 하면 RTO가 줄고, 저장소 비용은 늘어납니다.'
+        +(s.inc>=0 && t>=s.inc ? '<br><br><b style="color:#ef6f8b">경고</b> — 복구 목표가 사고 시각 이후입니다. 사고 자체가 함께 재생되어 문제가 되풀이됩니다. 목표를 사고 이전으로 옮기세요.':'');
+      var c='# 1) 서비스 정지 후 현재 PGDATA를 별도 보관 (덮어쓰지 마세요)\n'
+        +'systemctl stop postgresql\nmv $PGDATA $PGDATA.broken\n\n'
+        +'# 2) '+hh(base)+' 베이스 백업 복원\n'
+        +'pgbackrest --stanza=prod --delta \\\n'
+        +'  --type=time --target="2026-'+hh(t).replace(' ','T')+':00+09" \\\n'
+        +'  --target-action=pause restore\n\n'
+        +'# 3) 복구 모드 기동 ('+n+'개 WAL 세그먼트 재생)\n'
+        +'touch $PGDATA/recovery.signal\nsystemctl start postgresql\ntail -f $PGDATA/log/*.log\n\n'
+        +'# 4) 데이터 확인 후 승격\npsql -c "SELECT count(*) FROM orders;"\n'
+        +'psql -c "SELECT pg_wal_replay_resume();"\npsql -c "SELECT pg_promote();"\n\n'
+        +'# 5) 타임라인이 바뀌었으므로 즉시 새 베이스 백업\n'
+        +'pgbackrest --stanza=prod --type=full backup';
+      cmd.innerHTML=window.pgHighlight(c,'bash');
+    }
+    out.innerHTML=msg;
+  }
+  sl.oninput=draw;
+  sc.onchange=function(){ sl.value=SC[sc.value].sug; draw(); };
+  draw();
+})();
+
+/* ================= demo 05 : 동기 복제 트레이드오프 ================= */
+(function(){
+  var m=document.getElementById('r-mode'); if(!m) return;
+  var rtt=document.getElementById('r-rtt'), rv=document.getElementById('r-rttv'), st=document.getElementById('r-st'),
+      lat=document.getElementById('r-lat'), tps=document.getElementById('r-tps'), rpo=document.getElementById('r-rpo'), out=document.getElementById('r-out');
+  var D={
+    off:{f:0, r:0, a:0, rpo:'최대 수백 ms 커밋 유실', why:'로컬 WAL fsync조차 기다리지 않습니다. 처리량이 가장 높지만 주 서버가 급정지하면 최근 커밋이 사라집니다(데이터 손상은 아님). 로그·통계 적재에는 합리적, 결제·원장에는 금지.'},
+    local:{f:0.5, r:0, a:0, rpo:'복제 지연분 유실 가능', why:'로컬 디스크까지는 보장하지만 복제는 비동기입니다. 주 서버 자체가 살아 있으면 손실이 없고, 서버를 완전히 잃으면 스탠바이에 아직 전송되지 않은 부분이 사라집니다. 대부분의 서비스에서 현실적인 선택입니다.'},
+    on:{f:0.5, r:1, a:0, rpo:'≈0 (스탠바이 디스크까지 보장)', why:'스탠바이가 WAL을 디스크에 fsync할 때까지 커밋이 대기합니다. 동기 복제의 표준값이며, 네트워크 왕복이 커밋 지연에 그대로 더해집니다. 리전 간 구성에서는 지연이 급격히 커집니다.'},
+    remote_write:{f:0.5, r:0.35, a:0, rpo:'스탠바이 OS까지 보장(호스트 장애 시 유실 가능)', why:'스탠바이 OS 버퍼까지 도달하면 커밋을 완료합니다. 스탠바이 프로세스 크래시는 견디지만 호스트 전체 정전은 견디지 못합니다. on과 local 사이의 실용적 타협점입니다.'},
+    remote_apply:{f:0.5, r:1, a:1.2, rpo:'≈0 (적용까지 보장)', why:'스탠바이가 WAL을 <b>적용</b>까지 마쳐야 커밋됩니다. 커밋 직후 스탠바이에서 읽어도 반드시 보이므로 읽기 분산 시 일관성이 보장됩니다. 가장 느리며, 스탠바이의 조회 부하가 주 서버 커밋 지연으로 전이됩니다.'}
+  };
+  function calc(){
+    var k=m.value, d=D[k], R=+rtt.value;
+    rv.textContent=R+' ms';
+    var down = st.value==='down';
+    var remote = (k==='on'||k==='remote_write'||k==='remote_apply');
+    if(down && remote){
+      lat.textContent='∞'; tps.textContent='0'; rpo.textContent='—';
+      out.innerHTML='<b style="color:#ef6f8b">쓰기 정지</b> — 동기 모드에서 지정된 스탠바이가 응답하지 않으면 커밋이 무한 대기합니다. '
+        +'그래서 실무 구성은 <code>synchronous_standby_names = \'ANY 1 (s1, s2)\'</code>처럼 <b>여러 후보 중 하나</b>를 요구해 1대 장애를 견디게 만듭니다. '
+        +'스탠바이가 1대뿐인데 동기 모드를 쓰는 것은 가용성을 오히려 낮추는 구성입니다.<br><br>'
+        +'응급 조치: <code>ALTER SYSTEM SET synchronous_standby_names = \'\'; SELECT pg_reload_conf();</code> 로 비동기 전환 후 원인 조사.';
+      return;
+    }
+    var L = d.f + (remote? R + d.r + d.a : 0);
+    if(L<0.05) L=0.05;
+    lat.textContent=L.toFixed(2)+' ms';
+    tps.textContent=Math.round(1000/L).toLocaleString();
+    rpo.textContent=d.rpo;
+    out.innerHTML='<b>'+k+'</b> — '+d.why
+      +'<br><br>단일 세션이 순차적으로 커밋할 때의 상한은 약 <b>'+Math.round(1000/L).toLocaleString()+' TPS</b>입니다. '
+      +'실제 시스템은 동시 세션과 그룹 커밋으로 이보다 훨씬 높은 총 처리량을 냅니다. 여기서 중요한 것은 절대값이 아니라 <b>모드 간 상대 차이</b>입니다.'
+      +(remote && R>=15 ? '<br><br><b style="color:#f0b263">주의</b> — RTT '+R+'ms는 리전 간 수준입니다. 동기 복제를 원거리에 걸면 커밋 지연이 지배적 요인이 됩니다. 원거리에는 비동기, 같은 AZ/근거리에는 동기를 조합하는 것이 일반적입니다.':'');
+  }
+  m.onchange=calc; rtt.oninput=calc; st.onchange=calc; calc();
+})();
+
+/* ================= demo 06 : 인덱스 종류 선택기 ================= */
+(function(){
+  var K=document.getElementById('i-kind'); if(!K) return;
+  var C=document.getElementById('i-cond'), out=document.getElementById('i-out');
+  var D={
+    '스칼라 값(숫자·날짜·문자)':[
+      ['등호 또는 범위 조회','B-tree','기본 선택입니다. 정렬된 구조라 =, 범위, ORDER BY, LIKE \'접두%\'를 모두 지원하고 Index Only Scan도 가능합니다.','CREATE INDEX ON orders (ordered_at DESC);'],
+      ['여러 컬럼을 함께 조건','복합 B-tree','등호 조건 컬럼을 앞에, 범위 조건을 뒤에 둡니다. 선두 컬럼이 조건에 없으면 사용되지 않습니다.','CREATE INDEX ON orders (customer_id, ordered_at DESC);'],
+      ['조회 컬럼까지 인덱스에서 해결','커버링(INCLUDE)','키가 아닌 컬럼을 리프에 담아 힙 방문을 없앱니다(Index Only Scan). Visibility Map이 최신이어야 효과가 나므로 VACUUM 상태가 중요합니다.','CREATE INDEX ON orders (customer_id) INCLUDE (amount, status);'],
+      ['대상 행이 전체의 극히 일부','부분 인덱스','조건에 맞는 행만 색인해 크기가 작고 갱신 비용도 낮습니다. 작업 큐·미처리 건 조회에 특히 강력합니다.','CREATE INDEX ON jobs (created_at) WHERE state = \'ready\';'],
+      ['함수·표현식으로 조회','표현식 인덱스','쿼리의 표현식과 정확히 일치해야 사용됩니다. 대소문자 무시 검색의 표준 해법입니다.','CREATE INDEX ON customers (lower(email));']],
+    'jsonb 문서':[
+      ['키 존재·포함 조건(@>, ?)','GIN','jsonb 내부 경로를 다중 값으로 색인합니다. jsonb_path_ops를 쓰면 더 작아지지만 지원 연산이 줄어듭니다.','CREATE INDEX ON events USING gin (payload jsonb_path_ops);'],
+      ['특정 키로만 자주 조회','표현식 B-tree','전체를 GIN으로 색인하는 것보다 훨씬 작고 빠릅니다. 자주 쓰는 키는 아예 일반 컬럼으로 승격하는 것도 좋은 선택입니다.','CREATE INDEX ON events (((payload->\'user\'->>\'id\')::int));'],
+      ['JSONPath 조건(@@, @?)','GIN','PG12+ jsonpath 연산자도 GIN으로 지원됩니다.','CREATE INDEX ON events USING gin (payload);']],
+    '배열·태그':[
+      ['포함 검색(@>, &&)','GIN','배열 원소를 개별 색인합니다. 태그 검색의 기본입니다.','CREATE INDEX ON posts USING gin (tags);'],
+      ['원소가 매우 많거나 통계가 필요','인덱스 대신 정규화','연결 테이블로 분리하면 참조 무결성·집계·부분 인덱스를 모두 얻습니다. 배열은 소규모 고정 목록에 적합합니다.','CREATE TABLE post_tags (post_id bigint, tag_id bigint, PRIMARY KEY (post_id, tag_id));']],
+    '텍스트 검색':[
+      ['단어 단위 전문 검색','GIN + tsvector','형태소·어간 처리를 포함한 검색입니다. 생성 컬럼으로 tsvector를 유지하는 방식이 관리하기 쉽습니다.','ALTER TABLE docs ADD tsv tsvector GENERATED ALWAYS AS (to_tsvector(\'simple\', body)) STORED;\nCREATE INDEX ON docs USING gin (tsv);'],
+      ['부분 문자열(LIKE \'%x%\')','GIN + pg_trgm','3글자 조합으로 색인해 양쪽이 열린 LIKE/ILIKE도 인덱스를 사용합니다. 한글에도 효과가 있습니다.','CREATE EXTENSION pg_trgm;\nCREATE INDEX ON products USING gin (name gin_trgm_ops);'],
+      ['오타 허용·유사도 정렬','GiST + pg_trgm','유사도 연산자(%, <->)로 근접 정렬이 가능합니다.','CREATE INDEX ON products USING gist (name gist_trgm_ops);']],
+    '지리·범위 데이터':[
+      ['겹침·포함·근접(&&, @>, <->)','GiST','PostGIS 지오메트리, 범위 타입, KNN 검색의 표준입니다.','CREATE INDEX ON zones USING gist (geom);'],
+      ['시간 구간 중복 금지','GiST + EXCLUDE 제약','예약 시스템에서 동시성까지 안전하게 겹침을 막습니다. 애플리케이션 로직으로는 완전히 막기 어렵습니다.','ALTER TABLE booking ADD EXCLUDE USING gist (room WITH =, period WITH &&);'],
+      ['IP·접두사 등 비겹침 데이터','SP-GiST','공간 분할 구조라 특정 패턴에서 GiST보다 작고 빠릅니다.','CREATE INDEX ON logs USING spgist (client_ip inet_ops);']],
+    '초대형 시계열(append-only)':[
+      ['시간 범위 스캔','BRIN','물리 저장 순서와 값 순서가 일치할 때 블록 범위 요약만 저장합니다. 인덱스 크기가 GB에서 MB로 줄어드는 극단적 효율을 보입니다. 정확도가 낮아 후속 필터가 필요하지만 대량 스캔 축소에 효과적입니다.','CREATE INDEX ON metrics USING brin (ts) WITH (pages_per_range = 32);'],
+      ['개별 행 조회도 필요','B-tree + 파티셔닝','정확한 단건 조회가 필요하면 B-tree가 필요합니다. 시계열은 파티셔닝과 조합해 인덱스 크기를 파티션 단위로 관리하세요.','CREATE INDEX ON metrics_2026_08 (device_id, ts DESC);']],
+    '임베딩 벡터(AI/RAG)':[
+      ['유사도 상위 K개 검색','HNSW (pgvector)','정확도와 속도가 모두 우수한 그래프 기반 인덱스입니다. 빌드 시간과 메모리 요구가 큽니다. ef_search로 조회 시 정확도를 조절합니다.','SET maintenance_work_mem = \'4GB\';\nCREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops) WITH (m=16, ef_construction=64);'],
+      ['빌드 시간·메모리 제약이 큼','IVFFlat (pgvector)','클러스터 기반으로 빌드가 빠르고 메모리를 덜 씁니다. 데이터가 충분히 쌓인 뒤 만들어야 품질이 나옵니다.','CREATE INDEX ON chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 1000);'],
+      ['메타데이터 필터와 함께','부분 HNSW 또는 파티셔닝','선택도 높은 필터와 근사 검색을 함께 쓰면 결과 수가 부족해질 수 있습니다. 테넌트별 부분 인덱스나 파티셔닝으로 검색 공간을 미리 좁히세요.','CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops) WHERE tenant_id = 42;']],
+    '등호 전용 대용량 키':[
+      ['= 조건만 사용','Hash','PG10부터 WAL에 기록되어 크래시 안전합니다. B-tree보다 작을 수 있으나 정렬·범위를 지원하지 않아 이득이 제한적입니다. 확실한 근거가 없다면 B-tree를 쓰세요.','CREATE INDEX ON sessions USING hash (session_token);'],
+      ['긴 문자열의 유일성 보장','표현식 B-tree(해시값)','매우 긴 값의 유일성만 필요하면 해시 결과에 유니크 인덱스를 거는 방법도 있습니다.','CREATE UNIQUE INDEX ON docs (md5(url));']]
+  };
+  Object.keys(D).forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent=n; K.appendChild(o); });
+  function fill(){ C.innerHTML=''; D[K.value].forEach(function(r,i){ var o=document.createElement('option'); o.value=i; o.textContent=r[0]; C.appendChild(o); }); show(); }
+  function show(){
+    var r=D[K.value][+C.value||0];
+    out.innerHTML='<div style="font-size:14px;color:#8d99a9">권장 인덱스</div>'
+      +'<div style="font-size:18px;color:#5fd4d0;font-weight:700;margin:2px 0 10px">'+r[1]+'</div>'
+      +'<div style="margin-bottom:12px">'+r[2]+'</div>'
+      +'<div style="border-top:1px solid #242d3a;padding-top:10px">'+window.pgHighlight(r[3],'sql')+'</div>'
+      +'<div style="margin-top:10px;color:#8d99a9;font-size:13px">운영 중 생성은 반드시 <b>CREATE INDEX CONCURRENTLY</b>로, 생성 후 <b>pg_stat_user_indexes.idx_scan</b>으로 실제 사용 여부를 확인하세요.</div>';
+  }
+  K.onchange=fill; C.onchange=show; fill();
+})();
+
+/* ================= demo 07 : EXPLAIN 플랜 리더 ================= */
+(function(){
+  var box=document.getElementById('e-btns'); if(!box) return;
+  var tree=document.getElementById('e-tree'), out=document.getElementById('e-out'), qEl=document.getElementById('e-q');
+  var S=[
+   {name:'① 인덱스 부재',
+    q:"SELECT c.name, sum(o.amount) FROM customers c JOIN orders o ON o.customer_id=c.id WHERE c.city='서울' GROUP BY 1;",
+    nodes:[
+     {i:0,n:'HashAggregate',d:'Group Key: c.name  (actual time=4831 rows=4210 loops=1)',self:18,sev:0,
+      why:'그룹 집계 자체는 문제가 없습니다. 4,210개 그룹을 메모리 해시로 처리했고 배치 분할이 없었습니다. 상위 노드의 시간은 하위 노드의 합을 포함하므로, 병목은 아래에서 찾아야 합니다.'},
+     {i:1,n:'Nested Loop',d:'(actual time=0.9..4805 rows=128400 loops=1)',self:24,sev:1,
+      why:'외부 4,210행 각각에 대해 내부를 반복 실행했습니다. 외부 행이 적을 때는 Nested Loop가 최적이지만, 내부에 인덱스가 없으면 최악의 선택이 됩니다. loops 값을 반드시 확인하세요.'},
+     {i:2,n:'Seq Scan on customers',d:"Filter: (city='서울')  Rows Removed by Filter: 15790  (actual time=0.3..11 rows=4210 loops=1)",self:11,sev:0,
+      why:'2만 행 규모의 작은 테이블이므로 순차 스캔이 오히려 합리적입니다. 이 노드는 11ms만 소비했습니다. 소형 테이블의 Seq Scan을 없애려는 시도는 대개 이득이 없습니다.'},
+     {i:2,n:'Seq Scan on orders',d:'Filter: (customer_id = c.id)  Rows Removed by Filter: 8195600  (actual time=1.1 rows=30 loops=4210)  Buffers: shared read=1120400',self:100,sev:2,
+      why:'<b>진짜 병목입니다.</b> 820만 행 테이블을 4,210번 전체 스캔했습니다(1.1ms × 4210 ≈ 4.6초). Rows Removed by Filter가 800만 대인 것과 Buffers read가 100만 블록을 넘는 것이 결정적 증거입니다.<br><br><b>처방</b><br><code>CREATE INDEX CONCURRENTLY idx_orders_customer ON orders (customer_id);</code><br>이후 이 노드는 Index Scan(loops=4210, 각 0.01ms)으로 바뀌어 전체가 수십 ms 수준으로 떨어집니다. FK 컬럼에는 인덱스가 자동 생성되지 않는다는 점이 이 사고의 근본 원인입니다.'}
+    ]},
+   {name:'② 통계 오차',
+    q:"SELECT c.name, o.amount FROM orders o JOIN customers c ON c.id=o.customer_id WHERE o.status='PENDING' AND o.region='KR';",
+    nodes:[
+     {i:0,n:'Nested Loop',d:'(actual time=0.4..9211 rows=240000 loops=1)  rows 추정=12',self:20,sev:2,
+      why:'<b>추정 12행 vs 실제 240,000행 — 2만 배 오차입니다.</b> 플래너는 결과가 12행일 것이라 보고 Nested Loop를 골랐습니다. 만약 240,000행으로 추정했다면 Hash Join을 선택해 수백 ms에 끝났을 것입니다.<br><br>계획 자체가 틀린 것이 아니라 <b>입력 정보가 틀린</b> 사례입니다.'},
+     {i:1,n:'Bitmap Heap Scan on orders',d:"Recheck Cond: (status='PENDING')  Filter: (region='KR')  (actual rows=240000 loops=1)  rows 추정=12",self:35,sev:1,
+      why:'status와 region은 상관관계가 있습니다(국내 주문에 PENDING이 몰려 있음). 플래너는 두 조건이 독립이라고 가정해 선택도를 곱하므로 크게 과소 추정합니다.<br><br><b>처방</b><br><code>CREATE STATISTICS st_ord (dependencies, ndistinct, mcv) ON status, region FROM orders;</code><br><code>ANALYZE orders;</code><br>다중 컬럼 통계를 만들어 주면 추정이 교정되고 조인 방식이 바뀝니다.'},
+     {i:2,n:'Bitmap Index Scan on idx_orders_status',d:"Index Cond: (status='PENDING')  (actual time=0.3..38 rows=241000 loops=1)",self:38,sev:0,
+      why:'인덱스 자체는 잘 동작했습니다. 문제는 이 결과를 몇 행으로 예상했느냐입니다.'},
+     {i:1,n:'Index Scan on customers using customers_pkey',d:'Index Cond: (id = o.customer_id)  (actual time=0.03 rows=1 loops=240000)',self:100,sev:2,
+      why:'<b>loops=240,000</b> — 개별 조회는 0.03ms로 빠르지만 24만 번 반복하면 7초가 넘습니다. Nested Loop의 위험이 정확히 이 지점에 있습니다.<br><br>임시 확인용으로 <code>SET enable_nestloop = off;</code>를 걸어 Hash Join과 시간을 비교해 볼 수 있지만, 운영 해법은 통계 교정입니다. PG14+에서는 Memoize 노드가 반복 조회를 캐시해 완화해 주기도 합니다.'}
+    ]},
+   {name:'③ work_mem 부족',
+    q:'SELECT * FROM orders ORDER BY amount DESC LIMIT 50000;',
+    nodes:[
+     {i:0,n:'Limit',d:'(actual time=3125..3140 rows=50000 loops=1)',self:5,sev:0,
+      why:'LIMIT은 상위 노드에서 잘라내기만 합니다. 정렬이 완료되어야 첫 행을 낼 수 있으므로 아래 Sort가 끝날 때까지 기다립니다.'},
+     {i:1,n:'Sort',d:'Sort Key: amount DESC  Sort Method: external merge  Disk: 486MB  (actual time=3120 rows=8200000 loops=1)',self:100,sev:2,
+      why:'<b>Sort Method: external merge Disk</b> — 정렬이 메모리에 들어가지 못해 임시 파일 486MB를 사용했습니다. 이것이 3초의 대부분입니다.<br><br><b>처방 세 가지</b><br>'
+        +'1) 이 세션만 메모리 상향: <code>SET work_mem = \'512MB\';</code> (전역 상향은 세션 수 × 노드 수만큼 곱해지므로 위험)<br>'
+        +'2) 인덱스로 정렬 자체를 제거: <code>CREATE INDEX ON orders (amount DESC);</code> → Index Scan으로 상위 5만 행만 읽습니다. 가장 좋은 해법입니다.<br>'
+        +'3) 정말 5만 행이 필요한지 재검토 — 페이지네이션이라면 커서 방식(<code>WHERE amount &lt; :last</code>)이 OFFSET보다 훨씬 저렴합니다.<br><br>'
+        +'모니터링 항목: <code>log_temp_files = 0</code>과 <code>pg_stat_database.temp_bytes</code>로 이런 상황을 사후에 잡아낼 수 있습니다.'},
+     {i:2,n:'Seq Scan on orders',d:'(actual time=0.2..640 rows=8200000 loops=1)  Buffers: shared hit=8200 read=112000',self:640/3140*100,sev:0,
+      why:'전체 행을 정렬해야 하므로 순차 스캔은 타당합니다. 다만 read=112,000 블록은 캐시에 없던 데이터가 많았다는 뜻이며, shared_buffers 대비 테이블 크기를 검토할 신호입니다.'}
+    ]}
+  ];
+  function render(s){
+    qEl.innerHTML=window.pgHighlight(s.q,'sql');
+    var h='';
+    s.nodes.forEach(function(n,idx){
+      var col = n.sev===2?'#ef6f8b':(n.sev===1?'#f0b263':'#54c98d');
+      h+='<div class="e-node" data-idx="'+idx+'" style="margin:3px 0;padding:7px 9px;border-radius:6px;cursor:pointer;'
+        +'border:1px solid #242d3a;background:#141922;margin-left:'+(n.i*18)+'px">'
+        +'<div style="display:flex;gap:8px;align-items:center">'
+        +'<span style="color:'+col+'">'+(n.i?'└▸ ':'▸ ')+'</span>'
+        +'<b style="color:#e7ecf3">'+n.n+'</b></div>'
+        +'<div style="color:#8d99a9;font-size:11.4px;margin:3px 0 5px;word-break:break-all">'+n.d+'</div>'
+        +'<div class="bar" style="height:5px"><i style="width:'+Math.min(100,n.self)+'%;background:'+col+'"></i></div></div>';
+    });
+    tree.innerHTML=h;
+    tree.querySelectorAll('.e-node').forEach(function(el){
+      el.onclick=function(){
+        tree.querySelectorAll('.e-node').forEach(function(x){x.style.borderColor='#242d3a';x.style.background='#141922';});
+        el.style.borderColor='#4a9fe0'; el.style.background='#1d242f';
+        var n=s.nodes[+el.getAttribute('data-idx')];
+        out.innerHTML='<div style="color:#4a9fe0;font-weight:700;margin-bottom:8px">'+n.n+'</div>'+n.why;
+      };
+    });
+    var worst=0; s.nodes.forEach(function(n,i){ if(n.sev===2 && n.self>=s.nodes[worst].self) worst=i; });
+    tree.querySelectorAll('.e-node')[worst].click();
+  }
+  S.forEach(function(s,i){
+    var b=document.createElement('button'); b.className='btn sm'; b.textContent=s.name;
+    b.onclick=function(){ box.querySelectorAll('.btn').forEach(function(x){x.classList.remove('is-on');}); b.classList.add('is-on'); render(s); };
+    box.appendChild(b); if(i===0) setTimeout(function(){b.click();},0);
+  });
+})();
+
+/* ================= demo 08 : 파라미터 계산기 ================= */
+(function(){
+  var ram=document.getElementById('c-ram'); if(!ram) return;
+  var cpu=document.getElementById('c-cpu'), disk=document.getElementById('c-disk'), wl=document.getElementById('c-wl'),
+      conn=document.getElementById('c-conn'), pool=document.getElementById('c-pool'),
+      confEl=document.getElementById('c-conf'), noteEl=document.getElementById('c-note');
+  function mb(v){ if(v>=1024){ var g=v/1024; return (Math.round(g*10)/10)+'GB'; } return Math.round(v)+'MB'; }
+  function calc(){
+    var R=Math.max(1,+ram.value||8), C=Math.max(1,+cpu.value||2), W=wl.value, DK=disk.value,
+        CN=Math.max(10,+conn.value||100), P=pool.value==='yes';
+    var sb=Math.round(R*1024*0.25);                       // MB
+    if(sb>32768) sb=32768;
+    var ecs=Math.round(R*1024*0.70);
+    var backends = P ? Math.min(CN, C*4+8) : CN;
+    var ppg = W==='olap'?Math.min(8,Math.max(2,Math.round(C/2))) : W==='oltp'?2:Math.min(4,Math.max(2,Math.round(C/4)));
+    /* work_mem = (가용 메모리) / (백엔드 × 메모리 노드 3개) / 병렬도 */
+    var base=(R*1024-sb)/Math.max(1,backends*3)/Math.max(1,ppg);
+    var mult = W==='olap'?4 : W==='mixed'?1.2 : W==='write'?0.8 : 1;
+    var cap  = W==='olap'?1024 : W==='mixed'?256 : W==='write'?64 : 128;
+    var wm=Math.max(4, Math.min(cap, Math.round(base*mult/4)*4));
+    var mwm=Math.min(W==='olap'?4096:2048, Math.max(64, Math.round(R*1024/16)));
+    var maxWal = W==='write'?32 : W==='olap'?16 : 8; if(R<16) maxWal=Math.max(2,maxWal/4);
+    var rpc = DK==='ssd'?'1.1' : DK==='net'?'1.5':'4.0';
+    var eio = DK==='ssd'?200 : DK==='net'?100:2;
+    var avw = C>=16?5:3, avcl = W==='write'?4000:2000, avsf = W==='write'?'0.02':'0.05';
+    var maxConn = P ? Math.min(CN, Math.max(100, C*8)) : CN;
+    var poolSize = C*2+2;
+    var conf='# ── 서버: RAM '+R+'GB · vCPU '+C+' · '+({ssd:'NVMe/SSD',net:'네트워크 스토리지',hdd:'HDD'}[DK])
+      +' · '+({oltp:'OLTP',olap:'OLAP',mixed:'혼합',write:'쓰기 집중'}[W])+' ──\n\n'
+      +'# 메모리\n'
+      +'shared_buffers = '+mb(sb)+'\n'
+      +'effective_cache_size = '+mb(Math.round(ecs/1024)*1024)+'\n'
+      +'work_mem = '+mb(wm)+'\n'
+      +'maintenance_work_mem = '+mb(mwm)+'\n'
+      +'wal_buffers = 64MB\n'
+      +(R>=32?'huge_pages = try\n':'')
+      +'\n# 접속\n'
+      +'max_connections = '+maxConn+'\n'
+      +'superuser_reserved_connections = 5\n'
+      +'idle_in_transaction_session_timeout = 60s\n'
+      +'statement_timeout = '+(W==='olap'?'0    # 배치는 롤 단위로 개별 지정':'30s')+'\n'
+      +'lock_timeout = 3s\n'
+      +'\n# WAL / 체크포인트\n'
+      +'wal_level = replica\n'
+      +'max_wal_size = '+maxWal+'GB\n'
+      +'min_wal_size = '+Math.max(1,Math.round(maxWal/4))+'GB\n'
+      +'checkpoint_timeout = 15min\n'
+      +'checkpoint_completion_target = 0.9\n'
+      +'wal_compression = zstd\n'
+      +'archive_mode = on\n'
+      +'\n# 플래너 비용 (스토리지 특성 반영)\n'
+      +'random_page_cost = '+rpc+'\n'
+      +'effective_io_concurrency = '+eio+'\n'
+      +'maintenance_io_concurrency = '+eio+'\n'
+      +'default_statistics_target = '+(W==='olap'?200:100)+'\n'
+      +'\n# 병렬 처리\n'
+      +'max_worker_processes = '+C+'\n'
+      +'max_parallel_workers = '+C+'\n'
+      +'max_parallel_workers_per_gather = '+ppg+'\n'
+      +'max_parallel_maintenance_workers = '+Math.min(4,Math.max(2,Math.round(C/4)))+'\n'
+      +'\n# autovacuum\n'
+      +'autovacuum_max_workers = '+avw+'\n'
+      +'autovacuum_vacuum_scale_factor = '+avsf+'\n'
+      +'autovacuum_analyze_scale_factor = 0.02\n'
+      +'autovacuum_vacuum_cost_limit = '+avcl+'\n'
+      +'autovacuum_vacuum_cost_delay = 2ms\n'
+      +'log_autovacuum_min_duration = 1s\n'
+      +'\n# 관측\n'
+      +"shared_preload_libraries = 'pg_stat_statements,auto_explain'\n"
+      +'log_min_duration_statement = 1000\n'
+      +'log_checkpoints = on\n'
+      +'log_lock_waits = on\n'
+      +'log_temp_files = 0\n'
+      +'track_io_timing = on\n';
+    confEl.innerHTML=window.pgHighlight(conf,'conf');
+
+    var worst=(sb + backends*wm*3)/1024;
+    var notes='<div style="color:#4a9fe0;font-weight:700;margin-bottom:8px">산정 근거와 확인 사항</div>';
+    notes+='<b>shared_buffers</b> = RAM의 25%'+(sb===32768?' (32GB에서 상한 적용)':'')+'. 더 늘리기 전에 <code>pg_buffercache</code>로 캐시 적중률과 더티 비율을 먼저 확인하세요.<br><br>';
+    notes+='<b>work_mem</b> = (RAM − shared_buffers) ÷ (예상 백엔드 '+backends+' × 메모리 노드 3) ÷ 병렬도 '+ppg+' 에 워크로드 계수를 적용했습니다. '
+      +'최악의 경우 <b>'+worst.toFixed(1)+'GB</b>(shared_buffers + 백엔드×work_mem×3노드)가 필요하므로 RAM '+R+'GB 대비 '
+      +(worst>R*0.85?'<b style="color:#ef6f8b">위험합니다. work_mem을 낮추거나 접속 수를 줄이세요.</b>':'여유가 있습니다.')+'<br><br>';
+    notes+='<b>max_connections</b> — '+(P
+      ? 'pgbouncer를 쓰므로 서버 측은 작게 유지합니다. transaction 모드에서 <code>default_pool_size = '+poolSize+'</code>(vCPU×2+2) 근처가 출발점이고, 앱 측 풀 합계는 pgbouncer의 max_client_conn 이하로 제한하세요.'
+      : '<b style="color:#f0b263">풀러 없이 '+CN+' 접속은 권장하지 않습니다.</b> 접속당 프로세스가 생성되고 활성 쿼리 수가 vCPU를 크게 넘으면 처리량이 오히려 떨어집니다. pgbouncer 도입을 검토하세요.')+'<br><br>';
+    notes+='<b>max_wal_size = '+maxWal+'GB</b> — <code>pg_stat_checkpointer</code>에서 num_requested가 num_timed보다 크면 아직 부족합니다. 디스크 여유가 있는 한 관대하게 잡는 편이 쓰기 지연에 유리합니다.<br><br>';
+    notes+='<b>random_page_cost = '+rpc+'</b> — '+(DK==='ssd'?'SSD/NVMe는 랜덤 접근 비용이 순차와 거의 같으므로 기본값 4.0을 낮춰야 인덱스 스캔이 정당하게 평가됩니다.':DK==='net'?'네트워크 스토리지는 지연이 있으므로 1.5 전후가 무난합니다. 실측으로 조정하세요.':'HDD는 기본값 4.0이 적절합니다.')+'<br><br>';
+    notes+='<b>적용 순서</b> — ① 스테이징에서 pgbench로 기준선 측정 → ② 메모리 계열 먼저 적용 → ③ 재시작 필요 항목(shared_buffers, max_connections, shared_preload_libraries) 확인 → ④ 24시간 관찰 후 autovacuum·WAL 계열 조정. '
+      +'한 번에 여러 개를 바꾸면 무엇이 효과였는지 알 수 없습니다.';
+    noteEl.innerHTML=notes;
+  }
+  [ram,cpu,conn].forEach(function(e){e.oninput=calc;});
+  [disk,wl,pool].forEach(function(e){e.onchange=calc;});
+  calc();
+})();
+
+/* ================= demo 09 : 락 호환성 매트릭스 ================= */
+(function(){
+  var grid=document.getElementById('l-grid'); if(!grid) return;
+  var out=document.getElementById('l-out');
+  var M=[
+   ['ACCESS SHARE','AS',['AE'],'SELECT','가장 약한 락입니다. 다른 SELECT는 물론 DML과도 충돌하지 않고, ACCESS EXCLUSIVE에만 막힙니다. 즉 <b>조회가 멈춘다면 누군가 ACCESS EXCLUSIVE를 잡았거나 기다리는 중</b>입니다.'],
+   ['ROW SHARE','RS',['E','AE'],'SELECT ... FOR UPDATE / FOR SHARE','행 잠금을 예약하는 테이블 수준 락입니다. DML과 공존합니다.'],
+   ['ROW EXCLUSIVE','RE',['S','SRE','E','AE'],'INSERT, UPDATE, DELETE, MERGE, COPY FROM','일반 DML이 잡는 락입니다. 서로 충돌하지 않으므로 여러 세션이 동시에 쓰기를 할 수 있습니다. CREATE INDEX(비CONCURRENTLY)의 SHARE와 충돌합니다.'],
+   ['SHARE UPDATE EXCLUSIVE','SUE',['SUE','S','SRE','E','AE'],'VACUUM(FULL 아님), ANALYZE, CREATE INDEX CONCURRENTLY, REINDEX CONCURRENTLY, ALTER TABLE VALIDATE, DETACH PARTITION CONCURRENTLY','<b>운영 중 유지보수의 핵심 락</b>입니다. DML과 공존하므로 서비스에 영향이 적습니다. 다만 같은 락끼리는 충돌하므로 VACUUM 중에 CREATE INDEX CONCURRENTLY는 대기합니다.'],
+   ['SHARE','S',['RE','SUE','SRE','E','AE'],'CREATE INDEX (CONCURRENTLY 아님)','읽기는 허용하되 <b>쓰기를 차단</b>합니다. 운영 중 인덱스 생성에 기본 문법을 쓰면 이 락 때문에 쓰기가 멈춥니다.'],
+   ['SHARE ROW EXCLUSIVE','SRE',['RE','SUE','S','SRE','E','AE'],'CREATE TRIGGER, 일부 ALTER TABLE','쓰기를 차단하며 자기 자신과도 충돌합니다.'],
+   ['EXCLUSIVE','E',['RS','RE','SUE','S','SRE','E','AE'],'REFRESH MATERIALIZED VIEW CONCURRENTLY','ACCESS SHARE(단순 SELECT)만 허용합니다.'],
+   ['ACCESS EXCLUSIVE','AE',['AS','RS','RE','SUE','S','SRE','E','AE'],'DROP TABLE, TRUNCATE, VACUUM FULL, CLUSTER, REINDEX(비CONCURRENTLY), REFRESH MAT VIEW(비CONCURRENTLY), 대부분의 ALTER TABLE','<b>가장 강한 락. 조회조차 막습니다.</b> 작업 자체가 1초짜리여도, 앞선 장기 트랜잭션 때문에 락을 얻지 못하면 그 시간 내내 뒤에 줄을 선 모든 요청이 함께 멈춥니다. 이것이 "컬럼 하나 추가했는데 장애가 났다"의 정체입니다. 반드시 <code>SET lock_timeout</code>과 재시도로 감싸세요.'],
+  ];
+  var abbr=M.map(function(r){return r[1];});
+  function render(sel){
+    var h='<table class="rtbl" style="font-size:11.6px"><thead><tr><th style="text-align:left">보유 ↓ / 요청 →</th>';
+    abbr.forEach(function(a){ h+='<th>'+a+'</th>'; });
+    h+='</tr></thead><tbody>';
+    M.forEach(function(r,ri){
+      h+='<tr><td class="l-row" data-i="'+ri+'" style="cursor:pointer;text-align:left;'
+        +(sel===ri?'background:rgba(74,159,224,.18);color:#fff':'')+'">'+r[0]+'</td>';
+      abbr.forEach(function(a){
+        var conflict=r[2].indexOf(a)>=0;
+        var hl = sel===ri;
+        h+='<td style="text-align:center;'
+          +(conflict?'background:'+(hl?'rgba(239,111,139,.42)':'rgba(239,111,139,.16)')+';color:#ffc2ce':'color:#54c98d')
+          +'">'+(conflict?'✕':'○')+'</td>';
+      });
+      h+='</tr>';
+    });
+    grid.innerHTML=h+'</tbody></table>';
+    grid.querySelectorAll('.l-row').forEach(function(td){
+      td.onclick=function(){ var i=+td.getAttribute('data-i'); render(i);
+        out.innerHTML='<div style="color:#4a9fe0;font-weight:700;margin-bottom:6px">'+M[i][0]+' ('+M[i][1]+')</div>'
+          +'<div style="margin-bottom:8px"><b>이 락을 잡는 명령</b> — '+M[i][3]+'</div>'
+          +'<div style="margin-bottom:8px">'+M[i][4]+'</div>'
+          +'<div style="color:#8d99a9">충돌하는 락: '+(M[i][2].join(', ')||'없음')+' &nbsp;(✕ = 서로 대기)</div>';
+      };
+    });
+  }
+  render(-1);
+})();
+
+/* ================= demo 10 : 장애 대응 트리 ================= */
+(function(){
+  var box=document.getElementById('t-btns'); if(!box) return;
+  var out=document.getElementById('t-out');
+  var T=[
+   {s:'모든 쿼리가 갑자기 느려짐',
+    steps:[
+     ['현재 대기 상태를 본다',"SELECT wait_event_type, wait_event, state, count(*)\nFROM pg_stat_activity WHERE state='active'\nGROUP BY 1,2,3 ORDER BY 4 DESC;",'Lock이 많으면 잠금 경합, IO가 많으면 디스크, LWLock이면 내부 경합, Client는 앱 대기(정상)입니다.'],
+     ['막고 있는 세션을 특정한다',"SELECT pid, usename, now()-xact_start AS age, pg_blocking_pids(pid),\n       left(query,60) FROM pg_stat_activity\nWHERE cardinality(pg_blocking_pids(pid)) > 0;",'blocked_by에 나온 PID가 근원입니다. 그 세션의 query와 xact_start를 확인하세요.'],
+     ['체크포인트·임시파일 폭주를 확인한다',"SELECT * FROM pg_stat_checkpointer;\nSELECT datname, temp_files, pg_size_pretty(temp_bytes)\nFROM pg_stat_database WHERE datname=current_database();",'num_requested 급증은 max_wal_size 부족, temp_bytes 급증은 work_mem 부족 신호입니다.'],
+     ['조치',"SELECT pg_cancel_backend(:pid);      -- 먼저 취소\nSELECT pg_terminate_backend(:pid);   -- 안 되면 종료",'취소를 먼저 시도합니다. 원인 쿼리를 기록해 두고 사후에 인덱스·통계·파라미터를 교정하세요.']]},
+   {s:'디스크 사용량이 계속 증가',
+    steps:[
+     ['어디가 커지는지 구분한다',"SELECT pg_size_pretty(pg_database_size(current_database())) AS db,\n       (SELECT pg_size_pretty(sum(size)) FROM pg_ls_waldir()) AS pg_wal;",'DB 본체인지 pg_wal인지에 따라 원인이 완전히 다릅니다.'],
+     ['pg_wal이면 3대 원인을 확인한다',"SELECT failed_count, last_failed_wal FROM pg_stat_archiver;\nSELECT slot_name, active, wal_status,\n  pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn))\nFROM pg_replication_slots;\nSELECT pid, now()-xact_start FROM pg_stat_activity\nWHERE xact_start < now()-interval '10 min';",'아카이브 실패 / 비활성 복제 슬롯 / 장기 트랜잭션. <b>WAL 파일을 직접 rm하면 복구 불가 손상이 발생합니다.</b>'],
+     ['DB 본체면 bloat를 확인한다',"SELECT relname, n_dead_tup, last_autovacuum,\n  pg_size_pretty(pg_total_relation_size(relid)) AS size\nFROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 10;",'dead 튜플이 많고 last_autovacuum이 오래됐다면 VACUUM이 막혀 있습니다(2·3장).'],
+     ['조치',"SELECT pg_drop_replication_slot('unused_slot');\nALTER SYSTEM SET max_slot_wal_keep_size = '64GB';\nALTER SYSTEM SET idle_in_transaction_session_timeout = '60s';\nSELECT pg_reload_conf();\n-- 심한 bloat는 pg_repack, 인덱스는 REINDEX CONCURRENTLY",'응급 처치 후 반드시 근본 원인(아카이브 스크립트, 앱의 트랜잭션 관리)을 고치세요.']]},
+   {s:'too many clients / 접속 실패',
+    steps:[
+     ['사용량과 상태 분포를 본다',"SELECT state, count(*) FROM pg_stat_activity GROUP BY 1;\nSELECT setting FROM pg_settings WHERE name='max_connections';",'idle이 대다수라면 앱 풀 설정 문제, active가 대다수라면 성능 문제입니다.'],
+     ['idle in transaction을 찾는다',"SELECT pid, usename, application_name,\n  now()-state_change AS idle_for, left(query,60)\nFROM pg_stat_activity\nWHERE state='idle in transaction'\nORDER BY state_change LIMIT 20;",'이 상태는 접속만 낭비하는 것이 아니라 VACUUM까지 막습니다. 앱의 트랜잭션 종료 누락이 원인입니다.'],
+     ['응급 확보',"SELECT pg_terminate_backend(pid) FROM pg_stat_activity\nWHERE state='idle in transaction'\n  AND state_change < now()-interval '10 min';",'슈퍼유저 예약 접속(superuser_reserved_connections)으로 들어가 조치합니다.'],
+     ['재발 방지',"ALTER SYSTEM SET idle_in_transaction_session_timeout='60s';\nALTER SYSTEM SET idle_session_timeout='30min';\nSELECT pg_reload_conf();\n-- 그리고 pgbouncer(pool_mode=transaction) 도입",'max_connections를 무작정 올리는 것은 해법이 아닙니다. 프로세스와 메모리가 함께 늘어납니다.']]},
+   {s:'복제 지연이 계속 증가',
+    steps:[
+     ['어느 단계에서 밀리는지 구분한다',"SELECT application_name, state, sync_state,\n  pg_wal_lsn_diff(pg_current_wal_lsn(), sent_lsn)  AS to_send,\n  pg_wal_lsn_diff(sent_lsn, flush_lsn)             AS to_flush,\n  pg_wal_lsn_diff(flush_lsn, replay_lsn)           AS to_replay,\n  write_lag, flush_lag, replay_lag\nFROM pg_stat_replication;",'to_send=네트워크, to_flush=스탠바이 디스크, to_replay=적용 지연(스탠바이의 조회가 방해).'],
+     ['스탠바이에서 충돌을 확인한다',"SELECT * FROM pg_stat_database_conflicts;\nSHOW max_standby_streaming_delay;\nSHOW hot_standby_feedback;",'스탠바이의 장기 조회가 적용을 막고 있으면 충돌 카운터가 늘어납니다.'],
+     ['조치와 판단',"-- 적용 지연이면: 스탠바이의 장기 쿼리 정리 또는\n--   max_standby_streaming_delay 조정(조회 우선 vs 복제 우선 선택)\n-- 네트워크면: wal_compression = zstd, 대역폭 확보\n-- 디스크면: 스탠바이 스토리지 등급 상향\n-- 슬롯 보관량 상한 설정으로 주 서버 보호\nALTER SYSTEM SET max_slot_wal_keep_size='64GB';",'복제 지연은 페일오버 시 데이터 손실과 직결됩니다. 경보 임계값을 시간과 바이트 두 축으로 두세요.']]},
+   {s:'특정 UPDATE/DDL이 멈춤(hang)',
+    steps:[
+     ['무엇을 기다리는지 확인한다',"SELECT pid, wait_event_type, wait_event, state,\n  now()-query_start AS running, left(query,80)\nFROM pg_stat_activity WHERE pid = :pid;",'wait_event_type이 Lock이면 잠금 대기, IO면 디스크 대기입니다.'],
+     ['락 사슬을 추적한다',"SELECT w.pid AS waiter, w.mode AS want, w.relation::regclass,\n       b.pid AS blocker, b.mode AS held, left(a.query,60)\nFROM pg_locks w\nJOIN pg_locks b ON w.relation=b.relation AND b.granted AND NOT w.granted\nJOIN pg_stat_activity a ON a.pid=b.pid;",'DDL이 ACCESS EXCLUSIVE를 기다리는 중이라면, 그 뒤의 SELECT까지 함께 멈춰 있을 것입니다.'],
+     ['교착상태인지 확인한다',"SELECT deadlocks FROM pg_stat_database WHERE datname=current_database();\n-- 로그에서 'deadlock detected' 검색",'교착상태는 PostgreSQL이 자동으로 한쪽을 취소합니다. 반복되면 앱의 잠금 순서를 통일하세요.'],
+     ['조치와 예방',"-- 즉시: 원인 세션 취소\nSELECT pg_cancel_backend(:blocker);\n-- 예방: DDL 세션에 항상\nSET lock_timeout = '3s';\nSET statement_timeout = '30s';\n-- 그리고 실패 시 재시도 로직",'DDL은 "얻지 못하면 즉시 포기하고 재시도"가 원칙입니다. 무한 대기가 장애를 만듭니다.']]},
+   {s:'XID 소진 경고 발생',
+    steps:[
+     ['얼마나 남았는지 정량 확인',"SELECT datname, age(datfrozenxid) AS xid_age,\n  round(100.0*age(datfrozenxid)/2147483647,1) AS pct\nFROM pg_database ORDER BY 2 DESC;",'약 21억에서 새 트랜잭션이 거부됩니다. 10억(약 50%)부터는 비상 대응 단계로 보세요.'],
+     ['범인 테이블을 찾는다',"SELECT c.oid::regclass, age(c.relfrozenxid) AS xid_age,\n  pg_size_pretty(pg_total_relation_size(c.oid)) AS size,\n  s.last_autovacuum\nFROM pg_class c LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid\nWHERE c.relkind IN ('r','m','t')\nORDER BY 2 DESC LIMIT 20;",'대개 거대한 append-only 테이블이나 autovacuum이 계속 밀린 테이블입니다.'],
+     ['방해 요소를 제거한다',"SELECT pid, now()-xact_start FROM pg_stat_activity\nWHERE xact_start < now()-interval '5 min';\nSELECT slot_name FROM pg_replication_slots WHERE NOT active;\nSELECT gid, prepared FROM pg_prepared_xacts;",'장기 트랜잭션·비활성 슬롯·prepared transaction을 제거해야 동결이 진행됩니다.'],
+     ['병렬 동결 실행','vacuumdb --freeze --jobs=4 --analyze \\\n  --table=public.big_events -d prod -v','이미 정지된 경우에는 단일 사용자 모드로 기동해 VACUUM FREEZE를 수행합니다. 해소 후 대형 테이블별 autovacuum 파라미터와 경보를 반드시 설정하세요.']]}
+  ];
+  function render(t){
+    var h='';
+    t.steps.forEach(function(s,i){
+      h+='<div style="margin:14px 0 0"><div style="display:flex;gap:9px;align-items:baseline;margin-bottom:6px">'
+        +'<span class="mono" style="color:#4a9fe0;font-size:11.5px;border:1px solid #2f3a49;border-radius:6px;padding:1px 7px">STEP '+(i+1)+'</span>'
+        +'<b>'+s[0]+'</b></div>'
+        +'<div class="cb" style="margin:0 0 8px"><div class="cb__hd"><span class="cb__tab is-on">'+(s[1].indexOf('vacuumdb')===0?'shell':'psql')+'</span></div>'
+        +'<pre class="is-on" style="display:block"><code>'+window.pgHighlight(s[1], s[1].indexOf('vacuumdb')===0?'bash':'sql')+'</code></pre></div>'
+        +'<div class="small" style="color:#b9c3d0">'+s[2]+'</div></div>';
+    });
+    out.innerHTML=h;
+  }
+  T.forEach(function(t,i){
+    var b=document.createElement('button'); b.className='btn sm'; b.textContent=t.s;
+    b.onclick=function(){ box.querySelectorAll('.btn').forEach(function(x){x.classList.remove('is-on');}); b.classList.add('is-on'); render(t); };
+    box.appendChild(b); if(i===0) setTimeout(function(){b.click();},0);
+  });
+})();
+
+/* ================= demo 11 : 용어집 ================= */
+(function(){
+  var q=document.getElementById('g-q'); if(!q) return;
+  var out=document.getElementById('g-out'), cnt=document.getElementById('g-cnt');
+  var G=[
+   ['MVCC','Multi-Version Concurrency Control','행의 여러 버전을 유지해 읽기와 쓰기가 서로를 막지 않게 하는 동시성 제어 방식. PostgreSQL은 옛 버전을 테이블 안에 남기므로 VACUUM이 필요합니다.'],
+   ['튜플','tuple','행(row)의 물리적 표현. PostgreSQL 문서·에러 메시지에서 행을 가리키는 표준 용어입니다.'],
+   ['dead 튜플','dead tuple','더 이상 어떤 스냅샷에도 보이지 않는 옛 행 버전. VACUUM의 회수 대상입니다.'],
+   ['bloat','bloat','dead 튜플과 빈 공간 때문에 실제 데이터보다 테이블·인덱스가 커진 상태. 10~20%는 정상이며 증가 추세가 문제입니다.'],
+   ['xmin / xmax','—','행을 생성한 트랜잭션 ID와 삭제·갱신한 트랜잭션 ID. 가시성 판단의 근거입니다.'],
+   ['ctid','—','행의 물리적 위치 (블록번호, 오프셋). UPDATE 시 바뀌므로 영속 식별자로 쓸 수 없습니다.'],
+   ['XID','Transaction ID','32비트 트랜잭션 번호. 약 21억을 소진하기 전에 동결(freeze)해야 하며, 방치하면 DB가 정지합니다.'],
+   ['wraparound','XID wraparound','XID가 순환해 과거·미래를 구분할 수 없게 되는 상황. 이를 막기 위해 anti-wraparound VACUUM이 강제 실행됩니다.'],
+   ['freeze','—','오래된 행의 XID를 FrozenXID로 표시해 XID 나이 계산에서 제외하는 작업. VACUUM이 수행합니다.'],
+   ['HOT 업데이트','Heap Only Tuple','인덱스 컬럼을 바꾸지 않고 같은 페이지에 공간이 있을 때, 인덱스 갱신 없이 새 버전을 만드는 최적화. 쓰기 비용을 크게 줄입니다.'],
+   ['fillfactor','—','페이지를 채우는 비율. 낮추면 HOT 업데이트 여유가 생겨 갱신이 잦은 테이블에 유리합니다.'],
+   ['TOAST','The Oversized-Attribute Storage Technique','약 2kB를 넘는 값을 압축·분할해 별도 테이블에 저장하는 구조. 테이블 크기 계산이 어긋나는 주된 이유입니다.'],
+   ['FSM / VM','Free Space Map / Visibility Map','빈 공간 지도와 "이 페이지의 모든 행이 모두에게 보인다"는 지도. VM은 Index Only Scan과 VACUUM 건너뛰기의 근거입니다.'],
+   ['WAL','Write-Ahead Log','데이터 파일 변경 전에 먼저 기록하는 변경 로그. 크래시 복구·복제·PITR의 공통 기반입니다.'],
+   ['LSN','Log Sequence Number','WAL 스트림 내 바이트 위치. 0/16B3A48 형식으로 표기하며 복제 지연과 복구 목표의 좌표입니다.'],
+   ['WAL 세그먼트','WAL segment','기본 16MB 크기의 WAL 파일. pg_wal 디렉터리에 저장됩니다.'],
+   ['타임라인','timeline','복구나 승격이 일어나면 증가하는 분기 번호. 서로 다른 타임라인의 WAL을 섞으면 복구가 실패합니다.'],
+   ['체크포인트','checkpoint','더티 페이지를 데이터 파일에 반영하고 그 지점까지의 WAL을 재사용 가능하게 만드는 작업.'],
+   ['full_page_writes','—','체크포인트 후 첫 변경 시 페이지 전체를 WAL에 기록해 부분 쓰기(torn page) 손상을 방어하는 기능.'],
+   ['PITR','Point-In-Time Recovery','베이스 백업 + 연속 WAL로 임의의 시점으로 복구하는 기법. 운영 백업의 표준입니다.'],
+   ['RPO / RTO','Recovery Point / Time Objective','허용 데이터 손실량과 허용 복구 시간. 백업 구성을 결정하는 두 숫자입니다.'],
+   ['복제 슬롯','replication slot','스탠바이나 구독자가 아직 받지 못한 WAL 보관을 보장하는 장치. 비활성 슬롯은 pg_wal 폭증의 1순위 원인입니다.'],
+   ['스트리밍 복제','streaming replication','WAL을 실시간 전송해 클러스터를 블록 단위로 동일하게 유지하는 물리 복제.'],
+   ['논리 복제','logical replication','변경을 행 단위 이벤트로 디코딩해 전송. 테이블 단위 선택과 버전 간 복제가 가능하며 CDC의 기반입니다.'],
+   ['synchronous_commit','—','커밋을 어디까지 확인하고 완료할지 정하는 설정. off/local/remote_write/on/remote_apply 순으로 안전하고 느려집니다.'],
+   ['hot standby','—','복구(복제) 중에도 읽기 조회를 받을 수 있는 대기 서버 상태.'],
+   ['pg_rewind','—','승격으로 갈라진 옛 주 서버를 새 주 서버의 스탠바이로 되돌리는 도구.'],
+   ['스플릿브레인','split-brain','두 노드가 동시에 주 서버로 동작해 데이터가 갈라지는 최악의 장애. 분산 합의 기반 도구로 예방합니다.'],
+   ['Patroni','—','etcd 등 분산 합의 저장소를 이용해 자동 페일오버를 구현하는 사실상 표준 도구.'],
+   ['pruning','partition pruning','조건에 맞는 파티션만 읽는 최적화. 파티션 키에 함수를 씌우면 동작하지 않습니다.'],
+   ['선언적 파티셔닝','declarative partitioning','PARTITION BY 구문으로 파티션을 정의하는 방식(PG10+). 상속 기반 방식을 대체했습니다.'],
+   ['플래너','planner / optimizer','통계를 근거로 실행 경로의 비용을 계산해 가장 싼 계획을 고르는 구성 요소.'],
+   ['선택도','selectivity','조건이 걸러내는 비율의 추정값. 이 추정이 틀리면 조인 방식과 순서가 잘못 선택됩니다.'],
+   ['통계','statistics','pg_statistic에 저장된 값 분포(MCV·히스토그램·n_distinct). ANALYZE가 수집합니다.'],
+   ['확장 통계','extended statistics','CREATE STATISTICS로 여러 컬럼의 상관관계를 알려주는 기능. 과소 추정 교정의 정공법입니다.'],
+   ['Index Only Scan','—','필요한 모든 컬럼이 인덱스에 있어 힙을 읽지 않는 스캔. VM이 최신이어야 효과가 납니다.'],
+   ['Bitmap Scan','—','인덱스로 위치를 모아 정렬한 뒤 힙을 일괄 읽는 방식. 중간 규모 반환에 적합합니다.'],
+   ['커버링 인덱스','covering index (INCLUDE)','키가 아닌 컬럼을 인덱스 리프에 담아 Index Only Scan을 유도하는 기법(PG11+).'],
+   ['부분 인덱스','partial index','WHERE 조건을 붙여 일부 행만 색인. 크기가 작고 갱신 비용이 낮습니다.'],
+   ['BRIN','Block Range Index','블록 범위의 최소·최대만 저장하는 초소형 인덱스. 물리 순서와 값 순서가 일치하는 시계열에 효과적입니다.'],
+   ['GIN / GiST','—','다중 값(jsonb·배열·전문검색)용, 겹침·근접(지리·범위)용 인덱스.'],
+   ['work_mem','—','정렬·해시 노드 하나당 메모리 상한. 세션·노드마다 별개로 할당되므로 전역 상향은 위험합니다.'],
+   ['shared_buffers','—','PostgreSQL 자체 페이지 캐시. RAM의 25% 전후가 통상 출발점입니다.'],
+   ['effective_cache_size','—','실제 할당이 아닌 플래너 힌트. OS 캐시까지 포함한 캐시 총량 추정치입니다.'],
+   ['ACCESS EXCLUSIVE','—','가장 강한 테이블 락. 조회조차 막으며 대부분의 ALTER TABLE·DROP·TRUNCATE가 사용합니다.'],
+   ['lock_timeout','—','잠금 획득 대기 상한. DDL 세션에 반드시 설정해 뒤에 줄 서는 요청을 막아야 합니다.'],
+   ['idle in transaction','—','트랜잭션을 열어둔 채 아무 작업도 하지 않는 세션 상태. VACUUM을 막아 bloat를 유발합니다.'],
+   ['교착상태','deadlock','두 트랜잭션이 서로의 잠금을 기다리는 상태. PostgreSQL이 감지해 한쪽을 취소합니다(40P01).'],
+   ['advisory lock','—','애플리케이션이 임의 키로 잡는 잠금. 분산 배치 중복 실행 방지 등에 사용합니다.'],
+   ['RLS','Row Level Security','행 단위 접근 제어 정책. 멀티테넌시에서 테넌트 간 유출을 DB가 차단합니다.'],
+   ['pg_hba.conf','host-based authentication','접속 허용 규칙 파일. 위에서 아래로 읽고 처음 일치한 줄에서 멈추므로 순서가 중요합니다.'],
+   ['pg_upgrade','—','메이저 버전 업그레이드 도구. --link/--clone으로 용량과 무관하게 빠르게 전환하지만 통계는 별도로 재생성해야 합니다.'],
+   ['pg_repack','—','ACCESS EXCLUSIVE 없이 테이블을 재작성해 bloat를 해소하는 확장 도구.'],
+   ['pg_stat_statements','—','쿼리별 실행 통계를 누적하는 확장. 운영 튜닝의 출발점입니다.'],
+   ['pgvector','—','벡터 타입과 HNSW·IVFFlat 인덱스를 제공하는 확장. RAG 파이프라인의 사실상 표준 벡터 스토어입니다.']
+  ];
+  function render(){
+    var k=q.value.trim().toLowerCase();
+    var list=G.filter(function(g){ return !k || (g[0]+g[1]+g[2]).toLowerCase().indexOf(k)>=0; });
+    cnt.textContent=list.length+' / '+G.length+' 항목';
+    out.innerHTML=list.map(function(g){
+      return '<div style="padding:11px 0;border-bottom:1px dashed #242d3a">'
+        +'<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">'
+        +'<b style="color:#4a9fe0;font-size:15px">'+g[0]+'</b>'
+        +'<span class="mono" style="color:#6b7686;font-size:11.5px">'+g[1]+'</span></div>'
+        +'<div style="margin-top:4px;font-size:14.2px;color:#b9c3d0">'+g[2]+'</div></div>';
+    }).join('') || '<div class="small">일치하는 용어가 없습니다.</div>';
+  }
+  q.oninput=render; render();
+})();
+</script>
+
+</body>
+</html>
