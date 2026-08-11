@@ -1,0 +1,2566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PostgreSQL 18 기초 입문 — 초보 IT 엔지니어를 위한 인터랙티브 강의</title>
+<meta name="description" content="PostgreSQL 18 기준 기본 개념, SQL 문법, JOIN, 인덱스, 트랜잭션을 인터랙티브 데모로 배우는 입문 강의. MySQL·Oracle 비교와 18 신기능 포함.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ============================================================
+   PostgreSQL Lecture Series — shared design system
+   Dark editorial / SQL-comment eyebrows / elephant-slate palette
+   ============================================================ */
+:root{
+  --bg:#0c0f14;
+  --bg-2:#10141b;
+  --surface:#141922;
+  --panel:#181e28;
+  --panel-2:#1d242f;
+  --line:#242d3a;
+  --line-2:#2f3a49;
+  --text:#e7ecf3;
+  --text-2:#b9c3d0;
+  --muted:#8d99a9;
+  --dim:#6b7686;
+
+  --pg:#4a9fe0;          /* PostgreSQL blue, brightened for dark bg */
+  --pg-deep:#336791;     /* brand */
+  --amber:#f0b263;       /* WAL / warning */
+  --green:#54c98d;       /* commit / ok */
+  --red:#ef6f8b;         /* rollback / danger */
+  --violet:#a98bf5;      /* xid / MVCC */
+  --cyan:#5fd4d0;        /* index / cache */
+
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --sans:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,system-ui,"Malgun Gothic",sans-serif;
+
+  --r:14px;
+  --r-s:9px;
+  --sh:0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -24px rgba(0,0,0,.8);
+  --nav-w:296px;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:var(--sans);font-size:16.5px;line-height:1.78;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(900px 500px at 82% -8%, rgba(51,103,145,.20), transparent 60%),
+    radial-gradient(700px 420px at 4% 4%, rgba(169,139,245,.09), transparent 60%);
+  background-attachment:fixed;
+}
+img{max-width:100%}
+a{color:var(--pg);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--pg);outline-offset:2px;border-radius:6px}
+
+/* ---------- progress ---------- */
+#prog{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;
+  background:linear-gradient(90deg,var(--pg-deep),var(--pg),var(--cyan));}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);gap:0;max-width:1500px;margin:0 auto}
+
+/* ---------- sidebar ---------- */
+.nav{
+  position:sticky;top:0;height:100vh;overflow-y:auto;padding:26px 18px 40px;
+  border-right:1px solid var(--line);background:rgba(12,15,20,.72);backdrop-filter:blur(8px);
+}
+.nav::-webkit-scrollbar{width:8px}
+.nav::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.nav__brand{display:flex;gap:10px;align-items:center;margin-bottom:4px}
+.nav__logo{width:34px;height:34px;flex:0 0 34px}
+.nav__title{font-size:14.5px;font-weight:700;letter-spacing:-.2px;line-height:1.3}
+.nav__sub{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+.nav__meter{margin:16px 0 12px;font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.nav__meter b{color:var(--pg)}
+.toc{list-style:none;margin:0;padding:0}
+.toc li{margin:1px 0}
+.toc a{
+  display:flex;gap:9px;align-items:baseline;padding:7px 10px;border-radius:8px;
+  color:var(--text-2);font-size:13.6px;line-height:1.45;border-left:2px solid transparent
+}
+.toc a:hover{background:var(--panel);text-decoration:none;color:var(--text)}
+.toc a.is-on{background:linear-gradient(90deg,rgba(74,159,224,.16),transparent);color:#fff;border-left-color:var(--pg)}
+.toc .n{font-family:var(--mono);font-size:10.5px;color:var(--dim);flex:0 0 20px}
+.toc a.is-on .n{color:var(--pg)}
+.nav__note{margin-top:18px;padding:11px 12px;border:1px dashed var(--line-2);border-radius:10px;
+  font-size:12.4px;color:var(--muted);line-height:1.6}
+
+.navbtn{display:none}
+
+/* ---------- main ---------- */
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.wrap{max-width:920px;margin:0 auto}
+
+/* ---------- hero ---------- */
+.hero{padding:74px 0 42px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.hero__eyebrow{font-family:var(--mono);font-size:12px;color:var(--pg);letter-spacing:.1em;margin-bottom:18px}
+.hero h1{font-size:clamp(32px,5.2vw,52px);line-height:1.12;letter-spacing:-1.4px;margin:0 0 18px;font-weight:800}
+.hero h1 em{font-style:normal;color:var(--pg);}
+.hero__lead{font-size:18px;color:var(--text-2);max-width:64ch;margin:0 0 26px}
+.hero__meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--mono);font-size:11.5px;color:var(--text-2);border:1px solid var(--line-2);
+  background:var(--panel);padding:5px 10px;border-radius:999px}
+.chip b{color:var(--pg);font-weight:600}
+
+/* hero terminal */
+.term{margin:30px 0 0;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;background:#0a0d12;box-shadow:var(--sh)}
+.term__bar{display:flex;gap:7px;align-items:center;padding:9px 13px;background:var(--panel);border-bottom:1px solid var(--line)}
+.term__dot{width:9px;height:9px;border-radius:50%;background:var(--line-2)}
+.term__name{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:6px}
+.term__body{padding:16px 18px;font-family:var(--mono);font-size:13px;line-height:1.85;white-space:pre-wrap;color:var(--text-2)}
+.term__body .p{color:var(--green)}
+.term__body .c{color:var(--dim)}
+.term__body .o{color:var(--text)}
+.cursor{display:inline-block;width:8px;height:15px;background:var(--pg);vertical-align:-2px;animation:blink 1.1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* ---------- sections ---------- */
+section{padding:56px 0;border-bottom:1px solid var(--line);scroll-margin-top:12px}
+section:last-of-type{border-bottom:0}
+.eyebrow{font-family:var(--mono);font-size:12px;color:var(--dim);margin-bottom:10px;letter-spacing:.02em}
+.eyebrow b{color:var(--pg);font-weight:500}
+h2{font-size:clamp(25px,3.4vw,33px);line-height:1.22;letter-spacing:-.8px;margin:0 0 14px;font-weight:800}
+h3{font-size:20.5px;letter-spacing:-.3px;margin:38px 0 10px;font-weight:700}
+h4{font-size:16.5px;margin:26px 0 8px;font-weight:700;color:var(--text)}
+p{margin:0 0 16px}
+.lead{font-size:17.4px;color:var(--text-2)}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:6px 0}
+li::marker{color:var(--dim)}
+strong{color:#fff;font-weight:700}
+code:not(pre code){font-family:var(--mono);font-size:.86em;background:var(--panel-2);border:1px solid var(--line);
+  padding:1.5px 6px;border-radius:6px;color:#cfe4f7;white-space:nowrap}
+hr{border:0;border-top:1px dashed var(--line-2);margin:34px 0}
+.small{font-size:13.6px;color:var(--muted)}
+
+/* ---------- cards & grids ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;box-shadow:var(--sh)}
+.card h4{margin-top:0}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:820px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:15px 16px}
+.tile .k{font-family:var(--mono);font-size:11px;color:var(--pg);letter-spacing:.06em;text-transform:uppercase}
+.tile .t{font-weight:700;margin:4px 0 5px;font-size:15.5px}
+.tile .d{font-size:13.8px;color:var(--muted);line-height:1.62}
+
+/* ---------- callouts ---------- */
+.note{border-left:3px solid var(--pg);background:linear-gradient(90deg,rgba(74,159,224,.10),transparent 70%);
+  padding:14px 18px;border-radius:0 var(--r-s) var(--r-s) 0;margin:20px 0;font-size:15.4px}
+.note p:last-child{margin:0}
+.note .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--pg);display:block;margin-bottom:5px}
+.note.warn{border-color:var(--amber);background:linear-gradient(90deg,rgba(240,178,99,.10),transparent 70%)}
+.note.warn .lbl{color:var(--amber)}
+.note.danger{border-color:var(--red);background:linear-gradient(90deg,rgba(239,111,139,.10),transparent 70%)}
+.note.danger .lbl{color:var(--red)}
+.note.ok{border-color:var(--green);background:linear-gradient(90deg,rgba(84,201,141,.10),transparent 70%)}
+.note.ok .lbl{color:var(--green)}
+
+/* ---------- tables ---------- */
+.tbl-wrap{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:var(--r-s)}
+table{border-collapse:collapse;width:100%;font-size:14.2px;min-width:520px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--panel);font-size:12.3px;font-weight:700;color:var(--text);
+  text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;position:sticky;top:0}
+tbody tr:hover{background:rgba(74,159,224,.05)}
+tbody tr:last-child td{border-bottom:0}
+td.mono,th.mono,.mono{font-family:var(--mono);font-size:13px}
+.yes{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.mid{color:var(--amber);font-weight:700}
+
+/* ---------- code blocks ---------- */
+.cb{margin:20px 0;border:1px solid var(--line-2);border-radius:var(--r-s);overflow:hidden;background:#0a0d12;position:relative}
+.cb__hd{display:flex;align-items:center;gap:2px;background:var(--panel);border-bottom:1px solid var(--line);padding:0 6px}
+.cb__tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);
+  font-family:var(--mono);font-size:11.8px;padding:9px 12px;cursor:pointer}
+.cb__tab:hover{color:var(--text)}
+.cb__tab.is-on{color:var(--pg);border-bottom-color:var(--pg)}
+.cb__copy{margin-left:auto;background:none;border:1px solid var(--line-2);color:var(--muted);border-radius:6px;
+  font-family:var(--mono);font-size:10.8px;padding:3px 8px;cursor:pointer}
+.cb__copy:hover{color:var(--pg);border-color:var(--pg)}
+.cb pre{margin:0;padding:15px 17px;overflow-x:auto;font-family:var(--mono);font-size:13.1px;line-height:1.75;display:none;tab-size:2}
+.cb pre.is-on{display:block}
+.cb pre::-webkit-scrollbar{height:8px}
+.cb pre::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.t-c{color:#5f6d7e;font-style:italic}
+.t-s{color:#8fd3a0}
+.t-n{color:#e9b473}
+.t-k{color:#6fb3ea;font-weight:600}
+.t-f{color:#c79ef5}
+.t-t{color:#5fd4d0}
+.t-p{color:#54c98d}
+.cb__cap{padding:8px 15px;border-top:1px solid var(--line);background:rgba(24,30,40,.6);
+  font-size:12.6px;color:var(--muted);font-family:var(--sans)}
+
+/* ---------- demo ---------- */
+.demo{margin:26px 0;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;
+  background:linear-gradient(180deg,var(--panel),var(--surface));box-shadow:var(--sh)}
+.demo__hd{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+  background:rgba(51,103,145,.12)}
+.demo__hd .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--pg);border:1px solid rgba(74,159,224,.4);border-radius:999px;padding:2px 8px}
+.demo__hd h4{margin:0;font-size:15.2px}
+.demo__bd{padding:18px 16px}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.ctl label{font-size:12.8px;color:var(--muted);font-family:var(--mono)}
+.btn{appearance:none;background:var(--panel-2);border:1px solid var(--line-2);color:var(--text);
+  border-radius:8px;padding:7px 13px;font-size:13.4px;font-family:inherit;cursor:pointer;transition:.15s}
+.btn:hover{border-color:var(--pg);color:#fff}
+.btn.is-on{background:rgba(74,159,224,.18);border-color:var(--pg);color:#fff}
+.btn.pri{background:var(--pg-deep);border-color:var(--pg);color:#fff;font-weight:600}
+.btn.pri:hover{background:var(--pg)}
+.btn.sm{padding:4px 9px;font-size:12.2px}
+.btn.danger{border-color:rgba(239,111,139,.5);color:#ffc2ce}
+.btn.danger:hover{border-color:var(--red)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+select,input[type=text],input[type=number]{background:#0a0d12;border:1px solid var(--line-2);color:var(--text);
+  border-radius:7px;padding:6px 9px;font-family:var(--mono);font-size:13px}
+input[type=range]{accent-color:var(--pg);width:150px}
+.out{background:#0a0d12;border:1px solid var(--line);border-radius:var(--r-s);padding:14px 15px;
+  font-family:var(--mono);font-size:12.9px;line-height:1.7;overflow-x:auto;white-space:pre-wrap}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.4px;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+.rtbl{border-collapse:collapse;font-family:var(--mono);font-size:12.4px;min-width:0;width:auto}
+.rtbl th,.rtbl td{border:1px solid var(--line);padding:5px 10px;white-space:nowrap;position:static;background:none}
+.rtbl th{background:var(--panel);text-transform:none;letter-spacing:0}
+.rtbl td.nul{color:var(--red);font-style:italic}
+.rtbl tr.new{background:rgba(84,201,141,.10)}
+.rtbl tr.dead{background:rgba(239,111,139,.10);text-decoration:line-through;color:var(--dim)}
+
+/* ---------- quiz ---------- */
+.quiz{border:1px solid var(--line-2);border-radius:var(--r);background:var(--surface);padding:20px 22px;margin:26px 0}
+.q{padding:14px 0;border-bottom:1px dashed var(--line)}
+.q:last-of-type{border-bottom:0}
+.q__t{font-weight:600;margin-bottom:9px}
+.q__t span{font-family:var(--mono);color:var(--pg);font-size:12.6px;margin-right:7px}
+.opt{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);
+  color:var(--text-2);border-radius:8px;padding:8px 12px;margin:5px 0;font-size:14px;cursor:pointer;font-family:inherit}
+.opt:hover{border-color:var(--pg)}
+.opt.ok{border-color:var(--green);background:rgba(84,201,141,.13);color:#fff}
+.opt.bad{border-color:var(--red);background:rgba(239,111,139,.13);color:#fff}
+.expl{display:none;margin-top:9px;font-size:13.8px;color:var(--text-2);border-left:2px solid var(--pg);padding-left:12px}
+.expl.show{display:block}
+.score{font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:14px}
+
+/* ---------- misc ---------- */
+.kbd{font-family:var(--mono);font-size:11.6px;border:1px solid var(--line-2);border-bottom-width:2px;
+  border-radius:5px;padding:1px 6px;background:var(--panel-2)}
+.steps{counter-reset:s;list-style:none;padding:0}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin:14px 0}
+.steps li::before{content:counter(s,decimal-leading-zero);position:absolute;left:0;top:2px;font-family:var(--mono);
+  font-size:11.5px;color:var(--pg);border:1px solid var(--line-2);border-radius:6px;padding:1px 6px}
+.bar{height:9px;border-radius:6px;background:var(--panel-2);overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--pg-deep),var(--pg))}
+footer{padding:44px 0 0;color:var(--dim);font-size:13.4px}
+footer .fnote{font-family:var(--mono);font-size:11.6px}
+
+@media(max-width:1024px){
+  .shell{grid-template-columns:1fr}
+  .nav{position:fixed;z-index:50;top:0;left:0;width:min(88vw,320px);transform:translateX(-102%);transition:transform .25s}
+  .nav.open{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.5)}
+  .navbtn{display:block;position:fixed;z-index:55;top:12px;left:12px;background:var(--panel);
+    border:1px solid var(--line-2);color:var(--text);border-radius:9px;padding:7px 12px;font-family:var(--mono);font-size:12px;cursor:pointer}
+  main{padding-top:52px}
+  .hero{padding-top:34px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+
+</style>
+<script>
+/* ===== shared runtime: highlighter / tabs / scrollspy / quiz ===== */
+(function(){
+  var esc = function(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});};
+
+  var SQLKW = "SELECT|FROM|WHERE|GROUP\\s+BY|ORDER\\s+BY|HAVING|LIMIT|OFFSET|INSERT\\s+INTO|VALUES|UPDATE|SET|DELETE|"
+    + "CREATE|REPLACE|ALTER|DROP|TRUNCATE|TABLE|VIEW|MATERIALIZED|INDEX|CONCURRENTLY|SCHEMA|DATABASE|EXTENSION|SEQUENCE|"
+    + "PUBLICATION|SUBSCRIPTION|ROLE|USER|TABLESPACE|FUNCTION|PROCEDURE|TRIGGER|TYPE|DOMAIN|"
+    + "PRIMARY\\s+KEY|FOREIGN\\s+KEY|REFERENCES|UNIQUE|NOT\\s+NULL|CHECK|DEFAULT|GENERATED|IDENTITY|CONSTRAINT|"
+    + "INNER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN|LATERAL|JOIN|ON|USING|NATURAL|"
+    + "AND|OR|NOT|IN|EXISTS|BETWEEN|LIKE|ILIKE|SIMILAR|IS|NULL|TRUE|FALSE|AS|DISTINCT|ALL|ANY|ONLY|"
+    + "CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|RETURNING|CONFLICT|DO|NOTHING|UNION|INTERSECT|EXCEPT|"
+    + "BEGIN|COMMIT|ROLLBACK|SAVEPOINT|START\\s+TRANSACTION|ISOLATION\\s+LEVEL|READ\\s+COMMITTED|"
+    + "REPEATABLE\\s+READ|SERIALIZABLE|READ\\s+UNCOMMITTED|FOR\\s+UPDATE|FOR\\s+SHARE|NOWAIT|SKIP\\s+LOCKED|"
+    + "EXPLAIN|ANALYZE|VERBOSE|BUFFERS|VACUUM|REINDEX|CLUSTER|COPY|GRANT|REVOKE|OWNER|"
+    + "PARTITION\\s+BY|RANGE|LIST|HASH|ATTACH|DETACH|INHERITS|OVER|WINDOW|FILTER|WITHIN\\s+GROUP|"
+    + "ASC|DESC|NULLS|FIRST|LAST|INCLUDE|INTO|IF|LANGUAGE|RETURNS|DECLARE|LOOP|PERFORM|RAISE|"
+    + "ENABLE|DISABLE|POLICY|SECURITY|COMMENT|SHOW|RESET|SIGNAL|LOCK|MODE|ACCESS|EXCLUSIVE|SHARE|ROW";
+
+  var SQLTYPE = "int|int2|int4|int8|integer|smallint|bigint|serial|bigserial|numeric|decimal|real|"
+    + "double\\s+precision|money|char|varchar|character\\s+varying|text|bytea|"
+    + "timestamptz|timestamp|date|time|interval|boolean|bool|uuid|json|jsonb|xml|"
+    + "inet|cidr|macaddr|point|line|box|circle|tsvector|tsquery|array|enum|hstore|"
+    + "btree|gin|gist|brin|spgist";
+
+  var SQLFN = "count|sum|avg|min|max|coalesce|nullif|greatest|least|now|current_date|current_timestamp|"
+    + "age|extract|date_trunc|to_char|to_date|to_timestamp|cast|length|char_length|lower|upper|initcap|"
+    + "trim|btrim|ltrim|rtrim|substring|substr|position|replace|split_part|concat|concat_ws|round|ceil|floor|"
+    + "abs|random|generate_series|array_agg|string_agg|jsonb_build_object|jsonb_agg|jsonb_set|json_build_object|"
+    + "row_number|rank|dense_rank|ntile|lag|lead|first_value|last_value|percentile_cont|"
+    + "pg_size_pretty|pg_relation_size|pg_total_relation_size|pg_database_size|pg_stat_reset|"
+    + "pg_current_wal_lsn|pg_last_wal_receive_lsn|pg_last_wal_replay_lsn|pg_wal_lsn_diff|"
+    + "pg_is_in_recovery|pg_promote|pg_create_physical_replication_slot|pg_drop_replication_slot|"
+    + "pg_terminate_backend|pg_cancel_backend|pg_blocking_pids|pg_backend_pid|pg_try_advisory_lock|"
+    + "pg_advisory_lock|pg_advisory_unlock|txid_current|age|version|set_config|current_setting|format";
+
+  var RULES = {
+    sql:[
+      {re:/--[^\n]*/,      cls:'c'},
+      {re:/\/\*[\s\S]*?\*\//,cls:'c'},
+      {re:/'(?:[^']|'')*'/, cls:'s'},
+      {re:/\$\$[\s\S]*?\$\$/,cls:'s'},
+      {re:new RegExp("\\b(?:"+SQLKW+")\\b"),   cls:'k'},
+      {re:new RegExp("\\b(?:"+SQLFN+")(?=\\s*\\()"), cls:'f'},
+      {re:new RegExp("\\b(?:"+SQLTYPE+")\\b"), cls:'t'},
+      {re:/\b\d+(?:\.\d+)?\b/, cls:'n'}
+    ],
+    bash:[
+      {re:/#[^\n]*/, cls:'c'},
+      {re:/"(?:[^"\\]|\\.)*"/, cls:'s'},
+      {re:/'(?:[^'])*'/, cls:'s'},
+      {re:/^[\s]*[$#](?=\s)/m, cls:'p'},
+      {re:/\b(?:psql|pg_dump|pg_dumpall|pg_restore|pg_basebackup|pg_ctl|pg_upgrade|pg_rewind|pgbench|initdb|createdb|dropdb|createuser|pgbackrest|patronictl|kubectl|docker|systemctl|sudo|apt|yum|dnf|brew|export|cd|ls|cat|grep|tail|awk|df|du|free|top|iostat|vmstat|sysctl|crontab|echo|mkdir|chown|chmod)\b/, cls:'f'},
+      {re:/\s--?[A-Za-z][\w-]*/, cls:'k'},
+      {re:/\b\d+(?:\.\d+)?\b/, cls:'n'}
+    ],
+    conf:[
+      {re:/#[^\n]*/, cls:'c'},
+      {re:/'(?:[^'])*'/, cls:'s'},
+      {re:/^[\w.]+(?=\s*=)/m, cls:'k'},
+      {re:/\b(?:on|off|replica|logical|minimal|local|hot_standby|scram-sha-256|md5|trust|peer|reject|all|host|hostssl|hostnossl)\b/, cls:'t'},
+      {re:/\b\d+(?:\.\d+)?(?:kB|MB|GB|ms|s|min|h)?\b/, cls:'n'}
+    ],
+    text:[{re:/^\s*--[^\n]*/m, cls:'c'}]
+  };
+
+  function highlight(src, lang){
+    var rules = RULES[lang] || RULES.sql;
+    var union = new RegExp(rules.map(function(r){return '('+r.re.source+')';}).join('|'),'gim');
+    var out='', last=0, m;
+    while((m = union.exec(src))!==null){
+      if(m[0].length===0){union.lastIndex++;continue;}
+      out += esc(src.slice(last,m.index));
+      var cls='';
+      for(var i=1;i<m.length;i++){ if(m[i]!==undefined){ cls = rules[i-1].cls; break; } }
+      out += '<span class="t-'+cls+'">'+esc(m[0])+'</span>';
+      last = m.index + m[0].length;
+    }
+    out += esc(src.slice(last));
+    return out;
+  }
+  window.pgHighlight = highlight;
+
+  function paint(root){
+    (root||document).querySelectorAll('pre[data-lang] > code:not([data-done])').forEach(function(code){
+      var lang = code.parentNode.getAttribute('data-lang');
+      code.innerHTML = highlight(code.textContent.replace(/^\n/,'').replace(/\s+$/,''), lang);
+      code.setAttribute('data-done','1');
+    });
+  }
+  window.pgPaint = paint;
+
+  function safe(label, fn){ try{ fn(); }catch(e){ if(window.console) console.warn('init failed: '+label, e); } }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    safe('highlight', function(){ paint(document); });
+
+    /* code block tabs + copy */
+    safe('codeblocks', function(){
+    document.querySelectorAll('.cb').forEach(function(cb){
+      var tabs = cb.querySelectorAll('.cb__tab'), panes = cb.querySelectorAll('pre');
+      tabs.forEach(function(t,i){
+        t.addEventListener('click',function(){
+          tabs.forEach(function(x){x.classList.remove('is-on');});
+          panes.forEach(function(x){x.classList.remove('is-on');});
+          t.classList.add('is-on'); panes[i].classList.add('is-on');
+        });
+      });
+      var cp = cb.querySelector('.cb__copy');
+      if(cp) cp.addEventListener('click',function(){
+        var on = cb.querySelector('pre.is-on') || panes[0];
+        navigator.clipboard && navigator.clipboard.writeText(on.textContent.trim());
+        cp.textContent='복사됨'; setTimeout(function(){cp.textContent='복사';},1300);
+      });
+    });
+    });
+
+    /* scroll spy */
+    safe('scrollspy', function(){
+    var links = [].slice.call(document.querySelectorAll('.toc a'));
+    var secs  = links.map(function(a){return document.querySelector(a.getAttribute('href'));}).filter(Boolean);
+    if(!('IntersectionObserver' in window)){
+      links.forEach(function(l,i){ l.classList.toggle('is-on', i===0); });
+      return;
+    }
+    var io = new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(!e.isIntersecting) return;
+        links.forEach(function(l){l.classList.toggle('is-on', l.getAttribute('href')==='#'+e.target.id);});
+        var pct = Math.round((secs.indexOf(e.target)+1)/secs.length*100);
+        var mt = document.getElementById('meter'); if(mt) mt.innerHTML = '진도 <b>'+pct+'%</b> · '+(secs.indexOf(e.target)+1)+'/'+secs.length+' 장';
+      });
+    },{rootMargin:'-15% 0px -70% 0px'});
+    secs.forEach(function(s){io.observe(s);});
+    });
+
+    /* progress bar */
+    safe('progress', function(){
+    var pb = document.getElementById('prog');
+    if(!pb) return;
+    var onScroll = function(){
+      var h = document.documentElement;
+      var p = h.scrollTop/(h.scrollHeight-h.clientHeight||1)*100;
+      pb.style.width = p+'%';
+    };
+    document.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+    });
+
+    /* mobile nav */
+    safe('nav', function(){
+    var nb = document.querySelector('.navbtn'), nv = document.querySelector('.nav');
+    if(nb) nb.addEventListener('click',function(){nv.classList.toggle('open');});
+    if(nv) nv.addEventListener('click',function(e){if(e.target.tagName==='A') nv.classList.remove('open');});
+    });
+
+    /* quiz engine: .quiz > .q[data-a] > .opt */
+    safe('quiz', function(){
+    document.querySelectorAll('.quiz').forEach(function(qz){
+      var total = qz.querySelectorAll('.q').length, done=0, right=0;
+      var sc = document.createElement('div'); sc.className='score';
+      sc.textContent='0 / '+total+' 문항 응답'; qz.appendChild(sc);
+      qz.querySelectorAll('.q').forEach(function(q){
+        var ans = +q.getAttribute('data-a'), locked=false;
+        q.querySelectorAll('.opt').forEach(function(o,i){
+          o.addEventListener('click',function(){
+            if(locked) return; locked=true; done++;
+            if(i===ans){o.classList.add('ok');right++;}
+            else{o.classList.add('bad'); q.querySelectorAll('.opt')[ans].classList.add('ok');}
+            var ex=q.querySelector('.expl'); if(ex) ex.classList.add('show');
+            sc.textContent = done+' / '+total+' 문항 응답 · 정답 '+right+'개'+(done===total?(right===total?' — 완벽합니다.':' — 오답 해설을 다시 확인하세요.'):'');
+          });
+        });
+      });
+    });
+    });
+  });
+})();
+
+</script>
+</head>
+<body>
+<div id="prog"></div>
+<button class="navbtn">☰ 목차</button>
+<div class="shell">
+<aside class="nav">
+  <div class="nav__brand">
+    <svg class="nav__logo" viewBox="0 0 40 40" aria-hidden="true">
+      <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#4a9fe0"/><stop offset="1" stop-color="#336791"/></linearGradient></defs>
+      <ellipse cx="20" cy="10" rx="13" ry="5.5" fill="none" stroke="url(#g1)" stroke-width="2"/>
+      <path d="M7 10v20c0 3 5.8 5.5 13 5.5s13-2.5 13-5.5V10" fill="none" stroke="url(#g1)" stroke-width="2"/>
+      <path d="M7 20c0 3 5.8 5.5 13 5.5s13-2.5 13-5.5" fill="none" stroke="#4a9fe0" stroke-width="1.4" opacity=".6"/>
+    </svg>
+    <div>
+      <div class="nav__title">PostgreSQL 입문</div>
+      <div class="nav__sub">Beginner · Lecture 01</div>
+    </div>
+  </div>
+  <div class="nav__meter" id="meter">진도 <b>0%</b> · 0/14 장</div>
+  <ul class="toc">
+    <li><a href="#s1"><span class="n">01</span>왜 PostgreSQL인가</a></li>
+    <li><a href="#s2"><span class="n">02</span>관계형 DB의 기본 구조</a></li>
+    <li><a href="#s3"><span class="n">03</span>다른 RDBMS와 비교</a></li>
+    <li><a href="#s4"><span class="n">04</span>설치와 접속 · psql</a></li>
+    <li><a href="#s5"><span class="n">05</span>데이터 타입 고르기</a></li>
+    <li><a href="#s6"><span class="n">06</span>DDL · 테이블과 제약조건</a></li>
+    <li><a href="#s7"><span class="n">07</span>DML · 데이터 넣고 바꾸기</a></li>
+    <li><a href="#s8"><span class="n">08</span>SELECT 완전 분해</a></li>
+    <li><a href="#s9"><span class="n">09</span>JOIN 시각적으로 이해</a></li>
+    <li><a href="#s10"><span class="n">10</span>서브쿼리 · CTE · 윈도우</a></li>
+    <li><a href="#s11"><span class="n">11</span>인덱스 첫걸음</a></li>
+    <li><a href="#s12"><span class="n">12</span>트랜잭션과 ACID</a></li>
+    <li><a href="#s13"><span class="n">13</span>PostgreSQL만의 무기</a></li>
+    <li><a href="#s14"><span class="n">14</span>실습 과제 · 자기점검</a></li>
+  </ul>
+  <div class="nav__note">코드 블록은 탭으로 여러 예시를 담고 있습니다. <b>복사</b> 버튼으로 그대로 실습해 보세요. 데모 8종은 모두 브라우저 안에서 동작합니다.</div>
+</aside>
+
+<main><div class="wrap">
+
+<header class="hero">
+  <div class="hero__eyebrow">-- lecture 01 · for junior engineers</div>
+  <h1>PostgreSQL 기초<br><em>데이터를 다루는 첫 번째 언어</em></h1>
+  <p class="hero__lead">테이블이 무엇인지부터 JOIN·트랜잭션·인덱스까지, IT 엔지니어가 실무 첫날에 필요한 만큼을 순서대로 익힙니다. MySQL·Oracle과 무엇이 다른지도 함께 비교합니다. 설치 없이 읽으면서 실행 결과를 눈으로 확인할 수 있는 인터랙티브 데모 8종을 포함했습니다.</p>
+  <div class="hero__meta">
+    <span class="chip"><b>대상</b> 초보 IT 엔지니어</span>
+    <span class="chip"><b>기준 버전</b> PostgreSQL 18 (18.4)</span>
+    <span class="chip"><b>데모</b> 8종 인터랙티브</span>
+    <span class="chip"><b>선수 지식</b> 없음</span>
+  </div>
+
+  <div class="term">
+    <div class="term__bar"><i class="term__dot"></i><i class="term__dot"></i><i class="term__dot"></i><span class="term__name">bash — psql</span></div>
+<div class="term__body"><span class="p">$</span> psql -h localhost -U app -d shop
+psql (18.4)
+Type "help" for help.
+
+<span class="p">shop=&gt;</span> SELECT city, count(*) AS 고객수 FROM customers GROUP BY city ORDER BY 고객수 DESC;
+<span class="o">   city  | 고객수
+ --------+-------
+  서울   |     4
+  부산   |     2
+  대전   |     1
+ (3 rows)</span>
+
+<span class="c">-- 이 한 줄을 읽고 쓸 수 있게 되는 것이 이 강의의 목표입니다.</span>
+<span class="p">shop=&gt;</span> <span class="cursor"></span></div>
+  </div>
+</header>
+
+<!-- ============================ 01 ============================ -->
+<section id="s1">
+  <div class="eyebrow">-- <b>01</b> · why postgresql</div>
+  <h2>왜 PostgreSQL인가</h2>
+  <p class="lead">PostgreSQL(포스트그레스큐엘, 줄여서 <strong>Postgres</strong>)은 1986년 UC 버클리의 POSTGRES 프로젝트에서 출발한 <strong>오픈소스 관계형 데이터베이스</strong>입니다. 30년 넘게 한 번도 상업 라이선스로 전환하지 않았고, 특정 기업이 소유하지 않은 커뮤니티 프로젝트라는 점이 오늘날 클라우드 시대에 가장 큰 무기가 되었습니다.</p>
+
+  <div class="grid g3">
+    <div class="tile"><div class="k">license</div><div class="t">진짜 자유로운 라이선스</div><div class="d">PostgreSQL License는 BSD/MIT 계열입니다. 상업적으로 재배포·수정·SaaS화가 모두 가능해, 클라우드 사업자들이 관리형 서비스로 앞다투어 채택했습니다.</div></div>
+    <div class="tile"><div class="k">standard</div><div class="t">표준 SQL 준수도 1위권</div><div class="d">SQL:2016 표준을 가장 충실히 따르는 오픈소스 DB입니다. 여기서 배운 문법 대부분이 다른 DB에서도 통합니다.</div></div>
+    <div class="tile"><div class="k">extensible</div><div class="t">확장(extension) 구조</div><div class="d">본체를 고치지 않고 기능을 꽂아 넣습니다. 지리정보(PostGIS), 시계열(TimescaleDB), 벡터 검색(pgvector)까지 같은 DB 안에서 처리합니다.</div></div>
+  </div>
+
+  <div class="note ok"><span class="lbl">이 강의의 기준 · PostgreSQL 18</span>
+    <p>PostgreSQL 18은 <strong>2025년 9월 25일</strong>에 나왔고 최신 마이너 버전은 18.4입니다. 메이저 버전은 매년 한 번 나오고 각각 5년간 지원되므로, 지금 새로 시작한다면 18을 고르는 것이 표준적인 선택입니다. 아래 여섯 가지는 입문자도 첫날부터 바로 쓰게 되는 18의 변화입니다.</p>
+  </div>
+
+  <div class="grid g3">
+    <div class="tile"><div class="k">new in 18</div><div class="t">uuidv7()</div><div class="d">시간 순서대로 정렬되는 UUID를 만듭니다. 기존 랜덤 UUID의 인덱스 성능 문제를 해결해, 외부 노출용 식별자의 기본 선택이 되었습니다.</div></div>
+    <div class="tile"><div class="k">new in 18</div><div class="t">가상 생성 컬럼이 기본</div><div class="d">계산 컬럼이 저장되지 않고 <em>읽을 때</em> 계산됩니다. 저장 방식이 필요하면 <code>STORED</code>를 명시합니다.</div></div>
+    <div class="tile"><div class="k">new in 18</div><div class="t">RETURNING old / new</div><div class="d">UPDATE 한 문장으로 변경 전 값과 후 값을 동시에 받을 수 있습니다. 변경 이력 기록이 훨씬 단순해집니다.</div></div>
+    <div class="tile"><div class="k">new in 18</div><div class="t">기간 제약조건</div><div class="d"><code>WITHOUT OVERLAPS</code>로 "같은 회의실의 예약 시간이 겹치면 안 된다"를 기본키·유니크 제약으로 표현합니다.</div></div>
+    <div class="tile"><div class="k">new in 18</div><div class="t">비동기 I/O</div><div class="d">디스크 읽기를 여러 건 미리 요청해 대기 시간을 감춥니다. 설정을 바꾸지 않아도 큰 조회가 빨라집니다.</div></div>
+    <div class="tile"><div class="k">new in 18</div><div class="t">데이터 체크섬 기본 on</div><div class="d">새로 만드는 클러스터는 디스크 손상을 스스로 감지합니다. 예전에는 직접 켜야 했던 안전장치입니다.</div></div>
+  </div>
+
+  <h3>실무에서 체감하는 세 가지 장면</h3>
+  <ul>
+    <li><strong>"돈 계산이 틀리면 안 됩니다"</strong> — <code>numeric</code> 타입과 엄격한 트랜잭션으로 금융·결제 도메인에서 신뢰를 얻었습니다.</li>
+    <li><strong>"JSON도 넣고 검색도 해야 합니다"</strong> — <code>jsonb</code> 덕분에 별도의 문서 DB 없이 반정형 데이터를 인덱스까지 걸어 다룹니다.</li>
+    <li><strong>"AI 서비스에 벡터 검색이 필요합니다"</strong> — <code>pgvector</code> 확장으로 임베딩 검색을 기존 DB 안에서 처리합니다. RAG 파이프라인의 기본 선택지가 되었습니다.</li>
+  </ul>
+
+  <div class="note"><span class="lbl">용어 정리</span>
+    <p><strong>DBMS</strong>는 데이터를 저장·검색·보호하는 소프트웨어이고, <strong>RDBMS</strong>는 그중 데이터를 <em>표(테이블)</em> 형태로 관리하며 표 사이의 관계를 다루는 종류입니다. <strong>SQL</strong>은 그 RDBMS와 대화하는 언어입니다. PostgreSQL은 RDBMS이고, 우리가 이 강의에서 배우는 언어는 SQL입니다.</p>
+  </div>
+
+  <h3>이 강의를 마치면 할 수 있는 일</h3>
+  <ol class="steps">
+    <li>테이블을 설계하고 제약조건으로 잘못된 데이터를 막을 수 있습니다.</li>
+    <li>여러 테이블을 JOIN해 원하는 보고서 형태로 데이터를 뽑을 수 있습니다.</li>
+    <li>느린 쿼리를 만나면 인덱스가 필요한 상황인지 판단할 수 있습니다.</li>
+    <li>트랜잭션으로 "절반만 반영되는 사고"를 막을 수 있습니다.</li>
+    <li>MySQL·Oracle 경험자와 대화할 때 차이점을 짚어낼 수 있습니다.</li>
+  </ol>
+</section>
+
+<!-- ============================ 02 ============================ -->
+<section id="s2">
+  <div class="eyebrow">-- <b>02</b> · relational basics</div>
+  <h2>관계형 데이터베이스의 기본 구조</h2>
+  <p class="lead">관계형 DB는 엑셀 시트와 놀랍도록 비슷합니다. 다만 <strong>규칙이 강제되고</strong>, <strong>여러 사람이 동시에 써도 깨지지 않고</strong>, <strong>수억 건에서도 원하는 한 줄을 즉시 찾는다</strong>는 점이 다릅니다. 먼저 용어를 정확히 맞춰두겠습니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 01</span><h4>테이블 구조 탐색기 — 용어를 클릭해서 확인하세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl" id="d1-btns"></div>
+      <div style="overflow-x:auto">
+        <table class="rtbl" id="d1-tbl">
+          <thead><tr>
+            <th data-col="id">id <span class="small">integer</span></th>
+            <th data-col="name">name <span class="small">varchar(50)</span></th>
+            <th data-col="city">city <span class="small">varchar(30)</span></th>
+            <th data-col="grade">grade <span class="small">char(1)</span></th>
+            <th data-col="team_id">team_id <span class="small">integer</span></th>
+          </tr></thead>
+          <tbody>
+            <tr><td>1</td><td>김서준</td><td>서울</td><td>A</td><td>10</td></tr>
+            <tr><td>2</td><td>이하윤</td><td>부산</td><td>B</td><td>20</td></tr>
+            <tr><td>3</td><td>박도윤</td><td>서울</td><td>A</td><td class="nul">NULL</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="out" id="d1-out" style="margin-top:14px">위 버튼을 눌러 각 용어가 표의 어느 부분을 뜻하는지 확인해 보세요.</div>
+    </div>
+  </div>
+
+  <h3>꼭 외워야 하는 7개 용어</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>용어</th><th>다른 이름</th><th>의미</th><th>실수하기 쉬운 지점</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">데이터베이스</td><td>DB</td><td>테이블들을 담는 최상위 그릇. 한 서버(인스턴스)에 여러 개 만들 수 있습니다.</td><td>PostgreSQL에서는 <strong>DB가 다르면 한 쿼리로 조회할 수 없습니다</strong>. MySQL과 크게 다른 점입니다.</td></tr>
+        <tr><td class="mono">스키마</td><td>schema</td><td>DB 안에서 테이블을 묶는 폴더. 기본값은 <code>public</code>.</td><td>MySQL의 "스키마 = 데이터베이스"와 뜻이 다릅니다.</td></tr>
+        <tr><td class="mono">테이블</td><td>릴레이션, relation</td><td>같은 종류의 데이터를 담는 표. <code>customers</code>, <code>orders</code>.</td><td>테이블 이름은 복수형으로 통일하는 팀 규칙이 흔합니다.</td></tr>
+        <tr><td class="mono">컬럼</td><td>열, 속성, attribute, field</td><td>표의 세로줄. 이름과 데이터 타입을 가집니다.</td><td>타입을 나중에 바꾸는 것은 큰 작업입니다. 처음에 잘 고르세요.</td></tr>
+        <tr><td class="mono">행</td><td>로우, 레코드, 튜플, tuple</td><td>표의 가로줄. 데이터 한 건.</td><td>PostgreSQL 문서·에러 메시지에서는 "tuple"이라는 단어가 자주 등장합니다.</td></tr>
+        <tr><td class="mono">기본키</td><td>PK, primary key</td><td>한 행을 유일하게 식별하는 컬럼. 중복·NULL 불가.</td><td>PK가 없는 테이블은 복제·중복 제거에서 반드시 문제를 일으킵니다.</td></tr>
+        <tr><td class="mono">외래키</td><td>FK, foreign key</td><td>다른 테이블의 PK를 가리키는 컬럼. 관계를 만듭니다.</td><td>FK 컬럼에는 인덱스가 자동 생성되지 <strong>않습니다</strong>. 직접 만들어야 합니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>NULL은 "0"도 "빈 문자열"도 아닙니다</h3>
+  <p>NULL은 <em>값이 없음/알 수 없음</em>을 뜻하는 특별한 상태입니다. 초보자가 가장 많이 겪는 버그의 원인이므로 지금 확실히 짚어둡니다.</p>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">NULL 비교</button><button class="cb__tab">안전한 처리</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 틀린 방법: NULL은 = 로 비교되지 않습니다. 결과는 항상 '알 수 없음'
+SELECT * FROM customers WHERE team_id = NULL;   -- 0건 (에러도 안 남!)
+
+-- 올바른 방법
+SELECT * FROM customers WHERE team_id IS NULL;
+SELECT * FROM customers WHERE team_id IS NOT NULL;
+
+-- 산술/문자 연결도 NULL에 오염됩니다
+SELECT 100 + NULL;              -- NULL
+SELECT '등급: ' || NULL;         -- NULL
+SELECT count(*), count(team_id) FROM customers;  -- 3, 2  ← count(컬럼)은 NULL을 세지 않음
+</code></pre>
+<pre data-lang="sql"><code>
+-- COALESCE: 첫 번째 NULL 아닌 값을 반환
+SELECT name, COALESCE(team_id, 0) AS team_id FROM customers;
+
+-- 문자 기본값
+SELECT COALESCE(memo, '(작성 없음)') FROM customers;
+
+-- NULLIF: 두 값이 같으면 NULL로 (0으로 나누기 방어)
+SELECT total / NULLIF(qty, 0) AS unit_price FROM orders;
+
+-- NULL 정렬 위치 지정
+SELECT * FROM customers ORDER BY team_id DESC NULLS LAST;
+</code></pre>
+    <div class="cb__cap">규칙: <b>NULL과의 비교는 참도 거짓도 아닌 '알 수 없음'</b>입니다. 그래서 WHERE 조건이 조용히 0건을 반환합니다.</div>
+  </div>
+
+  <h3>테이블을 나누는 이유 — 정규화의 감각</h3>
+  <p>주문 정보를 한 테이블에 몰아넣으면 고객 이름이 주문마다 반복됩니다. 고객이 개명하면 수천 행을 고쳐야 하고, 일부만 고치면 데이터가 서로 모순됩니다. 그래서 <strong>중복되는 덩어리를 별도 테이블로 떼어내고 키로 연결</strong>합니다. 이것이 정규화이고, 그렇게 나뉜 테이블을 다시 합치는 도구가 <strong>JOIN</strong>(9장)입니다.</p>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">나쁜 설계</button><button class="cb__tab">정규화된 설계</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 한 테이블에 다 넣기: 고객명/도시가 주문마다 중복
+CREATE TABLE orders_bad (
+  order_id      int,
+  customer_name varchar(50),   -- 중복 저장
+  customer_city varchar(30),   -- 중복 저장
+  product       varchar(50),
+  amount        numeric(12,2)
+);
+</code></pre>
+<pre data-lang="sql"><code>
+-- 고객과 주문을 분리하고 FK로 연결
+CREATE TABLE customers (
+  id    int PRIMARY KEY,
+  name  varchar(50) NOT NULL,
+  city  varchar(30)
+);
+
+CREATE TABLE orders (
+  id          int PRIMARY KEY,
+  customer_id int NOT NULL REFERENCES customers(id),  -- 관계의 핵심
+  product     varchar(50),
+  amount      numeric(12,2)
+);
+</code></pre>
+    <div class="cb__cap">1:N 관계 — 고객 1명이 주문 여러 건을 가집니다. "N쪽 테이블이 1쪽의 PK를 FK로 들고 있다"가 기본 패턴입니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 03 ============================ -->
+<section id="s3">
+  <div class="eyebrow">-- <b>03</b> · vs other rdbms</div>
+  <h2>다른 RDBMS와 비교</h2>
+  <p class="lead">현장에서는 이미 MySQL이나 Oracle을 쓰는 시스템 옆에서 PostgreSQL을 운영하는 경우가 대부분입니다. "무엇이 더 좋은가"보다 <strong>어디가 다른가</strong>를 아는 것이 훨씬 실용적입니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 02</span><h4>RDBMS 비교 매트릭스 — 관심 영역을 골라보세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl" id="d2-btns"></div>
+      <div class="tbl-wrap" style="margin:0"><table id="d2-tbl"></table></div>
+      <div class="out" id="d2-out" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <h3>MySQL에서 온 사람이 가장 많이 놀라는 5가지</h3>
+  <div class="grid g2">
+    <div class="card"><h4>1. 데이터베이스 ≠ 스키마</h4><p class="small">MySQL의 <code>USE db1;</code>은 PostgreSQL에서 <code>\c db1</code>(재접속)입니다. 하나의 접속으로 여러 DB를 넘나드는 쿼리는 불가능하고, 대신 <strong>같은 DB 안의 여러 스키마</strong>로 논리 분리를 합니다.</p></div>
+    <div class="card"><h4>2. 문자 비교가 대소문자를 구분</h4><p class="small">MySQL 기본 콜레이션은 대소문자를 무시하지만 PostgreSQL은 구분합니다. <code>WHERE email = 'A@x.com'</code>이 안 잡힙니다. <code>ILIKE</code> 또는 <code>citext</code> 확장, <code>lower()</code> 인덱스를 사용합니다.</p></div>
+    <div class="card"><h4>3. 백틱이 없고 큰따옴표는 특별한 의미</h4><p class="small"><code>`col`</code> 대신 <code>"col"</code>입니다. 그리고 큰따옴표로 감싸면 <strong>대소문자가 고정</strong>됩니다. <code>"userName"</code>으로 만든 컬럼은 영원히 큰따옴표로만 접근 가능합니다. 그래서 관례는 <code>snake_case</code>입니다.</p></div>
+    <div class="card"><h4>4. AUTO_INCREMENT 대신 IDENTITY/serial</h4><p class="small"><code>GENERATED ALWAYS AS IDENTITY</code>가 표준이자 권장 방식입니다. 예전 방식인 <code>serial</code>도 여전히 동작합니다.</p></div>
+    <div class="card"><h4>5. DDL도 트랜잭션에 들어갑니다</h4><p class="small"><code>BEGIN; ALTER TABLE ...; ROLLBACK;</code>이 됩니다. MySQL은 DDL이 암묵적 커밋을 일으키죠. 마이그레이션 스크립트를 안전하게 감쌀 수 있는 강력한 장점입니다.</p></div>
+    <div class="card"><h4>보너스. 문자열 연결과 나눗셈</h4><p class="small">연결은 <code>||</code>(MySQL의 <code>CONCAT</code>도 사용 가능). <code>SELECT 5/2</code>는 정수끼리라 <strong>2</strong>가 나옵니다. <code>5::numeric/2</code> 또는 <code>5.0/2</code>로 씁니다.</p></div>
+  </div>
+
+  <h3>같은 일을 하는 문법 대조표</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>하고 싶은 일</th><th>PostgreSQL</th><th>MySQL</th><th>Oracle</th></tr></thead>
+      <tbody>
+        <tr><td>상위 10건</td><td class="mono">LIMIT 10</td><td class="mono">LIMIT 10</td><td class="mono">FETCH FIRST 10 ROWS ONLY</td></tr>
+        <tr><td>현재 시각</td><td class="mono">now(), current_timestamp</td><td class="mono">NOW()</td><td class="mono">SYSDATE, SYSTIMESTAMP</td></tr>
+        <tr><td>문자열 연결</td><td class="mono">'a' || 'b'</td><td class="mono">CONCAT('a','b')</td><td class="mono">'a' || 'b'</td></tr>
+        <tr><td>타입 변환</td><td class="mono">val::int, CAST(val AS int)</td><td class="mono">CAST(val AS SIGNED)</td><td class="mono">TO_NUMBER(val)</td></tr>
+        <tr><td>자동 증가 PK</td><td class="mono">GENERATED ALWAYS AS IDENTITY</td><td class="mono">AUTO_INCREMENT</td><td class="mono">IDENTITY (12c+) / SEQUENCE</td></tr>
+        <tr><td>더미 SELECT</td><td class="mono">SELECT 1;</td><td class="mono">SELECT 1;</td><td class="mono">SELECT 1 FROM DUAL;</td></tr>
+        <tr><td>없으면 INSERT, 있으면 UPDATE</td><td class="mono">INSERT ... ON CONFLICT DO UPDATE</td><td class="mono">INSERT ... ON DUPLICATE KEY UPDATE</td><td class="mono">MERGE INTO</td></tr>
+        <tr><td>대소문자 무시 검색</td><td class="mono">ILIKE / citext</td><td class="mono">기본 동작</td><td class="mono">UPPER() 비교</td></tr>
+        <tr><td>테이블 목록</td><td class="mono">\dt (psql)</td><td class="mono">SHOW TABLES;</td><td class="mono">SELECT * FROM user_tables;</td></tr>
+        <tr><td>빈 문자열과 NULL</td><td class="mono">''와 NULL은 다름</td><td class="mono">''와 NULL은 다름</td><td class="mono">''가 NULL로 취급됨(주의)</td></tr>
+        <tr><td>정렬 가능한 UUID</td><td class="mono">uuidv7() <span class="small">(18+)</span></td><td class="mono">UUID_TO_BIN(u,1)</td><td class="mono">SYS_GUID()</td></tr>
+        <tr><td>계산(생성) 컬럼</td><td class="mono">GENERATED ALWAYS AS (…) <span class="small">18부터 VIRTUAL 기본</span></td><td class="mono">VIRTUAL / STORED</td><td class="mono">VIRTUAL 기본</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn"><span class="lbl">선택 기준</span>
+    <p>단순 CRUD 위주의 웹 서비스라면 어느 쪽이든 잘 동작합니다. <strong>복잡한 조회·분석 쿼리, JSON과 관계형의 혼용, 지리정보/벡터, 트랜잭션 정확성</strong>이 중요하다면 PostgreSQL이 유리합니다. 반대로 <strong>기존 팀의 운영 노하우와 레거시 호환성</strong>이 중요하면 그것도 정당한 선택 기준입니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 04 ============================ -->
+<section id="s4">
+  <div class="eyebrow">-- <b>04</b> · install &amp; psql</div>
+  <h2>설치와 접속 · psql 첫걸음</h2>
+  <p class="lead">학습용으로는 Docker가 가장 빠릅니다. 컨테이너를 지우면 흔적이 남지 않아 마음껏 실험할 수 있습니다. GUI 도구도 좋지만, <strong>psql</strong>(공식 CLI)을 다룰 수 있으면 운영 서버 어디서나 곤란하지 않습니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd">
+      <button class="cb__tab is-on">Docker (권장)</button><button class="cb__tab">Ubuntu</button>
+      <button class="cb__tab">macOS</button><button class="cb__tab">Kubernetes</button><button class="cb__copy">복사</button></div>
+<pre data-lang="bash" class="is-on"><code>
+# 1) 컨테이너 실행 — 데이터는 볼륨에 보관
+docker run -d --name pg18 \
+  -e POSTGRES_PASSWORD=devpass \
+  -e POSTGRES_DB=shop \
+  -e TZ=Asia/Seoul \
+  -p 5432:5432 \
+  -v pgdata:/var/lib/postgresql/data \
+  postgres:18
+
+# 2) 접속 (컨테이너 내부 psql 사용)
+docker exec -it pg18 psql -U postgres -d shop
+
+# 3) 정리
+docker stop pg18 && docker rm pg18      # 볼륨 pgdata는 남습니다
+docker volume rm pgdata                  # 데이터까지 삭제
+</code></pre>
+<pre data-lang="bash"><code>
+# 공식 APT 저장소로 최신 버전 설치
+sudo apt install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+sudo apt install -y postgresql-18 postgresql-client-18
+
+sudo systemctl status postgresql
+sudo -u postgres psql               # OS 사용자 postgres로 peer 인증 접속
+
+# 애플리케이션용 계정과 DB 만들기
+sudo -u postgres createuser --pwprompt app
+sudo -u postgres createdb -O app shop
+</code></pre>
+<pre data-lang="bash"><code>
+brew install postgresql@18
+brew services start postgresql@18
+echo 'export PATH="/opt/homebrew/opt/postgresql@18/bin:$PATH"' &gt;&gt; ~/.zshrc
+
+psql -d postgres                     # 기본은 현재 OS 사용자 이름으로 접속
+createdb shop
+psql -d shop
+</code></pre>
+<pre data-lang="bash"><code>
+# 학습용 단일 파드 (운영에는 CloudNativePG 같은 오퍼레이터를 사용)
+kubectl create secret generic pg-secret --from-literal=password=devpass
+kubectl run pg18 --image=postgres:18 --port=5432 \
+  --env="POSTGRES_DB=shop" \
+  --env="POSTGRES_PASSWORD=devpass"
+
+kubectl port-forward pod/pg18 5432:5432 &amp;
+psql -h 127.0.0.1 -U postgres -d shop
+</code></pre>
+    <div class="cb__cap">접속 문자열(URI) 한 줄로도 됩니다: <code>psql "postgresql://app:devpass@localhost:5432/shop"</code><br>
+    PostgreSQL 18부터 <code>initdb</code>가 <b>데이터 체크섬을 기본으로 켭니다</b>. 디스크 손상을 조기에 발견할 수 있어 그대로 두는 것이 좋습니다.</div>
+  </div>
+
+  <h3>psql 필수 메타 명령 — 백슬래시로 시작합니다</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>명령</th><th>기능</th><th>메모</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">\l</td><td>데이터베이스 목록</td><td><code>\l+</code>는 크기까지</td></tr>
+        <tr><td class="mono">\c shop</td><td>다른 DB로 재접속</td><td>MySQL의 <code>USE</code>에 해당</td></tr>
+        <tr><td class="mono">\dt</td><td>테이블 목록</td><td><code>\dt+</code> 크기 포함, <code>\dt sales.*</code> 스키마 지정</td></tr>
+        <tr><td class="mono">\d customers</td><td>테이블 구조·인덱스·제약조건</td><td><strong>가장 많이 쓰는 명령</strong></td></tr>
+        <tr><td class="mono">\di / \dv / \df / \dn</td><td>인덱스 / 뷰 / 함수 / 스키마 목록</td><td>—</td></tr>
+        <tr><td class="mono">\du</td><td>롤(사용자) 목록과 권한</td><td>—</td></tr>
+        <tr><td class="mono">\x</td><td>세로 출력 토글</td><td>컬럼이 많을 때 필수</td></tr>
+        <tr><td class="mono">\timing</td><td>실행 시간 표시 토글</td><td>튜닝 실습의 기본</td></tr>
+        <tr><td class="mono">\e</td><td>에디터로 쿼리 편집</td><td>긴 쿼리 작성에 편리</td></tr>
+        <tr><td class="mono">\i file.sql</td><td>SQL 파일 실행</td><td><code>psql -f file.sql</code>과 동일</td></tr>
+        <tr><td class="mono">\copy</td><td>클라이언트 기준 CSV 입출력</td><td>서버 <code>COPY</code>와 달리 파일 권한 문제가 없음</td></tr>
+        <tr><td class="mono">\? / \h SELECT</td><td>메타 명령 도움말 / SQL 문법 도움말</td><td>매뉴얼 없이도 문법 확인</td></tr>
+        <tr><td class="mono">\q</td><td>종료</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>편의 설정 — 한 번 해두면 계속 편합니다</h3>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">~/.psqlrc</button><button class="cb__tab">CSV 가져오기</button><button class="cb__copy">복사</button></div>
+<pre data-lang="conf" class="is-on"><code>
+\set QUIET 1
+\timing on
+\x auto
+\pset null '(null)'
+\set PROMPT1 '%[%033[1;32m%]%n@%/%[%033[0m%]%R%# '
+\set HISTSIZE 5000
+-- 실수 방지: 트랜잭션 안에서 에러 나면 자동 롤백 지점 생성
+\set ON_ERROR_ROLLBACK interactive
+\unset QUIET
+</code></pre>
+<pre data-lang="sql"><code>
+-- 서버에 있는 파일 읽기 (슈퍼유저 또는 pg_read_server_files 권한 필요)
+COPY customers FROM '/tmp/customers.csv' WITH (FORMAT csv, HEADER true);
+
+-- 내 PC의 파일 읽기 (psql 안에서 실행, 권한 문제 없음)
+\copy customers FROM './customers.csv' WITH (FORMAT csv, HEADER true)
+
+-- 결과를 CSV로 내보내기
+\copy (SELECT * FROM orders WHERE amount &gt; 10000) TO './big_orders.csv' WITH (FORMAT csv, HEADER true)
+</code></pre>
+    <div class="cb__cap"><code>\x auto</code>는 화면이 좁을 때만 세로 출력으로 바꿔줍니다. <code>\pset null</code>로 NULL을 눈에 보이게 하는 것도 실수 방지에 큰 도움이 됩니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 05 ============================ -->
+<section id="s5">
+  <div class="eyebrow">-- <b>05</b> · data types</div>
+  <h2>데이터 타입 고르기</h2>
+  <p class="lead">타입 선택은 나중에 바꾸기 가장 어려운 결정입니다. PostgreSQL은 타입 검사가 엄격해서, 잘 고르면 <strong>잘못된 데이터가 애초에 들어오지 못합니다</strong>. 반대로 잘못 고르면 계산 오차나 대규모 마이그레이션으로 이어집니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 03</span><h4>데이터 타입 추천기 — 저장할 값을 고르면 권장 타입을 알려줍니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>저장할 값</label>
+        <select id="d3-kind"></select>
+        <label>추가 조건</label>
+        <select id="d3-opt"></select>
+      </div>
+      <div class="out" id="d3-out"></div>
+    </div>
+  </div>
+
+  <h3>실무에서 쓰는 것만 정리한 타입표</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>분류</th><th>타입</th><th>쓰는 곳</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="3">숫자</td><td class="mono">integer (int4)</td><td>수량, 나이, 일반 ID. −21억~21억</td><td>대량 데이터 PK에는 부족할 수 있음</td></tr>
+        <tr><td class="mono">bigint (int8)</td><td>대량 테이블 PK, 조회수, 바이트 수</td><td>JS 클라이언트에서 정밀도 손실 주의</td></tr>
+        <tr><td class="mono">numeric(p,s)</td><td><strong>금액, 세율, 정확한 소수</strong></td><td><code>float/double</code>은 금액에 절대 금지 (0.1+0.2≠0.3)</td></tr>
+        <tr><td rowspan="2">문자</td><td class="mono">text</td><td>대부분의 문자열. 길이 제한이 필요 없을 때</td><td>PostgreSQL에서 <code>text</code>와 <code>varchar</code>는 성능 차이가 없음</td></tr>
+        <tr><td class="mono">varchar(n)</td><td>길이 규칙을 DB로 강제할 때</td><td><code>char(n)</code>은 공백으로 채워지므로 사용 지양</td></tr>
+        <tr><td rowspan="3">날짜/시간</td><td class="mono">timestamptz</td><td><strong>모든 이벤트 시각의 기본 선택</strong></td><td>UTC로 저장하고 조회 시 타임존 변환</td></tr>
+        <tr><td class="mono">date</td><td>생일, 정산일 등 시각이 필요 없을 때</td><td>—</td></tr>
+        <tr><td class="mono">interval</td><td>기간(3일 4시간)</td><td>시각끼리 빼면 interval이 나옴</td></tr>
+        <tr><td>참/거짓</td><td class="mono">boolean</td><td>플래그. <code>true/false/NULL</code></td><td><code>'t','y','1'</code>도 입력으로 허용</td></tr>
+        <tr><td>식별자</td><td class="mono">uuid</td><td>분산 환경, 외부 노출 ID</td><td><strong>18부터는 <code>uuidv7()</code></strong>를 쓰세요. 시간 순 정렬이라 인덱스 지역성이 좋습니다. 랜덤인 v4는 대량 삽입에서 불리합니다</td></tr>
+        <tr><td rowspan="2">구조화</td><td class="mono">jsonb</td><td>스키마가 유동적인 속성, 로그 페이로드</td><td>이진 저장·인덱스 가능. <code>json</code>(텍스트형)보다 항상 우선</td></tr>
+        <tr><td class="mono">배열 int[] / text[]</td><td>태그, 소규모 목록</td><td>개수가 많거나 검색이 잦으면 별도 테이블이 정답</td></tr>
+        <tr><td>기타</td><td class="mono">inet, cidr, macaddr</td><td>IP·네트워크 정보</td><td>서브넷 포함 연산자(<code>&lt;&lt;=</code>)를 그대로 사용 가능</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">부동소수점 함정</button><button class="cb__tab">타임존 다루기</button><button class="cb__tab">타입 변환</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 왜 금액에 float을 쓰면 안 되는가
+SELECT 0.1::float8 + 0.2::float8 = 0.3::float8;   -- false  (!)
+SELECT 0.1::numeric + 0.2::numeric = 0.3::numeric; -- true
+
+-- 정수 나눗셈 함정
+SELECT 7 / 2;                 -- 3
+SELECT 7::numeric / 2;        -- 3.5000000000000000
+SELECT round(7::numeric/2, 1);-- 3.5
+
+-- 금액 컬럼 선언 예: 소수 2자리, 최대 13자리 정수부
+amount numeric(15,2) NOT NULL CHECK (amount &gt;= 0)
+</code></pre>
+<pre data-lang="sql"><code>
+-- timestamptz는 내부적으로 UTC로 저장되고, 세션 타임존으로 표시됩니다
+SHOW timezone;                     -- Asia/Seoul
+SELECT now();                      -- 2026-08-10 14:03:11.512+09
+
+-- 특정 타임존으로 변환해서 보기
+SELECT now() AT TIME ZONE 'UTC';
+SELECT created_at AT TIME ZONE 'America/New_York' FROM orders LIMIT 1;
+
+-- '오늘 하루' 범위 조건: 함수를 컬럼에 걸지 말고 범위로 표현 (인덱스 사용 가능)
+SELECT * FROM orders
+WHERE ordered_at &gt;= date_trunc('day', now())
+  AND ordered_at &lt;  date_trunc('day', now()) + interval '1 day';
+</code></pre>
+<pre data-lang="sql"><code>
+-- PostgreSQL 18: 시간 순으로 정렬되는 UUID
+SELECT uuidv7();        -- 018f2c...  앞부분이 타임스탬프 → 생성 순서대로 정렬
+SELECT uuidv4();        -- 완전 랜덤 (기존 gen_random_uuid()와 동일)
+
+-- 왜 v7이 유리한가: 인덱스에 값이 순서대로 쌓여 페이지 지역성이 좋습니다.
+-- 랜덤 UUID는 인덱스 곳곳에 흩어져 대량 삽입 시 캐시 미스와 분할이 늘어납니다.
+CREATE TABLE api_keys (
+  id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,  -- 내부 조인용
+  public_id  uuid NOT NULL DEFAULT uuidv7() UNIQUE,            -- 외부 노출용
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- v7에는 생성 시각이 담기므로, 추측을 막아야 하는 값(초대 토큰 등)에는 v4를 쓰세요.
+
+SELECT '123'::int, '3.14'::numeric, 'true'::boolean;
+SELECT CAST('2026-08-10' AS date);
+SELECT 1234567.891::numeric(10,2);         -- 1234567.89
+SELECT to_char(now(), 'YYYY-MM-DD HH24:MI');
+SELECT to_char(1234567.89, 'FM999,999,999.00');   -- 1,234,567.89
+
+-- 변환 실패는 조용히 넘어가지 않고 에러가 납니다 (좋은 일입니다)
+SELECT 'abc'::int;   -- ERROR: invalid input syntax for type integer
+</code></pre>
+    <div class="cb__cap">규칙 세 가지: <b>금액은 numeric</b>, <b>시각은 timestamptz</b>, <b>문자열은 text</b>. 이 세 가지만 지켜도 대형 사고는 대부분 피합니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 06 ============================ -->
+<section id="s6">
+  <div class="eyebrow">-- <b>06</b> · ddl</div>
+  <h2>DDL · 테이블과 제약조건</h2>
+  <p class="lead">DDL(Data Definition Language)은 구조를 정의하는 SQL입니다. 핵심은 <strong>제약조건</strong>입니다. 애플리케이션 코드의 검증은 버그로 뚫릴 수 있지만, DB 제약조건은 어떤 경로로 들어와도 지켜집니다. "데이터의 마지막 방어선"이라고 부릅니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">실전 CREATE TABLE</button><button class="cb__tab">제약조건 종류</button>
+      <button class="cb__tab">18 신문법</button><button class="cb__tab">ALTER / DROP</button><button class="cb__tab">뷰와 스키마</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+CREATE TABLE customers (
+  id         bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email      text        NOT NULL UNIQUE,
+  name       text        NOT NULL,
+  city       text,
+  grade      char(1)     NOT NULL DEFAULT 'C' CHECK (grade IN ('A','B','C')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  attrs      jsonb       NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE orders (
+  id          bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  customer_id bigint      NOT NULL
+              REFERENCES customers(id) ON DELETE RESTRICT,
+  product     text        NOT NULL,
+  qty         int         NOT NULL CHECK (qty &gt; 0),
+  amount      numeric(15,2) NOT NULL CHECK (amount &gt;= 0),
+  ordered_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- FK 컬럼 인덱스는 자동 생성되지 않습니다. 반드시 직접!
+CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+
+COMMENT ON TABLE  orders IS '고객 주문 원장';
+COMMENT ON COLUMN orders.amount IS '주문 총액(부가세 포함, KRW)';
+</code></pre>
+<pre data-lang="sql"><code>
+-- PRIMARY KEY : 유일 + NOT NULL. 테이블당 1개
+-- UNIQUE      : 유일. NULL은 여러 개 허용 (표준 동작)
+-- NOT NULL    : 값 필수
+-- CHECK       : 임의의 조건식
+-- FOREIGN KEY : 다른 테이블 값 참조 무결성
+-- EXCLUDE     : 범위 겹침 금지 등 고급 제약
+
+-- 복합 UNIQUE: 같은 고객이 같은 상품을 같은 날 중복 주문 금지
+ALTER TABLE orders
+  ADD CONSTRAINT uq_daily UNIQUE (customer_id, product, ordered_at);
+
+-- 여러 컬럼을 함께 보는 CHECK
+ALTER TABLE orders
+  ADD CONSTRAINT ck_amount_qty CHECK (amount &gt;= qty * 100);
+
+-- FK 삭제 동작 4가지
+--   RESTRICT / NO ACTION : 자식이 있으면 부모 삭제 거부 (기본, 안전)
+--   CASCADE              : 부모 삭제 시 자식도 삭제 (위험, 신중히)
+--   SET NULL / SET DEFAULT
+</code></pre>
+<pre data-lang="sql"><code>
+-- ① 생성 컬럼: 파생 값을 DB가 계산해 줍니다 (18부터 VIRTUAL이 기본)
+CREATE TABLE order_items (
+  id       bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  qty      int NOT NULL CHECK (qty &gt; 0),
+  price    numeric(15,2) NOT NULL,
+  total    numeric(15,2) GENERATED ALWAYS AS (qty * price),           -- VIRTUAL: 읽을 때 계산
+  total_s  numeric(15,2) GENERATED ALWAYS AS (qty * price) STORED     -- STORED: 저장해 둠
+);
+--   VIRTUAL : 디스크를 쓰지 않고 항상 최신. 인덱스는 걸 수 없습니다.
+--   STORED  : 저장하므로 인덱스를 걸 수 있고 조회가 빠릅니다.
+--   17 이하에서는 STORED만 가능했고, 명시하지 않으면 오류였습니다.
+
+-- ② 기간(temporal) 제약: 시간 구간이 겹치는 것을 기본키/유니크로 금지
+CREATE TABLE room_booking (
+  room_id  int NOT NULL,
+  period   tstzrange NOT NULL,
+  guest    text NOT NULL,
+  PRIMARY KEY (room_id, period WITHOUT OVERLAPS)   -- 같은 방의 겹치는 예약 거부
+);
+INSERT INTO room_booking VALUES (1, '[2026-08-10 14:00, 2026-08-10 16:00)', '김서준');
+INSERT INTO room_booking VALUES (1, '[2026-08-10 15:00, 2026-08-10 17:00)', '이하윤');
+--   ERROR: conflicting key value violates exclusion constraint
+--   애플리케이션 코드로는 동시성 때문에 완벽히 막기 어려운 문제를 DB가 처리합니다.
+
+-- ③ 이름을 가진 NOT NULL 제약 (에러 메시지에서 어떤 규칙인지 바로 확인 가능)
+CREATE TABLE t18 (
+  id   int PRIMARY KEY,
+  name text CONSTRAINT t18_name_required NOT NULL
+);
+
+-- ④ NOT ENFORCED: 문서화 목적으로 관계만 선언하고 검사는 하지 않음
+ALTER TABLE orders ADD CONSTRAINT fk_doc
+  FOREIGN KEY (customer_id) REFERENCES customers(id) NOT ENFORCED;
+--   데이터 웨어하우스처럼 검증을 상류에서 이미 끝낸 경우에 씁니다.
+--   검사를 하지 않으므로 무결성 보장 수단으로 착각하면 안 됩니다.
+</code></pre>
+<pre data-lang="sql"><code>
+ALTER TABLE customers ADD COLUMN phone text;
+ALTER TABLE customers ALTER COLUMN city SET NOT NULL;
+ALTER TABLE customers ALTER COLUMN city SET DEFAULT '미지정';
+ALTER TABLE customers RENAME COLUMN name TO full_name;
+ALTER TABLE customers DROP COLUMN phone;
+ALTER TABLE customers RENAME TO customer;
+
+-- 안전장치가 있는 삭제
+DROP TABLE IF EXISTS temp_load;
+DROP TABLE orders;             -- FK로 참조 중이면 거부됨
+TRUNCATE TABLE temp_load;      -- 전체 삭제, DELETE보다 훨씬 빠름
+TRUNCATE orders, customers RESTART IDENTITY CASCADE;  -- 시퀀스 초기화까지
+</code></pre>
+<pre data-lang="sql"><code>
+-- 스키마: 테이블을 묶는 폴더
+CREATE SCHEMA sales;
+CREATE TABLE sales.invoices (id bigint PRIMARY KEY);
+SET search_path TO sales, public;    -- 이름을 찾는 순서
+
+-- 뷰: 자주 쓰는 쿼리에 이름 붙이기 (저장은 안 함)
+CREATE VIEW v_customer_summary AS
+SELECT c.id, c.name, count(o.id) AS order_cnt, COALESCE(sum(o.amount),0) AS total
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.id, c.name;
+
+-- 머티리얼라이즈드 뷰: 결과를 실제로 저장 (무거운 집계용)
+CREATE MATERIALIZED VIEW mv_daily_sales AS
+SELECT date_trunc('day', ordered_at) AS d, sum(amount) AS total
+FROM orders GROUP BY 1;
+
+REFRESH MATERIALIZED VIEW mv_daily_sales;   -- 갱신은 수동
+</code></pre>
+    <div class="cb__cap">추천 습관: <b>모든 테이블에 PK</b>, <b>모든 FK에 인덱스</b>, <b>created_at/updated_at 보유</b>, <b>테이블·컬럼 주석 작성</b>.</div>
+  </div>
+
+  <div class="note ok"><span class="lbl">왜 IDENTITY인가</span>
+    <p><code>serial</code>은 내부적으로 시퀀스를 만들고 <code>DEFAULT</code>를 붙이는 옛 방식이라, 애플리케이션이 실수로 id 값을 직접 넣어 시퀀스와 어긋나는 사고가 납니다. <code>GENERATED ALWAYS AS IDENTITY</code>는 직접 입력을 <strong>거부</strong>해 그 사고를 원천 차단합니다. 표준 SQL이기도 합니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 07 ============================ -->
+<section id="s7">
+  <div class="eyebrow">-- <b>07</b> · dml</div>
+  <h2>DML · 데이터 넣고 바꾸기</h2>
+  <p class="lead">INSERT · UPDATE · DELETE는 단순하지만, 운영에서 사고가 가장 많이 나는 지점입니다. <strong>WHERE 없는 UPDATE/DELETE</strong>가 대표적입니다. PostgreSQL 고유의 <code>RETURNING</code>과 <code>ON CONFLICT</code>는 실무 생산성을 크게 올려줍니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">INSERT</button><button class="cb__tab">UPSERT</button>
+      <button class="cb__tab">UPDATE</button><button class="cb__tab">DELETE</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 컬럼 이름을 반드시 명시하세요 (테이블 구조가 바뀌어도 안전)
+INSERT INTO customers (email, name, city, grade)
+VALUES ('a@ex.com', '김서준', '서울', 'A');
+
+-- 여러 행 한 번에 (한 건씩 100번보다 훨씬 빠름)
+INSERT INTO customers (email, name, city) VALUES
+  ('b@ex.com', '이하윤', '부산'),
+  ('c@ex.com', '박도윤', '서울'),
+  ('d@ex.com', '최지우', '대전');
+
+-- RETURNING: 생성된 id를 바로 받기 (추가 SELECT 불필요)
+INSERT INTO orders (customer_id, product, qty, amount)
+VALUES (1, '키보드', 2, 89000)
+RETURNING id, ordered_at;
+
+-- PostgreSQL 18: 변경 전(old)과 후(new)를 한 번에 받기
+UPDATE customers SET grade = 'A' WHERE id = 3
+RETURNING old.grade AS 이전등급, new.grade AS 새등급, new.name;
+--   17 이하에서는 UPDATE의 RETURNING이 새 값만 돌려주어,
+--   이전 값을 남기려면 SELECT를 먼저 하거나 트리거를 써야 했습니다.
+DELETE FROM orders WHERE id = 10 RETURNING old.*;
+
+-- 쿼리 결과를 그대로 삽입
+INSERT INTO vip_customers (id, name)
+SELECT id, name FROM customers WHERE grade = 'A';
+</code></pre>
+<pre data-lang="sql"><code>
+-- 있으면 갱신, 없으면 삽입 (MERGE의 실용판)
+INSERT INTO customers (email, name, city)
+VALUES ('a@ex.com', '김서준', '성남')
+ON CONFLICT (email)                         -- UNIQUE 제약이 있는 컬럼 기준
+DO UPDATE SET city = EXCLUDED.city,          -- EXCLUDED = 넣으려던 새 행
+              name = EXCLUDED.name
+RETURNING id, (xmax = 0) AS inserted;        -- true면 신규, false면 갱신
+
+-- 중복은 그냥 무시하고 넘어가기 (배치 적재에 유용)
+INSERT INTO customers (email, name) VALUES ('a@ex.com','중복')
+ON CONFLICT DO NOTHING;
+
+-- 조건부 갱신: 더 최신 데이터만 반영
+ON CONFLICT (email) DO UPDATE
+  SET name = EXCLUDED.name
+  WHERE customers.updated_at &lt; EXCLUDED.updated_at;
+</code></pre>
+<pre data-lang="sql"><code>
+UPDATE customers SET grade = 'A' WHERE id = 3;
+
+-- 여러 컬럼 동시 변경
+UPDATE customers
+SET grade = 'B', city = '인천', updated_at = now()
+WHERE email = 'b@ex.com';
+
+-- 다른 테이블 값을 참조해 갱신 (PostgreSQL의 UPDATE ... FROM)
+UPDATE customers c
+SET grade = 'A'
+FROM (SELECT customer_id, sum(amount) s FROM orders GROUP BY 1) t
+WHERE c.id = t.customer_id AND t.s &gt;= 1000000;
+
+-- 안전 습관: 먼저 SELECT로 대상 확인 → 그다음 UPDATE
+SELECT count(*) FROM customers WHERE city IS NULL;  -- 몇 건인지 먼저
+UPDATE customers SET city = '미지정' WHERE city IS NULL RETURNING id;
+</code></pre>
+<pre data-lang="sql"><code>
+DELETE FROM orders WHERE id = 10;
+DELETE FROM orders WHERE ordered_at &lt; now() - interval '3 years';
+
+-- 서브쿼리 조건
+DELETE FROM orders
+WHERE customer_id IN (SELECT id FROM customers WHERE grade = 'C');
+
+-- 전체 삭제: 큰 테이블이면 TRUNCATE가 압도적으로 빠름
+DELETE FROM logs;     -- 행마다 처리 + 트랜잭션 로그, 공간도 즉시 반환 안 됨
+TRUNCATE logs;        -- 파일 단위 처리, 즉시 완료
+
+-- 사고 방지 3종
+BEGIN;                                  -- 1) 트랜잭션으로 감싸기
+DELETE FROM orders WHERE product = '테스트';
+-- 결과 행 수 확인 후
+ROLLBACK;                               -- 잘못됐으면 되돌리기 / 맞으면 COMMIT
+</code></pre>
+    <div class="cb__cap">운영 규칙: <b>UPDATE/DELETE는 항상 트랜잭션 안에서</b>, <b>실행 전 같은 WHERE로 SELECT count(*)</b>, <b>RETURNING으로 영향 행 확인</b>.</div>
+  </div>
+
+  <div class="note danger"><span class="lbl">가장 흔한 사고</span>
+    <p><code>UPDATE orders SET amount = 0;</code> — WHERE를 빼먹으면 <strong>모든 행</strong>이 바뀝니다. 에러도 나지 않습니다. psql에서 <code>\set AUTOCOMMIT off</code>를 켜두거나, 운영 접속은 항상 <code>BEGIN;</code>으로 시작하는 습관을 만드세요. 되돌릴 수 있는 유일한 순간은 COMMIT 전입니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 08 ============================ -->
+<section id="s8">
+  <div class="eyebrow">-- <b>08</b> · select</div>
+  <h2>SELECT 완전 분해</h2>
+  <p class="lead">SELECT는 SQL의 90%입니다. 그리고 SQL이 어려워 보이는 이유는 <strong>쓰는 순서와 실행 순서가 다르기 때문</strong>입니다. 이 순서를 머리에 넣으면 대부분의 혼란이 사라집니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">쓰는 순서</button><button class="cb__tab">실행 순서</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+SELECT   city, count(*) AS cnt        -- 5. 무엇을 보여줄지
+FROM     customers                     -- 1. 어디서
+WHERE    grade &lt;&gt; 'C'                  -- 2. 어떤 행만
+GROUP BY city                          -- 3. 어떻게 묶어서
+HAVING   count(*) &gt;= 2                 -- 4. 묶은 결과 중 어떤 것만
+ORDER BY cnt DESC                      -- 6. 어떤 순서로
+LIMIT    10;                           -- 7. 몇 개만
+</code></pre>
+<pre data-lang="text"><code>
+1) FROM / JOIN   테이블을 준비한다
+2) WHERE         행 단위로 걸러낸다        ← 집계 함수 사용 불가
+3) GROUP BY      같은 값끼리 묶는다
+4) HAVING        묶인 그룹을 걸러낸다      ← 집계 함수 사용 가능
+5) SELECT        컬럼을 계산하고 별칭을 붙인다
+6) ORDER BY      정렬한다                  ← 5번의 별칭 사용 가능
+7) LIMIT/OFFSET  잘라낸다
+
+이 순서 때문에 생기는 규칙:
+  · WHERE에 count(*)를 쓸 수 없다 → HAVING으로
+  · WHERE에 SELECT의 별칭을 쓸 수 없다 → ORDER BY에서는 가능
+</code></pre>
+    <div class="cb__cap">"WHERE에서는 별칭을 못 쓰는데 ORDER BY에서는 되는" 이유가 바로 이 실행 순서입니다.</div>
+  </div>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 04</span><h4>쿼리 빌더 실습기 — 조건을 바꾸면 SQL과 결과가 함께 바뀝니다</h4></div>
+    <div class="demo__bd">
+      <div class="ctl" id="d4-mode"></div>
+      <div class="ctl">
+        <label>조건</label><select id="d4-f"></select><select id="d4-op"></select>
+        <input type="text" id="d4-v" size="10" value="서울">
+        <label style="margin-left:8px">정렬</label><select id="d4-ob"></select>
+        <select id="d4-dir"><option value="ASC">ASC</option><option value="DESC">DESC</option></select>
+        <label style="margin-left:8px">LIMIT</label><input type="number" id="d4-lim" value="10" min="1" max="20" style="width:64px">
+      </div>
+      <div id="d4-steps" class="ctl" style="gap:5px;margin:4px 0 12px"></div>
+      <div class="cb" style="margin:0 0 14px"><div class="cb__hd"><span class="cb__tab is-on">생성된 SQL</span></div>
+        <pre class="is-on" style="display:block"><code id="d4-sql"></code></pre></div>
+      <div style="overflow-x:auto"><table class="rtbl" id="d4-res"></table></div>
+      <div class="small" id="d4-note" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <h3>WHERE 조건에 쓰는 연산자</h3>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">비교·논리</button><button class="cb__tab">패턴 검색</button>
+      <button class="cb__tab">집계 함수</button><button class="cb__tab">CASE와 조건 집계</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+WHERE amount &gt;= 100000 AND amount &lt; 500000
+WHERE amount BETWEEN 100000 AND 500000        -- 양쪽 끝 포함
+WHERE city IN ('서울','부산','대전')            -- OR의 축약
+WHERE city NOT IN ('서울')                     -- NULL이 있으면 결과 주의!
+WHERE grade IS NOT NULL
+WHERE (city = '서울' AND grade = 'A') OR amount &gt; 1000000   -- 괄호로 우선순위 명시
+
+-- 날짜 범위: 함수를 컬럼에 씌우면 인덱스를 못 씁니다
+WHERE date_trunc('month', ordered_at) = '2026-08-01'    -- 나쁨
+WHERE ordered_at &gt;= '2026-08-01'
+  AND ordered_at &lt;  '2026-09-01'                        -- 좋음
+</code></pre>
+<pre data-lang="sql"><code>
+WHERE name LIKE '김%'        -- 김으로 시작 (인덱스 사용 가능)
+WHERE name LIKE '%준'        -- 준으로 끝  (인덱스 사용 어려움)
+WHERE name LIKE '_서준'      -- _ 는 한 글자
+WHERE email ILIKE '%@GMAIL.COM'   -- 대소문자 무시 (PostgreSQL 전용)
+WHERE name ~ '^김[가-힣]{2}$'      -- 정규식 매칭 (~ 는 대소문자 구분, ~* 는 무시)
+
+-- 전문 검색(형태소 기반)
+WHERE to_tsvector('simple', product) @@ to_tsquery('simple', '키보드');
+</code></pre>
+<pre data-lang="sql"><code>
+SELECT
+  count(*)              AS 전체행수,      -- NULL 포함
+  count(city)           AS 도시입력수,     -- NULL 제외
+  count(DISTINCT city)  AS 도시종류수,
+  sum(amount)           AS 합계,
+  avg(amount)           AS 평균,
+  min(amount), max(amount),
+  round(avg(amount), 0) AS 평균반올림,
+  string_agg(name, ', ' ORDER BY name) AS 이름목록,
+  array_agg(id)         AS id배열
+FROM orders;
+
+-- GROUP BY 규칙: SELECT의 비집계 컬럼은 모두 GROUP BY에 있어야 합니다
+SELECT city, grade, count(*) FROM customers GROUP BY city, grade;
+</code></pre>
+<pre data-lang="sql"><code>
+-- CASE: SQL의 if-else
+SELECT name,
+       CASE WHEN amount &gt;= 1000000 THEN '대형'
+            WHEN amount &gt;= 100000  THEN '중형'
+            ELSE '소형' END AS 규모
+FROM orders;
+
+-- 조건별 집계를 한 줄로 (피벗의 기초)
+SELECT city,
+  count(*) FILTER (WHERE grade = 'A') AS a등급,
+  count(*) FILTER (WHERE grade = 'B') AS b등급,
+  sum(CASE WHEN grade = 'A' THEN 1 ELSE 0 END) AS a등급_구식표현
+FROM customers GROUP BY city;
+</code></pre>
+    <div class="cb__cap"><code>FILTER (WHERE ...)</code>는 표준 SQL이며 CASE보다 읽기 쉽습니다. MySQL에는 없는 문법입니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 09 ============================ -->
+<section id="s9">
+  <div class="eyebrow">-- <b>09</b> · join</div>
+  <h2>JOIN 시각적으로 이해하기</h2>
+  <p class="lead">JOIN은 "나뉘어 있는 테이블을 조건에 맞춰 옆으로 이어 붙이는 것"입니다. 종류가 다섯 개지만, 실무에서는 <strong>INNER와 LEFT 두 개로 95%</strong>를 해결합니다. 아래 데모로 결과 행이 어떻게 달라지는지 직접 확인해 보세요.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 05</span><h4>JOIN 시각화기 — 종류를 바꿔 결과 행을 비교하세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl" id="d5-btns"></div>
+      <div class="grid g2" style="margin-bottom:14px">
+        <div>
+          <div class="small mono" style="margin-bottom:6px">emp (왼쪽 테이블)</div>
+          <table class="rtbl" id="d5-left"></table>
+        </div>
+        <div>
+          <div class="small mono" style="margin-bottom:6px">dept (오른쪽 테이블)</div>
+          <table class="rtbl" id="d5-right"></table>
+        </div>
+      </div>
+      <div class="grid g2">
+        <div>
+          <div class="cb" style="margin:0 0 12px"><div class="cb__hd"><span class="cb__tab is-on">SQL</span></div>
+            <pre class="is-on" style="display:block"><code id="d5-sql"></code></pre></div>
+          <svg viewBox="0 0 300 150" style="max-width:300px" aria-hidden="true">
+            <defs>
+              <clipPath id="clipA"><circle cx="115" cy="70" r="55"/></clipPath>
+              <mask id="mAonly"><rect x="0" y="0" width="300" height="150" fill="black"/>
+                <circle cx="115" cy="70" r="55" fill="white"/><circle cx="185" cy="70" r="55" fill="black"/></mask>
+              <mask id="mBonly"><rect x="0" y="0" width="300" height="150" fill="black"/>
+                <circle cx="185" cy="70" r="55" fill="white"/><circle cx="115" cy="70" r="55" fill="black"/></mask>
+            </defs>
+            <rect id="vA" x="0" y="0" width="300" height="150" fill="#4a9fe0" mask="url(#mAonly)" opacity="0"/>
+            <rect id="vB" x="0" y="0" width="300" height="150" fill="#4a9fe0" mask="url(#mBonly)" opacity="0"/>
+            <g clip-path="url(#clipA)"><circle id="vI" cx="185" cy="70" r="55" fill="#4a9fe0" opacity="0"/></g>
+            <circle cx="115" cy="70" r="55" fill="none" stroke="#2f3a49" stroke-width="1.5"/>
+            <circle cx="185" cy="70" r="55" fill="none" stroke="#2f3a49" stroke-width="1.5"/>
+            <text x="72" y="140" fill="#8d99a9" font-size="11" font-family="monospace">emp</text>
+            <text x="200" y="140" fill="#8d99a9" font-size="11" font-family="monospace">dept</text>
+          </svg>
+        </div>
+        <div>
+          <div class="small mono" style="margin-bottom:6px">결과 <span id="d5-cnt"></span></div>
+          <div style="overflow-x:auto"><table class="rtbl" id="d5-res"></table></div>
+          <div class="out" id="d5-out" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>JOIN 다섯 종류 정리</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>종류</th><th>무엇을 남기는가</th><th>언제 쓰는가</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">INNER JOIN</td><td>양쪽에 짝이 있는 행만</td><td>기본. "주문과 그 고객 정보"</td></tr>
+        <tr><td class="mono">LEFT [OUTER] JOIN</td><td>왼쪽 전부 + 짝이 있으면 오른쪽, 없으면 NULL</td><td>"모든 고객과, 있다면 주문 내역" — 0건 고객도 보고 싶을 때</td></tr>
+        <tr><td class="mono">RIGHT JOIN</td><td>LEFT의 반대</td><td>거의 안 씀. 테이블 순서를 바꿔 LEFT로 쓰는 것이 관례</td></tr>
+        <tr><td class="mono">FULL [OUTER] JOIN</td><td>양쪽 전부, 짝 없으면 NULL</td><td>두 시스템 데이터 정합성 비교</td></tr>
+        <tr><td class="mono">CROSS JOIN</td><td>모든 조합 (M×N)</td><td>날짜 축 × 카테고리 축 등 빈칸 없는 표 만들기</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">기본 3종</button><button class="cb__tab">"없는 것" 찾기</button>
+      <button class="cb__tab">3개 이상 JOIN</button><button class="cb__tab">흔한 실수</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 주문과 고객 이름 함께 보기 (짝 있는 것만)
+SELECT o.id, c.name, o.product, o.amount
+FROM orders o
+JOIN customers c ON c.id = o.customer_id;      -- INNER는 생략 가능
+
+-- 모든 고객 + 주문 요약 (주문 0건인 고객도 포함)
+SELECT c.name, count(o.id) AS 주문수, COALESCE(sum(o.amount),0) AS 총액
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.id, c.name
+ORDER BY 총액 DESC;
+
+-- 컬럼 이름이 같을 때는 USING으로 짧게
+SELECT * FROM orders JOIN customers USING (customer_id);
+</code></pre>
+<pre data-lang="sql"><code>
+-- 주문이 한 건도 없는 고객 찾기 (anti-join)
+-- 방법 1: LEFT JOIN + IS NULL
+SELECT c.*
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+WHERE o.id IS NULL;
+
+-- 방법 2: NOT EXISTS (가독성·성능 모두 권장)
+SELECT c.*
+FROM customers c
+WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);
+
+-- 방법 3: NOT IN  ← 서브쿼리에 NULL이 있으면 결과가 0건이 됩니다. 피하세요.
+SELECT * FROM customers WHERE id NOT IN (SELECT customer_id FROM orders);
+</code></pre>
+<pre data-lang="sql"><code>
+SELECT o.id, c.name, p.category, s.status_label
+FROM orders o
+JOIN customers c   ON c.id = o.customer_id
+JOIN products  p   ON p.code = o.product_code
+LEFT JOIN statuses s ON s.code = o.status_code   -- 상태 코드가 없는 주문도 살림
+WHERE o.ordered_at &gt;= date_trunc('month', now())
+ORDER BY o.ordered_at DESC;
+
+-- 각 고객의 '최근 주문 1건'만 붙이기: LATERAL이 가장 깔끔합니다
+SELECT c.name, r.product, r.ordered_at
+FROM customers c
+LEFT JOIN LATERAL (
+  SELECT product, ordered_at FROM orders o
+  WHERE o.customer_id = c.id
+  ORDER BY ordered_at DESC LIMIT 1
+) r ON true;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 실수 1: LEFT JOIN 후 오른쪽 테이블 조건을 WHERE에 넣으면 INNER가 되어버립니다
+SELECT c.name, o.amount
+FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
+WHERE o.amount &gt; 100000;              -- 주문 없는 고객이 사라짐!
+
+-- 해결: 조건을 ON 절로 옮깁니다
+SELECT c.name, o.amount
+FROM customers c LEFT JOIN orders o
+  ON o.customer_id = c.id AND o.amount &gt; 100000;
+
+-- 실수 2: JOIN 조건을 빼먹으면 CROSS JOIN이 되어 행이 폭발합니다 (M×N)
+SELECT * FROM orders o, customers c;   -- 8행 × 6행 = 48행
+
+-- 실수 3: 1:N JOIN 후 sum()이 부풀려집니다 (fan-out)
+--         고객당 주문이 3건이면 고객 정보가 3번 세어집니다.
+--         먼저 집계한 뒤 JOIN하거나 서브쿼리로 분리하세요.
+</code></pre>
+    <div class="cb__cap">실수 1과 3은 실무 리뷰에서 가장 자주 지적되는 두 가지입니다. LEFT JOIN을 썼다면 <b>WHERE에 오른쪽 컬럼 조건이 없는지</b> 항상 확인하세요.</div>
+  </div>
+</section>
+
+<!-- ============================ 10 ============================ -->
+<section id="s10">
+  <div class="eyebrow">-- <b>10</b> · subquery / cte / window</div>
+  <h2>서브쿼리 · CTE · 윈도우 함수</h2>
+  <p class="lead">여기까지 오면 "SQL로 이런 것도 되나?" 싶은 영역이 열립니다. 특히 <strong>윈도우 함수</strong>는 순위·누적합·전월 대비를 애플리케이션 코드 없이 한 방에 처리해 주는 도구로, 배우는 순간 생산성이 달라집니다.</p>
+
+  <h3>서브쿼리 — 쿼리 안의 쿼리</h3>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">위치별 종류</button><button class="cb__tab">EXISTS 패턴</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 1) 스칼라 서브쿼리: 값 하나를 반환 (SELECT 목록/WHERE 우변)
+SELECT name, amount,
+       amount - (SELECT avg(amount) FROM orders) AS 평균과의차이
+FROM orders;
+
+-- 2) IN 서브쿼리: 목록을 반환
+SELECT * FROM customers
+WHERE id IN (SELECT customer_id FROM orders WHERE amount &gt; 1000000);
+
+-- 3) FROM 서브쿼리(인라인 뷰): 표를 반환 — 반드시 별칭 필요
+SELECT city, avg(cnt) FROM (
+  SELECT c.city, count(*) AS cnt
+  FROM orders o JOIN customers c ON c.id = o.customer_id
+  GROUP BY c.city, c.id
+) t
+GROUP BY city;
+</code></pre>
+<pre data-lang="sql"><code>
+-- EXISTS: 있는지만 확인 (첫 행을 찾으면 즉시 중단해 효율적)
+SELECT * FROM customers c
+WHERE EXISTS (SELECT 1 FROM orders o
+              WHERE o.customer_id = c.id AND o.amount &gt; 500000);
+
+-- NOT EXISTS: 없는 것 찾기 (NULL에도 안전)
+SELECT * FROM customers c
+WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);
+
+-- IN vs EXISTS: 최신 PostgreSQL 플래너는 대개 같은 계획으로 변환합니다.
+-- 다만 서브쿼리에 NULL이 섞이면 NOT IN은 예상과 다른 결과를 냅니다.
+</code></pre>
+  </div>
+
+  <h3>CTE(WITH) — 쿼리에 이름을 붙여 계단처럼 쌓기</h3>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">기본 CTE</button><button class="cb__tab">재귀 CTE</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+WITH monthly AS (
+  SELECT date_trunc('month', ordered_at) AS m, sum(amount) AS total
+  FROM orders
+  GROUP BY 1
+),
+ranked AS (
+  SELECT m, total, rank() OVER (ORDER BY total DESC) AS rk
+  FROM monthly
+)
+SELECT * FROM ranked WHERE rk &lt;= 3;
+
+-- 장점: 복잡한 쿼리를 위에서 아래로 읽히게 만듭니다.
+-- 참고: PostgreSQL 12부터 CTE는 기본적으로 인라인 처리되어 성능 손실이 거의 없습니다.
+--       일부러 분리 실행하려면 MATERIALIZED, 막으려면 NOT MATERIALIZED를 명시합니다.
+</code></pre>
+<pre data-lang="sql"><code>
+-- 조직도처럼 자기 자신을 참조하는 계층 구조 순회
+WITH RECURSIVE tree AS (
+  SELECT id, name, manager_id, 1 AS depth
+  FROM employees WHERE manager_id IS NULL      -- 시작점(앵커)
+  UNION ALL
+  SELECT e.id, e.name, e.manager_id, t.depth + 1
+  FROM employees e
+  JOIN tree t ON e.manager_id = t.id           -- 반복 부분
+)
+SELECT repeat('  ', depth - 1) || name AS 조직도, depth FROM tree ORDER BY depth;
+
+-- 날짜 축 만들기 (빈 날짜 없는 리포트용)
+SELECT d::date FROM generate_series('2026-08-01'::date, '2026-08-31', '1 day') d;
+</code></pre>
+  </div>
+
+  <h3>윈도우 함수 — 그룹으로 묶지 않고 그룹 계산하기</h3>
+  <p>GROUP BY는 여러 행을 <em>하나로 합칩니다</em>. 윈도우 함수는 <strong>행을 그대로 두고 옆에 계산 결과 컬럼을 붙입니다</strong>. 이 차이가 핵심입니다.</p>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">순위</button><button class="cb__tab">누적·이동</button>
+      <button class="cb__tab">이전/다음 행 비교</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+SELECT c.city, c.name, sum(o.amount) AS 총액,
+       row_number() OVER (PARTITION BY c.city ORDER BY sum(o.amount) DESC) AS 도시내순번,
+       rank()       OVER (ORDER BY sum(o.amount) DESC) AS 전체순위,
+       dense_rank() OVER (ORDER BY sum(o.amount) DESC) AS 촘촘한순위
+FROM customers c JOIN orders o ON o.customer_id = c.id
+GROUP BY c.city, c.id, c.name;
+
+-- PARTITION BY = 그룹 나누기, ORDER BY = 그룹 안 정렬
+-- row_number: 1,2,3,4   rank: 1,1,3,4   dense_rank: 1,1,2,3
+
+-- 각 도시의 1위 고객만 뽑기
+SELECT * FROM (
+  SELECT c.city, c.name, sum(o.amount) t,
+         row_number() OVER (PARTITION BY c.city ORDER BY sum(o.amount) DESC) rn
+  FROM customers c JOIN orders o ON o.customer_id = c.id
+  GROUP BY c.city, c.id, c.name
+) x WHERE rn = 1;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 누적 합계
+SELECT ordered_at, amount,
+       sum(amount) OVER (ORDER BY ordered_at
+                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS 누적액
+FROM orders;
+
+-- 7일 이동 평균
+SELECT ordered_at, amount,
+       round(avg(amount) OVER (ORDER BY ordered_at
+             ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 0) AS 이동평균7
+FROM orders;
+
+-- 전체 대비 비율
+SELECT product, sum(amount) AS s,
+       round(100.0 * sum(amount) / sum(sum(amount)) OVER (), 1) AS 비중pct
+FROM orders GROUP BY product ORDER BY s DESC;
+</code></pre>
+<pre data-lang="sql"><code>
+-- 전월 대비 증감 (lag)
+WITH m AS (
+  SELECT date_trunc('month', ordered_at) AS mon, sum(amount) AS total
+  FROM orders GROUP BY 1
+)
+SELECT mon, total,
+       lag(total) OVER (ORDER BY mon) AS 전월,
+       total - lag(total) OVER (ORDER BY mon) AS 증감,
+       round(100.0 * (total - lag(total) OVER (ORDER BY mon))
+             / NULLIF(lag(total) OVER (ORDER BY mon), 0), 1) AS 증감률pct
+FROM m ORDER BY mon;
+
+-- lead(): 다음 행, first_value()/last_value(): 구간의 처음/끝
+-- 4분위 나누기
+SELECT name, amount, ntile(4) OVER (ORDER BY amount DESC) AS 분위
+FROM orders;
+</code></pre>
+    <div class="cb__cap">순위·누적·전기간 비교를 애플리케이션에서 루프로 계산하고 있다면, 그 코드는 대부분 윈도우 함수 한 줄로 대체됩니다.</div>
+  </div>
+</section>
+
+<!-- ============================ 11 ============================ -->
+<section id="s11">
+  <div class="eyebrow">-- <b>11</b> · index</div>
+  <h2>인덱스 첫걸음</h2>
+  <p class="lead">인덱스는 책의 색인과 정확히 같습니다. 색인이 없으면 원하는 단어를 찾기 위해 <strong>첫 장부터 끝까지</strong> 읽어야 합니다. 100만 행 테이블에서 이 차이는 수 초 대 수 밀리초입니다.</p>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 06</span><h4>순차 스캔 vs 인덱스 스캔 — 실행 버튼을 눌러 비교하세요</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <button class="btn pri" id="d6-seq">Seq Scan 실행</button>
+        <button class="btn pri" id="d6-idx">Index Scan 실행</button>
+        <button class="btn sm" id="d6-reset">초기화</button>
+        <span class="small mono" id="d6-target"></span>
+      </div>
+      <div id="d6-grid" style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-bottom:14px"></div>
+      <div class="grid g3">
+        <div class="tile"><div class="k">읽은 행</div><div class="t mono" id="d6-read">0</div><div class="d">디스크에서 실제로 꺼낸 행 수</div></div>
+        <div class="tile"><div class="k">가상 소요</div><div class="t mono" id="d6-time">0 ms</div><div class="d">행당 0.01ms로 가정</div></div>
+        <div class="tile"><div class="k">100만 행 환산</div><div class="t mono" id="d6-scale">—</div><div class="d">같은 비율로 늘렸을 때</div></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--panel-2)"></i>미확인</span>
+        <span><i style="background:#5a6f85"></i>읽음</span>
+        <span><i style="background:var(--cyan)"></i>인덱스 경유</span>
+        <span><i style="background:var(--green)"></i>찾음</span>
+      </div>
+      <div class="out" id="d6-out" style="margin-top:14px">두 버튼을 각각 눌러 읽은 행 수를 비교해 보세요.</div>
+    </div>
+  </div>
+
+  <h3>인덱스가 동작하는 원리 — B-tree</h3>
+  <p>PostgreSQL의 기본 인덱스는 <strong>B-tree</strong>입니다. 정렬된 값을 트리 구조로 보관해, 100만 행이라도 <strong>3~4번의 점프</strong>로 원하는 위치에 도달합니다. 값이 정렬되어 있으므로 <code>=</code>뿐 아니라 <code>&lt;</code>, <code>&gt;</code>, <code>BETWEEN</code>, <code>ORDER BY</code>, <code>LIKE '접두사%'</code>에도 쓰입니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">인덱스 만들기</button><button class="cb__tab">복합 인덱스 순서</button>
+      <button class="cb__tab">인덱스를 못 쓰는 조건</button><button class="cb__tab">EXPLAIN으로 확인</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+-- 기본
+CREATE INDEX idx_orders_customer ON orders (customer_id);
+
+-- 운영 중이라면 반드시 CONCURRENTLY (테이블 쓰기를 막지 않음)
+CREATE INDEX CONCURRENTLY idx_orders_ordered_at ON orders (ordered_at DESC);
+
+-- 복합 인덱스: 여러 컬럼을 한 인덱스로
+CREATE INDEX idx_orders_cust_date ON orders (customer_id, ordered_at DESC);
+
+-- 부분 인덱스: 조건에 맞는 행만 색인 → 크기가 작고 빠름
+CREATE INDEX idx_orders_active ON orders (ordered_at)
+  WHERE status = 'ACTIVE';
+
+-- 표현식 인덱스: 대소문자 무시 검색용
+CREATE INDEX idx_customers_email_lower ON customers (lower(email));
+-- 이 인덱스는 다음 쿼리에서만 쓰입니다:
+--   WHERE lower(email) = lower('A@Ex.com')
+
+-- 자동으로 만들어지는 인덱스: PRIMARY KEY, UNIQUE 제약
+-- 자동으로 만들어지지 않는 것: FOREIGN KEY 컬럼  ← 직접 만들어야 합니다
+</code></pre>
+<pre data-lang="sql"><code>
+-- 복합 인덱스 (a, b)는 '전화번호부'와 같습니다: 성 → 이름 순 정렬
+CREATE INDEX idx_ab ON t (city, grade);
+
+-- 사용 가능
+WHERE city = '서울'                      -- 선두 컬럼만 사용 (OK)
+WHERE city = '서울' AND grade = 'A'      -- 둘 다 사용 (최적)
+WHERE city = '서울' ORDER BY grade       -- 정렬까지 인덱스로 해결
+
+-- 선두 컬럼 조건이 없는 경우
+WHERE grade = 'A'
+--   17 이하: 선두 컬럼(city) 조건이 없으면 인덱스를 거의 쓰지 못해 Seq Scan
+--   18부터: "스킵 스캔(skip scan)"으로 이 인덱스를 쓸 수 있습니다.
+--           city의 값 종류를 하나씩 건너뛰며 grade 조건을 찾는 방식입니다.
+--   다만 city의 값 종류가 많으면 건너뛸 횟수도 많아져 이득이 줄어듭니다.
+--   → 여전히 (grade, ...) 전용 인덱스가 가장 빠릅니다. 스킵 스캔은 안전망입니다.
+
+-- 순서 정하는 원칙
+--   1) 등호(=) 조건 컬럼을 앞에
+--   2) 선택도가 높은(값 종류가 많은) 컬럼을 앞에
+--   3) 범위(&gt;, &lt;) 조건 컬럼은 뒤에
+--   4) ORDER BY 컬럼은 범위 조건 다음에
+</code></pre>
+<pre data-lang="sql"><code>
+-- 1) 컬럼에 함수/연산을 씌운 경우
+WHERE date_trunc('day', ordered_at) = '2026-08-10'    -- 못 씀
+WHERE ordered_at &gt;= '2026-08-10' AND ordered_at &lt; '2026-08-11'  -- 씀
+
+-- 2) 타입이 다른 비교 (암묵적 변환)
+WHERE customer_id = '123'      -- 문자와 숫자 비교 → 상황에 따라 못 씀
+
+-- 3) 앞이 열린 LIKE
+WHERE name LIKE '%준'          -- 못 씀 → pg_trgm 확장 + GIN 인덱스로 해결
+
+-- 4) NOT / &lt;&gt; 조건, OR 로 흩어진 조건
+WHERE status &lt;&gt; 'DONE'         -- 대개 못 씀 (부분 인덱스로 우회)
+
+-- 5) 결과가 테이블의 상당 비율일 때
+--    → 플래너가 "전체 읽는 게 더 빠르다"고 판단. 이건 정상 동작입니다.
+</code></pre>
+<pre data-lang="sql"><code>
+-- 계획만 보기 (실행하지 않음)
+EXPLAIN SELECT * FROM orders WHERE customer_id = 1;
+
+-- 실제 실행하고 실측값까지 보기
+EXPLAIN (ANALYZE) SELECT * FROM orders WHERE customer_id = 1;
+--   PostgreSQL 18부터 ANALYZE에 BUFFERS가 자동 포함됩니다.
+--   17 이하에서는 EXPLAIN (ANALYZE, BUFFERS) 로 직접 켜야 했습니다.
+
+/* 읽는 요령
+   Seq Scan on orders        ← 전체 읽음. 큰 테이블이면 개선 후보
+   Index Scan using idx_...  ← 인덱스 사용 (좋음)
+   Bitmap Heap Scan          ← 인덱스로 위치를 모아 한 번에 읽음 (중간 규모에 적합)
+   rows=1000 vs actual rows=98000   ← 추정과 실제가 크게 다르면 ANALYZE 필요
+   loops=5000                ← 반복 횟수. 여기에 시간이 곱해집니다
+   Index Searches: 4         ← 18부터 표시. 스킵 스캔이 몇 번 건너뛰었는지 알려줍니다
+*/
+ANALYZE orders;   -- 통계 정보 갱신
+</code></pre>
+    <div class="cb__cap">인덱스는 공짜가 아닙니다. INSERT/UPDATE/DELETE마다 인덱스도 갱신되고 디스크도 차지합니다. <b>안 쓰이는 인덱스는 순수한 비용</b>입니다.</div>
+  </div>
+
+  <div class="note warn"><span class="lbl">인덱스 3원칙</span>
+    <p><strong>1)</strong> WHERE·JOIN·ORDER BY에 자주 등장하는 컬럼에만 만듭니다. <strong>2)</strong> 컬럼마다 하나씩 만드는 대신 실제 쿼리 패턴에 맞는 복합 인덱스를 만듭니다. <strong>3)</strong> 만든 뒤에는 <code>pg_stat_user_indexes.idx_scan</code>으로 실제 사용 여부를 확인하고, 안 쓰이면 삭제합니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 12 ============================ -->
+<section id="s12">
+  <div class="eyebrow">-- <b>12</b> · transaction</div>
+  <h2>트랜잭션과 ACID</h2>
+  <p class="lead">계좌 A에서 100원을 빼고 계좌 B에 100원을 넣는 두 문장 사이에서 장애가 나면 돈이 사라집니다. 트랜잭션은 <strong>"전부 성공 아니면 전부 취소"</strong>를 보장하는 장치입니다.</p>
+
+  <div class="grid g4">
+    <div class="tile"><div class="k">A</div><div class="t">원자성 Atomicity</div><div class="d">전부 반영되거나 전부 취소됩니다. 중간 상태는 남지 않습니다.</div></div>
+    <div class="tile"><div class="k">C</div><div class="t">일관성 Consistency</div><div class="d">제약조건을 위반하는 상태로 끝나지 않습니다.</div></div>
+    <div class="tile"><div class="k">I</div><div class="t">고립성 Isolation</div><div class="d">동시에 실행되는 다른 트랜잭션의 중간 상태가 보이지 않습니다.</div></div>
+    <div class="tile"><div class="k">D</div><div class="t">지속성 Durability</div><div class="d">커밋된 결과는 서버가 죽어도 남습니다(WAL 덕분).</div></div>
+  </div>
+
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 07</span><h4>트랜잭션 시뮬레이터 — 두 세션이 같은 행을 다룰 때</h4></div>
+    <div class="demo__bd">
+      <div class="ctl">
+        <label>세션 B 격리수준</label>
+        <select id="d7-iso">
+          <option value="rc">READ COMMITTED (기본값)</option>
+          <option value="rr">REPEATABLE READ</option>
+        </select>
+        <label>세션 A 종료</label>
+        <select id="d7-end"><option value="commit">COMMIT</option><option value="rollback">ROLLBACK</option></select>
+        <button class="btn pri" id="d7-next">다음 단계 ▸</button>
+        <button class="btn sm" id="d7-reset">초기화</button>
+      </div>
+      <div class="grid g2">
+        <div><div class="small mono" style="margin-bottom:6px">세션 A</div><div class="out" id="d7-a" style="min-height:150px"></div></div>
+        <div><div class="small mono" style="margin-bottom:6px">세션 B</div><div class="out" id="d7-b" style="min-height:150px"></div></div>
+      </div>
+      <div class="out" id="d7-note" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">기본 사용</button><button class="cb__tab">SAVEPOINT</button>
+      <button class="cb__tab">격리수준</button><button class="cb__tab">행 잠금</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+BEGIN;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;        -- 둘 다 반영
+-- ROLLBACK;   -- 둘 다 취소
+
+-- psql은 기본이 자동 커밋(autocommit)입니다.
+-- 한 문장이 곧 하나의 트랜잭션이며, 에러가 나면 그 문장만 취소됩니다.
+
+-- 트랜잭션 안에서 에러가 나면 그 트랜잭션은 '중단 상태'가 됩니다.
+-- 이후 모든 문장이 다음 에러를 냅니다:
+--   ERROR: current transaction is aborted, commands ignored until end of transaction block
+-- → ROLLBACK 하고 다시 시작해야 합니다.
+</code></pre>
+<pre data-lang="sql"><code>
+BEGIN;
+  INSERT INTO orders (customer_id, product, qty, amount) VALUES (1,'키보드',1,89000);
+  SAVEPOINT sp1;
+  INSERT INTO orders (customer_id, product, qty, amount) VALUES (999,'오류',1,0);  -- FK 위반
+  -- 실패했지만 앞의 INSERT는 지키고 싶다
+  ROLLBACK TO SAVEPOINT sp1;
+  INSERT INTO orders (customer_id, product, qty, amount) VALUES (2,'마우스',1,29000);
+COMMIT;        -- 키보드와 마우스만 저장됨
+</code></pre>
+<pre data-lang="sql"><code>
+-- PostgreSQL이 지원하는 3단계 (READ UNCOMMITTED는 READ COMMITTED와 동일 동작)
+BEGIN ISOLATION LEVEL READ COMMITTED;   -- 기본값: 매 문장마다 최신 커밋을 봄
+BEGIN ISOLATION LEVEL REPEATABLE READ;  -- 트랜잭션 시작 시점의 스냅샷을 끝까지 유지
+BEGIN ISOLATION LEVEL SERIALIZABLE;     -- 직렬 실행과 동등함을 보장
+
+/* 이상 현상 정리
+   Dirty Read      : 커밋 안 된 값 읽기 — PostgreSQL은 어떤 수준에서도 발생하지 않음
+   Non-repeatable  : 같은 행을 두 번 읽을 때 값이 달라짐 — RC에서 발생, RR부터 방지
+   Phantom Read    : 같은 조건 재조회 시 행 수가 달라짐 — RR부터 방지
+   Serialization   : SERIALIZABLE에서는 충돌 시 40001 에러 → 애플리케이션이 재시도해야 함
+*/
+</code></pre>
+<pre data-lang="sql"><code>
+-- 재고 차감처럼 '읽고 계산해서 쓰는' 로직은 잠금이 필요합니다
+BEGIN;
+  SELECT stock FROM products WHERE id = 5 FOR UPDATE;   -- 이 행에 배타 잠금
+  -- 다른 세션은 이 행의 UPDATE/FOR UPDATE에서 대기합니다
+  UPDATE products SET stock = stock - 1 WHERE id = 5;
+COMMIT;
+
+-- 기다리지 않고 즉시 실패시키기
+SELECT ... FOR UPDATE NOWAIT;
+-- 잠긴 행은 건너뛰기 (작업 큐 패턴에 유용)
+SELECT ... FOR UPDATE SKIP LOCKED LIMIT 10;
+
+-- 사실 단일 문장이면 잠금을 직접 걸 필요가 없습니다 (원자적으로 처리됨)
+UPDATE products SET stock = stock - 1 WHERE id = 5 AND stock &gt; 0;
+</code></pre>
+    <div class="cb__cap">교착상태(deadlock)는 두 트랜잭션이 서로의 잠금을 기다릴 때 발생합니다. PostgreSQL이 감지해 한쪽을 취소합니다. 예방책은 <b>항상 같은 순서로 행을 잠그는 것</b>입니다.</div>
+  </div>
+
+  <div class="note"><span class="lbl">알아두면 좋은 사실</span>
+    <p>PostgreSQL은 <strong>MVCC</strong>(다중 버전 동시성 제어)로 동작합니다. UPDATE는 기존 행을 덮어쓰지 않고 <em>새 버전을 추가</em>하고 옛 버전에 "여기까지 유효" 표시를 남깁니다. 그래서 <strong>읽기가 쓰기를 막지 않고, 쓰기가 읽기를 막지 않습니다</strong>. 대신 옛 버전을 정리하는 <code>VACUUM</code>이 필요하며, 이 주제는 고급 강의에서 깊게 다룹니다.</p>
+  </div>
+</section>
+
+<!-- ============================ 13 ============================ -->
+<section id="s13">
+  <div class="eyebrow">-- <b>13</b> · postgres-only</div>
+  <h2>PostgreSQL만의 무기</h2>
+  <p class="lead">여기까지는 대부분의 RDBMS에 공통인 내용이었습니다. 이제 "PostgreSQL을 골라야 하는 이유"에 해당하는 기능들을 살펴봅니다.</p>
+
+  <h3>jsonb — 관계형과 문서형을 한 DB에서</h3>
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">연산자</button><button class="cb__tab">조회와 인덱스</button><button class="cb__tab">수정과 전개</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+CREATE TABLE events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  payload jsonb NOT NULL
+);
+INSERT INTO events (payload) VALUES
+ ('{"user":{"id":7,"name":"김서준"},"tags":["ai","gpu"],"latency_ms":231}');
+
+-- 핵심 연산자
+SELECT payload -&gt; 'user'            FROM events;  -- jsonb 반환
+SELECT payload -&gt;&gt; 'latency_ms'     FROM events;  -- text 반환
+SELECT payload #&gt; '{user,name}'     FROM events;  -- 경로로 jsonb
+SELECT payload #&gt;&gt; '{user,name}'    FROM events;  -- 경로로 text
+SELECT payload ? 'tags'             FROM events;  -- 키 존재 여부
+SELECT payload @&gt; '{"tags":["gpu"]}'::jsonb FROM events;  -- 포함 여부
+</code></pre>
+<pre data-lang="sql"><code>
+-- 숫자 비교는 명시적 형변환 필요 (-&gt;&gt; 는 text)
+SELECT * FROM events WHERE (payload -&gt;&gt; 'latency_ms')::int &gt; 200;
+
+-- 포함(@&gt;) 조건을 위한 GIN 인덱스
+CREATE INDEX idx_events_payload ON events USING gin (payload);
+SELECT * FROM events WHERE payload @&gt; '{"user":{"id":7}}';
+
+-- 특정 키만 자주 쓰면 표현식 B-tree 인덱스가 더 작고 빠릅니다
+CREATE INDEX idx_events_user_id ON events (((payload -&gt; 'user' -&gt;&gt; 'id')::int));
+
+-- JSONPath (PostgreSQL 12+)
+SELECT * FROM events WHERE payload @@ '$.latency_ms &gt; 200';
+</code></pre>
+<pre data-lang="sql"><code>
+-- 값 갱신
+UPDATE events SET payload = jsonb_set(payload, '{latency_ms}', '150') WHERE id = 1;
+-- 키 추가(병합)
+UPDATE events SET payload = payload || '{"region":"kr-central"}'::jsonb;
+-- 키 삭제
+UPDATE events SET payload = payload - 'region';
+
+-- 배열/객체를 행으로 펼치기
+SELECT id, tag FROM events, jsonb_array_elements_text(payload -&gt; 'tags') AS tag;
+SELECT id, key, value FROM events, jsonb_each(payload -&gt; 'user');
+
+-- 관계형 결과를 JSON으로 조립 (API 응답에 유용)
+SELECT jsonb_build_object('city', city, 'names', jsonb_agg(name))
+FROM customers GROUP BY city;
+</code></pre>
+    <div class="cb__cap">원칙: <b>검색·집계·제약이 필요한 필드는 일반 컬럼으로</b>, 스키마가 자주 변하는 부수 속성만 jsonb에 담습니다. 전부 jsonb에 넣으면 관계형의 장점을 모두 버리게 됩니다.</div>
+  </div>
+
+  <h3>알아두면 유용한 나머지</h3>
+  <div class="grid g2">
+    <div class="card"><h4>배열과 범위 타입, 그리고 기간 제약</h4>
+      <p class="small">태그 목록을 <code>text[]</code>로, 예약 구간을 <code>tstzrange</code>로 저장합니다. 18부터는 <code>PRIMARY KEY (room_id, period WITHOUT OVERLAPS)</code> 한 줄로 <strong>예약 시간 겹침을 기본키가 막아줍니다</strong>(이전에는 <code>EXCLUDE USING gist</code>를 써야 했습니다). 애플리케이션 코드로는 동시성 때문에 완벽히 막기 어려운 문제입니다.</p></div>
+    <div class="card"><h4>생성 컬럼과 IDENTITY</h4>
+      <p class="small"><code>total numeric GENERATED ALWAYS AS (qty * price)</code> — 파생 값을 DB가 계산합니다. 18부터 기본값이 <strong>VIRTUAL</strong>(읽을 때 계산)이고, 인덱스를 걸어야 하면 <code>STORED</code>를 명시합니다. 애플리케이션이 계산을 빼먹어 데이터가 어긋나는 일이 없습니다.</p></div>
+    <div class="card"><h4>확장(extension) 생태계</h4>
+      <p class="small"><code>CREATE EXTENSION pg_stat_statements;</code>(쿼리 통계) <code>pg_trgm</code>(부분 문자열 검색) <code>postgis</code>(지리정보) <code>pgvector</code>(임베딩 검색) <code>pgcrypto</code>(암호화) <code>uuid-ossp</code>. 필요한 기능을 DB 안에서 확보합니다.</p></div>
+    <div class="card"><h4>선언적 파티셔닝</h4>
+      <p class="small">월별로 테이블을 쪼개 오래된 데이터를 <code>DETACH</code> 한 번으로 분리합니다. 로그·이벤트 테이블 운영의 표준 기법이며, 고급 강의에서 자세히 다룹니다.</p></div>
+    <div class="card"><h4>18의 조회 성능 개선</h4>
+      <p class="small">설정을 바꾸지 않아도 이득을 보는 항목들입니다. <strong>비동기 I/O</strong>로 순차 스캔·비트맵 스캔·VACUUM의 읽기가 빨라지고, <strong>스킵 스캔</strong>으로 복합 인덱스가 쓰이는 경우가 늘었으며, 불필요한 자기 조인이 자동으로 제거되고 <code>OR</code> 조건이 배열 조건으로 바뀌어 인덱스를 더 잘 씁니다.</p></div>
+    <div class="card"><h4>전문 검색과 벡터 검색</h4>
+      <p class="small"><code>tsvector</code> 기반 전문 검색이 내장되어 있고, <code>pgvector</code>로 코사인 유사도 검색이 가능합니다. RAG 서비스에서 <strong>메타데이터 필터 + 벡터 검색을 한 쿼리로</strong> 처리할 수 있는 것이 큰 강점입니다.</p></div>
+    <div class="card"><h4>논리 복제와 CDC</h4>
+      <p class="small">테이블 단위로 다른 PostgreSQL이나 Kafka(Debezium)로 변경 사항을 흘려보낼 수 있습니다. 무중단 메이저 업그레이드와 데이터 파이프라인의 기반입니다.</p></div>
+  </div>
+</section>
+
+<!-- ============================ 14 ============================ -->
+<section id="s14">
+  <div class="eyebrow">-- <b>14</b> · practice</div>
+  <h2>실습 과제와 자기 점검</h2>
+  <p class="lead">읽는 것만으로는 남지 않습니다. 아래 스크립트를 그대로 실행해 데이터를 만들고, 과제 10개를 직접 풀어 보세요. 정답 쿼리는 접혀 있지 않으니 먼저 스스로 작성한 뒤 비교하는 것을 권합니다.</p>
+
+  <div class="cb">
+    <div class="cb__hd"><button class="cb__tab is-on">실습 데이터 생성</button><button class="cb__tab">과제 10문항</button><button class="cb__tab">정답 예시</button><button class="cb__copy">복사</button></div>
+<pre data-lang="sql" class="is-on"><code>
+DROP TABLE IF EXISTS orders, customers;
+
+CREATE TABLE customers (
+  id    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  email text NOT NULL UNIQUE,
+  name  text NOT NULL,
+  city  text,
+  grade char(1) NOT NULL DEFAULT 'C' CHECK (grade IN ('A','B','C')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE orders (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  customer_id bigint NOT NULL REFERENCES customers(id),
+  product text NOT NULL,
+  qty int NOT NULL CHECK (qty &gt; 0),
+  amount numeric(15,2) NOT NULL CHECK (amount &gt;= 0),
+  ordered_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_orders_customer ON orders(customer_id);
+CREATE INDEX idx_orders_ordered_at ON orders(ordered_at DESC);
+
+-- 18 문법 맛보기: 외부 노출용 정렬 가능 UUID와 가상 생성 컬럼
+ALTER TABLE customers ADD COLUMN public_id uuid NOT NULL DEFAULT uuidv7();
+ALTER TABLE orders ADD COLUMN unit_price numeric(15,2)
+  GENERATED ALWAYS AS (round(amount / qty, 2));
+
+INSERT INTO customers (email,name,city,grade) VALUES
+ ('a@ex.com','김서준','서울','A'),('b@ex.com','이하윤','부산','B'),
+ ('c@ex.com','박도윤','서울','A'),('d@ex.com','최지우','대전','C'),
+ ('e@ex.com','정민서','서울','B'),('f@ex.com','한예린','부산','A'),
+ ('g@ex.com','오지호',NULL,'C');
+
+-- 무작위 주문 500건 생성
+INSERT INTO orders (customer_id, product, qty, amount, ordered_at)
+SELECT (random()*6)::int + 1,
+       (ARRAY['키보드','모니터','마우스','노트북','의자','USB허브'])[(random()*5)::int + 1],
+       (random()*3)::int + 1,
+       round((random()*1000000 + 20000)::numeric, -2),
+       now() - (random()*180 || ' days')::interval
+FROM generate_series(1, 500);
+
+ANALYZE customers; ANALYZE orders;
+</code></pre>
+<pre data-lang="text"><code>
+Q1. 서울에 사는 A등급 고객의 이름과 이메일을 이름순으로 조회하세요.
+Q2. 도시가 입력되지 않은(NULL) 고객을 찾으세요.
+Q3. 주문 금액이 50만 원 이상인 주문을 금액 내림차순 상위 10건 조회하세요.
+Q4. 고객별 주문 건수와 총액을 구하세요. 주문이 없는 고객도 0으로 표시되어야 합니다.
+Q5. 도시별 평균 주문 금액을 구하고, 평균이 40만 원 이상인 도시만 남기세요.
+Q6. 상품별 매출 순위를 매기고, 전체 매출에서 차지하는 비중(%)을 함께 보이세요.
+Q7. 최근 30일간 일별 매출 합계를 구하세요. 주문이 없는 날은 0으로 표시하세요.
+Q8. 고객별 '가장 최근 주문 1건'의 상품명과 주문일시를 조회하세요.
+Q9. 한 번도 주문하지 않은 고객을 두 가지 방법(LEFT JOIN, NOT EXISTS)으로 찾으세요.
+Q10. 트랜잭션으로 감싸서 특정 고객의 등급을 A로 올리고 결과를 확인한 뒤 롤백하세요.
+</code></pre>
+<pre data-lang="sql"><code>
+-- Q4
+SELECT c.name, count(o.id) AS 주문수, COALESCE(sum(o.amount),0) AS 총액
+FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.id, c.name ORDER BY 총액 DESC;
+
+-- Q6
+SELECT product, sum(amount) AS 매출,
+       rank() OVER (ORDER BY sum(amount) DESC) AS 순위,
+       round(100.0*sum(amount)/sum(sum(amount)) OVER (), 1) AS 비중pct
+FROM orders GROUP BY product ORDER BY 순위;
+
+-- Q7 (날짜 축을 만들어 LEFT JOIN)
+WITH days AS (
+  SELECT d::date FROM generate_series(now()::date - 29, now()::date, '1 day') d
+)
+SELECT days.d, COALESCE(sum(o.amount),0) AS 매출
+FROM days
+LEFT JOIN orders o ON o.ordered_at::date = days.d
+GROUP BY days.d ORDER BY days.d;
+
+-- Q8 (LATERAL)
+SELECT c.name, r.product, r.ordered_at
+FROM customers c
+LEFT JOIN LATERAL (SELECT product, ordered_at FROM orders o
+                   WHERE o.customer_id = c.id
+                   ORDER BY ordered_at DESC LIMIT 1) r ON true;
+
+-- Q10
+BEGIN;
+  UPDATE customers SET grade='A' WHERE email='d@ex.com' RETURNING id, name, grade;
+  SELECT grade FROM customers WHERE email='d@ex.com';
+ROLLBACK;
+SELECT grade FROM customers WHERE email='d@ex.com';   -- 원래 값으로 돌아옴
+</code></pre>
+  </div>
+
+  <h3>퀴즈 — 10문항</h3>
+  <div class="demo">
+    <div class="demo__hd"><span class="tag">demo 08</span><h4>이해도 점검 · 선택하면 즉시 해설이 나옵니다</h4></div>
+    <div class="demo__bd" style="padding:0">
+    <div class="quiz" style="margin:0;border:0">
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q1</span>NULL이 들어 있을 수 있는 컬럼을 조건으로 걸 때 올바른 표현은?</div>
+        <button class="opt">WHERE team_id = NULL</button>
+        <button class="opt">WHERE team_id == NULL</button>
+        <button class="opt">WHERE team_id IS NULL</button>
+        <button class="opt">WHERE team_id = 'NULL'</button>
+        <div class="expl">NULL은 "알 수 없음"이므로 <code>=</code>로 비교하면 결과가 참도 거짓도 아닌 상태가 되어 아무 행도 반환되지 않습니다. 반드시 <code>IS NULL</code> / <code>IS NOT NULL</code>을 사용합니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q2</span>금액 컬럼에 적합한 타입은?</div>
+        <button class="opt">double precision</button>
+        <button class="opt">numeric(15,2)</button>
+        <button class="opt">real</button>
+        <button class="opt">float4</button>
+        <div class="expl">부동소수점 타입은 2진 표현 한계로 <code>0.1+0.2 ≠ 0.3</code> 같은 오차가 발생합니다. 금액·세율 등 정확성이 필요한 값은 <code>numeric</code>을 사용합니다.</div>
+      </div>
+      <div class="q" data-a="3">
+        <div class="q__t"><span>Q3</span>WHERE 절에 <code>count(*) &gt;= 2</code>를 쓸 수 없는 이유는?</div>
+        <button class="opt">count는 SELECT에만 쓸 수 있는 함수이기 때문</button>
+        <button class="opt">문법 오류이며 sum으로 바꿔야 하기 때문</button>
+        <button class="opt">인덱스를 사용할 수 없기 때문</button>
+        <button class="opt">WHERE는 GROUP BY보다 먼저 실행되어 그룹이 아직 없기 때문</button>
+        <div class="expl">실행 순서가 FROM → WHERE → GROUP BY → HAVING이므로, WHERE 시점에는 그룹이 존재하지 않습니다. 그룹에 대한 조건은 <code>HAVING</code>에 씁니다.</div>
+      </div>
+      <div class="q" data-a="0">
+        <div class="q__t"><span>Q4</span>"모든 고객과, 주문이 있으면 그 내역"을 함께 보려면?</div>
+        <button class="opt">customers LEFT JOIN orders</button>
+        <button class="opt">customers INNER JOIN orders</button>
+        <button class="opt">customers CROSS JOIN orders</button>
+        <button class="opt">customers, orders (콤마 조인)</button>
+        <div class="expl">왼쪽(customers)을 모두 남기고 짝이 없으면 오른쪽을 NULL로 채우는 것이 LEFT JOIN입니다. INNER JOIN은 주문이 없는 고객을 제거합니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q5</span>다음 쿼리의 문제점은?<br><code>SELECT c.name FROM customers c LEFT JOIN orders o ON o.customer_id=c.id WHERE o.amount &gt; 1000;</code></div>
+        <button class="opt">문법 오류로 실행되지 않는다</button>
+        <button class="opt">주문이 없는 고객이 결과에서 사라져 실질적으로 INNER JOIN이 된다</button>
+        <button class="opt">중복 행이 제거되지 않는다</button>
+        <button class="opt">인덱스를 사용할 수 없다</button>
+        <div class="expl">LEFT JOIN으로 채워진 NULL은 <code>&gt; 1000</code> 조건을 만족하지 못해 걸러집니다. 오른쪽 테이블 조건은 <code>ON</code> 절로 옮겨야 LEFT JOIN의 의도가 유지됩니다.</div>
+      </div>
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q6</span>복합 인덱스 <code>(city, grade)</code>가 가장 효율적으로 쓰이지 <em>못하는</em> 조건은?</div>
+        <button class="opt">WHERE city='서울' AND grade='A'</button>
+        <button class="opt">WHERE city='서울'</button>
+        <button class="opt">WHERE grade='A'</button>
+        <button class="opt">WHERE city='서울' ORDER BY grade</button>
+        <div class="expl">복합 인덱스는 전화번호부처럼 선두 컬럼부터 정렬됩니다. 선두 컬럼(city) 조건이 없는 경우가 가장 불리합니다. PostgreSQL 18부터는 <b>스킵 스캔</b>으로 이런 조건에서도 인덱스를 쓸 수 있지만, 선두 컬럼의 값 종류가 많으면 건너뛸 횟수가 늘어 이득이 줄어듭니다. 여전히 <code>(grade, …)</code> 전용 인덱스가 가장 빠릅니다.</div>
+      </div>
+      <div class="q" data-a="3">
+        <div class="q__t"><span>Q7</span>인덱스가 사용되지 않는 대표적 조건은?</div>
+        <button class="opt">WHERE name LIKE '김%'</button>
+        <button class="opt">WHERE ordered_at &gt;= '2026-08-01'</button>
+        <button class="opt">WHERE id = 100</button>
+        <button class="opt">WHERE date_trunc('day', ordered_at) = '2026-08-10'</button>
+        <div class="expl">컬럼에 함수를 씌우면 인덱스에 저장된 원본 값과 매칭할 수 없습니다. 범위 조건으로 바꾸거나 표현식 인덱스를 만들어야 합니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q8</span>PostgreSQL의 기본 트랜잭션 격리수준은?</div>
+        <button class="opt">READ UNCOMMITTED</button>
+        <button class="opt">READ COMMITTED</button>
+        <button class="opt">REPEATABLE READ</button>
+        <button class="opt">SERIALIZABLE</button>
+        <div class="expl">기본값은 READ COMMITTED이며, 매 문장이 시작될 때의 최신 커밋 상태를 봅니다. 참고로 MySQL InnoDB의 기본값은 REPEATABLE READ입니다.</div>
+      </div>
+      <div class="q" data-a="0">
+        <div class="q__t"><span>Q9</span>"있으면 갱신, 없으면 삽입"을 한 문장으로 처리하는 PostgreSQL 문법은?</div>
+        <button class="opt">INSERT ... ON CONFLICT (key) DO UPDATE</button>
+        <button class="opt">INSERT ... ON DUPLICATE KEY UPDATE</button>
+        <button class="opt">REPLACE INTO</button>
+        <button class="opt">UPSERT INTO</button>
+        <div class="expl">두 번째는 MySQL, 세 번째는 MySQL/SQLite 문법입니다. PostgreSQL은 <code>ON CONFLICT ... DO UPDATE SET col = EXCLUDED.col</code> 형태를 사용합니다.</div>
+      </div>
+      <div class="q" data-a="1">
+        <div class="q__t"><span>Q10</span>PostgreSQL 18에서 <code>GENERATED ALWAYS AS (qty * price)</code>로 만든 컬럼은?</div>
+        <button class="opt">계산 결과가 디스크에 저장된다</button>
+        <button class="opt">기본이 VIRTUAL이므로 읽을 때마다 계산되고, 저장하려면 STORED를 명시해야 한다</button>
+        <button class="opt">17과 동일하게 STORED만 허용된다</button>
+        <button class="opt">인덱스를 자동으로 만들어 준다</button>
+        <div class="expl">18부터 생성 컬럼의 기본값이 <b>VIRTUAL</b>로 바뀌었습니다. 디스크를 쓰지 않고 항상 최신 값을 주지만 인덱스를 걸 수 없습니다. 조회 성능을 위해 인덱스가 필요하면 <code>STORED</code>를 명시하세요. 17 이하에서는 <code>STORED</code>가 필수였습니다.</div>
+      </div>
+      <div class="q" data-a="2">
+        <div class="q__t"><span>Q11</span>PostgreSQL과 MySQL의 구조적 차이로 <em>맞는</em> 설명은?</div>
+        <button class="opt">PostgreSQL은 스키마 개념이 없다</button>
+        <button class="opt">PostgreSQL은 DDL을 트랜잭션으로 감쌀 수 없다</button>
+        <button class="opt">PostgreSQL은 한 접속에서 다른 데이터베이스의 테이블을 직접 조회할 수 없다</button>
+        <button class="opt">PostgreSQL은 기본적으로 문자 비교에서 대소문자를 무시한다</button>
+        <div class="expl">PostgreSQL에서 DB는 완전히 분리된 단위이므로 교차 조회에는 <code>postgres_fdw</code>나 <code>dblink</code>가 필요합니다. 논리 분리는 스키마로 합니다. 또한 DDL은 트랜잭션 안에서 롤백 가능하고, 문자 비교는 대소문자를 구분합니다.</div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <h3>다음 단계 체크리스트</h3>
+  <div class="grid g2">
+    <div class="card"><h4>이 정도면 실무 투입 가능</h4>
+      <ul style="margin:0">
+        <li>테이블 설계와 제약조건 지정</li>
+        <li>JOIN·GROUP BY로 리포트 쿼리 작성</li>
+        <li><code>EXPLAIN (ANALYZE)</code>로 Seq Scan 여부 확인</li>
+        <li>트랜잭션으로 안전하게 데이터 수정</li>
+        <li><code>\d</code>, <code>\dt</code>, <code>\timing</code>으로 상황 파악</li>
+      </ul></div>
+    <div class="card"><h4>이어서 학습할 주제</h4>
+      <ul style="margin:0">
+        <li>MVCC와 VACUUM — 왜 디스크가 계속 커지는가</li>
+        <li>WAL·백업·PITR — 어제 오후 3시로 되돌리기</li>
+        <li>스트리밍/논리 복제와 페일오버</li>
+        <li>실행계획 읽기와 파라미터 튜닝</li>
+        <li>모니터링 지표와 장애 대응 런북</li>
+      </ul>
+      <p class="small" style="margin:10px 0 0">→ 이 주제들은 <strong>「PostgreSQL 운영 심화 · DBA 필수 개념」</strong> 강의에서 다룹니다.</p></div>
+  </div>
+
+  <footer>
+    <hr>
+    <p class="fnote">-- PostgreSQL 입문 강의 · 기준 버전 18 (18.4) · 인터랙티브 데모 8종<br>
+    -- 공식 문서: postgresql.org/docs · 이 파일은 단일 HTML로 오프라인에서도 동작합니다.</p>
+  </footer>
+</section>
+
+</div></main>
+</div>
+
+<script>
+/* ================= demo 01 : 테이블 구조 탐색기 ================= */
+(function(){
+  var T=document.getElementById('d1-tbl'), out=document.getElementById('d1-out'), box=document.getElementById('d1-btns');
+  var items=[
+    {k:'테이블', d:'같은 종류의 데이터를 담는 표 전체입니다. 여기서는 customers 테이블이며, "릴레이션(relation)"이라고도 부릅니다.', sel:'all'},
+    {k:'컬럼(열)', d:'표의 세로줄입니다. 이름과 데이터 타입을 가집니다. city 컬럼은 varchar(30) 타입으로 최대 30자 문자열을 담습니다. "속성/필드"라고도 합니다.', sel:'col:2'},
+    {k:'행(로우)', d:'데이터 한 건, 즉 표의 가로줄입니다. PostgreSQL 문서와 에러 메시지에서는 "튜플(tuple)"이라는 단어가 자주 등장하는데 같은 뜻입니다.', sel:'row:1'},
+    {k:'기본키(PK)', d:'한 행을 유일하게 식별하는 컬럼입니다. 중복과 NULL이 허용되지 않고, 인덱스가 자동으로 만들어집니다. PK가 없는 테이블은 복제와 중복 제거에서 반드시 문제를 일으킵니다.', sel:'col:0'},
+    {k:'외래키(FK)', d:'다른 테이블의 PK를 가리키는 컬럼입니다. teams(id)를 참조해 "이 직원이 속한 팀"을 표현합니다. 참조 무결성이 지켜져 존재하지 않는 팀 번호는 들어올 수 없습니다. 주의: FK 컬럼의 인덱스는 자동 생성되지 않습니다.', sel:'col:4'},
+    {k:'NULL', d:'값이 없거나 알 수 없음을 뜻하는 특별한 상태입니다. 0이나 빈 문자열과 다르며, = 로 비교할 수 없고 IS NULL을 써야 합니다.', sel:'cell:2,4'},
+    {k:'데이터 타입', d:'각 컬럼이 담을 수 있는 값의 종류입니다. 타입이 맞지 않는 데이터는 삽입 자체가 거부되므로, DB가 1차 검증기 역할을 합니다.', sel:'types'},
+    {k:'스키마', d:'테이블을 묶는 폴더입니다. 기본 스키마는 public이며, 이 테이블의 정식 이름은 public.customers입니다. MySQL에서 "스키마=데이터베이스"인 것과 뜻이 다릅니다.', sel:'none'}
+  ];
+  function clear(){
+    T.style.outline='none';
+    T.querySelectorAll('th,td').forEach(function(c){c.style.background='';c.style.outline='';c.style.boxShadow='';});
+    T.querySelectorAll('th .small').forEach(function(s){s.style.color='';s.style.fontWeight='';});
+  }
+  function mk(c){ c.style.background='rgba(74,159,224,.20)'; c.style.boxShadow='inset 0 0 0 1px #4a9fe0'; }
+  function apply(sel){
+    clear();
+    if(sel==='all'){ T.style.outline='2px solid #4a9fe0'; return; }
+    if(sel==='types'){ T.querySelectorAll('th .small').forEach(function(s){s.style.color='#5fd4d0';s.style.fontWeight='700';}); return; }
+    if(sel==='none') return;
+    var p=sel.split(':'), rows=[].slice.call(T.querySelectorAll('tr'));
+    if(p[0]==='col'){ rows.forEach(function(r){ if(r.children[+p[1]]) mk(r.children[+p[1]]); }); }
+    if(p[0]==='row'){ [].slice.call(rows[+p[1]+1].children).forEach(mk); }
+    if(p[0]==='cell'){ var q=p[1].split(','); mk(rows[+q[0]+1].children[+q[1]]); }
+  }
+  items.forEach(function(it,i){
+    var b=document.createElement('button'); b.className='btn sm'; b.textContent=it.k;
+    b.onclick=function(){
+      box.querySelectorAll('.btn').forEach(function(x){x.classList.remove('is-on');});
+      b.classList.add('is-on'); apply(it.sel);
+      out.textContent=it.k+' — '+it.d;
+    };
+    box.appendChild(b); if(i===0) setTimeout(function(){b.click();},0);
+  });
+})();
+
+/* ================= demo 02 : RDBMS 비교 매트릭스 ================= */
+(function(){
+  var CATS={
+   '라이선스·비용':{sum:'PostgreSQL의 가장 큰 구조적 장점은 라이선스입니다. BSD 계열이라 클라우드 사업자·SaaS 기업이 자유롭게 재배포할 수 있어, 관리형 서비스가 모든 클라우드에 존재하고 벤더 종속이 낮습니다.',
+     rows:[
+      ['라이선스',   'PostgreSQL License (BSD 계열)','GPLv2 + 상업 라이선스 이중','상용 독점','상용 독점'],
+      ['도입 비용',  '무료','커뮤니티판 무료 / 엔터프라이즈 유료','코어 단위 고가','코어 단위 유료'],
+      ['고급 기능 과금','추가 과금 없음','일부 엔터프라이즈 기능 유료','파티셔닝·RAC 등 별도 옵션','에디션별 기능 제한'],
+      ['관리형 서비스','AWS·Azure·GCP·KT·NHN 등 전부','전 클라우드','OCI 중심','Azure SQL 중심'],
+      ['벤더 종속',  '낮음','중간','높음','높음']]},
+   '기능·SQL':{sum:'표준 SQL 준수도와 확장성이 PostgreSQL의 강점입니다. 특히 jsonb, 배열/범위 타입, 부분·표현식 인덱스는 다른 오픈소스 DB에서 대체하기 어렵습니다.',
+     rows:[
+      ['표준 SQL 준수','매우 높음','중간','높음(독자 확장 다수)','중간'],
+      ['윈도우 함수','8.4부터 완전 지원','8.0부터','지원','2012부터'],
+      ['CTE / 재귀 CTE','지원','8.0부터','지원','지원'],
+      ['JSON','jsonb 이진 저장 + GIN 인덱스','JSON 타입, 인덱스는 생성 컬럼 경유','JSON 지원','JSON 함수 제공'],
+      ['배열·범위·지리 타입','내장 + PostGIS','제한적','옵션 상품 다수','지리 타입 지원'],
+      ['부분/표현식/커버링 인덱스','모두 지원','제한적','지원','필터 인덱스 지원'],
+      ['사용자 정의 확장','extension으로 자유롭게','플러그인 제한적','PL/SQL 패키지','T-SQL·CLR']]},
+   '동시성·트랜잭션':{sum:'PostgreSQL은 행의 옛 버전을 테이블 안에 남기는 MVCC를 사용합니다. 읽기와 쓰기가 서로를 막지 않는 대신 VACUUM으로 정리가 필요하다는 트레이드오프가 있습니다. 이 지점이 운영 난이도의 핵심입니다.',
+     rows:[
+      ['MVCC 구현','테이블 내 다중 버전(+VACUUM)','InnoDB undo 로그','undo 세그먼트','버전 저장소(옵션)'],
+      ['읽기가 쓰기를 막는가','아니오','아니오','아니오','기본 설정에서는 잠금 발생'],
+      ['기본 격리수준','READ COMMITTED','REPEATABLE READ','READ COMMITTED','READ COMMITTED'],
+      ['DDL 트랜잭션(롤백)','지원 — 마이그레이션에 유용','미지원(암묵적 커밋)','제한적','지원'],
+      ['진공/정리 작업','autovacuum 필수 관리','undo purge 자동','자동','자동'],
+      ['교착상태 처리','자동 감지 후 한쪽 취소','자동 감지','자동 감지','자동 감지']]},
+   '운영·확장':{sum:'복제 자체는 내장이지만 자동 페일오버는 외부 도구(Patroni, repmgr, CloudNativePG)를 조합해야 합니다. 상용 DB의 통합 HA와 비교되는 지점이며, 관리형 서비스를 쓰면 대부분 해결됩니다.',
+     rows:[
+      ['복제','스트리밍 + 논리 복제 내장','바이너리 로그 복제','Data Guard','Always On 가용성 그룹'],
+      ['자동 페일오버','외부 도구 필요(Patroni 등)','그룹 복제/오케스트레이터','내장','내장'],
+      ['파티셔닝','선언적 파티셔닝(10+)','지원','유료 옵션','지원'],
+      ['병렬 쿼리','지원(9.6+, 계속 개선)','제한적','강력','강력'],
+      ['백업·PITR','pg_basebackup + WAL, pgBackRest','xtrabackup + binlog','RMAN','내장 백업'],
+      ['메이저 업그레이드','pg_upgrade 또는 논리 복제(무중단)','in-place 업그레이드','패치셋','in-place']]},
+   '생태계·현장':{sum:'AI 워크로드가 늘면서 pgvector가 사실상 표준 벡터 스토어로 자리 잡았습니다. RAG 파이프라인에서 메타데이터 필터와 벡터 검색을 한 쿼리로 처리할 수 있는 것이 실무에서 큰 차이를 만듭니다.',
+     rows:[
+      ['벡터 검색(AI/RAG)','pgvector — 사실상 표준','일부 버전 지원','23ai 내장','프리뷰 단계'],
+      ['시계열','TimescaleDB 확장','제한적','옵션','제한적'],
+      ['CDC / 스트리밍','논리 복제 + Debezium','binlog + Debezium','GoldenGate','CDC 기능'],
+      ['국내 인력 풀','증가 추세','매우 넓음','넓음(금융권)','중간'],
+      ['공공·금융 도입','개방형 전환 대상으로 확대','웹 서비스 중심','기간계 주력','MS 스택 중심'],
+      ['클라우드 마이그레이션','Oracle→PG 전환 수요 큼','—','전환 원본','—']]}
+  };
+  var tbl=document.getElementById('d2-tbl'), out=document.getElementById('d2-out'), box=document.getElementById('d2-btns');
+  function render(name){
+    var c=CATS[name], h='<thead><tr><th>항목</th><th style="color:#4a9fe0">PostgreSQL</th><th>MySQL</th><th>Oracle</th><th>SQL Server</th></tr></thead><tbody>';
+    c.rows.forEach(function(r){
+      h+='<tr><td><b>'+r[0]+'</b></td><td style="background:rgba(74,159,224,.07)">'+r[1]+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td><td>'+r[4]+'</td></tr>';
+    });
+    tbl.innerHTML=h+'</tbody>';
+    out.textContent=c.sum;
+  }
+  Object.keys(CATS).forEach(function(k,i){
+    var b=document.createElement('button'); b.className='btn sm'; b.textContent=k;
+    b.onclick=function(){ box.querySelectorAll('.btn').forEach(function(x){x.classList.remove('is-on');});
+      b.classList.add('is-on'); render(k); };
+    box.appendChild(b); if(i===0) setTimeout(function(){b.click();},0);
+  });
+})();
+
+/* ================= demo 03 : 데이터 타입 추천기 ================= */
+(function(){
+  var D={
+   '정수':[
+     ['수량·나이·개수','integer','−21억~21억 범위로 충분하고 4바이트로 가장 효율적입니다.','smallint로 아꼈다가 범위를 넘겨 마이그레이션하는 일이 흔합니다.','qty integer NOT NULL CHECK (qty > 0)'],
+     ['대량 테이블의 PK','bigint GENERATED ALWAYS AS IDENTITY','21억 건을 넘길 가능성이 있으면 처음부터 bigint로 시작합니다. 나중에 int→bigint 변경은 테이블 전체 재작성입니다.','serial(=int4)로 시작해 한계에 부딪히는 사례가 많습니다.','id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY'],
+     ['0/1 플래그','boolean','의미가 명확하고 1바이트입니다.','int로 0/1을 넣으면 2, -1 같은 값이 들어올 수 있습니다.','is_active boolean NOT NULL DEFAULT true']],
+   '소수·금액':[
+     ['금액·정산 금액','numeric(15,2)','10진 고정소수점으로 오차 없이 계산합니다. 금융 도메인 필수.','float/double은 0.1+0.2≠0.3 오차가 발생합니다. 절대 금지.','amount numeric(15,2) NOT NULL CHECK (amount >= 0)'],
+     ['비율·세율','numeric(5,4)','0.0825 같은 값을 정확히 보관합니다.','실수 타입은 반복 계산에서 오차가 누적됩니다.','tax_rate numeric(5,4) NOT NULL DEFAULT 0.1000'],
+     ['센서 측정값·과학 계산','double precision','정확도보다 속도와 범위가 중요하고 미세 오차가 허용되는 경우입니다.','금액에 이 타입을 재사용하는 것이 대표적 사고 원인입니다.','temperature double precision']],
+   '문자열':[
+     ['일반 텍스트','text','PostgreSQL에서 text와 varchar는 성능이 동일합니다. 길이 제한이 필요 없으면 text가 단순합니다.','varchar(255)를 습관적으로 붙이는 것은 MySQL 시절의 관성입니다.','name text NOT NULL'],
+     ['길이 규칙을 DB로 강제','varchar(n)','코드값처럼 길이가 규격인 경우 DB가 검증해 줍니다.','char(n)은 남는 자리를 공백으로 채워 비교 시 혼란을 만듭니다.','country_code varchar(2) NOT NULL'],
+     ['대소문자 무시 비교','citext 확장 또는 lower() 인덱스','PostgreSQL은 기본이 대소문자 구분입니다. 이메일·아이디에서 문제가 됩니다.','애플리케이션에서만 소문자 변환하면 우회 경로로 중복이 들어옵니다.','CREATE UNIQUE INDEX ON users (lower(email))'],
+     ['암호 해시','text + pgcrypto','해시는 고정 길이 문자열입니다. 평문 저장은 사고입니다.','자체 구현 해시 대신 crypt()/bcrypt를 사용하세요.','pw_hash text NOT NULL  -- crypt(pw, gen_salt(\'bf\'))']],
+   '날짜·시간':[
+     ['이벤트 발생 시각','timestamptz','UTC로 저장되고 세션 타임존으로 표시됩니다. 서버·리전이 늘어나도 안전합니다.','timestamp(타임존 없음)는 서머타임·리전 이슈에서 반드시 문제를 만듭니다.','created_at timestamptz NOT NULL DEFAULT now()'],
+     ['생일·정산일(날짜만)','date','시각이 의미 없는 값에 시각을 붙이면 비교 조건이 지저분해집니다.','문자열 \'2026-08-10\'으로 저장하면 정렬·연산·검증을 모두 잃습니다.','birth_date date'],
+     ['소요 시간·기간','interval','\'2 days 03:00:00\' 형태로 계산·표시가 자연스럽습니다.','초 단위 integer로 저장하면 표시·연산 코드를 매번 작성해야 합니다.','duration interval'],
+     ['예약·유효 구간','tstzrange','시작~끝을 한 컬럼으로 다루고 겹침(&&) 연산자를 씁니다.','start/end 두 컬럼은 겹침 검사를 애플리케이션이 해야 하고 동시성에 취약합니다.','period tstzrange, EXCLUDE USING gist (room WITH =, period WITH &&)']],
+   '참·거짓':[
+     ['상태 플래그','boolean','true/false/NULL 세 가지 상태를 표현합니다.','\'Y\'/\'N\' 문자는 \'y\', \'1\', \'YES\' 같은 변종이 섞입니다.','is_deleted boolean NOT NULL DEFAULT false'],
+     ['3개 이상의 상태','text + CHECK 또는 enum','상태가 늘어날 가능성이 있으면 CHECK가 유연합니다. enum은 값 추가 시 DDL이 필요합니다.','정수 코드(0,1,2)는 쿼리 결과를 사람이 읽을 수 없게 만듭니다.','status text NOT NULL CHECK (status IN (\'NEW\',\'PAID\',\'DONE\'))']],
+   '고유 식별자':[
+     ['내부 PK','bigint IDENTITY','순차 증가라 인덱스 지역성이 좋아 삽입 성능이 뛰어납니다.','—','id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY'],
+     ['외부 노출 ID','uuid','순번이 노출되면 전체 규모나 다른 사용자 리소스를 추측할 수 있습니다.','랜덤 UUID를 PK로 쓰면 인덱스가 넓게 흩어져 대량 삽입이 느려집니다. 내부 PK는 bigint, 외부 노출용 uuid 컬럼을 따로 두는 조합이 무난합니다.','public_id uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE'],
+     ['외부 시스템 키','text UNIQUE','외부 규격을 그대로 보관하고 UNIQUE로 중복을 막습니다.','외부 키를 PK로 쓰면 상대 시스템 규격 변경에 끌려다닙니다.','erp_code text NOT NULL UNIQUE']],
+   '구조화 문서(JSON)':[
+     ['스키마가 유동적인 속성','jsonb','이진 저장으로 조회가 빠르고 GIN 인덱스와 포함 연산자(@>)를 쓸 수 있습니다.','json(텍스트형)은 매 조회마다 파싱합니다. jsonb를 쓰세요.','attrs jsonb NOT NULL DEFAULT \'{}\'::jsonb'],
+     ['검색·집계가 잦은 필드','일반 컬럼으로 승격','자주 쓰는 필드는 컬럼으로 빼면 타입 검증·제약조건·인덱스를 모두 얻습니다.','모든 데이터를 jsonb 한 컬럼에 넣으면 관계형 DB의 장점을 전부 포기하는 셈입니다.','status text NOT NULL, attrs jsonb'],
+     ['임베딩 벡터','vector(1536) — pgvector','코사인/L2 거리 연산자와 HNSW·IVFFlat 인덱스를 사용합니다.','float8[]로 저장하면 유사도 인덱스를 쓸 수 없습니다.','embedding vector(1536)']],
+   '목록·태그':[
+     ['소규모 고정 태그','text[]','GIN 인덱스로 포함 검색이 가능하고 JOIN이 필요 없습니다.','개수가 수십 개를 넘거나 태그별 통계가 필요하면 별도 테이블이 정답입니다.','tags text[] NOT NULL DEFAULT \'{}\''],
+     ['다대다 관계','연결 테이블','정규화된 정답입니다. 태그별 집계·제약·인덱스가 모두 자연스럽습니다.','배열로 관계를 표현하면 참조 무결성을 잃습니다.','CREATE TABLE post_tags (post_id bigint REFERENCES posts, tag_id bigint REFERENCES tags, PRIMARY KEY (post_id, tag_id))']],
+   'IP·네트워크':[
+     ['IP 주소','inet','서브넷 포함 연산자(<<=)와 정렬을 그대로 씁니다. IPv6도 동일하게 처리합니다.','text로 저장하면 대역 검색을 문자열 LIKE로 흉내내야 합니다.','client_ip inet'],
+     ['네트워크 대역','cidr','10.0.0.0/8 형태를 검증하며 저장합니다.','—','allowed cidr NOT NULL'],
+     ['MAC 주소','macaddr','형식을 검증하고 정규화합니다.','—','nic macaddr']]
+  };
+  var k=document.getElementById('d3-kind'), o=document.getElementById('d3-opt'), out=document.getElementById('d3-out');
+  Object.keys(D).forEach(function(n){ var e=document.createElement('option'); e.value=n; e.textContent=n; k.appendChild(e); });
+  function fillOpts(){
+    o.innerHTML='';
+    D[k.value].forEach(function(r,i){ var e=document.createElement('option'); e.value=i; e.textContent=r[0]; o.appendChild(e); });
+    show();
+  }
+  function show(){
+    var r=D[k.value][+o.value||0];
+    out.innerHTML='<div style="font-size:14px;color:#8d99a9">권장 타입</div>'
+      +'<div style="font-size:18px;color:#54c98d;font-weight:700;margin:2px 0 10px">'+r[1]+'</div>'
+      +'<div style="margin-bottom:8px"><b style="color:#4a9fe0">왜</b> — '+r[2]+'</div>'
+      +'<div style="margin-bottom:12px"><b style="color:#ef6f8b">피할 것</b> — '+r[3]+'</div>'
+      +'<div style="border-top:1px solid #242d3a;padding-top:10px">'+window.pgHighlight(r[4],'sql')+'</div>';
+  }
+  k.onchange=fillOpts; o.onchange=show; fillOpts();
+})();
+
+/* ================= demo 04 : 쿼리 빌더 ================= */
+(function(){
+  var CUS=[{id:1,name:'김서준',city:'서울',grade:'A'},{id:2,name:'이하윤',city:'부산',grade:'B'},
+           {id:3,name:'박도윤',city:'서울',grade:'A'},{id:4,name:'최지우',city:'대전',grade:'C'},
+           {id:5,name:'정민서',city:'서울',grade:'B'},{id:6,name:'한예린',city:'부산',grade:'A'}];
+  var ORD=[{id:1,cid:1,p:'키보드',a:89000,d:'2026-07-02'},{id:2,cid:1,p:'모니터',a:320000,d:'2026-07-11'},
+           {id:3,cid:2,p:'마우스',a:29000,d:'2026-07-15'},{id:4,cid:3,p:'노트북',a:1450000,d:'2026-07-20'},
+           {id:5,cid:5,p:'키보드',a:89000,d:'2026-08-01'},{id:6,cid:6,p:'모니터',a:320000,d:'2026-08-03'},
+           {id:7,cid:1,p:'USB허브',a:45000,d:'2026-08-05'},{id:8,cid:4,p:'의자',a:210000,d:'2026-08-07'}];
+  var MODES={
+    single:{label:'단일 테이블', fields:[['(조건 없음)',[]],['city',['=','&lt;&gt;']],['grade',['=']],['name',['LIKE']],['id',['&gt;=','&lt;=']]],
+      order:['id','name','city','grade'], def:{f:'city',v:'서울',ob:'name'}},
+    join:{label:'JOIN', fields:[['(조건 없음)',[]],['c.city',['=','&lt;&gt;']],['o.product',['=']],['o.amount',['&gt;=','&lt;=']]],
+      order:['o.id','c.name','o.amount','o.ordered_at'], def:{f:'o.amount',v:'80000',ob:'o.amount'}},
+    agg:{label:'그룹 집계', fields:[['(조건 없음)',[]],['sum(o.amount) [HAVING]',['&gt;=']],['count(*) [HAVING]',['&gt;=']]],
+      order:['총액','주문건수','city'], def:{f:'sum(o.amount) [HAVING]',v:'300000',ob:'총액'}}
+  };
+  var mode='single';
+  var mb=document.getElementById('d4-mode'), fS=document.getElementById('d4-f'), opS=document.getElementById('d4-op'),
+      vI=document.getElementById('d4-v'), obS=document.getElementById('d4-ob'), dirS=document.getElementById('d4-dir'),
+      limI=document.getElementById('d4-lim'), sqlEl=document.getElementById('d4-sql'), resEl=document.getElementById('d4-res'),
+      stEl=document.getElementById('d4-steps'), noteEl=document.getElementById('d4-note');
+
+  Object.keys(MODES).forEach(function(m){
+    var b=document.createElement('button'); b.className='btn sm'+(m===mode?' is-on':''); b.textContent=MODES[m].label;
+    b.onclick=function(){ mode=m; mb.querySelectorAll('.btn').forEach(function(x){x.classList.remove('is-on');});
+      b.classList.add('is-on'); initFields(); run(); };
+    mb.appendChild(b);
+  });
+  function dec(s){return s.replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
+  function initFields(){
+    var M=MODES[mode];
+    fS.innerHTML=''; M.fields.forEach(function(f){ var e=document.createElement('option'); e.value=f[0]; e.innerHTML=f[0]; fS.appendChild(e); });
+    fS.value=M.def.f; fillOps(); vI.value=M.def.v;
+    obS.innerHTML=''; M.order.forEach(function(c){ var e=document.createElement('option'); e.value=c; e.textContent=c; obS.appendChild(e); });
+    obS.value=M.def.ob; dirS.value = mode==='single' ? 'ASC':'DESC';
+  }
+  function fillOps(){
+    var M=MODES[mode], f=M.fields.filter(function(x){return x[0]===fS.value;})[0];
+    opS.innerHTML=''; (f?f[1]:[]).forEach(function(o){ var e=document.createElement('option'); e.value=o; e.innerHTML=o; opS.appendChild(e); });
+    var none = !f || f[1].length===0;
+    opS.disabled=none; vI.disabled=none;
+  }
+  function cmp(a,op,b){ if(op==='=')return a==b; if(op==='<>')return a!=b; if(op==='>=')return +a>=+b; if(op==='<=')return +a<=+b;
+    if(op==='LIKE'){ return String(a).indexOf(String(b).replace(/%/g,''))===0; } return true; }
+  function steps(on){
+    var all=['FROM/JOIN','WHERE','GROUP BY','HAVING','SELECT','ORDER BY','LIMIT'];
+    stEl.innerHTML = all.map(function(s){
+      var lit=on.indexOf(s)>=0;
+      return '<span class="chip" style="'+(lit?'border-color:#4a9fe0;color:#fff':'opacity:.35')+'">'+s+'</span>';
+    }).join('');
+  }
+  function draw(cols,rows,note){
+    var h='<thead><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr></thead><tbody>';
+    if(!rows.length) h+='<tr><td colspan="'+cols.length+'" style="color:#8d99a9">(0 rows)</td></tr>';
+    rows.forEach(function(r){ h+='<tr>'+cols.map(function(c){
+      var v=r[c]; return v===null||v===undefined?'<td class="nul">NULL</td>':'<td>'+v+'</td>'; }).join('')+'</tr>'; });
+    resEl.innerHTML=h+'</tbody>';
+    noteEl.innerHTML=rows.length+'행 반환 · '+note;
+  }
+  function run(){
+    var M=MODES[mode], f=fS.value, op=dec(opS.value), v=vI.value, lim=+limI.value||10,
+        useCond = f!=='(조건 없음)', ob=obS.value, dir=dirS.value, sql='', on=['FROM/JOIN','SELECT','ORDER BY','LIMIT'];
+    if(mode==='single'){
+      var rows=CUS.slice();
+      if(useCond){ on.push('WHERE'); rows=rows.filter(function(r){ return cmp(r[f], op, v); }); }
+      rows.sort(function(x,y){ var a=x[ob],b=y[ob]; return (a>b?1:a<b?-1:0)*(dir==='ASC'?1:-1); });
+      rows=rows.slice(0,lim);
+      sql='SELECT id, name, city, grade\nFROM customers\n'+(useCond?'WHERE '+f+' '+op+" '"+v+"'\n":'')
+        +'ORDER BY '+ob+' '+dir+'\nLIMIT '+lim+';';
+      draw(['id','name','city','grade'],rows,'WHERE는 행 단위 필터입니다. 조건을 지우면 전체 6행이 나옵니다.');
+    } else if(mode==='join'){
+      var j=ORD.map(function(o){ var c=CUS.filter(function(x){return x.id===o.cid;})[0];
+        return {'o.id':o.id,'c.name':c.name,'c.city':c.city,'o.product':o.p,'o.amount':o.a,'o.ordered_at':o.d}; });
+      if(useCond){ on.push('WHERE'); j=j.filter(function(r){ return cmp(r[f], op, v); }); }
+      j.sort(function(x,y){ var a=x[ob],b=y[ob]; return (a>b?1:a<b?-1:0)*(dir==='ASC'?1:-1); });
+      j=j.slice(0,lim);
+      sql='SELECT o.id, c.name, c.city, o.product, o.amount, o.ordered_at\nFROM orders o\nJOIN customers c ON c.id = o.customer_id\n'
+        +(useCond?'WHERE '+f+' '+op+(isNaN(+v)?" '"+v+"'":' '+v)+'\n':'')
+        +'ORDER BY '+ob+' '+dir+'\nLIMIT '+lim+';';
+      draw(['o.id','c.name','c.city','o.product','o.amount','o.ordered_at'],j,'JOIN으로 두 테이블을 이어 붙였습니다. 주문 없는 고객(오지호)은 INNER JOIN이라 나타나지 않습니다.');
+    } else {
+      on=['FROM/JOIN','GROUP BY','SELECT','ORDER BY','LIMIT'];
+      var g={};
+      ORD.forEach(function(o){ var c=CUS.filter(function(x){return x.id===o.cid;})[0];
+        g[c.city]=g[c.city]||{city:c.city,주문건수:0,총액:0};
+        g[c.city].주문건수++; g[c.city].총액+=o.a; });
+      var rows2=Object.keys(g).map(function(k){ var r=g[k]; r.평균액=Math.round(r.총액/r.주문건수); return r; });
+      var hav='';
+      if(useCond){ on.splice(2,0,'HAVING');
+        if(f.indexOf('sum')===0){ rows2=rows2.filter(function(r){return r.총액>=+v;}); hav='HAVING sum(o.amount) >= '+v+'\n'; }
+        else { rows2=rows2.filter(function(r){return r.주문건수>=+v;}); hav='HAVING count(*) >= '+v+'\n'; }
+      }
+      rows2.sort(function(x,y){ var a=x[ob],b=y[ob]; return (a>b?1:a<b?-1:0)*(dir==='ASC'?1:-1); });
+      rows2=rows2.slice(0,lim);
+      sql='SELECT c.city, count(*) AS 주문건수, sum(o.amount) AS 총액, round(avg(o.amount)) AS 평균액\n'
+        +'FROM orders o\nJOIN customers c ON c.id = o.customer_id\nGROUP BY c.city\n'+hav
+        +'ORDER BY '+(ob==='city'?'c.city':ob)+' '+dir+'\nLIMIT '+lim+';';
+      draw(['city','주문건수','총액','평균액'],rows2,'GROUP BY로 도시별로 묶고, 집계 결과에 대한 조건은 HAVING에 씁니다.');
+    }
+    steps(on);
+    sqlEl.innerHTML=window.pgHighlight(sql,'sql');
+  }
+  fS.onchange=function(){fillOps();run();}; opS.onchange=run; vI.oninput=run; obS.onchange=run; dirS.onchange=run; limI.oninput=run;
+  initFields(); run();
+})();
+
+/* ================= demo 05 : JOIN 시각화 ================= */
+(function(){
+  var EMP=[{id:1,name:'김서준',dept_id:10},{id:2,name:'이하윤',dept_id:20},
+           {id:3,name:'박도윤',dept_id:30},{id:4,name:'최지우',dept_id:null}];
+  var DEP=[{dept_id:10,dept:'개발'},{dept_id:20,dept:'영업'},{dept_id:40,dept:'인사'}];
+  var TYPES={
+    'INNER':{v:[0,1,0], sql:'SELECT e.id, e.name, d.dept\nFROM emp e\nJOIN dept d ON d.dept_id = e.dept_id;',
+      d:'양쪽에 짝이 있는 행만 남습니다. dept_id가 30인 박도윤(부서 없음), NULL인 최지우, 그리고 아무도 없는 인사팀(40)이 모두 사라집니다.'},
+    'LEFT':{v:[1,1,0], sql:'SELECT e.id, e.name, d.dept\nFROM emp e\nLEFT JOIN dept d ON d.dept_id = e.dept_id;',
+      d:'왼쪽 emp 4행이 모두 보존되고, 짝이 없으면 오른쪽 컬럼이 NULL로 채워집니다. "모든 직원과, 있다면 부서명"이라는 요구사항의 정답입니다. NULL인 dept_id는 어떤 값과도 매칭되지 않는다는 점도 확인하세요.'},
+    'RIGHT':{v:[0,1,1], sql:'SELECT e.id, e.name, d.dept\nFROM emp e\nRIGHT JOIN dept d ON d.dept_id = e.dept_id;',
+      d:'오른쪽 dept 3행이 모두 보존됩니다. 직원이 없는 인사팀(40)이 왼쪽 컬럼 NULL로 나타납니다. 실무에서는 테이블 순서를 바꿔 LEFT JOIN으로 쓰는 것이 관례입니다.'},
+    'FULL':{v:[1,1,1], sql:'SELECT e.id, e.name, d.dept\nFROM emp e\nFULL JOIN dept d ON d.dept_id = e.dept_id;',
+      d:'양쪽 모두 보존합니다. 두 시스템의 데이터 정합성을 비교할 때 유용합니다. 한쪽만 있는 행을 찾으려면 WHERE e.id IS NULL OR d.dept_id IS NULL을 덧붙입니다.'},
+    'CROSS':{v:[1,1,1], sql:'SELECT e.id, e.name, d.dept\nFROM emp e\nCROSS JOIN dept d;',
+      d:'조건 없이 모든 조합을 만듭니다. 4 × 3 = 12행. JOIN 조건을 실수로 빼먹으면 이 상태가 되어 행 수가 폭발합니다. 의도적으로는 "날짜 축 × 카테고리 축"처럼 빈칸 없는 표를 만들 때 씁니다.'}
+  };
+  var box=document.getElementById('d5-btns'), L=document.getElementById('d5-left'), R=document.getElementById('d5-right'),
+      res=document.getElementById('d5-res'), sql=document.getElementById('d5-sql'), out=document.getElementById('d5-out'),
+      cnt=document.getElementById('d5-cnt');
+  function tbl(el,rows,cols){
+    var h='<thead><tr>'+cols.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr></thead><tbody>';
+    rows.forEach(function(r){ h+='<tr>'+cols.map(function(c){
+      return r[c]===null||r[c]===undefined?'<td class="nul">NULL</td>':'<td>'+r[c]+'</td>'; }).join('')+'</tr>'; });
+    el.innerHTML=h+'</tbody>';
+  }
+  tbl(L,EMP,['id','name','dept_id']); tbl(R,DEP,['dept_id','dept']);
+  function compute(t){
+    var out=[];
+    if(t==='CROSS'){ EMP.forEach(function(e){ DEP.forEach(function(d){ out.push({id:e.id,name:e.name,dept:d.dept}); }); }); return out; }
+    EMP.forEach(function(e){
+      var m=DEP.filter(function(d){ return e.dept_id!==null && d.dept_id===e.dept_id; });
+      if(m.length) m.forEach(function(d){ out.push({id:e.id,name:e.name,dept:d.dept}); });
+      else if(t==='LEFT'||t==='FULL') out.push({id:e.id,name:e.name,dept:null});
+    });
+    if(t==='RIGHT'||t==='FULL'){
+      DEP.forEach(function(d){
+        var m=EMP.filter(function(e){ return e.dept_id===d.dept_id; });
+        if(!m.length) out.push({id:null,name:null,dept:d.dept});
+      });
+    }
+    return out;
+  }
+  Object.keys(TYPES).forEach(function(t,i){
+    var b=document.createElement('button'); b.className='btn sm'; b.textContent=t+' JOIN';
+    b.onclick=function(){
+      box.querySelectorAll('.btn').forEach(function(x){x.classList.remove('is-on');}); b.classList.add('is-on');
+      var T=TYPES[t], rows=compute(t);
+      tbl(res,rows,['id','name','dept']);
+      cnt.textContent='— '+rows.length+'행';
+      sql.innerHTML=window.pgHighlight(T.sql,'sql');
+      out.textContent=T.d;
+      document.getElementById('vA').setAttribute('opacity', T.v[0]?0.42:0);
+      document.getElementById('vI').setAttribute('opacity', T.v[1]?0.85:0);
+      document.getElementById('vB').setAttribute('opacity', T.v[2]?0.42:0);
+    };
+    box.appendChild(b); if(i===0) setTimeout(function(){b.click();},0);
+  });
+})();
+
+/* ================= demo 06 : 인덱스 vs 순차 스캔 ================= */
+(function(){
+  var N=120, target=87, cells=[], timer=null;
+  var grid=document.getElementById('d6-grid'), out=document.getElementById('d6-out'),
+      rd=document.getElementById('d6-read'), tm=document.getElementById('d6-time'), sc=document.getElementById('d6-scale'),
+      tg=document.getElementById('d6-target');
+  for(var i=0;i<N;i++){
+    var c=document.createElement('div');
+    c.style.cssText='aspect-ratio:1;border-radius:3px;background:var(--panel-2);border:1px solid #242d3a';
+    grid.appendChild(c); cells.push(c);
+  }
+  function reset(){
+    if(timer){clearInterval(timer);timer=null;}
+    cells.forEach(function(c){c.style.background='var(--panel-2)';});
+    cells[target].style.borderColor='#54c98d';
+    rd.textContent='0'; tm.textContent='0 ms'; sc.textContent='—';
+    tg.textContent='찾는 값: id = '+(target+1)+' (초록 테두리 위치)';
+  }
+  function finish(read,mode){
+    rd.textContent=read+' 행'; tm.textContent=(read*0.01).toFixed(2)+' ms';
+    var factor=1000000/N;
+    if(mode==='seq'){
+      sc.textContent=Math.round(read*factor).toLocaleString()+' 행';
+      out.textContent='Seq Scan — 인덱스가 없으면 처음부터 순서대로 읽으며 조건을 검사합니다. 찾은 뒤에도 "더 있을지" 모르기 때문에 UNIQUE가 아니면 끝까지 읽습니다. '
+        +'100만 행 테이블에서는 평균 50만 행, 최악 100만 행을 읽습니다. 이것이 EXPLAIN에서 보이는 "Seq Scan on ..." 입니다.';
+    } else {
+      sc.textContent='약 4 블록';
+      out.textContent='Index Scan — B-tree 인덱스는 정렬된 값을 트리로 보관합니다. 루트 → 중간 → 리프로 3번 점프해 위치를 찾고, 그 위치의 행 하나만 읽습니다. '
+        +'테이블이 100만 행이든 1억 행이든 깊이는 3~5 수준이므로 읽는 양이 거의 늘지 않습니다. 이것이 인덱스의 본질입니다. '
+        +'단, INSERT/UPDATE마다 인덱스도 갱신되므로 쓰기 비용과 디스크 사용량이 늘어납니다.';
+    }
+  }
+  document.getElementById('d6-seq').onclick=function(){
+    reset(); var i=0;
+    timer=setInterval(function(){
+      if(i>=N){ clearInterval(timer); timer=null; finish(N,'seq'); return; }
+      cells[i].style.background = (i===target)?'#54c98d':'#5a6f85';
+      rd.textContent=(i+1)+' 행'; i++;
+    },14);
+  };
+  document.getElementById('d6-idx').onclick=function(){
+    reset();
+    var hops=[Math.floor(N/2), Math.floor(N*0.75), Math.floor(N*0.72), target], k=0;
+    timer=setInterval(function(){
+      if(k>=hops.length){ clearInterval(timer); timer=null; finish(4,'idx'); return; }
+      cells[hops[k]].style.background = (k===hops.length-1)?'#54c98d':'#5fd4d0';
+      rd.textContent=(k+1)+' 행'; k++;
+    },320);
+  };
+  document.getElementById('d6-reset').onclick=function(){reset(); out.textContent='두 버튼을 각각 눌러 읽은 행 수를 비교해 보세요.';};
+  reset();
+})();
+
+/* ================= demo 07 : 트랜잭션 시뮬레이터 ================= */
+(function(){
+  var step=0, A=document.getElementById('d7-a'), B=document.getElementById('d7-b'),
+      note=document.getElementById('d7-note'), iso=document.getElementById('d7-iso'), end=document.getElementById('d7-end');
+  var logA=[], logB=[];
+  function paint(){
+    A.innerHTML=logA.join('\n'); B.innerHTML=logB.join('\n');
+  }
+  var STEPS=[
+    function(){ logA.push('<span class="t-k">BEGIN</span>;'); 
+      note.innerHTML='세션 A가 트랜잭션을 시작했습니다. 아직 아무것도 바뀌지 않았습니다. 초기 상태: accounts(id=1).balance = <b>1000</b>'; },
+    function(){ var t=iso.value==='rr'?'BEGIN ISOLATION LEVEL REPEATABLE READ':'BEGIN';
+      logB.push('<span class="t-k">'+t+'</span>;');
+      note.innerHTML=iso.value==='rr'
+        ? '세션 B가 REPEATABLE READ로 시작했습니다. <b>이 시점의 스냅샷</b>을 트랜잭션이 끝날 때까지 유지합니다.'
+        : '세션 B가 기본 격리수준(READ COMMITTED)으로 시작했습니다. <b>문장마다</b> 그 시점의 최신 커밋 상태를 봅니다.'; },
+    function(){ logB.push('<span class="t-k">SELECT</span> balance <span class="t-k">FROM</span> accounts <span class="t-k">WHERE</span> id=<span class="t-n">1</span>;');
+      logB.push('  → <span class="t-n">1000</span>');
+      note.innerHTML='두 세션 모두 1000을 봅니다. 여기까지는 차이가 없습니다.'; },
+    function(){ logA.push('<span class="t-k">UPDATE</span> accounts <span class="t-k">SET</span> balance = balance - <span class="t-n">100</span> <span class="t-k">WHERE</span> id=<span class="t-n">1</span>;');
+      logA.push('  → UPDATE 1  <span class="t-c">-- A가 보는 값: 900</span>');
+      note.innerHTML='A가 값을 바꿨지만 <b>아직 커밋하지 않았습니다</b>. PostgreSQL은 기존 행을 덮어쓰지 않고 새 버전을 만들어 두었습니다(MVCC). '
+        +'B는 커밋되지 않은 값을 절대 볼 수 없습니다 — 이것이 Dirty Read 방지입니다.'; },
+    function(){ logB.push('<span class="t-k">SELECT</span> balance <span class="t-k">FROM</span> accounts <span class="t-k">WHERE</span> id=<span class="t-n">1</span>;');
+      logB.push('  → <span class="t-n">1000</span>  <span class="t-c">-- 여전히 이전 버전</span>');
+      note.innerHTML='B는 아직 1000을 봅니다. 커밋 전의 변경은 다른 세션에게 보이지 않습니다. <b>읽기가 쓰기를 기다리지 않는다</b>는 점에 주목하세요. '
+        +'잠금 기반 DB라면 B의 SELECT가 대기했을 수 있습니다.'; },
+    function(){ var e=end.value==='commit'?'COMMIT':'ROLLBACK';
+      logA.push('<span class="t-k">'+e+'</span>;');
+      note.innerHTML=end.value==='commit'
+        ? 'A가 커밋했습니다. 변경이 WAL에 기록되어 <b>영속(Durability)</b>이 보장됩니다. 이제 새 버전이 다른 세션에게도 유효해집니다.'
+        : 'A가 롤백했습니다. 새로 만든 행 버전은 무효가 되고, 나중에 VACUUM이 그 공간을 회수합니다. 잔액은 1000으로 유지됩니다.'; },
+    function(){
+      var v = (iso.value==='rr') ? 1000 : (end.value==='commit'?900:1000);
+      logB.push('<span class="t-k">SELECT</span> balance <span class="t-k">FROM</span> accounts <span class="t-k">WHERE</span> id=<span class="t-n">1</span>;');
+      logB.push('  → <span class="t-n">'+v+'</span>');
+      if(iso.value==='rr'){
+        note.innerHTML='<b>REPEATABLE READ</b>이므로 B는 트랜잭션 시작 시점의 스냅샷을 계속 봅니다. A가 커밋했더라도 B에게는 여전히 1000입니다. '
+          +'같은 쿼리를 여러 번 실행해도 결과가 변하지 않는다는 보장 — 이것이 Non-repeatable Read 방지입니다. '
+          +'리포트나 정산 배치처럼 <b>일관된 시점의 데이터</b>가 필요할 때 이 격리수준을 씁니다.';
+      } else {
+        note.innerHTML= end.value==='commit'
+          ? '<b>READ COMMITTED</b>에서는 문장이 시작될 때마다 새 스냅샷을 잡습니다. A가 커밋했으므로 B는 이제 900을 봅니다. '
+            +'같은 트랜잭션 안에서 같은 쿼리의 결과가 달라졌습니다 — 이것이 <b>Non-repeatable Read</b>이며 기본 격리수준에서는 정상 동작입니다.'
+          : 'A가 롤백했으므로 값은 1000 그대로입니다. 커밋되지 않은 변경은 존재하지 않았던 것처럼 사라집니다 — <b>원자성(Atomicity)</b>입니다.';
+      }
+    },
+    function(){ logB.push('<span class="t-k">COMMIT</span>;');
+      var v = end.value==='commit'?900:1000;
+      logB.push('<span class="t-c">-- 트랜잭션 종료 후 조회 → '+v+'</span>');
+      note.innerHTML='B의 트랜잭션이 끝나면 스냅샷도 사라지고, 이후 조회는 최신 커밋 상태(<b>'+v+'</b>)를 봅니다. '
+        +'실습 완료 — 격리수준과 A의 종료 방식을 바꿔 다시 실행해 보세요.'; }
+  ];
+  function reset(){
+    step=0; logA=['<span class="t-c">-- accounts(id=1).balance = 1000</span>']; logB=['<span class="t-c">-- 다른 접속</span>'];
+    paint(); note.innerHTML='"다음 단계"를 눌러 두 세션이 어떻게 서로를 보는지 확인하세요.';
+    document.getElementById('d7-next').disabled=false;
+  }
+  document.getElementById('d7-next').onclick=function(){
+    if(step>=STEPS.length){ this.disabled=true; return; }
+    STEPS[step](); step++; paint();
+    if(step>=STEPS.length) this.disabled=true;
+  };
+  document.getElementById('d7-reset').onclick=reset;
+  iso.onchange=reset; end.onchange=reset;
+  reset();
+})();
+</script>
+
+</body>
+</html>
