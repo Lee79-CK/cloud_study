@@ -68,7 +68,7 @@ Trace (사용자 1회 요청 = 전체 흐름)
 | Arize Phoenix | OSS | Self-host 가능 | OpenTelemetry 기반, eval 강점 |
 | Helicone | OSS/상용 | Self-host 가능 | 프록시 기반 |
 
-KT 사내망/온프레미스 환경에서 **데이터 주권**을 유지하면서 LangSmith급 기능을 쓰고 싶을 때 Langfuse가 가장 자연스러운 선택입니다.
+LCKLAB 사내망/온프레미스 환경에서 **데이터 주권**을 유지하면서 LangSmith급 기능을 쓰고 싶을 때 Langfuse가 가장 자연스러운 선택입니다.
 
 ---
 
@@ -296,13 +296,13 @@ langfuse:
   # 로그인 설정 — 자체 가입 비활성 + 첫 관리자 자동 생성
   additionalEnv:
     - name: LANGFUSE_INIT_ORG_NAME
-      value: "KT-LLMOps"
+      value: "LCKLAB-LLMOps"
     - name: LANGFUSE_INIT_PROJECT_NAME
       value: "default"
     - name: LANGFUSE_INIT_USER_NAME
       value: "admin"
     - name: LANGFUSE_INIT_USER_EMAIL
-      value: "admin@kt.com"
+      value: "admin@lcklab.net"
     - name: LANGFUSE_INIT_USER_PASSWORD
       value: "ChangeMe!2026"
     - name: AUTH_DISABLE_SIGNUP
@@ -493,7 +493,7 @@ kubectl get svc -n ingress-nginx ingress-nginx-controller
 echo "192.168.0.50  langfuse.local" | sudo tee -a /etc/hosts
 ```
 
-브라우저에서 `http://langfuse.local` 접속 → 위 values.yaml에 넣은 `admin@kt.com` / `ChangeMe!2026` 로 로그인.
+브라우저에서 `http://langfuse.local` 접속 → 위 values.yaml에 넣은 `admin@lcklab.net` / `ChangeMe!2026` 로 로그인.
 
 ---
 
@@ -1068,7 +1068,7 @@ LLM 트레이스는 *예상보다 훨씬 빠르게* 디스크를 잡아먹습니
 - **S3/MinIO**: 90일 lifecycle 정책으로 오래된 원본 페이로드 제거
 - **ClickHouse**: 트레이스 테이블에 TTL 설정 (UI → Project Settings → Data Retention)
 
-> 보관 기간 정책은 *비즈니스 요구사항 + 개인정보보호 + 디스크 비용*의 삼각 균형으로 정해야 합니다. KT 보안 가이드라인이 있다면 그쪽을 우선.
+> 보관 기간 정책은 *비즈니스 요구사항 + 개인정보보호 + 디스크 비용*의 삼각 균형으로 정해야 합니다. LCKLAB 보안 가이드라인이 있다면 그쪽을 우선.
 
 ---
 
