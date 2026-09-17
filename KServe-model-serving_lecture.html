@@ -1,0 +1,3092 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KServe 실전 강의 — 쿠버네티스 위에서 모델을 서빙한다는 것 (v0.20 기준)</title>
+<meta name="description" content="초보 AI 엔지니어를 위한 KServe v0.20 인터랙티브 강의. InferenceService부터 LLMInferenceService, KV 캐시 라우팅, prefill/decode 분리, 운영 실무까지.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   팔레트 — KServe가 다루는 "두 종류의 AI"를 색으로 갈라 놓는다.
+   예측형(전통 ML) = 시안, 생성형(LLM) = 마젠타.
+   컨트롤 플레인 = 바이올렛, 트래픽/데이터 플레인 = 앰버, GPU = 라임.
+   강의 전체가 이 다섯 색으로만 돈다. 색이 곧 개념 분류다.
+   ============================================================ */
+:root{
+  --bg:#0b1020;
+  --bg2:#080d1a;
+  --panel:#121a30;
+  --panel2:#17203a;
+  --raise:#1d2846;
+  --line:#26335a;
+  --line2:#36477a;
+  --text:#e7ecf8;
+  --dim:#94a3c4;
+  --dim2:#6c7ba3;
+
+  --pred:#2ED3E9;   /* 예측형 AI */
+  --gen:#FF74B8;    /* 생성형 AI */
+  --ctrl:#9E8CFF;   /* 컨트롤 플레인 */
+  --data:#FFB34D;   /* 데이터 플레인 / 트래픽 */
+  --gpu:#9BE86A;    /* GPU / 하드웨어 */
+  --rose:#FF6A6A;   /* 위험 / 장애 */
+
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  --r:12px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:108px}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.001ms !important;transition-duration:.001ms !important}
+}
+body{
+  margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-weight:400;line-height:1.78;-webkit-font-smoothing:antialiased;
+  font-size:16px;
+  overflow-x:clip;
+  background-image:
+    radial-gradient(1000px 520px at 8% -6%, rgba(46,211,233,.10), transparent 62%),
+    radial-gradient(760px 460px at 96% 2%, rgba(255,116,184,.09), transparent 60%),
+    radial-gradient(900px 700px at 50% 108%, rgba(158,140,255,.07), transparent 70%);
+  background-attachment:fixed;
+}
+.wrap{max-width:1000px;margin:0 auto;padding:0 1.25rem}
+a{color:var(--pred);text-decoration-thickness:1px;text-underline-offset:3px}
+code,kbd,.mono{font-family:var(--mono)}
+:focus-visible{outline:2px solid var(--pred);outline-offset:2px;border-radius:4px}
+
+/* ---------- 상단 바 ---------- */
+.topbar{position:sticky;top:0;z-index:70;background:rgba(11,16,32,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:1rem;padding:.55rem 1rem}
+.brand{display:flex;align-items:baseline;gap:.5rem;text-decoration:none;color:var(--text);flex:0 0 auto}
+.brand b{font-family:var(--mono);font-size:1.05rem;font-weight:700;letter-spacing:-.02em;color:var(--pred)}
+.brand b em{font-style:normal;color:var(--gen)}
+.brand span{font-size:.72rem;color:var(--dim2);font-weight:400;letter-spacing:.01em}
+.menu{display:flex;gap:.1rem;overflow-x:auto;scrollbar-width:none;flex:1 1 auto;padding-bottom:2px}
+.menu::-webkit-scrollbar{display:none}
+.menu a{flex:0 0 auto;font-size:.78rem;color:var(--dim);text-decoration:none;padding:.32rem .6rem;border-radius:99px;white-space:nowrap;transition:background .15s,color .15s}
+.menu a:hover{background:var(--raise);color:var(--text)}
+.menu a.on{background:rgba(46,211,233,.14);color:var(--pred)}
+.verpill{flex:0 0 auto;font-family:var(--mono);font-size:.68rem;color:var(--gpu);border:1px solid rgba(155,232,106,.35);background:rgba(155,232,106,.08);padding:.16rem .5rem;border-radius:99px}
+.pbar{height:2px;background:linear-gradient(90deg,var(--pred),var(--gen));width:0%;transition:width .12s linear}
+
+/* ---------- 히어로 ---------- */
+.hero{padding:3.6rem 0 2.4rem;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(1.9rem,5.4vw,3.05rem);line-height:1.2;letter-spacing:-.03em;font-weight:700;margin:.2rem 0 .7rem}
+.hero .sub{color:var(--dim);font-size:1.02rem;max-width:62ch;font-weight:300}
+.hero .meta{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:1.3rem}
+.chip{font-size:.74rem;font-family:var(--mono);padding:.22rem .6rem;border-radius:99px;border:1px solid var(--line2);color:var(--dim)}
+.chip.p{color:var(--pred);border-color:rgba(46,211,233,.4);background:rgba(46,211,233,.07)}
+.chip.g{color:var(--gen);border-color:rgba(255,116,184,.4);background:rgba(255,116,184,.07)}
+
+/* ---------- 콘솔(히어로 위젯) ---------- */
+.console{margin-top:2rem;border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(180deg,var(--panel),var(--bg2));overflow:hidden}
+.console-head{display:flex;align-items:center;gap:.6rem;padding:.6rem .85rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.015);flex-wrap:wrap}
+.console-head .lbl{font-family:var(--mono);font-size:.72rem;color:var(--dim2)}
+.seg{display:flex;border:1px solid var(--line2);border-radius:99px;overflow:hidden}
+.seg button{background:none;border:0;color:var(--dim);font-family:var(--sans);font-size:.76rem;padding:.24rem .8rem;cursor:pointer;transition:.15s}
+.seg button.on{background:var(--pred);color:#04222a;font-weight:600}
+.seg.g button.on{background:var(--gen);color:#320f22}
+.console-body{padding:.6rem .4rem .2rem}
+.console svg{display:block;width:100%;height:auto}
+.svgbox svg{display:block;width:100%;height:auto}
+@media(max-width:760px){
+  .svgbox{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .svgbox svg{min-width:660px}
+  .svgbox::after{content:"← 좌우로 밀어 보세요";display:block;font-size:.68rem;color:var(--dim2);padding:.15rem 0 .1rem}
+}
+.console-foot{display:flex;gap:.5rem;align-items:center;padding:.55rem .85rem .75rem;flex-wrap:wrap;border-top:1px solid var(--line)}
+.logline{font-family:var(--mono);font-size:.73rem;color:var(--dim);flex:1 1 220px;min-height:1.3em}
+.logline b{color:var(--data);font-weight:500}
+
+/* ---------- 버튼 ---------- */
+.btn{background:var(--raise);border:1px solid var(--line2);color:var(--text);font-family:var(--sans);font-size:.8rem;
+  padding:.36rem .8rem;border-radius:8px;cursor:pointer;transition:.15s}
+.btn:hover{background:var(--line);border-color:var(--pred)}
+.btn.sm{font-size:.74rem;padding:.24rem .6rem}
+.btn.on{background:rgba(46,211,233,.16);border-color:var(--pred);color:var(--pred)}
+.btn.gen.on{background:rgba(255,116,184,.16);border-color:var(--gen);color:var(--gen)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ---------- 섹션 ---------- */
+.sec{padding:3.2rem 0 .6rem;border-top:1px solid var(--line)}
+.sec:first-of-type{border-top:0}
+.sechead{display:flex;align-items:flex-start;gap:.85rem;margin-bottom:.4rem}
+.chnum{font-family:var(--mono);font-size:.78rem;color:var(--dim2);border:1px solid var(--line);border-radius:7px;
+  padding:.2rem .45rem;margin-top:.5rem;flex:0 0 auto;min-width:2.5rem;text-align:center}
+.sec h2{font-size:clamp(1.35rem,3.4vw,1.85rem);line-height:1.3;letter-spacing:-.02em;margin:.2rem 0;font-weight:700}
+.sec h3{font-size:1.08rem;margin:2rem 0 .5rem;letter-spacing:-.01em;font-weight:600;color:#f2f6ff}
+.sec h4{font-size:.95rem;margin:1.4rem 0 .4rem;font-weight:600;color:var(--dim)}
+.sec p{margin:.7rem 0;max-width:74ch}
+.sec ul,.sec ol{max-width:74ch;padding-left:1.25rem}
+.sec li{margin:.32rem 0}
+.lead{color:var(--dim);font-weight:300;font-size:1.02rem;max-width:70ch;margin-top:.3rem}
+.chk{display:inline-flex;align-items:center;gap:.4rem;font-size:.74rem;color:var(--dim2);margin-left:auto;flex:0 0 auto;cursor:pointer;user-select:none;margin-top:.55rem}
+.chk input{accent-color:var(--pred);width:14px;height:14px;cursor:pointer}
+
+/* ---------- 카드 ---------- */
+.cards{display:grid;gap:.8rem;margin:1.1rem 0;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{border:1px solid var(--line);border-radius:10px;padding:.85rem .95rem;background:var(--panel)}
+.card h5{margin:0 0 .35rem;font-size:.92rem;font-weight:600}
+.card p{margin:.25rem 0;font-size:.87rem;color:var(--dim);max-width:none}
+.card.pred{border-left:3px solid var(--pred)}
+.card.gen{border-left:3px solid var(--gen)}
+.card.ctrl{border-left:3px solid var(--ctrl)}
+.card.data{border-left:3px solid var(--data)}
+.card.gpu{border-left:3px solid var(--gpu)}
+.card.rose{border-left:3px solid var(--rose)}
+
+/* ---------- 콜아웃 ---------- */
+.note,.warn,.tip{border-radius:10px;padding:.75rem .95rem;margin:1.1rem 0;font-size:.9rem;border:1px solid;max-width:78ch}
+.note{border-color:rgba(158,140,255,.35);background:rgba(158,140,255,.07)}
+.warn{border-color:rgba(255,106,106,.35);background:rgba(255,106,106,.07)}
+.tip{border-color:rgba(155,232,106,.3);background:rgba(155,232,106,.06)}
+.note p,.warn p,.tip p{margin:.3rem 0;max-width:none}
+.note b,.warn b,.tip b{font-weight:600}
+.note>b:first-child{color:var(--ctrl)}
+.warn>b:first-child{color:var(--rose)}
+.tip>b:first-child{color:var(--gpu)}
+
+/* ---------- 용어 ---------- */
+.term{border-bottom:1px dashed var(--line2);cursor:help;position:relative;color:#f0f4ff}
+.term:hover{border-bottom-color:var(--pred)}
+.term::after{
+  content:attr(data-d);position:absolute;left:0;top:calc(100% + 7px);z-index:50;
+  width:max-content;max-width:min(330px,72vw);background:var(--raise);border:1px solid var(--line2);
+  border-radius:8px;padding:.5rem .65rem;font-size:.79rem;line-height:1.6;color:var(--text);
+  box-shadow:0 10px 26px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .13s;font-weight:400;
+}
+.term:hover::after,.term:focus::after{opacity:1}
+
+/* ---------- 코드 ---------- */
+.codewrap{margin:1rem 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg2)}
+.codehead{display:flex;align-items:center;gap:.5rem;padding:.38rem .7rem;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
+.codehead .fn{font-family:var(--mono);font-size:.72rem;color:var(--dim2);flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copy{background:none;border:1px solid var(--line2);color:var(--dim);font-size:.68rem;font-family:var(--mono);
+  padding:.14rem .45rem;border-radius:6px;cursor:pointer;flex:0 0 auto}
+.copy:hover{color:var(--pred);border-color:var(--pred)}
+pre{margin:0;padding:.8rem .85rem;overflow-x:auto;font-family:var(--mono);font-size:.795rem;line-height:1.65;color:#dbe4f7}
+pre .k{color:var(--gen)}      /* 키 */
+pre .s{color:var(--gpu)}      /* 문자열 */
+pre .c{color:var(--dim2);font-style:italic}  /* 주석 */
+pre .n{color:var(--data)}     /* 숫자 */
+pre .o{color:var(--pred)}     /* 명령/강조 */
+pre .r{color:var(--rose)}     /* 위험 */
+code:not(pre code){background:var(--raise);border:1px solid var(--line);border-radius:5px;padding:.06em .34em;font-size:.86em;color:#e4ecff;word-break:break-word}
+
+/* ---------- 표 ---------- */
+.tblwrap{overflow-x:auto;margin:1.1rem 0;border:1px solid var(--line);border-radius:10px}
+table.tbl{border-collapse:collapse;width:100%;font-size:.85rem;min-width:520px}
+table.tbl th,table.tbl td{text-align:left;padding:.5rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+table.tbl th{background:rgba(255,255,255,.03);font-weight:600;color:var(--dim);font-size:.78rem}
+table.tbl tr:last-child td{border-bottom:0}
+table.tbl td b{font-weight:600;color:#f2f6ff}
+
+/* ---------- 위젯 ---------- */
+.widget{border:1px solid var(--line2);border-radius:var(--r);background:linear-gradient(180deg,var(--panel2),var(--panel));margin:1.5rem 0;overflow:hidden}
+.wtitle{display:flex;align-items:center;gap:.5rem;padding:.55rem .85rem;border-bottom:1px solid var(--line);font-size:.83rem;font-weight:600;flex-wrap:wrap}
+.wtitle .dot{width:7px;height:7px;border-radius:50%;background:var(--pred);flex:0 0 auto}
+.wtitle .hint{font-size:.72rem;color:var(--dim2);font-weight:400;margin-left:auto}
+.wbody{padding:.9rem .85rem}
+.wrow{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.7rem}
+.wrow label{font-size:.78rem;color:var(--dim);flex:0 0 auto}
+.wout{border:1px solid var(--line);border-radius:8px;background:var(--bg2);padding:.65rem .75rem;font-size:.85rem;min-height:2.6rem}
+select,input[type=text]{background:var(--raise);border:1px solid var(--line2);color:var(--text);border-radius:7px;
+  padding:.28rem .5rem;font-family:var(--sans);font-size:.8rem}
+input[type=range]{accent-color:var(--pred);flex:1 1 140px;min-width:120px}
+
+/* ---------- 탭 ---------- */
+.tabs{display:flex;gap:.25rem;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:.1rem;padding:0 .2rem}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);font-family:var(--sans);
+  font-size:.81rem;padding:.4rem .65rem;cursor:pointer;margin-bottom:-1px}
+.tabs button.on{color:var(--pred);border-bottom-color:var(--pred)}
+.panel{display:none;padding-top:.6rem}
+.panel.on{display:block}
+
+/* ---------- 아코디언 ---------- */
+.acc{border:1px solid var(--line);border-radius:10px;margin:.5rem 0;overflow:hidden;background:var(--panel)}
+.acc>summary{padding:.6rem .85rem;cursor:pointer;font-size:.88rem;font-weight:500;list-style:none;display:flex;gap:.55rem;align-items:flex-start}
+.acc>summary::-webkit-details-marker{display:none}
+.acc>summary::before{content:"+";font-family:var(--mono);color:var(--dim2);flex:0 0 auto}
+.acc[open]>summary::before{content:"−";color:var(--rose)}
+.acc[open]>summary{border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
+.accbody{padding:.2rem .95rem .8rem}
+.accbody p{font-size:.88rem}
+
+/* ---------- 배지 ---------- */
+.badge{display:inline-block;font-family:var(--mono);font-size:.68rem;padding:.1rem .42rem;border-radius:5px;border:1px solid;vertical-align:middle}
+.b-pred{color:var(--pred);border-color:rgba(46,211,233,.4);background:rgba(46,211,233,.08)}
+.b-gen{color:var(--gen);border-color:rgba(255,116,184,.4);background:rgba(255,116,184,.08)}
+.b-ctrl{color:var(--ctrl);border-color:rgba(158,140,255,.4);background:rgba(158,140,255,.08)}
+.b-data{color:var(--data);border-color:rgba(255,179,77,.4);background:rgba(255,179,77,.08)}
+.b-gpu{color:var(--gpu);border-color:rgba(155,232,106,.4);background:rgba(155,232,106,.08)}
+.b-rose{color:var(--rose);border-color:rgba(255,106,106,.4);background:rgba(255,106,106,.08)}
+
+/* ---------- 유틸 ---------- */
+.muted{color:var(--dim2)}
+.bar{height:9px;border-radius:99px;background:var(--raise);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:99px;transition:width .35s ease}
+.grid2{display:grid;gap:.8rem;grid-template-columns:1fr 1fr}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}}
+.footer{border-top:1px solid var(--line);padding:2.4rem 0 3.4rem;color:var(--dim2);font-size:.83rem}
+.footer a{color:var(--dim)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#top"><b>KServe<em>.</em></b><span>모델 서빙 실전</span></a>
+    <nav class="menu" id="menu">
+      <a href="#c1">왜 필요한가</a>
+      <a href="#c2">아키텍처</a>
+      <a href="#c3">설치</a>
+      <a href="#c4">InferenceService</a>
+      <a href="#c5">ServingRuntime</a>
+      <a href="#c6">모델 스토리지</a>
+      <a href="#c7">배포 모드</a>
+      <a href="#c8">추론 프로토콜</a>
+      <a href="#c9">오토스케일링</a>
+      <a href="#c10">카나리</a>
+      <a href="#c11">InferenceGraph</a>
+      <a href="#c12">부가 컴포넌트</a>
+      <a href="#c13">LLMInferenceService</a>
+      <a href="#c14">KV 캐시 라우팅</a>
+      <a href="#c15">분산 추론</a>
+      <a href="#c16">LoRA·트래픽</a>
+      <a href="#c17">운영</a>
+      <a href="#c18">트러블슈팅</a>
+      <a href="#c19">용어·퀴즈</a>
+    </nav>
+    <span class="verpill">v0.20.0</span>
+  </div>
+  <div class="pbar" id="pbar"></div>
+</div>
+
+<a id="top"></a>
+<header class="hero">
+  <div class="wrap">
+    <h1>쿠버네티스 위에서<br>모델을 서빙한다는 것</h1>
+    <p class="sub">모델 파일 하나를 실제 서비스로 만들려면 오토스케일링, 라우팅, 롤아웃, GPU 스케줄링, 모델 다운로드를 전부 직접 짜야 합니다. KServe는 그 전부를 <code>InferenceService</code> 한 장의 YAML 뒤로 숨깁니다. 이 강의는 KServe v0.20 기준으로, 예측형 모델부터 LLM까지 서빙 전 과정을 다룹니다.</p>
+    <div class="meta">
+      <span class="chip p">예측형 AI · InferenceService</span>
+      <span class="chip g">생성형 AI · LLMInferenceService</span>
+      <span class="chip">CNCF Incubating</span>
+      <span class="chip">기준 버전 v0.20.0 (2026-08-06)</span>
+      <span class="chip">19개 장 · 인터랙티브 위젯 15개 · 퀴즈 12문항</span>
+    </div>
+
+    <!-- ===== 히어로 위젯: 요청 흐름 콘솔 ===== -->
+    <div class="console" id="flowConsole">
+      <div class="console-head">
+        <span class="lbl">추론 요청 한 건이 지나가는 길</span>
+        <div class="seg" id="flowSeg">
+          <button data-mode="pred" class="on">예측형 요청</button>
+          <button data-mode="gen">생성형 요청</button>
+        </div>
+      </div>
+      <div class="console-body">
+        <div class="svgbox"><svg id="flowSvg" viewBox="0 0 960 250" role="img" aria-label="추론 요청 흐름 다이어그램"></svg></div>
+      </div>
+      <div class="console-foot">
+        <button class="btn sm" id="flowPlay">요청 보내기</button>
+        <span class="logline" id="flowLog">요청 보내기를 누르면 한 단계씩 따라갑니다.</span>
+      </div>
+    </div>
+    <p class="muted" style="font-size:.8rem;margin-top:.7rem">두 흐름의 차이가 이 강의의 뼈대입니다. 예측형은 게이트웨이가 아무 파드에나 보내면 되지만, 생성형은 <b>어느 파드에 보내느냐</b>가 응답 속도를 몇 배 바꿉니다. 왜 그런지는 14장에서 다룹니다.</p>
+  </div>
+</header>
+
+<script>
+/* ===== 히어로: 요청 흐름 콘솔 ===== */
+(function(){
+  var svg=document.getElementById('flowSvg'), log=document.getElementById('flowLog');
+  if(!svg) return;
+  var NS='http://www.w3.org/2000/svg';
+  var mode='pred', timer=null;
+
+  var FLOWS={
+    pred:{
+      color:'#2ED3E9',
+      nodes:[
+        {x:60,y:110,w:110,h:54,t:'클라이언트',s:'POST /v1/models/…:predict'},
+        {x:230,y:110,w:120,h:54,t:'Ingress Gateway',s:'호스트 기반 라우팅'},
+        {x:410,y:110,w:130,h:54,t:'Transformer',s:'전처리 (선택)'},
+        {x:600,y:110,w:130,h:54,t:'Predictor',s:'sklearn / Triton …'},
+        {x:790,y:110,w:110,h:54,t:'응답',s:'{"predictions":[…]}'}
+      ],
+      steps:[
+        '클라이언트가 <b>/v1/models/sklearn-iris:predict</b> 로 JSON을 보냅니다.',
+        'Ingress 게이트웨이가 호스트명을 보고 해당 InferenceService로 넘깁니다.',
+        'Transformer 파드가 원본 입력을 모델이 먹는 텐서 모양으로 바꿉니다.',
+        'Predictor 파드가 <b>/mnt/models</b> 에 올라온 모델로 추론합니다.',
+        '예측 결과가 그대로 돌아옵니다. 전 구간이 보통 수 ms.'
+      ]
+    },
+    gen:{
+      color:'#FF74B8',
+      nodes:[
+        {x:40,y:110,w:100,h:54,t:'클라이언트',s:'POST /v1/chat/completions'},
+        {x:190,y:110,w:120,h:54,t:'Envoy AI Gateway',s:'토큰 단위 rate limit'},
+        {x:360,y:110,w:130,h:54,t:'EPP 스케줄러',s:'KV 캐시 상태로 파드 선택'},
+        {x:550,y:60,w:110,h:44,t:'vLLM #1',s:'캐시 적중 82%'},
+        {x:550,y:125,w:110,h:44,t:'vLLM #2',s:'캐시 적중 12%'},
+        {x:550,y:190,w:110,h:44,t:'vLLM #3',s:'큐 깊이 31'},
+        {x:730,y:110,w:170,h:54,t:'SSE 스트리밍 응답',s:'토큰이 한 개씩 흘러나옴'}
+      ],
+      steps:[
+        '클라이언트가 OpenAI 호환 <b>/v1/chat/completions</b> 로 프롬프트를 보냅니다.',
+        'Envoy AI Gateway가 사용자별 <b>토큰 소비량</b> 기준으로 한도를 검사합니다.',
+        'EPP가 각 vLLM 파드의 KV 캐시와 큐 깊이를 실시간으로 채점합니다.',
+        '프롬프트 앞부분이 이미 캐시에 있는 <b>vLLM #1</b>이 선택됩니다. 프리필을 건너뜁니다.',
+        '토큰이 생성되는 즉시 SSE로 하나씩 흘러나옵니다.'
+      ]
+    }
+  };
+
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+
+  function draw(){
+    var f=FLOWS[mode];
+    svg.innerHTML='';
+    // 연결선
+    if(mode==='pred'){
+      for(var i=0;i<4;i++){
+        var a=f.nodes[i],b=f.nodes[i+1];
+        svg.appendChild(el('line',{x1:a.x+a.w,y1:a.y+27,x2:b.x,y2:b.y+27,stroke:'#36477a','stroke-width':1.5}));
+      }
+    }else{
+      svg.appendChild(el('line',{x1:140,y1:137,x2:190,y2:137,stroke:'#36477a','stroke-width':1.5}));
+      svg.appendChild(el('line',{x1:310,y1:137,x2:360,y2:137,stroke:'#36477a','stroke-width':1.5}));
+      [82,147,212].forEach(function(y){
+        svg.appendChild(el('path',{d:'M490 137 C 520 137, 520 '+y+', 550 '+y,stroke:'#36477a','stroke-width':1.5,fill:'none'}));
+      });
+      svg.appendChild(el('path',{d:'M660 82 C 700 82, 700 137, 730 137',stroke:'#26335a','stroke-width':1.2,fill:'none'}));
+    }
+    // 노드
+    f.nodes.forEach(function(n,i){
+      var g=el('g',{'data-i':i});
+      g.appendChild(el('rect',{x:n.x,y:n.y,width:n.w,height:n.h,rx:9,fill:'#17203a',stroke:'#26335a','stroke-width':1.2}));
+      var t1=el('text',{x:n.x+n.w/2,y:n.y+22,'text-anchor':'middle',fill:'#e7ecf8','font-size':'12.5','font-family':'IBM Plex Sans KR, sans-serif','font-weight':'600'});
+      t1.textContent=n.t; g.appendChild(t1);
+      var t2=el('text',{x:n.x+n.w/2,y:n.y+39,'text-anchor':'middle',fill:'#6c7ba3','font-size':'9.5','font-family':'JetBrains Mono, monospace'});
+      t2.textContent=n.s; g.appendChild(t2);
+      svg.appendChild(g);
+    });
+  }
+
+  function highlight(idx){
+    var f=FLOWS[mode];
+    var map = mode==='pred' ? [0,1,2,3,4] : [0,1,2,3,6];
+    Array.prototype.forEach.call(svg.querySelectorAll('g'),function(g,i){
+      var r=g.querySelector('rect');
+      var on = (i===map[idx]);
+      r.setAttribute('stroke', on?f.color:'#26335a');
+      r.setAttribute('stroke-width', on?2.4:1.2);
+      r.setAttribute('fill', on?'#1d2846':'#17203a');
+    });
+    log.innerHTML=f.steps[idx];
+  }
+
+  function play(){
+    if(timer) clearInterval(timer);
+    var i=0; highlight(0);
+    timer=setInterval(function(){
+      i++;
+      if(i>=FLOWS[mode].steps.length){clearInterval(timer);timer=null;return;}
+      highlight(i);
+    },1400);
+  }
+
+  document.getElementById('flowSeg').addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b) return;
+    Array.prototype.forEach.call(this.children,function(x){x.classList.remove('on')});
+    b.classList.add('on');
+    this.classList.toggle('g', b.dataset.mode==='gen');
+    mode=b.dataset.mode; draw(); log.textContent='요청 보내기를 누르면 한 단계씩 따라갑니다.';
+    if(timer){clearInterval(timer);timer=null;}
+  });
+  document.getElementById('flowPlay').addEventListener('click',play);
+  draw();
+})();
+</script>
+
+<main class="wrap">
+
+<!-- ============ 1장 ============ -->
+<section class="sec" id="c1">
+  <div class="sechead">
+    <span class="chnum">01</span>
+    <div><h2>모델 하나 띄우는 데 왜 이렇게 많은 게 필요한가</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c1"> 완료</label>
+  </div>
+  <p class="lead">KServe를 배우기 전에, KServe가 없을 때 무엇을 직접 해야 하는지부터 보는 게 빠릅니다.</p>
+
+  <p>학습이 끝난 모델 파일이 S3에 하나 올라가 있다고 합시다. 이걸 사내 서비스가 호출할 수 있는 HTTP 엔드포인트로 만들어야 합니다. 쿠버네티스를 안다면 머릿속에 이런 목록이 떠오를 겁니다.</p>
+
+  <div class="cards">
+    <div class="card"><h5>모델을 파드 안으로</h5><p>S3에서 받아와야 합니다. 이미지에 구워 넣을까요, initContainer로 받을까요? 자격증명은 어디에 둘까요?</p></div>
+    <div class="card"><h5>추론 서버 컨테이너</h5><p>sklearn이면 어떤 서버? PyTorch면? 프레임워크마다 서버가 다르고 API 모양도 제각각입니다.</p></div>
+    <div class="card"><h5>오토스케일링</h5><p>HPA를 붙일까요? CPU 기준으로? GPU 모델이면 CPU 사용률은 의미가 없는데요.</p></div>
+    <div class="card"><h5>라우팅과 배포</h5><p>Service, Ingress, 그리고 새 모델 버전을 10%만 태워 보려면 트래픽 분할도 필요합니다.</p></div>
+    <div class="card"><h5>헬스체크</h5><p>모델 로딩에 3분 걸리는데 livenessProbe가 먼저 죽이면? startupProbe를 따로 잡아야 합니다.</p></div>
+    <div class="card"><h5>관측</h5><p>추론 지연시간, 요청 수, 모델별 에러율. 메트릭을 직접 뽑아 노출해야 합니다.</p></div>
+  </div>
+
+  <p>이 목록을 YAML로 옮기면 Deployment + Service + HPA + Ingress + ConfigMap + ServiceAccount, 못해도 150줄입니다. 그리고 <b>모델이 늘어날 때마다 이 150줄을 복사</b>합니다. 모델이 40개면 6000줄짜리 저장소가 생깁니다.</p>
+
+  <p>KServe는 이 반복을 <span class="term" data-d="Kubernetes Custom Resource Definition. 쿠버네티스에 새로운 리소스 종류를 추가하는 방법입니다. CRD를 등록하면 kubectl get inferenceservice 처럼 기본 리소스와 똑같이 다룰 수 있습니다.">CRD</span> 하나로 접습니다. 직접 만드는 대신 <b>무엇을 원하는지만 선언</b>하고, 나머지는 컨트롤러가 만들게 하는 방식입니다.</p>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>같은 모델, 두 가지 방법<span class="hint">탭을 눌러 비교해 보세요</span></div>
+    <div class="wbody" style="padding-top:.4rem">
+      <div class="tabs" data-tabs="cmp">
+        <button class="on" data-p="raw">직접 작성 (일부)</button>
+        <button data-p="kserve">KServe</button>
+      </div>
+      <div class="panel on" data-panel="raw">
+        <div class="codewrap">
+          <div class="codehead"><span class="fn">sklearn-iris-manual.yaml — 전체의 약 1/3</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: apps/v1
+<span class="k">kind</span>: Deployment
+<span class="k">metadata</span>:
+  <span class="k">name</span>: sklearn-iris
+<span class="k">spec</span>:
+  <span class="k">replicas</span>: <span class="n">2</span>
+  <span class="k">selector</span>:
+    <span class="k">matchLabels</span>: {<span class="k">app</span>: sklearn-iris}
+  <span class="k">template</span>:
+    <span class="k">metadata</span>:
+      <span class="k">labels</span>: {<span class="k">app</span>: sklearn-iris}
+    <span class="k">spec</span>:
+      <span class="k">initContainers</span>:
+      - <span class="k">name</span>: model-download        <span class="c"># S3에서 모델 받기</span>
+        <span class="k">image</span>: amazon/aws-cli:<span class="n">2</span>.<span class="n">15</span>.<span class="n">0</span>
+        <span class="k">command</span>: [<span class="s">"sh"</span>,<span class="s">"-c"</span>]
+        <span class="k">args</span>: [<span class="s">"aws s3 sync s3://models/iris /mnt/models"</span>]
+        <span class="k">envFrom</span>: [{<span class="k">secretRef</span>: {<span class="k">name</span>: s3-creds}}]
+        <span class="k">volumeMounts</span>: [{<span class="k">name</span>: models, <span class="k">mountPath</span>: /mnt/models}]
+      <span class="k">containers</span>:
+      - <span class="k">name</span>: server
+        <span class="k">image</span>: my-registry/sklearn-server:<span class="n">1</span>.<span class="n">0</span>   <span class="c"># 직접 만든 서버</span>
+        <span class="k">args</span>: [<span class="s">"--model_dir=/mnt/models"</span>, <span class="s">"--http_port=8080"</span>]
+        <span class="k">ports</span>: [{<span class="k">containerPort</span>: <span class="n">8080</span>}]
+        <span class="k">startupProbe</span>:                 <span class="c"># 모델 로딩 대기</span>
+          <span class="k">httpGet</span>: {<span class="k">path</span>: /healthz, <span class="k">port</span>: <span class="n">8080</span>}
+          <span class="k">failureThreshold</span>: <span class="n">30</span>
+        <span class="k">volumeMounts</span>: [{<span class="k">name</span>: models, <span class="k">mountPath</span>: /mnt/models}]
+      <span class="k">volumes</span>: [{<span class="k">name</span>: models, <span class="k">emptyDir</span>: {}}]
+<span class="c">--- Service, HPA, Ingress, ServiceMonitor … 계속</span></pre>
+        </div>
+        <p class="muted" style="font-size:.85rem">여기까지가 절반도 안 됩니다. 그리고 카나리 배포를 넣으려면 Deployment를 하나 더 만들고 Ingress에 가중치를 손으로 넣어야 합니다.</p>
+      </div>
+      <div class="panel" data-panel="kserve">
+        <div class="codewrap">
+          <div class="codehead"><span class="fn">sklearn-iris.yaml — 전부</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: serving.kserve.io/v1beta1
+<span class="k">kind</span>: InferenceService
+<span class="k">metadata</span>:
+  <span class="k">name</span>: sklearn-iris
+<span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">model</span>:
+      <span class="k">modelFormat</span>:
+        <span class="k">name</span>: sklearn            <span class="c"># 런타임은 KServe가 고른다</span>
+      <span class="k">storageUri</span>: <span class="s">"s3://models/iris"</span>  <span class="c"># 다운로드도 KServe가 한다</span>
+      <span class="k">resources</span>:
+        <span class="k">requests</span>: {<span class="k">cpu</span>: <span class="s">"100m"</span>, <span class="k">memory</span>: <span class="s">"512Mi"</span>}
+        <span class="k">limits</span>: {<span class="k">cpu</span>: <span class="s">"1"</span>, <span class="k">memory</span>: <span class="s">"1Gi"</span>}</pre>
+        </div>
+        <p class="muted" style="font-size:.85rem">이 14줄이 Deployment, Service, 스토리지 초기화 컨테이너, 오토스케일러, 라우트, 메트릭 엔드포인트를 전부 만들어 냅니다. 카나리를 붙이려면 아래에 네 줄을 더합니다(10장).</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>KServe가 실제로 대신해 주는 것</h3>
+  <div class="tblwrap">
+    <table class="tbl">
+      <tr><th>직접 하면</th><th>KServe에서는</th></tr>
+      <tr><td>모델 다운로드 코드 작성</td><td><b>storageUri</b> 한 줄. s3://, gs://, hf://, pvc://, oci:// 지원</td></tr>
+      <tr><td>프레임워크별 추론 서버 이미지 관리</td><td><b>modelFormat</b> 이름만 적으면 맞는 ServingRuntime이 붙음</td></tr>
+      <tr><td>HPA 규칙 튜닝</td><td>동시 요청 수 기준 스케일, <b>0까지 축소</b>도 옵션</td></tr>
+      <tr><td>Ingress 가중치 수정으로 카나리</td><td><b>canaryTrafficPercent</b> 숫자 하나</td></tr>
+      <tr><td>모델마다 API 스펙이 다름</td><td>V1 / Open Inference Protocol / OpenAI 호환으로 <b>통일</b></td></tr>
+      <tr><td>LLM 라우팅을 직접 구현</td><td>KV 캐시 인지 라우팅이 기본 탑재 (14장)</td></tr>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>KServe는 추론 엔진이 아닙니다.</b>
+    <p>실제로 텐서를 굴리는 건 vLLM, Triton, TorchServe 같은 <span class="term" data-d="추론 서버. 모델을 메모리에 올리고 요청을 받아 실제 연산을 수행하는 프로세스입니다. KServe는 이들을 감싸 쿠버네티스 위에서 운영하는 층입니다.">런타임</span>입니다. KServe는 그 위에서 <b>수명주기·확장·라우팅·거버넌스</b>를 담당하는 관리 층입니다. 이 구분을 처음에 잡아 두면 나머지가 전부 쉬워집니다.</p>
+  </div>
+
+  <h4>KServe의 현재 위치</h4>
+  <p>KServe는 2025년 11월 CNCF <span class="term" data-d="Cloud Native Computing Foundation의 프로젝트 성숙도 단계. Sandbox → Incubating → Graduated 순입니다. Incubating은 실제 프로덕션 도입 사례와 활발한 커뮤니티가 검증된 단계입니다.">Incubating 프로젝트</span>가 되었습니다. 원래 Kubeflow의 KFServing으로 시작해 독립한 프로젝트이고, 지금은 예측형 AI와 생성형 AI를 <b>하나의 플랫폼</b>에서 다루는 것을 목표로 합니다. 이 강의의 기준은 <b>v0.20.0(2026년 8월 6일)</b>입니다.</p>
+</section>
+
+<!-- ============ 2장 ============ -->
+<section class="sec" id="c2">
+  <div class="sechead">
+    <span class="chnum">02</span>
+    <div><h2>전체 그림: 컨트롤 플레인과 데이터 플레인</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c2"> 완료</label>
+  </div>
+  <p class="lead">KServe를 이해하는 가장 빠른 축은 "YAML을 읽고 리소스를 만드는 쪽"과 "실제 요청을 처리하는 쪽"을 나누는 것입니다.</p>
+
+  <div class="grid2">
+    <div class="card ctrl">
+      <h5>컨트롤 플레인 <span class="badge b-ctrl">control plane</span></h5>
+      <p>사용자가 만든 CRD를 읽고, 그에 맞는 쿠버네티스 리소스(Deployment, Service, HPA, HTTPRoute…)를 만들고 상태를 맞춥니다. 요청이 한 건도 없어도 계속 돌아갑니다.</p>
+      <p class="muted" style="font-size:.82rem">대표 주자: <code>kserve-controller-manager</code></p>
+    </div>
+    <div class="card data">
+      <h5>데이터 플레인 <span class="badge b-data">data plane</span></h5>
+      <p>실제 추론 요청이 흐르는 경로입니다. 게이트웨이 → (스케줄러) → 추론 파드 → 응답. 컨트롤러가 죽어도 데이터 플레인은 계속 요청을 처리합니다.</p>
+      <p class="muted" style="font-size:.82rem">대표 주자: vLLM 파드, Triton 파드, Envoy</p>
+    </div>
+  </div>
+
+  <p>이 둘이 분리돼 있다는 점이 운영에서 중요합니다. 컨트롤러 파드를 재시작해도 서비스 중인 모델은 멀쩡합니다. 반대로 말하면, 컨트롤러가 죽어 있으면 <b>새 배포나 스케일 변경만</b> 안 됩니다.</p>
+
+  <h3>v0.17부터 컨트롤러가 셋으로 쪼개졌다</h3>
+  <p>예전 KServe는 컨트롤러 하나가 전부를 담당했습니다. v0.17에서 <b>모듈형 구조</b>로 바뀌면서 세 개의 독립 컴포넌트가 되었습니다. 이건 설치 방법과 업그레이드 절차를 통째로 바꾼 변화라 반드시 알아야 합니다.</p>
+
+  <div class="tblwrap">
+    <table class="tbl">
+      <tr><th>컴포넌트</th><th>담당 CRD</th><th>언제 필요한가</th></tr>
+      <tr>
+        <td><b>kserve</b> (코어)<br><span class="badge b-pred">필수</span></td>
+        <td>InferenceService, ServingRuntime, ClusterServingRuntime, InferenceGraph, TrainedModel</td>
+        <td>항상. 예측형 모델 서빙의 본체이고, 다른 컴포넌트도 이걸 전제로 합니다.</td>
+      </tr>
+      <tr>
+        <td><b>llmisvc</b><br><span class="badge b-gen">LLM용</span></td>
+        <td>LLMInferenceService, LLMInferenceServiceConfig</td>
+        <td>LLM을 본격적으로 서빙할 때. KV 캐시 인지 라우팅, prefill/decode 분리, 멀티노드 추론이 여기에 들어 있습니다.</td>
+      </tr>
+      <tr>
+        <td><b>localmodel</b><br><span class="badge b-gpu">선택</span></td>
+        <td>LocalModelCache, LocalModelNode, LocalModelNodeGroup</td>
+        <td>모델이 수십 GB라 파드 기동마다 다시 받는 게 견딜 수 없을 때. 노드 로컬 디스크에 캐시합니다.</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="tip">
+    <b>초보자를 위한 지름길.</b>
+    <p>전통 ML만 한다면 <code>kserve</code>만 설치하세요. LLM을 다룬다면 <code>kserve + llmisvc</code>. 모델 로딩 시간이 문제가 되기 전까지는 <code>localmodel</code>은 건드리지 않아도 됩니다.</p>
+  </div>
+
+  <h3>요청이 지나가는 경로 — 두 갈래</h3>
+  <h4>예측형 경로</h4>
+  <p>게이트웨이(Istio 또는 Gateway API)가 호스트명으로 InferenceService를 찾고, 파드로 넘깁니다. 파드 안에는 보통 두 개의 컨테이너가 있습니다. 모델을 내려받는 <span class="term" data-d="storage initializer. 파드가 뜰 때 먼저 실행되는 initContainer로, storageUri가 가리키는 위치에서 모델을 받아 /mnt/models 에 놓습니다. 다운로드가 끝나야 본 컨테이너가 시작됩니다.">스토리지 이니셜라이저</span>와 실제 추론 서버입니다. 로드밸런싱은 평범한 라운드로빈이면 충분합니다. 요청마다 계산량이 비슷하니까요.</p>
+
+  <h4>생성형 경로</h4>
+  <p>여기서 이야기가 달라집니다. LLM 요청은 길이도, 계산량도, "이 파드가 이미 갖고 있는 캐시"도 전부 제각각입니다. 그래서 KServe는 앞단에 두 층을 더 놓습니다.</p>
+  <ul>
+    <li><b>Envoy AI Gateway</b> — 요청 수가 아니라 <b>토큰 수</b>로 한도를 겁니다. LLM에서는 요청 1건의 비용이 100배까지 차이 나기 때문입니다.</li>
+    <li><b>EPP(Endpoint Picker Pod)</b> — <span class="term" data-d="Gateway API Inference Extension. 쿠버네티스 SIG 프로젝트로, 표준 Gateway API에 AI 추론에 필요한 라우팅 기능을 추가합니다. KServe v0.20은 GIE v1.5.0을 씁니다.">GIE</span>가 정의한 확장점으로, 어느 파드가 이 요청을 가장 싸게 처리할지 실시간으로 채점합니다.</li>
+  </ul>
+
+  <div class="note">
+    <b>llm-d가 뭔가요?</b>
+    <p>LLMInferenceService의 속은 <span class="term" data-d="쿠버네티스 위에서 분산 LLM 추론을 하기 위한 오픈소스 프레임워크. KV 캐시 인지 스케줄러, prefill/decode 분리 같은 구성요소를 제공하며 KServe v0.20은 llm-d v0.8.0을 사용합니다.">llm-d</span> 프레임워크입니다. KServe는 llm-d의 스케줄러·라우터를 쿠버네티스 CRD로 감싸서, 사용자가 YAML 한 장으로 쓰게 만들어 줍니다. 이름이 낯설어도 직접 만질 일은 거의 없습니다.</p>
+  </div>
+
+  <h3>한 장으로 보는 계층</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">KServe 계층 구조</span></div>
+<pre><span class="c">사용자가 쓰는 것</span>
+  InferenceService          LLMInferenceService      <span class="c"># CRD (선언)</span>
+        │                          │
+<span class="c">──────────────────────────────────────────────────</span>
+        ▼                          ▼
+  kserve-controller        llmisvc-controller        <span class="c"># 컨트롤 플레인</span>
+        │                          │
+  <span class="o">만들어 내는 것</span>                 <span class="o">만들어 내는 것</span>
+  Deployment               Deployment / LeaderWorkerSet
+  Service                  Service
+  HPA / KPA                HPA / KEDA ScaledObject
+  HTTPRoute                HTTPRoute + InferencePool + EPP
+<span class="c">──────────────────────────────────────────────────</span>
+        ▼                          ▼
+  sklearn / Triton 파드      vLLM 파드 (+ prefill/decode)   <span class="c"># 데이터 플레인</span>
+        │                          │
+    <span class="o">/mnt/models</span>                <span class="o">/mnt/models</span>              <span class="c"># 모델이 놓이는 곳</span></pre>
+  </div>
+  <p>왼쪽 열과 오른쪽 열이 이 강의의 3~12장, 13~16장에 각각 대응합니다.</p>
+</section>
+
+<!-- ============ 3장 ============ -->
+<section class="sec" id="c3">
+  <div class="sechead">
+    <span class="chnum">03</span>
+    <div><h2>설치: 10개의 Helm 차트를 어떻게 골라 쓰나</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c3"> 완료</label>
+  </div>
+  <p class="lead">v0.17에서 차트가 하나에서 열 개로 쪼개졌습니다. 겁먹을 필요는 없습니다. 실제로 고르는 축은 두 개뿐입니다.</p>
+
+  <h3>먼저 정할 두 가지</h3>
+  <div class="grid2">
+    <div class="card pred"><h5>축 1 — 어떤 컴포넌트를 쓸까</h5><p>kserve만 / +llmisvc / +localmodel. 2장에서 본 그대로입니다.</p></div>
+    <div class="card data"><h5>축 2 — 어떤 배포 모드로 돌릴까</h5><p><b>Knative 모드</b>(서버리스, 0까지 축소 가능) 또는 <b>Standard 모드</b>(평범한 Deployment + HPA). 7장에서 자세히 다룹니다.</p></div>
+  </div>
+
+  <div class="warn">
+    <b>Standard = 예전의 RawDeployment.</b>
+    <p>문서나 블로그에서 <code>RawDeployment</code>라는 이름을 보면 지금의 <code>Standard</code>와 같은 것입니다. 이름만 바뀌었습니다. 설정 값도 <code>defaultDeploymentMode: "Standard"</code>로 씁니다.</p>
+  </div>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>설치 명령 만들기<span class="hint">선택하면 명령이 바뀝니다</span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <label>컴포넌트</label>
+        <button class="btn sm on" id="ins-kserve" disabled>kserve (필수)</button>
+        <button class="btn sm" data-ins="llm">+ llmisvc</button>
+        <button class="btn sm" data-ins="local">+ localmodel</button>
+      </div>
+      <div class="wrow">
+        <label>배포 모드</label>
+        <button class="btn sm on" data-insmode="Knative">Knative</button>
+        <button class="btn sm" data-insmode="Standard">Standard</button>
+      </div>
+      <div class="wrow">
+        <label>CRD 변형</label>
+        <button class="btn sm on" data-inscrd="full">full (검증 포함)</button>
+        <button class="btn sm" data-inscrd="minimal">minimal (가벼움)</button>
+      </div>
+      <div class="codewrap" style="margin:.6rem 0 0">
+        <div class="codehead"><span class="fn">install.sh</span><button class="copy">복사</button></div>
+        <pre id="insOut"></pre>
+      </div>
+      <div class="wout" id="insNote" style="margin-top:.6rem"></div>
+    </div>
+  </div>
+
+  <h3>차트가 왜 열 개인가</h3>
+  <p>CRD와 컨트롤러를 분리하는 것은 쿠버네티스 오퍼레이터의 오래된 관행입니다. CRD를 지우면 그 CRD로 만든 모든 리소스가 함께 지워지므로, <code>helm uninstall</code> 한 번에 서비스 중인 모델이 전부 날아가는 사고를 막으려고 따로 뗍니다. 여기에 컴포넌트가 셋이니 3×2(full/minimal) = 6개의 CRD 차트, 그리고 리소스 차트 4개가 됩니다.</p>
+
+  <div class="tblwrap">
+    <table class="tbl">
+      <tr><th>차트</th><th>들어 있는 것</th></tr>
+      <tr><td><code>kserve-crd</code> / <code>-minimal</code></td><td>InferenceService 등 코어 CRD. minimal은 OpenAPI 검증 스키마를 뺀 경량판</td></tr>
+      <tr><td><code>kserve-llmisvc-crd</code> / <code>-minimal</code></td><td>LLMInferenceService CRD (스키마가 커서 full은 213KB)</td></tr>
+      <tr><td><code>kserve-localmodel-crd</code> / <code>-minimal</code></td><td>모델 캐시 CRD</td></tr>
+      <tr><td><code>kserve-resources</code></td><td>코어 컨트롤러, 웹훅, RBAC, <code>inferenceservice-config</code> ConfigMap</td></tr>
+      <tr><td><code>kserve-llmisvc-resources</code></td><td>llmisvc 컨트롤러와 웹훅</td></tr>
+      <tr><td><code>kserve-localmodel-resources</code></td><td>캐시 컨트롤러 + 노드 에이전트 DaemonSet</td></tr>
+      <tr><td><code>kserve-runtime-configs</code></td><td>ClusterServingRuntime 목록과 LLMIsvc 기본 설정 템플릿</td></tr>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>full과 minimal, 뭘 고르나요?</b>
+    <p>처음엔 <b>full</b>을 쓰세요. YAML을 잘못 썼을 때 <code>kubectl apply</code> 단계에서 이유를 알려 줍니다. minimal은 검증을 건너뛰므로 잘못된 값이 컨트롤러까지 가서 이상한 에러로 터집니다. minimal은 CRD 용량과 API 서버 메모리가 빡빡한 대규모 클러스터에서 쓰는 선택지입니다.</p>
+  </div>
+
+  <h3>먼저 깔려 있어야 하는 것들</h3>
+  <ul>
+    <li><b>cert-manager</b> — 웹훅 인증서를 발급합니다. 사실상 필수입니다.</li>
+    <li><b>Gateway API CRD</b> — v0.20은 Gateway API v1.5.1 기준입니다.</li>
+    <li><b>Knative Serving</b> — Knative 모드를 쓸 때만. v0.20은 Knative Serving v1.21.1 계열입니다.</li>
+    <li><b>Istio 또는 Envoy Gateway</b> — 네트워킹 계층. Knative 모드는 보통 Istio를 씁니다.</li>
+    <li><b>KEDA</b> — LLM 오토스케일링(WVA)을 쓸 때. v0.20은 KEDA 2.17.x 계열입니다.</li>
+  </ul>
+
+  <p>직접 하나씩 깔기 번거롭다면 KServe 저장소가 제공하는 일괄 설치 스크립트가 있습니다. 실습용 kind 클러스터나 PoC에서는 이쪽이 훨씬 빠릅니다.</p>
+
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">의존성까지 한 번에 (실습용)</span><button class="copy">복사</button></div>
+<pre><span class="c"># 저장소 클론 없이, 매니페스트 내장 스크립트로</span>
+curl -fsSL https://github.com/kserve/kserve/releases/download/v0.20.0/\
+kserve-standard-mode-full-install-with-manifests.sh | bash
+
+<span class="c"># 되돌리기</span>
+curl -fsSL https://github.com/kserve/kserve/releases/download/v0.20.0/\
+kserve-standard-mode-full-install-with-manifests.sh | bash -s -- --uninstall</pre>
+  </div>
+
+  <div class="warn">
+    <b>파이프로 바로 bash에 넣는 설치는 학습·PoC용입니다.</b>
+    <p>운영 클러스터에서는 스크립트를 내려받아 내용을 읽고, 버전을 고정한 Helm 차트로 관리하세요. 특히 폐쇄망이라면 이 방식은 애초에 동작하지 않습니다(17장에서 다룹니다).</p>
+  </div>
+
+  <h3>설치 확인</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">verify.sh</span><button class="copy">복사</button></div>
+<pre><span class="c"># 컨트롤러가 떴는지</span>
+kubectl get pods -n kserve
+<span class="c"># NAME                                    READY   STATUS</span>
+<span class="c"># kserve-controller-manager-xxxx          2/2     Running</span>
+<span class="c"># llmisvc-controller-manager-xxxx         1/1     Running   ← llmisvc 설치 시</span>
+
+<span class="c"># CRD가 등록됐는지</span>
+kubectl get crd | grep kserve
+
+<span class="c"># 어떤 런타임이 준비돼 있는지 (이게 비어 있으면 runtime-configs 차트 누락)</span>
+kubectl get clusterservingruntimes
+
+<span class="c"># 현재 배포 모드 확인</span>
+kubectl get cm inferenceservice-config -n kserve -o jsonpath=<span class="s">'{.data.deploy}'</span></pre>
+  </div>
+</section>
+
+<script>
+/* ===== 설치 명령 생성기 ===== */
+(function(){
+  var out=document.getElementById('insOut'), note=document.getElementById('insNote');
+  if(!out) return;
+  var st={llm:false,local:false,mode:'Knative',crd:'full'};
+  var V='v0.20.0';
+
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+  function render(){
+    var sfx = st.crd==='minimal' ? '-minimal' : '';
+    var L=[];
+    L.push('<span class="c"># 1) CRD 먼저 (컨트롤러와 생명주기를 분리한다)</span>');
+    L.push('helm install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd'+sfx+' \\');
+    L.push('  --version '+V+' --namespace kserve --create-namespace');
+    if(st.llm){
+      L.push('');
+      L.push('helm install kserve-llmisvc-crd oci://ghcr.io/kserve/charts/kserve-llmisvc-crd'+sfx+' \\');
+      L.push('  --version '+V+' --namespace kserve');
+    }
+    if(st.local){
+      L.push('');
+      L.push('helm install kserve-localmodel-crd oci://ghcr.io/kserve/charts/kserve-localmodel-crd'+sfx+' \\');
+      L.push('  --version '+V+' --namespace kserve');
+    }
+    L.push('');
+    L.push('<span class="c"># 2) 컨트롤러와 웹훅</span>');
+    L.push('helm install kserve-resources oci://ghcr.io/kserve/charts/kserve-resources \\');
+    L.push('  --version '+V+' --namespace kserve \\');
+    L.push('  --set kserve.controller.deploymentMode=<span class="o">'+st.mode+'</span> --wait');
+    if(st.llm){
+      L.push('');
+      L.push('helm install kserve-llmisvc-resources oci://ghcr.io/kserve/charts/kserve-llmisvc-resources \\');
+      L.push('  --version '+V+' --namespace kserve --set kserve.createSharedResources=false --wait');
+    }
+    if(st.local){
+      L.push('');
+      L.push('helm install kserve-localmodel-resources oci://ghcr.io/kserve/charts/kserve-localmodel-resources \\');
+      L.push('  --version '+V+' --namespace kserve --set kserve.createSharedResources=false --wait');
+    }
+    L.push('');
+    L.push('<span class="c"># 3) 기본 런타임 목록 (이걸 빼면 modelFormat 매칭이 안 된다)</span>');
+    L.push('helm install kserve-runtime-configs oci://ghcr.io/kserve/charts/kserve-runtime-configs \\');
+    L.push('  --version '+V+' --namespace kserve');
+    out.innerHTML=L.join('\n');
+
+    var n=[];
+    n.push(st.mode==='Knative'
+      ? '<b>Knative 모드</b>: Knative Serving과 Istio가 먼저 설치돼 있어야 합니다. 0까지 축소, 리비전 기반 카나리를 얻습니다.'
+      : '<b>Standard 모드</b>: Knative 없이 평범한 Deployment + HPA로 돕니다. 의존성이 가볍고 GPU 워크로드에 예측 가능합니다.');
+    if(st.llm) n.push('<b>llmisvc</b> 포함: Gateway API CRD와 GIE CRD가 함께 필요합니다. WVA 오토스케일링까지 쓰려면 KEDA도 설치하세요.');
+    if(st.local) n.push('<b>localmodel</b> 포함: 노드마다 DaemonSet 에이전트가 뜨고, 캐시용 로컬 디스크 공간이 필요합니다.');
+    n.push('두 번째 이후 리소스 차트에는 <code>createSharedResources=false</code>를 줘서 ConfigMap·인증서가 중복 생성되지 않게 합니다.');
+    note.innerHTML='<p style="margin:.2rem 0;font-size:.85rem">'+n.join('</p><p style="margin:.45rem 0;font-size:.85rem">')+'</p>';
+  }
+
+  document.querySelectorAll('[data-ins]').forEach(function(b){
+    b.addEventListener('click',function(){
+      st[b.dataset.ins]=!st[b.dataset.ins];
+      b.classList.toggle('on',st[b.dataset.ins]); render();
+    });
+  });
+  document.querySelectorAll('[data-insmode]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-insmode]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); st.mode=b.dataset.insmode; render();
+    });
+  });
+  document.querySelectorAll('[data-inscrd]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-inscrd]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); st.crd=b.dataset.inscrd; render();
+    });
+  });
+  render();
+})();
+</script>
+
+<!-- ============ 4장 ============ -->
+<section class="sec" id="c4">
+  <div class="sechead">
+    <span class="chnum">04</span>
+    <div><h2>InferenceService 해부</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c4"> 완료</label>
+  </div>
+  <p class="lead">KServe에서 가장 많이 쓰게 될 리소스입니다. 구조는 단순한데, 각 칸이 무엇을 만들어 내는지를 알면 장애 대응이 쉬워집니다.</p>
+
+  <p>InferenceService, 줄여서 <b>isvc</b>는 최대 세 개의 컴포넌트로 이루어집니다. 대부분의 경우 <code>predictor</code> 하나만 씁니다.</p>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>파드 안을 들여다보기<span class="hint">박스를 눌러 보세요</span></div>
+    <div class="wbody">
+      <div class="svgbox"><svg id="isvcSvg" viewBox="0 0 900 300" role="img" aria-label="InferenceService 구조도"></svg></div>
+      <div class="wout" id="isvcOut" style="margin-top:.6rem">박스를 클릭하면 그 조각이 무엇인지 설명이 나옵니다.</div>
+    </div>
+  </div>
+
+  <h3>세 컴포넌트</h3>
+  <div class="cards">
+    <div class="card pred">
+      <h5>predictor <span class="badge b-pred">필수</span></h5>
+      <p>모델을 로딩하고 추론합니다. 이것만 있으면 서비스가 성립합니다.</p>
+    </div>
+    <div class="card data">
+      <h5>transformer <span class="badge">선택</span></h5>
+      <p>predictor 앞에 붙는 전/후처리 계층. 이미지 리사이즈, 토크나이즈, 응답 포맷 변환 등을 파이썬 코드로 짭니다.</p>
+    </div>
+    <div class="card ctrl">
+      <h5>explainer <span class="badge">선택</span></h5>
+      <p>"왜 이렇게 예측했는가"를 계산합니다. Alibi, ART 같은 설명 가능성 도구를 붙입니다. 금융·의료 규제 대응에서 씁니다.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>왜 전처리를 모델 서버 안에 안 넣나요?</b>
+    <p>전처리는 CPU를 쓰고 모델은 GPU를 씁니다. 한 컨테이너에 묶으면 전처리가 몰릴 때 비싼 GPU가 놀게 됩니다. 분리하면 각각 다른 배수로 스케일할 수 있습니다. 다만 홉이 하나 늘어 지연시간이 조금 붙으므로, 전처리가 가벼우면 굳이 나누지 않아도 됩니다.</p>
+  </div>
+
+  <h3>predictor를 쓰는 두 가지 방식</h3>
+  <div class="tabs" data-tabs="predmode">
+    <button class="on" data-p="modelspec">modelFormat 방식 (권장)</button>
+    <button data-p="custom">직접 컨테이너 방식</button>
+  </div>
+  <div class="panel on" data-panel="modelspec">
+    <p>포맷 이름만 적으면 KServe가 클러스터에 등록된 런타임 중 맞는 걸 골라 줍니다. 대부분 이 방식을 씁니다.</p>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">predictor-modelspec.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">minReplicas</span>: <span class="n">1</span>
+    <span class="k">maxReplicas</span>: <span class="n">5</span>
+    <span class="k">model</span>:
+      <span class="k">modelFormat</span>:
+        <span class="k">name</span>: sklearn        <span class="c"># 런타임 자동 선택의 열쇠</span>
+        <span class="k">version</span>: <span class="s">"1"</span>          <span class="c"># 선택. 런타임이 여러 버전을 지원할 때</span>
+      <span class="k">runtime</span>: kserve-sklearnserver   <span class="c"># 선택. 지정하면 자동 선택을 무시</span>
+      <span class="k">storageUri</span>: <span class="s">"s3://models/iris"</span>
+      <span class="k">protocolVersion</span>: v2        <span class="c"># 선택. v1 또는 v2(OIP)</span>
+      <span class="k">resources</span>:
+        <span class="k">limits</span>: {<span class="k">cpu</span>: <span class="s">"1"</span>, <span class="k">memory</span>: <span class="s">"2Gi"</span>}</pre>
+    </div>
+  </div>
+  <div class="panel" data-panel="custom">
+    <p>사내에서 만든 추론 서버 이미지를 그대로 쓸 때입니다. KServe의 스케일·라우팅은 그대로 얻으면서 서버만 직접 통제합니다.</p>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">predictor-custom.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">containers</span>:
+    - <span class="k">name</span>: kserve-container       <span class="c"># 이 이름을 지켜야 한다</span>
+      <span class="k">image</span>: my-registry/my-server:<span class="n">1</span>.<span class="n">2</span>.<span class="n">0</span>
+      <span class="k">args</span>: [<span class="s">"--model-dir"</span>, <span class="s">"/mnt/models"</span>]
+      <span class="k">ports</span>:
+      - <span class="k">containerPort</span>: <span class="n">8080</span>
+        <span class="k">protocol</span>: TCP
+      <span class="k">env</span>:
+      - <span class="k">name</span>: STORAGE_URI          <span class="c"># 이걸 주면 스토리지 이니셜라이저가 붙는다</span>
+        <span class="k">value</span>: <span class="s">"s3://models/custom"</span></pre>
+    </div>
+    <div class="warn"><b>컨테이너 이름은 <code>kserve-container</code></b><p>다른 이름을 쓰면 KServe가 어느 컨테이너에 포트·프로브·메트릭을 붙일지 몰라 스토리지 마운트가 누락되거나 라우팅이 어긋납니다.</p></div>
+  </div>
+
+  <h3>배포 후 무엇이 생기는가</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">isvc 하나가 만들어 내는 것들 (Standard 모드)</span><button class="copy">복사</button></div>
+<pre>$ kubectl get inferenceservice sklearn-iris
+NAME           URL                                          READY   AGE
+sklearn-iris   http://sklearn-iris.kserve-test.example.com   True    2m
+
+$ kubectl get deploy,svc,hpa -l serving.kserve.io/inferenceservice=sklearn-iris
+deployment.apps/sklearn-iris-predictor    <span class="o">1/1</span>
+service/sklearn-iris-predictor            ClusterIP
+horizontalpodautoscaler/sklearn-iris-predictor   <span class="o">1/5</span>
+
+$ kubectl get pod -l serving.kserve.io/inferenceservice=sklearn-iris -o \
+    jsonpath=<span class="s">'{.items[0].spec.initContainers[*].name}'</span>
+storage-initializer</pre>
+  </div>
+
+  <h3>상태를 읽는 법</h3>
+  <p>isvc가 <code>READY=False</code>일 때 가장 먼저 볼 곳은 <code>status.conditions</code>입니다. v0.17부터 실패 원인이 상태에 더 잘 드러나게 개선되었습니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">debug.sh</span><button class="copy">복사</button></div>
+<pre>kubectl get isvc sklearn-iris -o jsonpath=<span class="s">'{.status.conditions}'</span> | jq
+<span class="c"># PredictorReady, IngressReady, LatestDeploymentReady 등을 확인</span>
+
+kubectl describe isvc sklearn-iris | tail -30
+<span class="c"># Events 섹션에 컨트롤러가 남긴 이유가 있다</span>
+
+<span class="c"># 파드가 안 뜰 때는 initContainer 로그부터</span>
+kubectl logs &lt;pod&gt; -c storage-initializer</pre>
+  </div>
+
+  <div class="warn">
+    <b>컨트롤 플레인 네임스페이스에는 배포하지 마세요.</b>
+    <p><code>control-plane</code> 레이블이 붙은 네임스페이스는 권한 상승을 막기 위해 웹훅이 의도적으로 건너뜁니다. 그 결과 스토리지 이니셜라이저가 주입되지 않고, 파드는 <code>No such file or directory: '/mnt/models'</code>로 죽습니다. 이 에러를 보면 네임스페이스를 먼저 의심하세요.</p>
+  </div>
+</section>
+
+<!-- ============ 5장 ============ -->
+<section class="sec" id="c5">
+  <div class="sechead">
+    <span class="chnum">05</span>
+    <div><h2>ServingRuntime: modelFormat 한 줄이 런타임을 고르는 원리</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c5"> 완료</label>
+  </div>
+  <p class="lead"><code>modelFormat: {name: sklearn}</code>이라고만 썼는데 어떻게 알맞은 이미지가 뜨는지, 그 중간 단계입니다.</p>
+
+  <p>ServingRuntime은 <b>"이 포맷을 처리할 수 있는 서버는 이 이미지, 이 인자, 이 포트"</b>를 적어 둔 템플릿입니다. 클러스터 전체에 적용되는 <code>ClusterServingRuntime</code>과, 네임스페이스 안에서만 쓰는 <code>ServingRuntime</code> 두 가지가 있습니다.</p>
+
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">ClusterServingRuntime 예시 (요약)</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: serving.kserve.io/v1alpha1
+<span class="k">kind</span>: ClusterServingRuntime
+<span class="k">metadata</span>:
+  <span class="k">name</span>: kserve-sklearnserver
+<span class="k">spec</span>:
+  <span class="k">annotations</span>:
+    <span class="k">prometheus.kserve.io/port</span>: <span class="s">'8080'</span>
+  <span class="k">supportedModelFormats</span>:          <span class="c"># ← 매칭의 핵심</span>
+  - <span class="k">name</span>: sklearn
+    <span class="k">version</span>: <span class="s">"1"</span>
+    <span class="k">autoSelect</span>: <span class="o">true</span>             <span class="c"># false면 runtime: 으로 직접 지정해야 함</span>
+    <span class="k">priority</span>: <span class="n">1</span>                  <span class="c"># 같은 포맷을 여러 런타임이 지원할 때 우선순위</span>
+  <span class="k">protocolVersions</span>: [v1, v2]
+  <span class="k">containers</span>:
+  - <span class="k">name</span>: kserve-container
+    <span class="k">image</span>: kserve/sklearnserver:v0.<span class="n">20</span>.<span class="n">0</span>
+    <span class="k">args</span>:
+    - --model_name={{.Name}}
+    - --model_dir=/mnt/models
+    <span class="k">resources</span>:
+      <span class="k">requests</span>: {<span class="k">cpu</span>: <span class="s">"1"</span>, <span class="k">memory</span>: <span class="s">"2Gi"</span>}</pre>
+  </div>
+
+  <h3>선택 규칙</h3>
+  <ol>
+    <li>isvc에 <code>runtime:</code>이 명시돼 있으면 그걸 씁니다. 끝.</li>
+    <li>없으면 <code>modelFormat.name</code>(+ version)과 일치하고 <code>autoSelect: true</code>인 런타임을 찾습니다.</li>
+    <li>여러 개면 <code>priority</code>가 높은 쪽이 이깁니다. 같은 우선순위가 여럿이면 오류입니다.</li>
+    <li><code>protocolVersion</code>을 지정했다면 그 프로토콜을 지원하는 런타임만 후보가 됩니다.</li>
+  </ol>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>내 모델은 어떤 런타임으로?<span class="hint">포맷을 고르세요</span></div>
+    <div class="wbody">
+      <div class="wrow" id="rtPick">
+        <button class="btn sm on" data-rt="sklearn">sklearn</button>
+        <button class="btn sm" data-rt="xgboost">xgboost</button>
+        <button class="btn sm" data-rt="pytorch">pytorch</button>
+        <button class="btn sm" data-rt="tensorflow">tensorflow</button>
+        <button class="btn sm" data-rt="onnx">onnx</button>
+        <button class="btn sm" data-rt="triton">triton</button>
+        <button class="btn sm" data-rt="huggingface">huggingface</button>
+        <button class="btn sm" data-rt="vllm">vllm</button>
+        <button class="btn sm" data-rt="lightgbm">lightgbm</button>
+        <button class="btn sm" data-rt="openvino">openvino</button>
+        <button class="btn sm" data-rt="autogluon">autogluon</button>
+      </div>
+      <div class="wout" id="rtOut"></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>v0.20의 새 얼굴 둘.</b>
+    <p><b>vLLM이 독립 런타임</b>이 되었습니다. 예전에는 HuggingFace 런타임 안에 섞여 있었는데, 이제 <code>modelFormat.name: vllm</code>으로 직접 고를 수 있습니다. 그리고 <b>AutoGluon 서버</b>가 추가되어 테이블형 모델과 시계열 모델을 서빙합니다.</p>
+  </div>
+
+  <h3>런타임을 직접 손봐야 할 때</h3>
+  <p>기본 런타임을 그대로 쓰다 보면 "vLLM 인자를 하나 더 주고 싶다", "이미지를 사내 레지스트리 것으로 바꾸고 싶다" 같은 요구가 생깁니다. 두 가지 길이 있습니다.</p>
+  <div class="grid2">
+    <div class="card"><h5>isvc에서 덮어쓰기</h5><p>predictor의 <code>containers</code>에 같은 이름(<code>kserve-container</code>)으로 필요한 필드만 적으면 런타임 정의 위에 병합됩니다. 한 서비스에만 적용할 때.</p></div>
+    <div class="card"><h5>ServingRuntime 새로 만들기</h5><p>기본 것을 복사해 이름을 바꾸고 <code>autoSelect: false</code>로 두면, <code>runtime:</code>으로 지정한 서비스만 씁니다. 팀 표준을 만들 때.</p></div>
+  </div>
+
+  <div class="tip">
+    <b>폐쇄망이라면 여기가 첫 관문입니다.</b>
+    <p><code>kserve-runtime-configs</code> 차트가 넣는 ClusterServingRuntime들은 전부 외부 이미지를 가리킵니다. 이미지를 사내 레지스트리로 미러링한 뒤, 런타임 정의의 <code>image</code>를 일괄 치환해야 합니다.</p>
+  </div>
+</section>
+
+<!-- ============ 6장 ============ -->
+<section class="sec" id="c6">
+  <div class="sechead">
+    <span class="chnum">06</span>
+    <div><h2>모델은 어떻게 파드 안으로 들어오는가</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c6"> 완료</label>
+  </div>
+  <p class="lead"><code>storageUri</code> 한 줄 뒤에서 벌어지는 일. LLM 시대에는 이 장이 곧 "콜드 스타트 시간" 이야기가 됩니다.</p>
+
+  <h3>지원하는 URI 스킴</h3>
+  <div class="tblwrap">
+    <table class="tbl">
+      <tr><th>스킴</th><th>예시</th><th>메모</th></tr>
+      <tr><td><code>s3://</code></td><td>s3://bucket/models/iris</td><td>v0.17부터 병렬 다운로드. 대용량에서 체감 차이가 큽니다</td></tr>
+      <tr><td><code>gs://</code></td><td>gs://kfserving-examples/models/...</td><td>GCS. 공식 예제가 여기 많습니다</td></tr>
+      <tr><td><code>https://</code> / <code>http://</code></td><td>https://host/model.joblib</td><td>단일 파일. v0.20부터 사내 CA 번들을 존중합니다</td></tr>
+      <tr><td><code>hf://</code></td><td>hf://Qwen/Qwen2.5-7B-Instruct</td><td>Hugging Face Hub. 비공개 모델은 토큰 시크릿 필요</td></tr>
+      <tr><td><code>pvc://</code></td><td>pvc://models-pvc/llama3</td><td>이미 볼륨에 있는 모델. 다운로드 없음</td></tr>
+      <tr><td><code>oci://</code></td><td>oci://registry/model:v1</td><td>모델을 컨테이너 이미지로 포장. 사이드카가 마운트</td></tr>
+      <tr><td><code>oci+native://</code> <span class="badge b-gpu">v0.20</span></td><td>oci+native://registry/model:v1</td><td>쿠버네티스 ImageVolume로 직접 마운트. 사이드카도 다운로드도 없음 (K8s 1.33+)</td></tr>
+      <tr><td><code>git</code> (https)</td><td>https://github.com/org/repo</td><td>v0.17부터 Git 저장소에서 직접</td></tr>
+    </table>
+  </div>
+
+  <h3>자격증명은 어디에 두나</h3>
+  <p>두 가지 방식이 있습니다. 하나는 ServiceAccount에 시크릿을 붙이는 전통 방식이고, 다른 하나는 <span class="term" data-d="ClusterStorageContainer. 특정 스토리지 백엔드를 다루는 컨테이너와 그 환경변수·시크릿을 클러스터 차원에서 정의해 두는 리소스입니다. 모든 네임스페이스의 isvc가 공통으로 씁니다.">ClusterStorageContainer</span>로 클러스터 차원에 정의해 두는 방식입니다.</p>
+
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">s3-credentials.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: Secret
+<span class="k">metadata</span>:
+  <span class="k">name</span>: s3-creds
+  <span class="k">annotations</span>:
+    <span class="k">serving.kserve.io/s3-endpoint</span>: s3.ap-northeast-2.amazonaws.com
+    <span class="k">serving.kserve.io/s3-usehttps</span>: <span class="s">"1"</span>
+    <span class="k">serving.kserve.io/s3-region</span>: ap-northeast-2
+<span class="k">stringData</span>:
+  <span class="k">AWS_ACCESS_KEY_ID</span>: ...
+  <span class="k">AWS_SECRET_ACCESS_KEY</span>: ...
+---
+<span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: ServiceAccount
+<span class="k">metadata</span>:
+  <span class="k">name</span>: model-puller
+<span class="k">secrets</span>:
+- <span class="k">name</span>: s3-creds
+---
+<span class="c"># isvc에서 사용</span>
+<span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">serviceAccountName</span>: model-puller
+    <span class="k">model</span>: { ... }</pre>
+  </div>
+
+  <div class="tip">
+    <b>클라우드에서는 키를 아예 안 쓰는 게 낫습니다.</b>
+    <p>EKS면 IRSA, AKS면 Workload Identity, GKE면 Workload Identity Federation을 ServiceAccount에 붙이세요. 시크릿에 액세스 키를 박아 두는 것보다 안전하고, 키 로테이션 문제도 사라집니다.</p>
+  </div>
+
+  <h3>콜드 스타트 — LLM 시대의 진짜 병목</h3>
+  <p>sklearn 모델 5MB는 1초면 받습니다. 하지만 70B 모델의 가중치는 140GB입니다. 파드가 뜰 때마다 S3에서 140GB를 받는다면, 스케일아웃은 "10분 뒤에 도착하는 도움"이 됩니다. KServe가 이 문제에 내놓은 답이 아래 위젯의 선택지들입니다.</p>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>콜드 스타트 계산기<span class="hint">모델 크기와 적재 방식을 바꿔 보세요</span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <label>모델 크기</label>
+        <input type="range" id="csSize" min="0" max="5" step="1" value="2">
+        <span class="mono" id="csSizeLbl" style="font-size:.8rem;color:var(--data)"></span>
+      </div>
+      <div class="wrow">
+        <label>적재 방식</label>
+        <button class="btn sm on" data-cs="s3">S3 다운로드</button>
+        <button class="btn sm" data-cs="s3p">S3 병렬</button>
+        <button class="btn sm" data-cs="pvc">PVC 마운트</button>
+        <button class="btn sm" data-cs="oci">OCI 이미지</button>
+        <button class="btn sm" data-cs="ocin">oci+native</button>
+        <button class="btn sm" data-cs="cache">LocalModelCache</button>
+      </div>
+      <div id="csBars"></div>
+      <div class="wout" id="csNote" style="margin-top:.7rem"></div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:.82rem">수치는 1Gbps 네트워크와 NVMe 로컬 디스크를 가정한 개략적 추정입니다. 실제 값은 스토리지 처리량, 노드 대역폭, 파일 수에 따라 크게 달라집니다. 요점은 절대값이 아니라 <b>방식 간의 차이</b>입니다.</p>
+
+  <h3>LocalModelCache</h3>
+  <p>같은 GPU 노드에 같은 모델 파드가 여러 번 뜬다면, 노드 로컬 디스크에 한 번만 받아 두고 공유하는 게 합리적입니다. 이걸 CRD로 만든 것이 LocalModelCache입니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">localmodelcache.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: serving.kserve.io/v1alpha1
+<span class="k">kind</span>: LocalModelCache
+<span class="k">metadata</span>:
+  <span class="k">name</span>: qwen3-8b
+<span class="k">spec</span>:
+  <span class="k">sourceModelUri</span>: <span class="s">"hf://Qwen/Qwen3-8B-Instruct"</span>
+  <span class="k">modelSize</span>: <span class="n">16</span>Gi
+  <span class="k">nodeGroups</span>: [gpu-a100-pool]   <span class="c"># 어느 노드 그룹에 캐시할지</span></pre>
+  </div>
+  <p>이후 같은 URI를 쓰는 isvc가 뜨면, 웹훅이 라벨을 붙이고 컨트롤러가 <code>storageUri</code>를 <code>pvc://&lt;캐시-pvc&gt;/models/...</code>로 바꿔 줍니다. 사용자는 YAML을 고칠 필요가 없습니다. v0.19부터 <b>LLMInferenceService도 이 캐시를 씁니다</b>.</p>
+
+  <div class="warn">
+    <b>캐시가 만능은 아닙니다.</b>
+    <p>노드 로컬 디스크를 먹습니다. 모델 5개 × 30GB면 노드마다 150GB가 필요합니다. 또 노드가 교체되면 다시 받아야 합니다. 노드 그룹을 좁게 잡고, 실제로 자주 뜨는 모델에만 적용하세요.</p>
+  </div>
+</section>
+
+<!-- ============ 7장 ============ -->
+<section class="sec" id="c7">
+  <div class="sechead">
+    <span class="chnum">07</span>
+    <div><h2>Knative 모드 vs Standard 모드</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c7"> 완료</label>
+  </div>
+  <p class="lead">KServe 도입에서 가장 되돌리기 어려운 결정입니다. 클러스터 전체 기본값이 되고, 의존성 스택이 통째로 달라집니다.</p>
+
+  <div class="grid2">
+    <div class="card ctrl">
+      <h5>Knative 모드 <span class="badge b-ctrl">serverless</span></h5>
+      <p>isvc가 Knative Service로 변환됩니다. 요청이 없으면 파드를 0개까지 줄이고, 요청이 오면 다시 띄웁니다. 리비전 단위 트래픽 분할이 공짜로 따라옵니다.</p>
+      <p class="muted" style="font-size:.82rem">추가 설치: Knative Serving + Istio(또는 Kourier)</p>
+    </div>
+    <div class="card data">
+      <h5>Standard 모드 <span class="badge b-data">raw k8s</span></h5>
+      <p>평범한 Deployment + Service + HPA를 만듭니다. 예전 이름은 RawDeployment. 쿠버네티스를 아는 사람이라면 무슨 일이 일어나는지 전부 보입니다.</p>
+      <p class="muted" style="font-size:.82rem">추가 설치: Gateway API 또는 Ingress 컨트롤러</p>
+    </div>
+  </div>
+
+  <div class="tblwrap">
+    <table class="tbl">
+      <tr><th>항목</th><th>Knative 모드</th><th>Standard 모드</th></tr>
+      <tr><td>0까지 축소</td><td><b>가능</b> — 유휴 모델의 GPU를 반납</td><td>기본적으로 불가 (KEDA를 붙이면 가능)</td></tr>
+      <tr><td>오토스케일링 기준</td><td>동시 요청 수(KPA). 추론 워크로드에 잘 맞음</td><td>CPU·메모리·커스텀 메트릭(HPA)</td></tr>
+      <tr><td>카나리</td><td>리비전 기반, <code>canaryTrafficPercent</code> 한 줄</td><td>v0.20부터 <code>spec.canary</code>로 지원</td></tr>
+      <tr><td>요청 경로</td><td>activator·queue-proxy 홉이 추가됨</td><td>게이트웨이 → 파드. 홉이 짧음</td></tr>
+      <tr><td>GPU 워크로드</td><td>0→1 복귀에 모델 로딩 시간이 그대로 노출됨</td><td>파드를 상주시켜 예측 가능하게 운영</td></tr>
+      <tr><td>운영 난이도</td><td>Knative까지 알아야 함. 장애 시 층이 하나 더</td><td>익숙한 Deployment 디버깅 그대로</td></tr>
+      <tr><td>gRPC</td><td>지원</td><td>v0.19부터 REST/gRPC 이중 라우팅 지원</td></tr>
+    </table>
+  </div>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>어느 모드가 맞나<span class="hint">세 질문에 답해 보세요</span></div>
+    <div class="wbody">
+      <div id="dmQ"></div>
+      <div class="wout" id="dmOut" style="margin-top:.7rem">질문에 답하면 추천이 나옵니다.</div>
+    </div>
+  </div>
+
+  <h3>설정하는 곳</h3>
+  <p>클러스터 기본값은 <code>inferenceservice-config</code> ConfigMap의 <code>deploy</code> 항목입니다. 개별 isvc는 어노테이션으로 덮어쓸 수 있습니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">deployment-mode.yaml</span><button class="copy">복사</button></div>
+<pre><span class="c"># 클러스터 기본값</span>
+<span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: ConfigMap
+<span class="k">metadata</span>:
+  <span class="k">name</span>: inferenceservice-config
+  <span class="k">namespace</span>: kserve
+<span class="k">data</span>:
+  <span class="k">deploy</span>: |
+    {
+      "defaultDeploymentMode": "Standard"
+    }
+---
+<span class="c"># 개별 서비스만 다르게</span>
+<span class="k">apiVersion</span>: serving.kserve.io/v1beta1
+<span class="k">kind</span>: InferenceService
+<span class="k">metadata</span>:
+  <span class="k">name</span>: llama-serving
+  <span class="k">annotations</span>:
+    <span class="k">serving.kserve.io/deploymentMode</span>: <span class="s">"Standard"</span></pre>
+  </div>
+
+  <div class="note">
+    <b>LLM을 서빙한다면 사실상 Standard입니다.</b>
+    <p>LLMInferenceService는 Knative가 아니라 Deployment / <span class="term" data-d="LeaderWorkerSet. 쿠버네티스 SIG 프로젝트로, 리더 파드 1개와 워커 파드 N개를 하나의 단위로 묶어 스케일하는 워크로드 API입니다. 모델을 여러 노드에 쪼개 올리는 멀티노드 추론에 쓰입니다.">LeaderWorkerSet</span> 기반으로 돕니다. 70B 모델을 0까지 줄였다가 다시 올리는 건 어차피 현실적이지 않습니다. 대신 WVA + KEDA로 유휴 시 0까지 줄이는 별도 경로가 있습니다(9장).</p>
+  </div>
+
+  <h4>전환은 가능한가</h4>
+  <p>가능하지만 무중단은 아닙니다. 모드를 바꾸면 컨트롤러가 기존 리소스를 지우고 새로 만듭니다. Knative Service가 사라지고 Deployment가 생기는 식이라, 그 사이 다운타임이 생깁니다. 서비스 단위로 어노테이션을 붙여 하나씩 옮기고, 마지막에 클러스터 기본값을 바꾸는 순서를 권합니다.</p>
+</section>
+
+<script>
+/* ===== 4장: InferenceService 해부도 ===== */
+(function(){
+  var svg=document.getElementById('isvcSvg'), out=document.getElementById('isvcOut');
+  if(!svg) return;
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function txt(x,y,s,o){var t=el('text',Object.assign({x:x,y:y,fill:'#e7ecf8','font-size':'12','font-family':'IBM Plex Sans KR, sans-serif'},o||{}));t.textContent=s;return t;}
+
+  var parts=[
+    {x:30,y:40,w:150,h:60,c:'#2ED3E9',t:'InferenceService',s:'사용자가 쓴 YAML',
+     d:'<b>InferenceService (isvc)</b> — 여러분이 작성하는 유일한 파일입니다. 이 아래의 모든 것은 컨트롤러가 만들어 냅니다. 삭제하면 아래 전부가 함께 사라집니다.'},
+    {x:30,y:140,w:150,h:60,c:'#9E8CFF',t:'컨트롤러',s:'kserve-controller',
+     d:'<b>kserve-controller-manager</b> — isvc를 감시하다가 변경이 생기면 Deployment·Service·HPA·HTTPRoute를 만들거나 고칩니다. 이 파드가 죽어도 이미 떠 있는 추론 파드는 계속 요청을 처리합니다.'},
+    {x:250,y:30,w:620,h:230,c:'#26335a',t:'',s:'',fill:'#101830',
+     d:'<b>추론 파드</b> — 실제로 모델이 올라가는 곳입니다. 아래 박스들을 눌러 보세요.'},
+    {x:275,y:70,w:180,h:64,c:'#FFB34D',t:'storage-initializer',s:'initContainer',
+     d:'<b>스토리지 이니셜라이저</b> — 파드가 뜰 때 가장 먼저 도는 initContainer입니다. storageUri에서 모델을 받아 공유 볼륨의 <code>/mnt/models</code>에 놓습니다. 이게 끝나야 본 컨테이너가 시작합니다. 파드가 Init 상태에서 안 넘어가면 여기 로그부터 보세요.'},
+    {x:275,y:160,w:180,h:64,c:'#2ED3E9',t:'kserve-container',s:'추론 서버 (필수)',
+     d:'<b>kserve-container</b> — 실제 추론 서버입니다. ServingRuntime이 정한 이미지·인자로 뜹니다. 이름이 반드시 kserve-container여야 KServe가 포트·프로브·메트릭을 제대로 연결합니다.'},
+    {x:490,y:70,w:170,h:64,c:'#FF74B8',t:'transformer',s:'전/후처리 (선택)',
+     d:'<b>transformer</b> — 별도의 파드로 뜹니다(같은 파드가 아닙니다). 원본 입력을 모델이 먹는 형태로 바꾸고, 응답을 클라이언트가 원하는 형태로 되돌립니다. v0.20부터 Authorization 헤더를 predictor로 자동 전달합니다.'},
+    {x:490,y:160,w:170,h:64,c:'#9BE86A',t:'/mnt/models',s:'공유 볼륨',
+     d:'<b>/mnt/models</b> — 모든 KServe 런타임이 약속으로 쓰는 경로입니다. 이니셜라이저가 여기에 모델을 놓고, 추론 서버가 여기서 읽습니다. 직접 만든 서버를 붙일 때도 이 경로를 쓰면 됩니다.'},
+    {x:695,y:70,w:150,h:64,c:'#9E8CFF',t:'queue-proxy',s:'Knative 모드만',
+     d:'<b>queue-proxy</b> — Knative 모드에서 주입되는 사이드카입니다. 동시 요청 수를 세어 오토스케일러에 보고하고, 큐를 관리합니다. Standard 모드에는 없습니다.'},
+    {x:695,y:160,w:150,h:64,c:'#FFB34D',t:'메트릭 :8080',s:'/metrics',
+     d:'<b>메트릭 엔드포인트</b> — ServingRuntime의 프로메테우스 어노테이션에 따라 노출됩니다. 요청 수, 지연시간, 모델 로딩 시간을 여기서 긁습니다. v0.19부터 라벨·어노테이션이 워크로드 Service까지 전파되어 ServiceMonitor가 잡기 쉬워졌습니다.'}
+  ];
+
+  parts.forEach(function(p,i){
+    var g=el('g',{style:'cursor:pointer','data-i':i});
+    g.appendChild(el('rect',{x:p.x,y:p.y,width:p.w,height:p.h,rx:10,fill:p.fill||'#17203a',stroke:p.c,'stroke-width':p.t?1.6:1,'stroke-dasharray':p.t?'':'5 4'}));
+    if(p.t){
+      g.appendChild(txt(p.x+14,p.y+26,p.t,{'font-weight':'600','font-size':'12.5'}));
+      g.appendChild(txt(p.x+14,p.y+45,p.s,{'font-size':'10','fill':'#6c7ba3','font-family':'JetBrains Mono, monospace'}));
+    }
+    svg.appendChild(g);
+  });
+  svg.appendChild(txt(262,50,'추론 파드 (Pod)',{'font-size':'10.5',fill:'#6c7ba3','font-family':'JetBrains Mono, monospace'}));
+  svg.appendChild(el('line',{x1:105,y1:100,x2:105,y2:140,stroke:'#36477a','stroke-width':1.4}));
+  svg.appendChild(el('path',{d:'M180 170 C 215 170, 215 190, 250 190',stroke:'#36477a','stroke-width':1.4,fill:'none'}));
+  svg.appendChild(el('line',{x1:365,y1:134,x2:365,y2:160,stroke:'#FFB34D','stroke-width':1.4,'stroke-dasharray':'4 3'}));
+
+  svg.addEventListener('click',function(e){
+    var g=e.target.closest('g'); if(!g) return;
+    var p=parts[+g.dataset.i];
+    Array.prototype.forEach.call(svg.querySelectorAll('g rect'),function(r,i){
+      r.setAttribute('stroke-width', i===+g.dataset.i?2.8:(parts[i].t?1.6:1));
+    });
+    out.innerHTML='<p style="margin:0;font-size:.87rem">'+p.d+'</p>';
+  });
+})();
+
+/* ===== 5장: 런타임 선택기 ===== */
+(function(){
+  var out=document.getElementById('rtOut'); if(!out) return;
+  var M={
+    sklearn:{rt:'kserve-sklearnserver',img:'kserve/sklearnserver',p:'v1, v2',n:'joblib 또는 pickle 파일. 가장 가벼운 서빙입니다. CPU만으로 충분합니다.'},
+    xgboost:{rt:'kserve-xgbserver',img:'kserve/xgbserver',p:'v1, v2',n:'bst 포맷. 테이블형 데이터 모델의 기본 선택지입니다.'},
+    lightgbm:{rt:'kserve-lgbserver',img:'kserve/lgbserver',p:'v1, v2',n:'LightGBM 모델. v0.17에서 4.6.0으로 올라가며 CVE가 해소됐습니다.'},
+    pytorch:{rt:'kserve-torchserve',img:'pytorch/torchserve-kfs',p:'v1, v2',n:'.mar 아카이브가 필요합니다. torch-model-archiver로 미리 말아 두세요.'},
+    tensorflow:{rt:'kserve-tensorflow-serving',img:'tensorflow/serving',p:'v1',n:'SavedModel 디렉터리 구조를 그대로 올립니다.'},
+    onnx:{rt:'kserve-tritonserver',img:'nvcr.io/nvidia/tritonserver',p:'v2',n:'ONNX는 Triton이 받습니다. 프레임워크를 통일하고 싶을 때 좋은 선택입니다.'},
+    triton:{rt:'kserve-tritonserver',img:'nvcr.io/nvidia/tritonserver',p:'v2',n:'모델 저장소 레이아웃(config.pbtxt 포함)을 Triton 규칙대로 맞춰야 합니다. 여러 프레임워크를 한 서버에서 굴릴 수 있습니다.'},
+    huggingface:{rt:'kserve-huggingfaceserver',img:'kserve/huggingfaceserver',p:'v1, v2, OpenAI',n:'transformers 기반. 텍스트 분류·임베딩·소형 생성 모델에 적합합니다. v0.19에서 베이스 이미지가 CUDA 13.0 계열로 올라갔습니다.'},
+    vllm:{rt:'kserve-vllmserver',img:'kserve/vllmserver',p:'OpenAI',n:'<b>v0.20 신규</b>. HuggingFace 런타임에서 분리된 전용 vLLM 런타임입니다. 단일 GPU·CPU·멀티노드를 모두 지원합니다. 본격적인 LLM 서빙은 13장의 LLMInferenceService를 보세요.'},
+    openvino:{rt:'kserve-ovms',img:'openvino/model_server',p:'v1, v2',n:'v0.17 신규. 인텔 CPU/가속기에 최적화된 런타임입니다. GPU 없이 추론을 굴려야 하는 환경에서 유용합니다.'},
+    autogluon:{rt:'kserve-autogluonserver',img:'kserve/autogluonserver',p:'v1, v2',n:'<b>v0.20 신규</b>. TabularPredictor와 TimeSeriesPredictor를 서빙합니다. 시계열 추론이 필요하면 여기부터 보세요.'}
+  };
+  function show(k){
+    var m=M[k];
+    out.innerHTML='<div style="display:grid;gap:.3rem;font-size:.86rem">'+
+      '<div><span class="muted">선택되는 런타임</span> &nbsp;<code>'+m.rt+'</code></div>'+
+      '<div><span class="muted">이미지</span> &nbsp;<code>'+m.img+'</code></div>'+
+      '<div><span class="muted">프로토콜</span> &nbsp;'+m.p+'</div>'+
+      '<div style="margin-top:.35rem">'+m.n+'</div>'+
+      '<div class="codewrap" style="margin:.5rem 0 0"><pre><span class="k">modelFormat</span>:\n  <span class="k">name</span>: '+k+'</pre></div>'+
+      '</div>';
+  }
+  document.querySelectorAll('[data-rt]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-rt]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); show(b.dataset.rt);
+    });
+  });
+  show('sklearn');
+})();
+
+/* ===== 6장: 콜드 스타트 계산기 ===== */
+(function(){
+  var sl=document.getElementById('csSize'); if(!sl) return;
+  var lbl=document.getElementById('csSizeLbl'), bars=document.getElementById('csBars'), note=document.getElementById('csNote');
+  var SIZES=[{n:'5 MB (sklearn)',g:0.005},{n:'500 MB (BERT급)',g:0.5},{n:'16 GB (8B / bf16)',g:16},{n:'54 GB (27B / bf16)',g:54},{n:'140 GB (70B / bf16)',g:140},{n:'350 GB (MoE 대형)',g:350}];
+  var METHOD={
+    s3:{n:'S3 다운로드',mb:110,c:'--data',d:'평범한 순차 다운로드. 파일이 많은 샤딩된 모델에서는 요청 오버헤드까지 붙습니다.'},
+    s3p:{n:'S3 병렬',mb:420,c:'--data',d:'v0.17부터 S3·Azure에서 blob을 병렬로 받습니다. 같은 네트워크에서 3~4배 빨라집니다.'},
+    pvc:{n:'PVC 마운트',mb:2000,c:'--pred',d:'이미 볼륨에 있는 모델을 마운트만 합니다. 다운로드가 없으니 사실상 스토리지 읽기 속도가 전부입니다. 다만 PVC를 누가 어떻게 채울지는 별도 문제입니다.'},
+    oci:{n:'OCI 이미지 (사이드카)',mb:300,c:'--ctrl',d:'모델을 컨테이너 이미지로 말아 둡니다. 레지스트리 캐시와 레이어 공유의 이점을 얻지만, 노드에 이미지가 없으면 결국 풀 받아야 합니다.'},
+    ocin:{n:'oci+native (ImageVolume)',mb:600,c:'--gpu',d:'<b>v0.20 신규</b>. 사이드카도 이니셜라이저도 없이 컨테이너 런타임이 이미지를 /mnt/models 에 읽기전용으로 직접 마운트합니다. 쿠버네티스 1.33 이상이 필요합니다.'},
+    cache:{n:'LocalModelCache',mb:6000,c:'--gpu',d:'노드 로컬 NVMe에서 읽습니다. 같은 노드에 두 번째 파드가 뜰 때의 시간입니다. 첫 번째 파드는 어차피 원본에서 받아야 합니다.'}
+  };
+  var cur='s3';
+  function fmt(s){ if(s<1) return (s*1000).toFixed(0)+' ms'; if(s<90) return s.toFixed(1)+' 초'; return (s/60).toFixed(1)+' 분'; }
+  function render(){
+    var g=SIZES[+sl.value]; lbl.textContent=g.n;
+    var html='';
+    Object.keys(METHOD).forEach(function(k){
+      var m=METHOD[k], sec=(g.g*1024)/m.mb, pct=Math.min(100,Math.log10(sec+1)/Math.log10(3600)*100);
+      var on=(k===cur);
+      html+='<div style="margin:.45rem 0;opacity:'+(on?1:.55)+'">'+
+        '<div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:.2rem">'+
+        '<span'+(on?' style="color:var('+m.c+');font-weight:600"':' class="muted"')+'>'+m.n+'</span>'+
+        '<span class="mono" style="font-size:.76rem;color:'+(on?'var('+m.c+')':'var(--dim2)')+'">'+fmt(sec)+'</span></div>'+
+        '<div class="bar"><i style="width:'+pct.toFixed(1)+'%;background:var('+m.c+')"></i></div></div>';
+    });
+    bars.innerHTML=html;
+    note.innerHTML='<p style="margin:0;font-size:.86rem"><b>'+METHOD[cur].n+'</b> — '+METHOD[cur].d+'</p>';
+  }
+  sl.addEventListener('input',render);
+  document.querySelectorAll('[data-cs]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-cs]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); cur=b.dataset.cs; render();
+    });
+  });
+  render();
+})();
+
+/* ===== 7장: 배포 모드 결정 트리 ===== */
+(function(){
+  var box=document.getElementById('dmQ'); if(!box) return;
+  var out=document.getElementById('dmOut');
+  var Q=[
+    {q:'GPU를 쓰는 모델인가요?',a:['예, GPU 모델','아니요, CPU 모델']},
+    {q:'트래픽이 없는 시간이 하루 중 길게 있나요?',a:['예, 많이 논다','아니요, 꾸준하다']},
+    {q:'팀이 Knative를 운영해 본 적이 있나요?',a:['있다','없다']}
+  ];
+  var ans=[null,null,null];
+  box.innerHTML=Q.map(function(q,i){
+    return '<div class="wrow"><label style="flex:1 1 200px">'+(i+1)+'. '+q.q+'</label>'+
+      q.a.map(function(a,j){return '<button class="btn sm" data-q="'+i+'" data-a="'+j+'">'+a+'</button>'}).join('')+'</div>';
+  }).join('');
+  box.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-q]'); if(!b) return;
+    var i=+b.dataset.q;
+    box.querySelectorAll('button[data-q="'+i+'"]').forEach(function(x){x.classList.remove('on')});
+    b.classList.add('on'); ans[i]=+b.dataset.a; judge();
+  });
+  function judge(){
+    if(ans.indexOf(null)>=0){out.textContent='세 질문에 모두 답해 주세요.';return;}
+    var score=0, why=[];
+    if(ans[0]===0){score-=2; why.push('GPU 모델은 0→1 복귀에 모델 로딩 시간이 그대로 노출되고, GPU 노드 자체가 금방 안 뜹니다. 서버리스의 이점이 줄어듭니다.');}
+    else{score+=1; why.push('CPU 모델은 기동이 빨라 0까지 줄였다 올리는 이점이 큽니다.');}
+    if(ans[1]===0){score+=2; why.push('유휴 시간이 길다면 0까지 축소로 아끼는 비용이 실제로 큽니다.');}
+    else{score-=1; why.push('트래픽이 꾸준하면 0까지 줄일 일이 없어 Knative의 대표 기능을 안 쓰게 됩니다.');}
+    if(ans[2]===0){score+=1; why.push('Knative 운영 경험이 있으면 층이 하나 늘어나는 부담이 작습니다.');}
+    else{score-=2; why.push('Knative 경험이 없다면 장애 시 원인 추적이 어렵습니다. activator, queue-proxy, 리비전까지 알아야 합니다.');}
+    var pick = score>=1 ? {n:'Knative 모드',c:'var(--ctrl)'} : {n:'Standard 모드',c:'var(--data)'};
+    out.innerHTML='<p style="margin:0 0 .4rem"><b style="color:'+pick.c+';font-size:1rem">'+pick.n+'</b> 쪽이 맞아 보입니다.</p>'+
+      '<ul style="margin:.2rem 0;padding-left:1.1rem;font-size:.85rem">'+why.map(function(w){return '<li>'+w+'</li>'}).join('')+'</ul>'+
+      '<p class="muted" style="margin:.4rem 0 0;font-size:.8rem">참고: LLMInferenceService를 쓸 계획이라면 이 질문과 무관하게 Standard 계열로 갑니다.</p>';
+  }
+})();
+</script>
+
+<!-- ============ 8장 ============ -->
+<section class="sec" id="c8">
+  <div class="sechead">
+    <span class="chnum">08</span>
+    <div><h2>추론 프로토콜 세 가지</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c8"> 완료</label>
+  </div>
+  <p class="lead">"모델마다 API 모양이 달라서 클라이언트를 매번 새로 짠다"는 문제를 없애려고 만든 표준들입니다. 세 개가 공존하는 데는 이유가 있습니다.</p>
+
+  <div class="tabs" data-tabs="proto">
+    <button class="on" data-p="v1">V1 프로토콜</button>
+    <button data-p="v2">V2 / Open Inference Protocol</button>
+    <button data-p="oai">OpenAI 호환</button>
+  </div>
+
+  <div class="panel on" data-panel="v1">
+    <p>KServe가 처음 만든 단순한 REST 규약입니다. JSON 배열을 던지면 예측이 돌아옵니다. 배우기 쉽고, 대부분의 튜토리얼이 이걸 씁니다.</p>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">V1 — 예측 요청</span><button class="copy">복사</button></div>
+<pre>POST /v1/models/<span class="o">sklearn-iris</span>:predict
+
+{
+  <span class="k">"instances"</span>: [
+    [<span class="n">6.8</span>, <span class="n">2.8</span>, <span class="n">4.8</span>, <span class="n">1.4</span>],
+    [<span class="n">6.0</span>, <span class="n">3.4</span>, <span class="n">4.5</span>, <span class="n">1.6</span>]
+  ]
+}
+
+<span class="c"># 응답</span>
+{ <span class="k">"predictions"</span>: [<span class="n">1</span>, <span class="n">1</span>] }</pre>
+    </div>
+    <div class="tblwrap"><table class="tbl">
+      <tr><th>엔드포인트</th><th>용도</th></tr>
+      <tr><td><code>GET /v1/models/&lt;name&gt;</code></td><td>모델이 준비됐는지 확인</td></tr>
+      <tr><td><code>POST /v1/models/&lt;name&gt;:predict</code></td><td>예측</td></tr>
+      <tr><td><code>POST /v1/models/&lt;name&gt;:explain</code></td><td>설명 (explainer가 있을 때)</td></tr>
+    </table></div>
+    <p class="muted" style="font-size:.85rem">한계: 데이터 타입과 텐서 모양을 명시할 수 없습니다. 이미지처럼 큰 배열을 JSON 숫자로 보내면 직렬화 비용이 큽니다.</p>
+  </div>
+
+  <div class="panel" data-panel="v2">
+    <p>V1의 한계를 풀기 위한 표준입니다. 텐서의 이름·모양·데이터 타입을 명시하고, gRPC와 바이너리 전송을 지원합니다. NVIDIA Triton, TensorFlow Serving, TorchServe가 함께 채택한 업계 공통 규약이라 <b>서버를 바꿔도 클라이언트를 안 고쳐도 됩니다</b>.</p>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">V2 (OIP) — 추론 요청</span><button class="copy">복사</button></div>
+<pre>POST /v2/models/<span class="o">sklearn-iris</span>/infer
+
+{
+  <span class="k">"inputs"</span>: [
+    {
+      <span class="k">"name"</span>: <span class="s">"input-0"</span>,
+      <span class="k">"shape"</span>: [<span class="n">2</span>, <span class="n">4</span>],
+      <span class="k">"datatype"</span>: <span class="s">"FP32"</span>,
+      <span class="k">"data"</span>: [<span class="n">6.8</span>,<span class="n">2.8</span>,<span class="n">4.8</span>,<span class="n">1.4</span>, <span class="n">6.0</span>,<span class="n">3.4</span>,<span class="n">4.5</span>,<span class="n">1.6</span>]
+    }
+  ]
+}
+
+<span class="c"># 응답</span>
+{
+  <span class="k">"model_name"</span>: <span class="s">"sklearn-iris"</span>,
+  <span class="k">"outputs"</span>: [
+    {<span class="k">"name"</span>:<span class="s">"output-0"</span>, <span class="k">"shape"</span>:[<span class="n">2</span>], <span class="k">"datatype"</span>:<span class="s">"INT64"</span>, <span class="k">"data"</span>:[<span class="n">1</span>,<span class="n">1</span>]}
+  ]
+}</pre>
+    </div>
+    <div class="tblwrap"><table class="tbl">
+      <tr><th>엔드포인트</th><th>용도</th></tr>
+      <tr><td><code>GET /v2/health/live</code> · <code>/ready</code></td><td>서버 생존·준비</td></tr>
+      <tr><td><code>GET /v2/models/&lt;name&gt;</code></td><td>모델 메타데이터(입출력 텐서 스펙)</td></tr>
+      <tr><td><code>POST /v2/models/&lt;name&gt;/infer</code></td><td>추론</td></tr>
+    </table></div>
+    <div class="tip"><b>바이너리 텐서 확장.</b><p>이미지·오디오처럼 큰 텐서는 JSON 숫자 대신 HTTP 바디 뒤에 raw 바이트로 붙일 수 있습니다. 직렬화 비용이 사라져 처리량이 크게 올라갑니다. 대용량 입력을 다룬다면 이 확장을 찾아보세요.</p></div>
+  </div>
+
+  <div class="panel" data-panel="oai">
+    <p>생성형 모델은 사정이 다릅니다. 이미 세상의 모든 LLM 클라이언트(OpenAI SDK, LangChain, LlamaIndex…)가 OpenAI API 모양에 맞춰져 있습니다. KServe는 이 사실상 표준을 그대로 제공합니다. 덕분에 <b>기존 코드에서 base URL만 바꾸면</b> 사내 모델로 갈아탈 수 있습니다.</p>
+    <div class="tblwrap"><table class="tbl">
+      <tr><th>엔드포인트</th><th>용도</th></tr>
+      <tr><td><code>POST /v1/chat/completions</code></td><td>대화형 생성. 가장 많이 씁니다</td></tr>
+      <tr><td><code>POST /v1/completions</code></td><td>단문 프롬프트 완성</td></tr>
+      <tr><td><code>POST /v1/embeddings</code></td><td>임베딩 벡터</td></tr>
+      <tr><td><code>POST /v1/responses</code></td><td>OpenAI Responses API (v0.18~)</td></tr>
+      <tr><td><code>POST /v1/messages</code></td><td>Anthropic Messages API 형식 (v0.20~)</td></tr>
+      <tr><td><code>POST /v1/score</code></td><td>OpenAI 규격은 아니지만 KServe가 제공하는 스코어링</td></tr>
+    </table></div>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">OpenAI SDK로 사내 모델 호출</span><button class="copy">복사</button></div>
+<pre><span class="k">from</span> openai <span class="k">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="s">"http://qwen3.ai-serving.svc.cluster.local/v1"</span>,
+    api_key=<span class="s">"not-used"</span>,     <span class="c"># 인증은 게이트웨이에서 처리</span>
+)
+
+stream = client.chat.completions.create(
+    model=<span class="s">"Qwen/Qwen3-8B-Instruct"</span>,
+    messages=[{<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: <span class="s">"KServe가 뭐야?"</span>}],
+    stream=<span class="o">True</span>,          <span class="c"># SSE로 토큰이 하나씩</span>
+)
+<span class="k">for</span> chunk <span class="k">in</span> stream:
+    print(chunk.choices[<span class="n">0</span>].delta.content <span class="k">or</span> <span class="s">""</span>, end=<span class="s">""</span>)</pre>
+    </div>
+    <div class="note"><b>스트리밍이 기본입니다.</b><p>LLM은 첫 토큰이 나오기까지가 느리고 그 뒤로는 빠릅니다. 전부 만들어 한 번에 주면 사용자는 몇 초를 빈 화면으로 기다립니다. <span class="term" data-d="Server-Sent Events. 서버가 HTTP 연결을 열어 두고 데이터를 조각으로 계속 밀어 넣는 단방향 스트리밍 방식입니다. LLM 토큰 스트리밍의 표준 전송 방법입니다.">SSE</span>로 토큰을 흘리면 체감 속도가 완전히 달라집니다.</p></div>
+  </div>
+
+  <h3>어느 걸 골라야 하나</h3>
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>상황</th><th>선택</th></tr>
+    <tr><td>처음 배우는 중, 간단한 테이블형 모델</td><td>V1</td></tr>
+    <tr><td>Triton을 쓰거나, 서버를 갈아탈 가능성이 있다</td><td>V2 (OIP)</td></tr>
+    <tr><td>이미지·오디오 등 큰 입력</td><td>V2 + 바이너리 확장</td></tr>
+    <tr><td>LLM, 임베딩, 생성형 전반</td><td>OpenAI 호환</td></tr>
+  </table></div>
+  <p>isvc에서 <code>protocolVersion: v2</code>로 지정합니다. 런타임이 그 프로토콜을 지원해야 하므로, 5장의 런타임 표와 함께 보세요.</p>
+</section>
+
+<!-- ============ 9장 ============ -->
+<section class="sec" id="c9">
+  <div class="sechead">
+    <span class="chnum">09</span>
+    <div><h2>오토스케일링: CPU 사용률로는 안 되는 이유</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c9"> 완료</label>
+  </div>
+  <p class="lead">추론 워크로드는 일반 웹 서버와 스케일 신호가 다릅니다. KServe는 네 가지 스케일러를 제공하고, 워크로드에 따라 정답이 갈립니다.</p>
+
+  <p>왜 CPU 사용률이 나쁜 신호일까요. GPU 추론 파드는 GPU가 100% 타고 있어도 CPU는 15%일 수 있습니다. 반대로 요청이 큐에 30개 쌓여 사용자가 5초씩 기다리는데 CPU는 여유로울 수 있습니다. <b>실제 압력은 동시 요청 수, 큐 깊이, KV 캐시 점유율</b>에 나타납니다.</p>
+
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>스케일러</th><th>신호</th><th>0까지 축소</th><th>주 용도</th></tr>
+    <tr><td><b>KPA</b> (Knative Pod Autoscaler)</td><td>동시 요청 수 / RPS</td><td>가능</td><td>Knative 모드의 기본. 예측형 모델 전반</td></tr>
+    <tr><td><b>HPA</b></td><td>CPU · 메모리 · 커스텀 메트릭</td><td>불가</td><td>Standard 모드의 기본</td></tr>
+    <tr><td><b>KEDA</b></td><td>프로메테우스 등 외부 메트릭</td><td>가능</td><td>큐 깊이·토큰 처리량 기준 스케일</td></tr>
+    <tr><td><b>WVA</b> (Workload Variant Autoscaler)</td><td>KV 캐시 점유율 + 큐 깊이</td><td>가능 (KEDA 경유)</td><td><b>LLM 전용.</b> LLMInferenceService에서</td></tr>
+  </table></div>
+
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">기본 스케일 설정 (Knative 모드)</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">minReplicas</span>: <span class="n">0</span>              <span class="c"># 0이면 유휴 시 파드가 사라진다</span>
+    <span class="k">maxReplicas</span>: <span class="n">10</span>
+    <span class="k">scaleTarget</span>: <span class="n">5</span>              <span class="c"># 파드당 목표 동시 요청 수</span>
+    <span class="k">scaleMetric</span>: concurrency     <span class="c"># concurrency | rps | cpu | memory</span>
+    <span class="k">containerConcurrency</span>: <span class="n">10</span>     <span class="c"># 파드가 동시에 받을 최대치 (하드 리밋)</span>
+    <span class="k">model</span>: { ... }</pre>
+  </div>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>스케일 시뮬레이터<span class="hint">트래픽을 올려 보세요</span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <label>동시 요청 수</label>
+        <input type="range" id="scReq" min="0" max="120" step="1" value="0">
+        <span class="mono" id="scReqLbl" style="font-size:.8rem;color:var(--data);min-width:3.5rem">0</span>
+      </div>
+      <div class="wrow">
+        <label>scaleTarget (파드당)</label>
+        <input type="range" id="scTgt" min="1" max="20" step="1" value="5">
+        <span class="mono" id="scTgtLbl" style="font-size:.8rem;color:var(--pred);min-width:2.5rem">5</span>
+      </div>
+      <div class="wrow">
+        <label>minReplicas</label>
+        <button class="btn sm on" data-scmin="0">0</button>
+        <button class="btn sm" data-scmin="1">1</button>
+        <button class="btn sm" data-scmin="2">2</button>
+        <label style="margin-left:.6rem">maxReplicas 10</label>
+      </div>
+      <div id="scPods" style="display:flex;gap:.35rem;flex-wrap:wrap;margin:.7rem 0;min-height:44px"></div>
+      <div class="wout" id="scOut"></div>
+    </div>
+  </div>
+
+  <h3>0까지 줄일 때 반드시 계산해야 할 것</h3>
+  <p>minReplicas를 0으로 두면 GPU 비용이 확 줄어듭니다. 대신 첫 요청이 오면 아래 시간을 <b>사용자가 전부 기다립니다</b>.</p>
+  <ol>
+    <li>파드 스케줄링 — GPU 노드에 여유가 없으면 노드 프로비저닝까지 (수 분)</li>
+    <li>이미지 풀 — 캐시가 없으면 vLLM 이미지 수 GB</li>
+    <li>모델 다운로드 — 6장의 그 숫자들</li>
+    <li>모델을 GPU 메모리로 로딩 — 수십 초</li>
+    <li>워밍업(CUDA 그래프 캡처 등) — 수십 초</li>
+  </ol>
+  <div class="warn">
+    <b>합이 3분이면, 유휴 후 첫 사용자는 3분을 기다립니다.</b>
+    <p>사내 배치 작업처럼 대기를 감수할 수 있는 경우에만 0을 쓰세요. 대화형 서비스라면 최소 1을 유지하고, 대신 6장의 캐시 기법으로 스케일아웃 시간을 줄이는 쪽이 현실적입니다.</p>
+  </div>
+
+  <h3>LLM 전용: WVA</h3>
+  <p>WVA는 프로메테우스에서 <b>KV 캐시 사용률</b>과 <b>큐 깊이</b>를 계속 읽어, 서버가 포화에 가까워졌는지 판단합니다. 그리고 필요한 레플리카 수를 <code>wva_desired_replicas</code>라는 메트릭으로 내보냅니다. 실제 스케일은 HPA나 KEDA가 그 값을 읽어 수행합니다.</p>
+  <p>WVA의 흥미로운 점은 <b>variant</b> 개념입니다. 같은 모델이라도 "A100 4장 TP=4"와 "H100 2장 TP=2"는 비용이 다른 별개의 변형입니다. <code>variantCost</code>에 상대 비용을 적어 두면, 수요가 늘 때 <b>싼 변형부터 늘리고</b> 줄일 때 <b>비싼 변형부터 줄입니다</b>.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">wva-scaling.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">scaling</span>:
+    <span class="k">minReplicas</span>: <span class="n">1</span>
+    <span class="k">maxReplicas</span>: <span class="n">10</span>
+    <span class="k">wva</span>:
+      <span class="k">variantCost</span>: <span class="s">"15.0"</span>          <span class="c"># 기본값 10.0. 낮을수록 먼저 늘어난다</span>
+      <span class="k">keda</span>:
+        <span class="k">pollingInterval</span>: <span class="n">30</span>
+        <span class="k">cooldownPeriod</span>: <span class="n">300</span>
+        <span class="k">idleReplicaCount</span>: <span class="n">0</span>       <span class="c"># 유휴 시 0까지</span>
+        <span class="k">fallback</span>:
+          <span class="k">failureThreshold</span>: <span class="n">3</span>
+          <span class="k">replicas</span>: <span class="n">2</span>            <span class="c"># 메트릭 파이프라인이 죽어도 2개는 유지</span></pre>
+  </div>
+  <div class="tip"><b>fallback은 반드시 넣으세요.</b><p>프로메테우스가 잠깐 죽으면 메트릭이 0으로 보일 수 있습니다. fallback이 없으면 오토스케일러가 "수요 없음"으로 판단해 프로덕션 파드를 0으로 줄일 수 있습니다.</p></div>
+  <p>v0.19부터 오토스케일링 리소스의 건강 상태가 <code>ScalingReady</code>, <code>PrefillScalingReady</code> 조건으로 서비스 상태에 바로 드러납니다. HPA나 ScaledObject를 따로 들여다보지 않아도 <code>kubectl describe</code> 한 번으로 보입니다.</p>
+</section>
+
+<!-- ============ 10장 ============ -->
+<section class="sec" id="c10">
+  <div class="sechead">
+    <span class="chnum">10</span>
+    <div><h2>카나리 배포: 새 모델을 10%에게만</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c10"> 완료</label>
+  </div>
+  <p class="lead">모델 교체는 코드 배포보다 위험합니다. 문법 오류처럼 명확히 터지지 않고, 조용히 정확도만 떨어지기 때문입니다.</p>
+
+  <p>그래서 새 모델은 전체 트래픽의 일부만 받게 하고, 지표를 본 뒤 올립니다. KServe는 배포 모드에 따라 두 가지 방식을 제공합니다.</p>
+
+  <div class="tabs" data-tabs="canary">
+    <button class="on" data-p="kn">Knative 모드</button>
+    <button data-p="std">Standard 모드 (v0.20~)</button>
+  </div>
+  <div class="panel on" data-panel="kn">
+    <p>isvc의 <code>storageUri</code>를 바꾸면 새 <span class="term" data-d="Knative Revision. Knative Service의 스펙이 바뀔 때마다 만들어지는 불변 스냅샷입니다. 이전 리비전이 그대로 남아 있어 트래픽을 나누거나 즉시 되돌릴 수 있습니다.">리비전</span>이 생깁니다. <code>canaryTrafficPercent</code>를 주면 그 비율만 새 리비전으로 갑니다.</p>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">canary-knative.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">canaryTrafficPercent</span>: <span class="n">10</span>       <span class="c"># 새 리비전이 10%</span>
+    <span class="k">model</span>:
+      <span class="k">modelFormat</span>: {<span class="k">name</span>: sklearn}
+      <span class="k">storageUri</span>: <span class="s">"s3://models/iris-v2"</span>  <span class="c"># 바뀐 부분</span></pre>
+    </div>
+    <p>확인 방법: <code>kubectl get isvc</code>의 <code>PREV</code>와 <code>LATEST</code> 열에 트래픽 비율이 그대로 보입니다. 되돌리려면 <code>canaryTrafficPercent: 0</code>, 승격하려면 그 필드를 지우면 됩니다.</p>
+  </div>
+  <div class="panel" data-panel="std">
+    <p>v0.20에서 Standard 모드에도 카나리가 생겼습니다. <code>spec.canary</code> 목록에 이름과 트래픽 비율을 적으면 각 카나리가 자기 Deployment와 Service를 갖습니다.</p>
+    <div class="codewrap">
+      <div class="codehead"><span class="fn">canary-standard.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">model</span>:
+      <span class="k">modelFormat</span>: {<span class="k">name</span>: sklearn}
+      <span class="k">storageUri</span>: <span class="s">"gs://bucket/models/sklearn/model"</span>
+    <span class="k">minReplicas</span>: <span class="n">4</span>
+  <span class="k">canary</span>:
+  - <span class="k">trafficPercent</span>: <span class="n">25</span>
+    <span class="k">predictor</span>:
+      <span class="k">name</span>: v2
+      <span class="k">model</span>:
+        <span class="k">modelFormat</span>: {<span class="k">name</span>: sklearn}
+        <span class="k">storageUri</span>: <span class="s">"gs://bucket/models/sklearn/model-2"</span></pre>
+    </div>
+    <ul>
+      <li>레플리카 수는 트래픽 비율에서 유도됩니다. 위 예에서 stable 4개면 카나리는 그 25% 수준입니다.</li>
+      <li><b>승격은 재시작 없이</b> 이루어집니다. stable predictor 이름을 카나리 Deployment로 돌려 붙이는 방식이라 파드가 새로 뜨지 않습니다.</li>
+      <li>롤백은 <code>canary</code> 항목을 지우면 됩니다. 남은 리소스는 자동 정리됩니다.</li>
+    </ul>
+  </div>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>트래픽 분할 체험<span class="hint">슬라이더를 움직이세요</span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <label>카나리 비율</label>
+        <input type="range" id="cnPct" min="0" max="100" step="5" value="10">
+        <span class="mono" id="cnPctLbl" style="font-size:.85rem;color:var(--gen);min-width:3rem">10%</span>
+        <button class="btn sm" id="cnSend">요청 200건 보내기</button>
+      </div>
+      <div id="cnGrid" style="display:grid;grid-template-columns:repeat(25,1fr);gap:2px;margin:.6rem 0"></div>
+      <div class="wout" id="cnOut"></div>
+    </div>
+  </div>
+
+  <h3>승격 판단에 무엇을 보나</h3>
+  <div class="cards">
+    <div class="card pred"><h5>기술 지표</h5><p>p95 지연시간, 에러율, OOM·재시작 횟수, GPU 메모리 사용량. 새 모델이 더 커졌다면 여기서 먼저 티가 납니다.</p></div>
+    <div class="card gen"><h5>품질 지표</h5><p>예측 분포의 변화, 다운스트림 전환율, 사람 평가 샘플. 기술 지표가 멀쩡한데 품질만 떨어지는 경우가 실제로 흔합니다.</p></div>
+    <div class="card data"><h5>비용 지표</h5><p>요청당 GPU 초, 토큰당 비용. 정확도가 1% 올랐는데 비용이 3배면 승격하지 않는 결정도 정당합니다.</p></div>
+  </div>
+
+  <div class="warn">
+    <b>10%가 통계적으로 의미 있는 양인지 확인하세요.</b>
+    <p>하루 요청이 500건인 서비스에서 10% 카나리는 하루 50건입니다. 이 표본으로는 정확도 1% 차이를 구분할 수 없습니다. 트래픽이 적다면 비율을 크게 잡고 기간을 짧게 가져가는 편이 낫습니다.</p>
+  </div>
+</section>
+
+<!-- ============ 11장 ============ -->
+<section class="sec" id="c11">
+  <div class="sechead">
+    <span class="chnum">11</span>
+    <div><h2>InferenceGraph: 모델 여러 개를 엮기</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c11"> 완료</label>
+  </div>
+  <p class="lead">실제 서비스는 모델 하나로 안 끝납니다. 언어를 먼저 감지하고, 그에 맞는 분류기로 보내고, 결과 두 개를 합치는 식이죠.</p>
+
+  <p>이걸 애플리케이션 코드로 짜면 모델 토폴로지가 서비스 코드에 박힙니다. InferenceGraph는 그 연결을 <b>별도의 CRD</b>로 빼내, 모델 구성만 바꿔 배포할 수 있게 합니다.</p>
+
+  <h3>네 가지 라우터 타입</h3>
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>타입</th><th>동작</th><th>대표 용례</th></tr>
+    <tr><td><b>Sequence</b></td><td>스텝을 순서대로 실행</td><td>전처리 → 분류 → 후처리 파이프라인</td></tr>
+    <tr><td><b>Switch</b></td><td>조건이 맞는 첫 스텝 하나만 실행</td><td>입력 값에 따라 다른 모델로 분기</td></tr>
+    <tr><td><b>Ensemble</b></td><td>모든 스텝을 병렬 실행 후 결과를 합침</td><td>모델 3개의 예측을 모아 투표</td></tr>
+    <tr><td><b>Splitter</b></td><td>가중치대로 하나에만 보냄 (합 100)</td><td>A/B 테스트, 점진적 트래픽 이동</td></tr>
+  </table></div>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>그래프 만들어 보기<span class="hint">타입을 바꾸면 YAML과 그림이 함께 바뀝니다</span></div>
+    <div class="wbody">
+      <div class="wrow" id="igPick">
+        <button class="btn sm on" data-ig="Sequence">Sequence</button>
+        <button class="btn sm" data-ig="Switch">Switch</button>
+        <button class="btn sm" data-ig="Ensemble">Ensemble</button>
+        <button class="btn sm" data-ig="Splitter">Splitter</button>
+      </div>
+      <div class="svgbox"><svg id="igSvg" viewBox="0 0 860 170" role="img" aria-label="InferenceGraph 구조"></svg></div>
+      <div class="codewrap" style="margin-top:.5rem">
+        <div class="codehead"><span class="fn">inferencegraph.yaml</span><button class="copy">복사</button></div>
+        <pre id="igOut"></pre>
+      </div>
+      <div class="wout" id="igNote" style="margin-top:.6rem"></div>
+    </div>
+  </div>
+
+  <h3>알아 둘 규칙 몇 가지</h3>
+  <ul>
+    <li>진입점 노드의 이름은 반드시 <code>root</code>여야 합니다.</li>
+    <li>한 스텝의 목적지는 <code>serviceName</code>(같은 클러스터의 isvc), <code>serviceUrl</code>(외부), <code>nodeName</code>(그래프 안의 다른 노드) 중 <b>하나만</b> 씁니다.</li>
+    <li><code>data: $response</code>를 준 스텝만 앞 단계의 출력을 입력으로 받습니다. 안 주면 원본 요청을 그대로 받습니다.</li>
+    <li>조건식은 <span class="term" data-d="GJSON. Go 언어용 JSON 조회 라이브러리의 문법입니다. JSONPath와 비슷하게 중첩된 JSON에서 값을 꺼내고 비교할 수 있습니다.">GJSON</span> 문법을 씁니다. 예: <code>[@this].#(predictions.0.class=="news")</code></li>
+    <li>Splitter의 가중치 합은 100이어야 합니다.</li>
+    <li>노드끼리 참조할 수 있어서, Sequence 안에 Splitter와 Ensemble을 넣는 식의 조합이 가능합니다.</li>
+  </ul>
+
+  <div class="note">
+    <b>InferenceGraph vs Transformer, 언제 뭘 쓰나.</b>
+    <p>Transformer는 <b>하나의 isvc 안에서</b> 입출력을 손보는 것이고, InferenceGraph는 <b>여러 isvc를 엮는</b> 것입니다. 전처리 코드가 특정 모델에 종속되면 Transformer, 모델 조합 자체가 바뀔 수 있으면 InferenceGraph입니다.</p>
+  </div>
+  <div class="warn">
+    <b>홉이 늘면 지연시간도 늘어납니다.</b>
+    <p>Sequence 4단계는 네트워크 왕복 4번입니다. 각 단계가 20ms면 그것만으로 80ms입니다. 그래프가 3~4단계를 넘어가면 일부를 하나의 커스텀 컨테이너로 합치는 게 나은지 다시 따져 보세요.</p>
+  </div>
+</section>
+
+<!-- ============ 12장 ============ -->
+<section class="sec" id="c12">
+  <div class="sechead">
+    <span class="chnum">12</span>
+    <div><h2>덜 알려진, 그런데 쓸모 있는 기능들</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c12"> 완료</label>
+  </div>
+  <p class="lead">Batcher, Logger, Explainer, 그리고 confidential serving. 필요한 순간이 오면 직접 만들지 말고 여기부터 확인하세요.</p>
+
+  <h3>Batcher — 작은 요청을 묶어서 처리</h3>
+  <p>GPU는 요청 1건을 처리하나 32건을 한 번에 처리하나 걸리는 시간이 크게 다르지 않습니다. 개별 요청이 드문드문 들어오는 상황이라면, 짧은 시간 모아서 한 배치로 넘기는 편이 처리량이 훨씬 좋습니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">batcher.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">batcher</span>:
+      <span class="k">maxBatchSize</span>: <span class="n">32</span>       <span class="c"># 최대 몇 건까지 묶을지</span>
+      <span class="k">maxLatency</span>: <span class="n">50</span>         <span class="c"># 최대 몇 ms까지 기다릴지</span>
+    <span class="k">model</span>: { ... }</pre>
+  </div>
+  <p><code>maxLatency</code>는 "이만큼 기다렸는데 배치가 안 찼으면 그냥 보낸다"는 상한입니다. 이 값이 곧 <b>모든 요청에 더해지는 지연시간</b>이므로, 대화형 서비스라면 작게 잡아야 합니다.</p>
+  <div class="tip"><b>vLLM에는 이미 연속 배칭이 있습니다.</b><p>LLM 런타임은 자체적으로 continuous batching을 하므로 KServe의 batcher를 겹쳐 쓸 필요가 없습니다. batcher는 sklearn·Triton 같은 예측형 워크로드에서 씁니다.</p></div>
+
+  <h3>Logger — 요청과 응답을 어딘가로 흘려보내기</h3>
+  <p>모델 모니터링, 데이터 드리프트 감지, 재학습용 데이터 수집을 하려면 실제 요청·응답이 필요합니다. Logger는 이를 지정한 엔드포인트로 <span class="term" data-d="CloudEvents. 이벤트 데이터를 서술하는 CNCF 표준 규격입니다. 어떤 시스템에서 나온 이벤트든 같은 형태의 메타데이터(출처, 타입, ID, 시각)를 갖게 합니다.">CloudEvents</span> 형식으로 보냅니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">logger.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">logger</span>:
+      <span class="k">mode</span>: all               <span class="c"># all | request | response</span>
+      <span class="k">url</span>: http://kafka-bridge.monitoring/events
+    <span class="k">model</span>: { ... }</pre>
+  </div>
+  <div class="warn"><b>개인정보가 그대로 흘러갑니다.</b><p>요청 본문을 통째로 보내는 기능입니다. 고객 데이터를 다룬다면 수집 대상·보존 기간·마스킹 정책을 먼저 정하고 켜세요.</p></div>
+
+  <h3>Explainer — 예측의 근거</h3>
+  <p><code>/v1/models/&lt;name&gt;:explain</code>으로 호출하면, 어떤 입력 피처가 예측에 얼마나 기여했는지를 돌려줍니다. Alibi 같은 라이브러리를 런타임으로 씁니다. 대출 심사·보험 인수처럼 <b>설명 의무가 있는 도메인</b>에서 쓰입니다. 다만 계산 비용이 추론 자체보다 훨씬 클 수 있어, 전수가 아니라 샘플링해서 돌리는 게 보통입니다.</p>
+
+  <h3>Confidential model serving <span class="badge b-gpu">v0.20 신규</span></h3>
+  <p>모델 가중치 자체가 핵심 자산인 경우, 클라우드 사업자조차 평문을 못 보게 하고 싶을 수 있습니다. v0.20의 confidential serving은 암호화된 모델 파일을 <span class="term" data-d="Trusted Execution Environment. CPU가 제공하는 격리된 실행 영역으로, 그 안의 메모리는 호스트 OS나 하이퍼바이저도 읽을 수 없습니다. Intel TDX, AMD SEV-SNP 등이 대표적입니다.">TEE</span> 안에서만 복호화합니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">confidential.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="k">model</span>:
+      <span class="k">modelFormat</span>: {<span class="k">name</span>: sklearn}
+      <span class="k">storageUri</span>: <span class="s">"s3://bucket/encrypted-model"</span>
+      <span class="k">confidential</span>:
+        <span class="k">enabled</span>: <span class="o">true</span>
+        <span class="k">resourceId</span>: <span class="s">"kbs:///default/keys/model-key"</span></pre>
+  </div>
+  <p>흐름은 이렇습니다. 스토리지 이니셜라이저가 암호화 파일을 받고 → TEE 안의 Confidential Data Hub에 복호화를 요청하고 → CDH가 하드웨어 증명을 거쳐 <span class="term" data-d="Key Broker Service. 하드웨어 증명 결과를 검증하고, 통과한 TEE에만 복호화 키를 내려 주는 서비스입니다. Trustee, Intel Trust Authority 등의 구현이 있습니다.">KBS</span>에서 키를 받아 → TEE 안에서 복호화합니다. 평문 가중치가 TEE 밖으로 나가지 않습니다. InferenceService와 LLMInferenceService 양쪽에서 씁니다.</p>
+</section>
+
+<script>
+/* ===== 9장: 스케일 시뮬레이터 ===== */
+(function(){
+  var req=document.getElementById('scReq'); if(!req) return;
+  var tgt=document.getElementById('scTgt'), pods=document.getElementById('scPods'), out=document.getElementById('scOut');
+  var minR=0;
+  function render(){
+    var r=+req.value, t=+tgt.value;
+    document.getElementById('scReqLbl').textContent=r;
+    document.getElementById('scTgtLbl').textContent=t;
+    var want=Math.min(10,Math.max(minR, r===0?minR:Math.ceil(r/t)));
+    var html='';
+    for(var i=0;i<10;i++){
+      var live=i<want;
+      var load=live? Math.min(100, (r/want)/t*100) : 0;
+      html+='<div title="파드 '+(i+1)+'" style="width:44px;height:44px;border-radius:8px;border:1px solid '+
+        (live?'var(--pred)':'var(--line)')+';background:'+(live?'rgba(46,211,233,'+(0.08+load/500)+')':'transparent')+
+        ';display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:.62rem;color:'+
+        (live?'var(--pred)':'var(--dim2)')+'">'+(live?Math.round(load)+'%':'—')+'</div>';
+    }
+    pods.innerHTML=html;
+    var msg='';
+    if(r===0&&minR===0) msg='요청이 없어 <b>파드 0개</b>. GPU를 전혀 쓰지 않습니다. 다음 요청은 콜드 스타트를 전부 감수합니다.';
+    else if(want>=10&&r/want>t*1.2) msg='maxReplicas 10에 걸렸습니다. 파드당 목표치를 넘어선 부하가 걸려 <b>지연시간이 올라가기 시작</b>합니다. maxReplicas를 올리거나 모델을 최적화해야 합니다.';
+    else if(r/Math.max(want,1)>t) msg='파드 '+want+'개로 처리 중이지만 파드당 부하가 목표치를 넘었습니다. 스케일이 따라잡는 중입니다.';
+    else msg='파드 <b>'+want+'개</b>로 동시 요청 '+r+'건을 처리 중. 파드당 약 '+(r/Math.max(want,1)).toFixed(1)+'건으로 목표치 '+t+' 이내입니다.';
+    out.innerHTML='<p style="margin:0;font-size:.86rem">'+msg+'</p>';
+  }
+  req.addEventListener('input',render); tgt.addEventListener('input',render);
+  document.querySelectorAll('[data-scmin]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-scmin]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); minR=+b.dataset.scmin; render();
+    });
+  });
+  render();
+})();
+
+/* ===== 10장: 트래픽 분할 ===== */
+(function(){
+  var sl=document.getElementById('cnPct'); if(!sl) return;
+  var lbl=document.getElementById('cnPctLbl'), grid=document.getElementById('cnGrid'), out=document.getElementById('cnOut');
+  function paint(rand){
+    var p=+sl.value; lbl.textContent=p+'%';
+    var html='',c=0;
+    for(var i=0;i<200;i++){
+      var canary = rand ? (Math.random()*100<p) : (i%100 < p);
+      if(canary)c++;
+      html+='<div style="aspect-ratio:1;border-radius:2px;background:'+(canary?'var(--gen)':'var(--line2)')+'"></div>';
+    }
+    grid.innerHTML=html;
+    out.innerHTML='<p style="margin:0;font-size:.86rem">요청 200건 중 <b style="color:var(--gen)">'+c+'건</b>이 새 모델(v2)로, '+(200-c)+'건이 기존 모델로 갔습니다. '+
+      (p===0?'카나리가 0%면 새 리비전은 떠 있지만 트래픽을 받지 않습니다. 롤백 상태와 같습니다.':
+       p===100?'100%면 사실상 승격입니다. 다만 이전 리비전은 아직 남아 있어 즉시 되돌릴 수 있습니다.':
+       '지표를 보고 10 → 25 → 50 → 100 순으로 올리는 게 일반적입니다.')+'</p>';
+  }
+  sl.addEventListener('input',function(){paint(false)});
+  document.getElementById('cnSend').addEventListener('click',function(){paint(true)});
+  paint(false);
+})();
+
+/* ===== 11장: InferenceGraph 빌더 ===== */
+(function(){
+  var svg=document.getElementById('igSvg'); if(!svg) return;
+  var out=document.getElementById('igOut'), note=document.getElementById('igNote');
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function box(x,y,w,h,t,s,c){
+    var g=el('g',{});
+    g.appendChild(el('rect',{x:x,y:y,width:w,height:h,rx:9,fill:'#17203a',stroke:c,'stroke-width':1.5}));
+    var a=el('text',{x:x+w/2,y:y+(s?24:30),'text-anchor':'middle',fill:'#e7ecf8','font-size':'12','font-family':'IBM Plex Sans KR, sans-serif','font-weight':'600'});a.textContent=t;g.appendChild(a);
+    if(s){var b=el('text',{x:x+w/2,y:y+40,'text-anchor':'middle',fill:'#6c7ba3','font-size':'9.5','font-family':'JetBrains Mono, monospace'});b.textContent=s;g.appendChild(b);}
+    return g;
+  }
+  var D={
+    Sequence:{
+      c:'#2ED3E9',
+      draw:function(){
+        var xs=[30,240,450,660], names=[['전처리','preprocessor'],['분류','classifier'],['개체명 인식','ner'],['응답','client']];
+        xs.forEach(function(x,i){svg.appendChild(box(x,55,170,54,names[i][0],names[i][1],i===3?'#26335a':'#2ED3E9'))});
+        xs.slice(0,3).forEach(function(x){svg.appendChild(el('line',{x1:x+170,y1:82,x2:x+240,y2:82,stroke:'#36477a','stroke-width':1.5}))});
+        var t=el('text',{x:315,y:132,fill:'#6c7ba3','font-size':'10','font-family':'JetBrains Mono, monospace','text-anchor':'middle'});
+        t.textContent='data: $response  (앞 단계 출력을 입력으로)';svg.appendChild(t);
+      },
+      y:'<span class="k">apiVersion</span>: serving.kserve.io/v1alpha1\n<span class="k">kind</span>: InferenceGraph\n<span class="k">metadata</span>:\n  <span class="k">name</span>: text-pipeline\n<span class="k">spec</span>:\n  <span class="k">nodes</span>:\n    <span class="k">root</span>:\n      <span class="k">routerType</span>: <span class="o">Sequence</span>\n      <span class="k">steps</span>:\n      - <span class="k">serviceName</span>: preprocessor\n        <span class="k">name</span>: preprocess\n      - <span class="k">serviceName</span>: classifier\n        <span class="k">name</span>: classify\n        <span class="k">data</span>: $response          <span class="c"># 앞 결과를 입력으로</span>\n      - <span class="k">serviceName</span>: named-entity-recognition\n        <span class="k">name</span>: ner\n        <span class="k">condition</span>: <span class="s">\'[@this].#(predictions.0.class=="news")\'</span>',
+      n:'스텝이 순서대로 실행됩니다. <code>condition</code>이 붙은 스텝의 조건이 거짓이면 <b>그 뒤 스텝들도 실행되지 않습니다</b>. 조건부 중단이 필요한 파이프라인에 적합합니다.'
+    },
+    Switch:{
+      c:'#9E8CFF',
+      draw:function(){
+        svg.appendChild(box(30,55,150,54,'입력','request','#26335a'));
+        svg.appendChild(box(250,10,180,44,'고신뢰 모델','score > 0.9','#9E8CFF'));
+        svg.appendChild(box(250,68,180,44,'중간 모델','0.5 < score ≤ 0.9','#9E8CFF'));
+        svg.appendChild(box(250,126,180,44,'저신뢰 모델','score ≤ 0.5','#9E8CFF'));
+        [32,90,148].forEach(function(y){svg.appendChild(el('path',{d:'M180 82 C 215 82, 215 '+y+', 250 '+y,stroke:'#36477a','stroke-width':1.4,fill:'none'}))});
+        var t=el('text',{x:470,y:88,fill:'#9E8CFF','font-size':'11','font-family':'IBM Plex Sans KR, sans-serif'});
+        t.textContent='조건이 맞는 첫 번째 하나만 실행';svg.appendChild(t);
+      },
+      y:'<span class="k">spec</span>:\n  <span class="k">nodes</span>:\n    <span class="k">root</span>:\n      <span class="k">routerType</span>: <span class="o">Switch</span>\n      <span class="k">steps</span>:\n      - <span class="k">serviceName</span>: upper\n        <span class="k">condition</span>: <span class="s">\'[@this].#(instances.0.data>0.9)\'</span>\n      - <span class="k">serviceName</span>: lower\n        <span class="k">condition</span>: <span class="s">\'[@this].#(instances.0.data&lt;=0.5)\'</span>\n      - <span class="k">nodeName</span>: middle           <span class="c"># 다른 노드도 목적지가 될 수 있다</span>\n        <span class="k">condition</span>: <span class="s">\'[@this].#(instances.0.data>0.5 &amp;&amp; instances.0.data&lt;=0.9)\'</span>',
+      n:'조건에 맞는 <b>첫 번째 스텝 하나만</b> 실행됩니다. 조건은 <code>condition</code>이 필수입니다. 입력 특성에 따라 비싼 모델과 싼 모델을 나눠 태우는 비용 최적화에 자주 쓰입니다.'
+    },
+    Ensemble:{
+      c:'#FF74B8',
+      draw:function(){
+        svg.appendChild(box(30,55,140,54,'입력','request','#26335a'));
+        svg.appendChild(box(250,10,160,44,'model-a','','#FF74B8'));
+        svg.appendChild(box(250,68,160,44,'model-b','','#FF74B8'));
+        svg.appendChild(box(250,126,160,44,'model-c','','#FF74B8'));
+        [32,90,148].forEach(function(y){svg.appendChild(el('path',{d:'M170 82 C 210 82, 210 '+y+', 250 '+y,stroke:'#36477a','stroke-width':1.4,fill:'none'}))});
+        [32,90,148].forEach(function(y){svg.appendChild(el('path',{d:'M410 '+y+' C 450 '+y+', 450 82, 490 82',stroke:'#36477a','stroke-width':1.4,fill:'none'}))});
+        svg.appendChild(box(490,55,200,54,'합쳐진 응답','{model_a:…, model_b:…}','#26335a'));
+      },
+      y:'<span class="k">spec</span>:\n  <span class="k">nodes</span>:\n    <span class="k">root</span>:\n      <span class="k">routerType</span>: <span class="o">Ensemble</span>\n      <span class="k">steps</span>:\n      - <span class="k">serviceName</span>: model-a\n        <span class="k">name</span>: model_a\n      - <span class="k">serviceName</span>: model-b\n        <span class="k">name</span>: model_b\n      - <span class="k">serviceName</span>: model-c\n        <span class="k">name</span>: model_c\n\n<span class="c"># 응답: { "model_a": {...}, "model_b": {...}, "model_c": {...} }</span>\n<span class="c"># 키는 각 스텝의 name이 된다</span>',
+      n:'모든 스텝이 <b>병렬로</b> 실행되고, 응답이 스텝 이름을 키로 하는 객체로 합쳐집니다. 최종 투표나 가중 평균은 호출한 쪽 또는 Transformer가 합니다. 지연시간은 가장 느린 스텝에 좌우됩니다.'
+    },
+    Splitter:{
+      c:'#FFB34D',
+      draw:function(){
+        svg.appendChild(box(30,55,140,54,'입력','request','#26335a'));
+        svg.appendChild(box(260,10,180,44,'model-a','weight: 50','#FFB34D'));
+        svg.appendChild(box(260,68,180,44,'model-b','weight: 30','#FFB34D'));
+        svg.appendChild(box(260,126,180,44,'model-c','weight: 20','#FFB34D'));
+        [[32,2.4],[90,1.6],[148,1.1]].forEach(function(p){
+          svg.appendChild(el('path',{d:'M170 82 C 215 82, 215 '+p[0]+', 260 '+p[0],stroke:'#FFB34D','stroke-width':p[1],fill:'none',opacity:.8}));
+        });
+        var t=el('text',{x:470,y:88,fill:'#FFB34D','font-size':'11','font-family':'IBM Plex Sans KR, sans-serif'});
+        t.textContent='요청마다 확률적으로 한 곳으로';svg.appendChild(t);
+      },
+      y:'<span class="k">spec</span>:\n  <span class="k">nodes</span>:\n    <span class="k">root</span>:\n      <span class="k">routerType</span>: <span class="o">Splitter</span>\n      <span class="k">steps</span>:\n      - <span class="k">serviceName</span>: model-a\n        <span class="k">name</span>: target_a\n        <span class="k">weight</span>: <span class="n">50</span>\n      - <span class="k">serviceName</span>: model-b\n        <span class="k">name</span>: target_b\n        <span class="k">weight</span>: <span class="n">30</span>\n      - <span class="k">serviceName</span>: model-c\n        <span class="k">name</span>: target_c\n        <span class="k">weight</span>: <span class="n">20</span>\n\n<span class="c"># weight 합은 반드시 100</span>',
+      n:'가중치 확률로 <b>딱 하나</b>에만 보냅니다. 10장의 카나리와 비슷하지만, 이쪽은 <b>서로 다른 isvc</b> 사이에서 나눈다는 점이 다릅니다. 완전히 다른 모델 A/B 테스트에 적합합니다.'
+    }
+  };
+  function show(k){
+    svg.innerHTML=''; D[k].draw();
+    out.innerHTML=D[k].y;
+    note.innerHTML='<p style="margin:0;font-size:.86rem">'+D[k].n+'</p>';
+  }
+  document.querySelectorAll('[data-ig]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-ig]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); show(b.dataset.ig);
+    });
+  });
+  show('Sequence');
+})();
+</script>
+
+<!-- ============ 13장 ============ -->
+<section class="sec" id="c13">
+  <div class="sechead">
+    <span class="chnum">13</span>
+    <div><h2>LLMInferenceService: LLM을 위한 별도의 CRD</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c13"> 완료</label>
+  </div>
+  <p class="lead">"InferenceService로도 LLM을 띄울 수 있는데 왜 새 CRD가 필요한가"에서 시작합니다.</p>
+
+  <p>실제로 <code>modelFormat: {name: vllm}</code>으로 InferenceService를 띄우면 LLM 서빙이 됩니다. 소규모라면 그걸로 충분합니다. 하지만 규모가 커지면 예측형 모델과 근본적으로 다른 문제들이 나타납니다.</p>
+
+  <div class="cards">
+    <div class="card rose"><h5>요청마다 비용이 100배 차이</h5><p>프롬프트 50토큰 요청과 3만 토큰 문서 요약은 같은 "1 요청"이 아닙니다. 요청 수 기준 rate limit이 무의미해집니다.</p></div>
+    <div class="card rose"><h5>어느 파드로 보내느냐가 속도를 바꿈</h5><p>같은 대화의 다음 턴은, 앞 대화의 KV 캐시를 가진 파드로 가야 프리필을 건너뜁니다. 라운드로빈은 그 기회를 매번 버립니다.</p></div>
+    <div class="card rose"><h5>모델이 GPU 한 장에 안 들어감</h5><p>70B 모델은 GPU 여러 장, 때로는 여러 노드에 쪼개 올려야 합니다. Deployment 하나로는 표현할 수 없습니다.</p></div>
+    <div class="card rose"><h5>두 단계의 성격이 다름</h5><p>프롬프트를 읽는 단계(prefill)는 연산 집약적이고, 토큰을 뽑는 단계(decode)는 메모리 대역폭 집약적입니다. 같이 묶어 두면 둘 다 손해입니다.</p></div>
+  </div>
+
+  <p>LLMInferenceService는 이 네 가지를 CRD 스펙 안에서 다루기 위해 만들어졌습니다. 속은 llm-d 프레임워크이고, v0.17에서 실험 기능을 벗고 프로덕션 준비 상태가 되었습니다.</p>
+
+  <div class="tblwrap"><table class="tbl">
+    <tr><th></th><th>InferenceService <span class="badge b-pred">isvc</span></th><th>LLMInferenceService <span class="badge b-gen">llmisvc</span></th></tr>
+    <tr><td>주 용도</td><td>예측형 AI</td><td>생성형 AI</td></tr>
+    <tr><td>API 버전</td><td><code>serving.kserve.io/v1beta1</code></td><td><code>serving.kserve.io/v1alpha2</code></td></tr>
+    <tr><td>라우팅</td><td>표준 게이트웨이</td><td>EPP를 통한 KV 캐시 인지 라우팅</td></tr>
+    <tr><td>병렬화</td><td>worker spec 수준</td><td>TP · DP · EP를 스펙에서 직접 지정</td></tr>
+    <tr><td>prefill/decode</td><td>해당 없음</td><td>분리 배포 지원</td></tr>
+    <tr><td>스케일링</td><td>HPA / KPA</td><td>WVA + KEDA</td></tr>
+  </table></div>
+
+  <h3>가장 단순한 형태</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">llmisvc-basic.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: serving.kserve.io/v1alpha2
+<span class="k">kind</span>: LLMInferenceService
+<span class="k">metadata</span>:
+  <span class="k">name</span>: qwen3-serving
+<span class="k">spec</span>:
+  <span class="k">model</span>:
+    <span class="k">uri</span>: <span class="s">hf://Qwen/Qwen3-8B-Instruct</span>
+    <span class="k">name</span>: Qwen--Qwen3-8B-Instruct    <span class="c"># 클라이언트가 model 필드에 쓸 이름</span>
+  <span class="k">replicas</span>: <span class="n">3</span>
+  <span class="k">template</span>:
+    <span class="k">spec</span>:
+      <span class="k">containers</span>:
+      - <span class="k">name</span>: vllm
+        <span class="k">resources</span>:
+          <span class="k">limits</span>:
+            <span class="k">nvidia.com/gpu</span>: <span class="s">"1"</span>
+  <span class="k">router</span>:
+    <span class="k">gateway</span>:
+      <span class="k">managed</span>: {}        <span class="c"># 게이트웨이를 KServe가 만들어 준다</span>
+    <span class="k">route</span>:
+      <span class="k">httpRoute</span>: {}      <span class="c"># HTTPRoute도 자동 생성</span>
+    <span class="k">scheduler</span>:
+      <span class="k">pool</span>: {}          <span class="c"># InferencePool + EPP를 붙인다</span></pre>
+  </div>
+
+  <p>빈 중괄호가 많아 낯설 텐데, <code>{}</code>는 <b>"이 기능을 기본 설정으로 켠다"</b>는 뜻입니다. 세부 값을 넣고 싶을 때만 채우면 됩니다.</p>
+
+  <h3>이 YAML 한 장이 만들어 내는 것</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">생성되는 리소스</span></div>
+<pre><span class="o">LLMInferenceService/qwen3-serving</span>
+  ├─ Deployment/qwen3-serving-kserve        <span class="c"># vLLM 파드 3개</span>
+  ├─ Service/qwen3-serving-workload
+  ├─ Gateway/qwen3-serving                  <span class="c"># router.gateway.managed</span>
+  ├─ HTTPRoute/qwen3-serving                <span class="c"># router.route.httpRoute</span>
+  ├─ InferencePool/qwen3-serving            <span class="c"># router.scheduler.pool</span>
+  ├─ InferenceModel/qwen3-serving
+  └─ Deployment/qwen3-serving-epp           <span class="c"># Endpoint Picker Pod</span></pre>
+  </div>
+
+  <div class="note">
+    <b>InferencePool과 EPP는 무엇인가.</b>
+    <p><b>InferencePool</b>은 "같은 모델을 서빙하는 파드들의 묶음"을 나타내는 GIE 표준 리소스입니다. 평범한 Service와 달리, 이 묶음에 대한 라우팅 결정을 외부 컴포넌트에 위임할 수 있습니다. 그 외부 컴포넌트가 <b>EPP(Endpoint Picker Pod)</b>이고, 요청이 올 때마다 "이 요청은 몇 번 파드로" 를 실시간으로 답합니다. 14장의 주제입니다.</p>
+  </div>
+
+  <h3>호출해 보기</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">call.sh</span><button class="copy">복사</button></div>
+<pre>URL=$(kubectl get llmisvc qwen3-serving -o jsonpath=<span class="s">'{.status.url}'</span>)
+
+curl -s $URL/v1/chat/completions \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{
+    "model": "Qwen--Qwen3-8B-Instruct",
+    "messages": [{"role":"user","content":"KServe를 한 문장으로"}],
+    "stream": true
+  }'</span></pre>
+  </div>
+
+  <h3>설정 조립: LLMInferenceServiceConfig</h3>
+  <p>플랫폼 팀이 표준 vLLM 템플릿을 정해 두고, 애플리케이션 팀은 모델 이름과 레플리카만 바꾸게 하고 싶을 때가 있습니다. <code>LLMInferenceServiceConfig</code>가 그 역할입니다. 병합 순서는 다음과 같습니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">병합 순서</span></div>
+<pre><span class="o">1) Well-Known Configs</span>       KServe가 기본 제공하는 프리셋
+        ↓ 덮어씀
+<span class="o">2) Explicit BaseRefs</span>        spec.baseRefs 로 지정한 조직 표준
+        ↓ 덮어씀
+<span class="o">3) LLMInferenceService Spec</span>  개별 서비스가 직접 쓴 값</pre>
+  </div>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">baseRefs 사용</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">baseRefs</span>:
+  - <span class="k">name</span>: company-vllm-standard   <span class="c"># 플랫폼 팀이 만든 Config</span>
+  <span class="k">model</span>:
+    <span class="k">uri</span>: <span class="s">hf://Qwen/Qwen3-8B-Instruct</span>
+  <span class="k">replicas</span>: <span class="n">2</span></pre>
+  </div>
+  <div class="tip"><b>v0.20부터 Config에 finalizer가 붙습니다.</b><p>사용 중인 LLMInferenceServiceConfig를 실수로 지워 여러 서비스가 한꺼번에 깨지는 사고를 막아 줍니다.</p></div>
+
+  <h3>모델 스토리지는 그대로</h3>
+  <p>6장의 내용이 그대로 적용됩니다. <code>hf://</code>, <code>s3://</code>, <code>pvc://</code> 모두 쓸 수 있고, v0.19부터는 LocalModelCache도 연동됩니다. 캐시에 있는 모델이면 컨트롤러가 <code>uri</code>를 <code>pvc://</code>로 조용히 바꿔 줍니다.</p>
+  <p>이미 노드에 모델이 올라와 있어 다운로드가 아예 필요 없다면 v0.17부터 <b>스토리지 이니셜라이저를 생략</b>할 수도 있습니다.</p>
+</section>
+
+<!-- ============ 14장 ============ -->
+<section class="sec" id="c14">
+  <div class="sechead">
+    <span class="chnum">14</span>
+    <div><h2>KV 캐시 인지 라우팅: 이 강의의 핵심</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c14"> 완료</label>
+  </div>
+  <p class="lead">"어느 파드로 보낼까"를 잘 고르는 것만으로 첫 토큰 지연이 몇 배 줄어듭니다. 왜 그런지부터 봅시다.</p>
+
+  <h3>먼저: KV 캐시가 뭔가</h3>
+  <p>LLM이 토큰을 하나 만들 때마다, 앞의 모든 토큰에 대한 계산 결과(Key와 Value 텐서)가 필요합니다. 매번 처음부터 다시 계산하면 길이가 길어질수록 제곱으로 느려지므로, <b>계산해 둔 K/V를 GPU 메모리에 보관</b>합니다. 이것이 <span class="term" data-d="KV Cache. 어텐션 계산에 필요한 Key/Value 텐서를 보관해 두는 GPU 메모리 영역입니다. 토큰 수에 비례해 커지며, 보통 모델 가중치 다음으로 GPU 메모리를 많이 차지합니다.">KV 캐시</span>입니다.</p>
+
+  <p>여기서 중요한 성질이 나옵니다. 어떤 요청의 프롬프트 앞부분이 <b>이전 요청과 같다면</b>, 그 부분의 KV는 이미 계산돼 있습니다. 다시 계산할 필요가 없습니다.</p>
+
+  <div class="cards">
+    <div class="card gen"><h5>멀티턴 대화</h5><p>3번째 질문의 프롬프트는 1·2번째 대화 전체를 포함합니다. 앞의 90%가 이미 계산돼 있습니다.</p></div>
+    <div class="card gen"><h5>RAG</h5><p>같은 문서 청크를 여러 질문이 공유합니다. 문서 부분의 KV를 재사용할 수 있습니다.</p></div>
+    <div class="card gen"><h5>공통 시스템 프롬프트</h5><p>모든 요청이 같은 2000토큰 시스템 프롬프트로 시작한다면, 그 2000토큰은 딱 한 번만 계산하면 됩니다.</p></div>
+  </div>
+
+  <div class="warn">
+    <b>하지만 캐시는 파드마다 따로 있습니다.</b>
+    <p>파드 4개 중 1번이 그 대화의 캐시를 갖고 있는데 라운드로빈이 3번으로 보내면, 3번은 프롬프트를 처음부터 전부 다시 계산합니다(프리필). 프롬프트가 8000토큰이면 이 낭비는 수 초짜리입니다. <b>라우터가 캐시 상태를 모르면 캐시가 있으나마나입니다.</b></p>
+  </div>
+
+  <h3>EPP가 하는 일</h3>
+  <p>EPP는 각 vLLM 인스턴스가 ZMQ로 쏘는 캐시 이벤트(<code>BlockStored</code>, <code>BlockRemoved</code>)를 구독해서, <b>어느 파드가 어떤 블록을 갖고 있는지</b> 색인을 유지합니다. 요청이 오면 그 색인으로 후보 파드들을 채점합니다.</p>
+
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>플러그인</th><th>무엇을 보는가</th><th>기본 가중치</th></tr>
+    <tr><td><b>prefix-cache-scorer</b></td><td>이 요청의 프롬프트 접두사와 일치하는 캐시 블록을 얼마나 갖고 있는가</td><td>2.0</td></tr>
+    <tr><td><b>load-aware-scorer</b></td><td>현재 큐 깊이. 빈 큐는 0.5점, 큐가 길수록 0에 가까워짐</td><td>1.0</td></tr>
+    <tr><td><b>max-score-picker</b></td><td>가중 합산 점수가 가장 높은 파드를 최종 선택</td><td>—</td></tr>
+  </table></div>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot" style="background:var(--gen)"></span>EPP는 어떻게 고르는가<span class="hint">상황과 가중치를 바꿔 보세요</span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <label>들어온 요청</label>
+        <button class="btn sm gen on" data-eppreq="0">같은 대화의 후속 질문</button>
+        <button class="btn sm gen" data-eppreq="1">처음 보는 새 질문</button>
+        <button class="btn sm gen" data-eppreq="2">공통 시스템 프롬프트만 공유</button>
+      </div>
+      <div class="wrow">
+        <label>prefix-cache-scorer 가중치</label>
+        <input type="range" id="eppW" min="0" max="4" step="0.5" value="2">
+        <span class="mono" id="eppWLbl" style="font-size:.8rem;color:var(--gen);min-width:2.5rem">2.0</span>
+      </div>
+      <div id="eppPods"></div>
+      <div class="wout" id="eppOut" style="margin-top:.6rem"></div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:.82rem">가중치를 0으로 내려 보세요. 캐시를 무시하고 가장 한가한 파드만 고르게 됩니다. 반대로 크게 올리면 캐시가 있는 파드에 몰려 큐가 터질 수 있습니다. 실제 튜닝은 이 둘 사이의 균형 찾기입니다.</p>
+
+  <h3>설정하는 법</h3>
+  <p>스케줄링 동작은 <code>EndpointPickerConfig</code>로 정의하고, LLMInferenceService에서 참조합니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">endpoint-picker-config.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: inference.networking.x-k8s.io/v1alpha1
+<span class="k">kind</span>: EndpointPickerConfig
+<span class="k">plugins</span>:
+  - <span class="k">type</span>: single-profile-handler
+  - <span class="k">type</span>: prefix-cache-scorer
+  - <span class="k">type</span>: load-aware-scorer
+    <span class="k">parameters</span>:
+      <span class="k">threshold</span>: <span class="n">100</span>          <span class="c"># 큐 깊이가 이걸 넘으면 점수가 0에 수렴</span>
+  - <span class="k">type</span>: max-score-picker
+<span class="k">schedulingProfiles</span>:
+  - <span class="k">name</span>: default
+    <span class="k">plugins</span>:
+      - <span class="k">pluginRef</span>: prefix-cache-scorer
+        <span class="k">weight</span>: <span class="n">2.0</span>
+      - <span class="k">pluginRef</span>: load-aware-scorer
+        <span class="k">weight</span>: <span class="n">1.0</span>
+      - <span class="k">pluginRef</span>: max-score-picker</pre>
+  </div>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">llmisvc에서 참조</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">router</span>:
+    <span class="k">scheduler</span>:
+      <span class="k">config</span>:
+        <span class="k">ref</span>:
+          <span class="k">name</span>: custom-endpoint-picker-config
+          <span class="k">key</span>: endpoint-picker-config.yaml
+      <span class="k">pool</span>: {}</pre>
+  </div>
+
+  <div class="tip">
+    <b>EPP도 이중화하세요.</b>
+    <p>v0.17부터 EPP를 여러 개로 스케일할 수 있습니다. EPP가 죽으면 그 풀의 <b>모든 요청이 라우팅되지 않습니다</b>. 운영 환경이라면 레플리카를 2 이상으로 두세요.</p>
+  </div>
+
+  <h3>앞단의 Envoy AI Gateway</h3>
+  <p>EPP가 "어느 파드"를 정한다면, Envoy AI Gateway는 "이 요청을 받을 것인가"를 정합니다. 핵심은 <b>토큰 단위 rate limit</b>입니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">token-rate-limit.yaml (요약)</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: aigateway.envoyproxy.io/v1alpha1
+<span class="k">kind</span>: AIGatewayRoute
+<span class="k">spec</span>:
+  <span class="k">targetRefs</span>:
+    - {<span class="k">group</span>: gateway.networking.k8s.io, <span class="k">kind</span>: HTTPRoute, <span class="k">name</span>: qwen3-serving}
+  <span class="k">llmRequestCosts</span>:
+    - {<span class="k">metadataKey</span>: llm_input_token,  <span class="k">type</span>: InputToken}
+    - {<span class="k">metadataKey</span>: llm_output_token, <span class="k">type</span>: OutputToken}
+    - {<span class="k">metadataKey</span>: llm_total_token,  <span class="k">type</span>: TotalToken}
+---
+<span class="k">kind</span>: BackendTrafficPolicy
+<span class="k">spec</span>:
+  <span class="k">rateLimit</span>:
+    <span class="k">global</span>:
+      <span class="k">rules</span>:
+        - <span class="k">clientSelectors</span>:
+            - <span class="k">headers</span>: [{<span class="k">name</span>: x-user-id, <span class="k">type</span>: Distinct}]
+          <span class="k">limit</span>: {<span class="k">requests</span>: <span class="n">1000</span>, <span class="k">unit</span>: Hour}
+          <span class="k">cost</span>:
+            <span class="k">request</span>:  {<span class="k">from</span>: Number, <span class="k">number</span>: <span class="n">0</span>}      <span class="c"># 요청 자체는 0으로 센다</span>
+            <span class="k">response</span>: {<span class="k">from</span>: Metadata, <span class="k">key</span>: llm_total_token}  <span class="c"># 토큰 수로 과금</span></pre>
+  </div>
+  <p>사용자당 시간당 1000을 주되, 그 1000을 <b>요청 수가 아니라 토큰 수</b>로 소비하게 만드는 설정입니다. 짧은 질문을 많이 하는 사용자와 긴 문서를 한 번 요약하는 사용자를 공평하게 다루게 됩니다. MSP나 사내 플랫폼에서 팀별 쿼터를 나눌 때 바로 쓸 수 있는 모양입니다.</p>
+</section>
+
+<!-- ============ 15장 ============ -->
+<section class="sec" id="c15">
+  <div class="sechead">
+    <span class="chnum">15</span>
+    <div><h2>큰 모델 굴리기: prefill/decode 분리와 병렬화</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c15"> 완료</label>
+  </div>
+  <p class="lead">GPU 한 장에 안 들어가는 모델, 그리고 한 파드 안에서 서로 다른 성격의 작업이 섞여 낭비되는 문제를 다룹니다.</p>
+
+  <h3>prefill과 decode는 다른 일이다</h3>
+  <div class="grid2">
+    <div class="card gpu">
+      <h5>Prefill (프리필)</h5>
+      <p>입력 프롬프트 전체를 한 번에 읽어 KV 캐시를 채우는 단계. 토큰 수천 개를 병렬로 처리하므로 <b>연산(FLOPs) 집약적</b>입니다. GPU 코어를 꽉 채웁니다.</p>
+      <p class="muted" style="font-size:.82rem">이 단계의 길이가 곧 TTFT(첫 토큰까지 시간)입니다.</p>
+    </div>
+    <div class="card data">
+      <h5>Decode (디코드)</h5>
+      <p>토큰을 하나씩 뽑는 단계. 매 스텝마다 모델 가중치 전체와 KV 캐시를 읽어야 해서 <b>메모리 대역폭 집약적</b>입니다. 연산 유닛은 놀고 있습니다.</p>
+      <p class="muted" style="font-size:.82rem">이 단계의 속도가 곧 초당 토큰 수입니다.</p>
+    </div>
+  </div>
+
+  <p>둘을 같은 파드에 두면 어떻게 될까요. 긴 프롬프트 하나가 프리필을 도는 동안, 그 파드에서 디코드 중이던 다른 요청들이 <b>끊깁니다</b>. 사용자 입장에서는 토큰이 흐르다가 뚝 멈추는 현상으로 보입니다.</p>
+
+  <p>분리하면 각 단계를 독립적으로 스케일하고, 서로 다른 GPU를 쓸 수도 있습니다. 대신 프리필이 만든 KV 캐시를 디코드 파드로 <b>전송</b>해야 합니다. KServe는 이 전송에 NixlConnector와 RDMA(RoCE)를 씁니다.</p>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot" style="background:var(--gpu)"></span>prefill/decode 분리 흐름<span class="hint">단계를 눌러 따라가 보세요</span></div>
+    <div class="wbody">
+      <div class="svgbox"><svg id="pdSvg" viewBox="0 0 880 210" role="img" aria-label="prefill decode 분리 흐름"></svg></div>
+      <div class="wrow" style="margin-top:.5rem">
+        <button class="btn sm" id="pdPrev">이전</button>
+        <button class="btn sm on" id="pdNext">다음 단계</button>
+        <span class="mono muted" id="pdStep" style="font-size:.76rem"></span>
+      </div>
+      <div class="wout" id="pdOut"></div>
+    </div>
+  </div>
+
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">prefill-decode.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">apiVersion</span>: serving.kserve.io/v1alpha2
+<span class="k">kind</span>: LLMInferenceService
+<span class="k">metadata</span>:
+  <span class="k">name</span>: llama3-prefill-decode
+<span class="k">spec</span>:
+  <span class="k">model</span>:
+    <span class="k">uri</span>: <span class="s">hf://meta-llama/Llama-3.1-8B-Instruct</span>
+    <span class="k">name</span>: meta-llama--Llama-3.1-8B-Instruct
+  <span class="k">replicas</span>: <span class="n">2</span>                 <span class="c"># decode 쪽 레플리카</span>
+  <span class="k">template</span>:
+    <span class="k">spec</span>:
+      <span class="k">containers</span>:
+        - <span class="k">name</span>: vllm
+          <span class="k">resources</span>: {<span class="k">limits</span>: {<span class="k">nvidia.com/gpu</span>: <span class="s">"1"</span>}}
+  <span class="k">prefill</span>:                   <span class="c"># ← 이 블록이 있으면 분리 모드</span>
+    <span class="k">replicas</span>: <span class="n">2</span>
+    <span class="k">template</span>:
+      <span class="k">spec</span>:
+        <span class="k">containers</span>:
+          - <span class="k">name</span>: vllm
+            <span class="k">resources</span>: {<span class="k">limits</span>: {<span class="k">nvidia.com/gpu</span>: <span class="s">"1"</span>}}
+  <span class="k">router</span>:
+    <span class="k">gateway</span>: {<span class="k">managed</span>: {}}
+    <span class="k">route</span>: {<span class="k">httpRoute</span>: {}}
+    <span class="k">scheduler</span>: {<span class="k">pool</span>: {}}</pre>
+  </div>
+
+  <div class="warn">
+    <b>분리는 공짜가 아닙니다.</b>
+    <p>KV 캐시를 네트워크로 옮겨야 합니다. 8B 모델에 4000토큰이면 수백 MB입니다. RDMA가 없는 평범한 이더넷 클러스터에서는 전송 시간이 아낀 시간보다 클 수 있습니다. 트래픽이 크고 네트워크가 받쳐 줄 때 의미가 있습니다. <b>먼저 분리하지 않은 상태로 측정하고, 병목을 확인한 뒤에 도입하세요.</b></p>
+  </div>
+
+  <h3>병렬화: 모델을 여러 GPU에 쪼개기</h3>
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>방식</th><th>무엇을 쪼개나</th><th>언제 쓰나</th></tr>
+    <tr><td><b>Tensor Parallelism (TP)</b></td><td>한 레이어의 행렬을 여러 GPU에 나눠 계산</td><td>모델이 GPU 한 장의 메모리에 안 들어갈 때. 노드 <b>안</b>에서 씁니다(GPU 간 통신이 잦아 NVLink가 필요)</td></tr>
+    <tr><td><b>Data Parallelism (DP)</b></td><td>모델 전체 복제본을 여러 개</td><td>처리량을 늘릴 때. 사실상 레플리카 늘리기</td></tr>
+    <tr><td><b>Data-Local Parallelism</b></td><td>노드당 GPU 수를 고정</td><td>NUMA 친화도를 맞춰 노드 간 통신을 줄일 때</td></tr>
+    <tr><td><b>Expert Parallelism (EP)</b></td><td>MoE 모델의 전문가들을 여러 GPU에</td><td>Mixture-of-Experts 구조 모델을 서빙할 때</td></tr>
+  </table></div>
+
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">multi-node.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">model</span>:
+    <span class="k">uri</span>: <span class="s">hf://meta-llama/Llama-3.1-70B-Instruct</span>
+  <span class="k">replicas</span>: <span class="n">8</span>
+  <span class="k">parallelism</span>:
+    <span class="k">tensor</span>: <span class="n">4</span>          <span class="c"># 노드 안 GPU 4장에 레이어를 쪼갠다</span>
+    <span class="k">data</span>: <span class="n">8</span>            <span class="c"># 전체 복제본 8벌</span>
+    <span class="k">dataLocal</span>: <span class="n">4</span>       <span class="c"># 노드당 GPU 4장</span>
+  <span class="k">template</span>:
+    <span class="k">spec</span>:
+      <span class="k">containers</span>:
+        - <span class="k">name</span>: vllm
+          <span class="k">resources</span>: {<span class="k">limits</span>: {<span class="k">nvidia.com/gpu</span>: <span class="s">"4"</span>}}
+  <span class="k">worker</span>:                  <span class="c"># 리더 외의 워커 파드 스펙</span>
+    <span class="k">spec</span>:
+      <span class="k">containers</span>:
+        - <span class="k">name</span>: vllm
+          <span class="k">resources</span>: {<span class="k">limits</span>: {<span class="k">nvidia.com/gpu</span>: <span class="s">"4"</span>}}</pre>
+  </div>
+  <p>멀티노드 배포는 내부적으로 LeaderWorkerSet으로 구현됩니다. 리더 파드 1개와 워커 파드 N개가 한 덩어리로 스케일되고, 하나가 죽으면 그룹 전체가 재시작됩니다. 모델 파라미터가 노드에 걸쳐 있으니 당연한 동작입니다.</p>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot" style="background:var(--gpu)"></span>GPU 몇 장이 필요한가<span class="hint">대략적인 감을 잡는 용도</span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <label>파라미터 수</label>
+        <select id="vpParams">
+          <option value="1.5">1.5B</option>
+          <option value="8" selected>8B</option>
+          <option value="27">27B</option>
+          <option value="32">32B</option>
+          <option value="70">70B</option>
+          <option value="123">123B</option>
+        </select>
+        <label>정밀도</label>
+        <select id="vpPrec">
+          <option value="2">BF16 / FP16 (2바이트)</option>
+          <option value="1">FP8 / INT8 (1바이트)</option>
+          <option value="0.5">INT4 / AWQ (0.5바이트)</option>
+        </select>
+        <label>GPU</label>
+        <select id="vpGpu">
+          <option value="24">RTX 4090 · 24GB</option>
+          <option value="40">A100 · 40GB</option>
+          <option value="80" selected>A100/H100 · 80GB</option>
+          <option value="141">H200 · 141GB</option>
+        </select>
+      </div>
+      <div class="wrow">
+        <label>동시 요청 × 컨텍스트</label>
+        <input type="range" id="vpCtx" min="0" max="4" step="1" value="2">
+        <span class="mono" id="vpCtxLbl" style="font-size:.78rem;color:var(--data)"></span>
+      </div>
+      <div class="wout" id="vpOut"></div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:.82rem">실제 필요량은 vLLM의 <code>gpu-memory-utilization</code>, 페이지드 어텐션 블록 크기, 활성화 메모리, CUDA 그래프에 따라 달라집니다. 이 계산기는 <b>자릿수 감각</b>을 잡는 용도입니다. 최종 결정은 반드시 실측으로 하세요.</p>
+
+  <div class="note">
+    <b>v0.20의 Managed DRA.</b>
+    <p>GPU 요청을 <span class="term" data-d="Dynamic Resource Allocation. 쿠버네티스가 GPU 같은 특수 장치를 더 유연하게 배분하기 위해 도입한 API입니다. 장치 클래스와 요청을 선언하면 스케줄러가 적절한 장치를 할당합니다.">DRA</span>로 하고 싶다면, 어노테이션 두 개(<code>serving.kserve.io/dra-device-class</code>, <code>serving.kserve.io/dra-gpu-count</code>)만 붙이면 컨트롤러가 ResourceClaimTemplate을 만들고 파드 스펙에 주입해 줍니다. 단일 노드와 멀티노드(LWS) 모두 지원합니다.</p>
+  </div>
+</section>
+
+<!-- ============ 16장 ============ -->
+<section class="sec" id="c16">
+  <div class="sechead">
+    <span class="chnum">16</span>
+    <div><h2>LoRA, 모델명 라우팅, 트래픽 분할, 캐시 오프로딩</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c16"> 완료</label>
+  </div>
+  <p class="lead">최근 세 릴리스에서 추가된, 실무에서 바로 써먹는 기능들을 모았습니다.</p>
+
+  <h3>LoRA 어댑터 <span class="badge b-gen">v0.19</span></h3>
+  <p><span class="term" data-d="Low-Rank Adaptation. 거대 모델 전체를 다시 학습하지 않고, 작은 보조 행렬만 학습해 얹는 파인튜닝 방식입니다. 어댑터 파일이 수십~수백 MB로 작아 여러 개를 한 서버에 올릴 수 있습니다.">LoRA</span>는 베이스 모델은 그대로 두고 가벼운 어댑터만 바꿔 끼우는 방식입니다. 팀마다, 업무마다 다른 튜닝 모델이 필요할 때 <b>GPU를 각각 잡지 않아도 된다</b>는 게 핵심입니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">lora.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">model</span>:
+    <span class="k">uri</span>: <span class="s">hf://meta-llama/Llama-3.1-8B-Instruct</span>
+    <span class="k">name</span>: meta-llama--Llama-3.1-8B-Instruct
+    <span class="k">lora</span>:
+      <span class="k">adapters</span>:
+        - <span class="k">name</span>: sql-adapter
+          <span class="k">uri</span>: <span class="s">hf://my-org/sql-lora-adapter</span>
+        - <span class="k">name</span>: code-adapter
+          <span class="k">uri</span>: <span class="s">pvc://adapter-pvc/code-adapter</span></pre>
+  </div>
+  <p>컨트롤러가 vLLM에 <code>--enable-lora</code>, <code>--max-lora-rank</code>, <code>--lora-modules</code> 플래그를 자동으로 붙이고 어댑터를 <code>/mnt/lora/&lt;이름&gt;</code>에 마운트합니다. <code>hf://</code>, <code>s3://</code>, <code>pvc://</code>를 모두 지원합니다.</p>
+  <p>v0.20부터는 LoRA 어댑터가 설정돼 있으면 <b>lora-affinity-scorer</b> 플러그인이 스케줄링 프로파일에 자동 주입됩니다. 요청한 어댑터가 이미 활성화된 파드로 보내서 어댑터 로딩 지연을 줄이는 채점기입니다. 14장의 prefix-cache-scorer와 같은 원리가 어댑터에도 적용되는 셈입니다.</p>
+
+  <h3>모델명 기반 라우팅 <span class="badge b-gen">v0.19</span></h3>
+  <p>게이트웨이 하나로 여러 모델을 서비스하고 싶을 때 씁니다. 요청의 <code>X-Gateway-Model-Name</code> 헤더(이름 변경 가능)를 보고 해당 모델의 백엔드로 보냅니다. LoRA 어댑터 요청은 베이스 모델과 같은 백엔드로 자동 확장 매칭됩니다.</p>
+  <p>운영 관점에서는 엔드포인트가 하나로 통일되어 클라이언트 설정이 단순해집니다. 사내 LLM 게이트웨이를 만든다면 이 구조가 기본이 됩니다.</p>
+
+  <h3>트래픽 분할 <span class="badge b-gen">v0.20</span></h3>
+  <p>10장의 카나리가 LLMInferenceService에도 생겼습니다. <code>GatewayRoutesSpec</code>의 <code>group</code>과 <code>weight</code>로 여러 서비스 버전에 트래픽을 나눕니다.</p>
+  <ul>
+    <li>그룹 상태는 <code>GroupReady</code>, <code>GroupDegraded</code> 조건으로 <b>따로</b> 보고됩니다. 그룹 하나가 깨져도 서비스의 <code>Ready</code>는 유지되어 추론이 계속됩니다.</li>
+    <li>버전에 무관한 <b>안정적인 URL</b>이 제공되어, 새 버전을 올려도 클라이언트 설정을 바꾸지 않습니다.</li>
+    <li>여러 llmisvc가 같은 모델 라우팅 이름을 쓰면 충돌 경고가 뜹니다.</li>
+  </ul>
+
+  <h3>KV 캐시 오프로딩 <span class="badge b-gen">v0.20</span></h3>
+  <p>GPU 메모리가 부족하면 오래된 KV 캐시 블록이 밀려납니다. 밀려난 대화가 다시 오면 처음부터 프리필해야 합니다. 이걸 GPU 대신 <b>CPU 메모리로 내려 두는</b> 기능입니다. CPU RAM은 GPU HBM보다 느리지만, 재계산보다는 훨씬 쌉니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">kv-offload.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">kvCacheOffloading</span>:
+    <span class="k">cpu</span>: <span class="n">10</span>Gi         <span class="c"># CPU 메모리에 10GiB까지 캐시를 내려 둔다</span></pre>
+  </div>
+  <p>컨트롤러가 이 값을 보고 vLLM의 <code>--kv-transfer-config</code> JSON 플래그를 만들어 줍니다. prefill/decode 분리 구성에서는 prefill 쪽 스펙에 지정합니다. 더 아래 계층(파일시스템)으로 내리는 2차 티어도 지원합니다.</p>
+
+  <h3>분산 트레이싱 <span class="badge b-gen">v0.20</span></h3>
+  <p>요청이 게이트웨이 → EPP → prefill → decode를 거치면, 느려졌을 때 어디가 범인인지 찾기 어렵습니다. v0.20의 트레이싱 API는 OpenTelemetry를 선언 한 줄로 켭니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">tracing.yaml</span><button class="copy">복사</button></div>
+<pre><span class="k">spec</span>:
+  <span class="k">tracing</span>: {}                <span class="c"># 추론 서버 트레이싱 (기본값으로 켬)</span>
+  <span class="k">router</span>:
+    <span class="k">scheduler</span>:
+      <span class="k">tracing</span>: {}            <span class="c"># 스케줄러(EPP) 트레이싱</span>
+  <span class="k">model</span>:
+    <span class="k">uri</span>: <span class="s">hf://Qwen/Qwen2.5-7B-Instruct</span></pre>
+  </div>
+  <p>컨트롤러가 downward API로 파드명·노드명·네임스페이스를 <code>OTEL_RESOURCE_ATTRIBUTES</code>에 넣어 줍니다. P/D 분리 구성에서는 서비스 이름에 <code>-prefill</code>, <code>-decode</code> 접미사가 자동으로 붙어 트레이스에서 구분됩니다.</p>
+
+  <h3>우아한 종료 <span class="badge b-gen">v0.19</span></h3>
+  <p>롤링 업데이트나 스케일 다운 때 진행 중이던 생성이 끊기면 사용자는 문장이 잘린 응답을 받습니다. v0.19는 두 장치를 겹쳐 이를 막습니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">종료 순서</span></div>
+<pre>preStop sleep (15초)   <span class="c"># EPP가 readiness 실패를 감지할 시간을 준다</span>
+       ↓
+EPP가 새 요청 라우팅 중단
+       ↓
+SIGTERM
+       ↓
+vLLM이 진행 중 요청을 마무리 (최대 45초)   <span class="c"># --shutdown-timeout</span>
+       ↓
+파드 종료</pre>
+  </div>
+  <p><code>terminationGracePeriodSeconds</code>가 쿠버네티스 기본 30초에서 <b>60초</b>로 올라갔고, vLLM의 <code>--shutdown-timeout</code>은 <code>terminationGracePeriodSeconds - 15</code>로 계산됩니다. 긴 생성이 많은 서비스라면 이 값을 더 늘리세요.</p>
+</section>
+
+<script>
+/* ===== 14장: EPP 채점 시뮬레이터 ===== */
+(function(){
+  var w=document.getElementById('eppW'); if(!w) return;
+  var box=document.getElementById('eppPods'), out=document.getElementById('eppOut'), lbl=document.getElementById('eppWLbl');
+  var scen=0;
+  var SC=[
+    {n:'같은 대화의 후속 질문',
+     pods:[{c:0.92,q:14},{c:0.05,q:2},{c:0.00,q:1},{c:0.10,q:22}],
+     d:'앞 대화를 처리했던 1번 파드가 프롬프트의 92%를 캐시로 갖고 있습니다. 큐가 조금 있어도 프리필 수 초를 아끼는 쪽이 이깁니다.'},
+    {n:'처음 보는 새 질문',
+     pods:[{c:0.02,q:14},{c:0.01,q:2},{c:0.00,q:1},{c:0.02,q:22}],
+     d:'어느 파드에도 쓸 만한 캐시가 없습니다. 이럴 때는 캐시 점수가 전부 비슷하니 사실상 가장 한가한 파드가 뽑힙니다. 라운드로빈과 비슷한 결과가 나오는 정상적인 상황입니다.'},
+    {n:'공통 시스템 프롬프트만 공유',
+     pods:[{c:0.35,q:30},{c:0.33,q:3},{c:0.34,q:5},{c:0.36,q:26}],
+     d:'모든 파드가 공통 시스템 프롬프트를 갖고 있어 캐시 점수가 비등합니다. 이때는 큐 깊이가 결정합니다. 캐시 가중치를 지나치게 올리면 미세한 차이로 붐비는 파드에 몰릴 수 있습니다.'}
+  ];
+  function loadScore(q,th){ return Math.max(0, 0.5*(1-q/th)); }
+  function render(){
+    var W=+w.value; lbl.textContent=W.toFixed(1);
+    var s=SC[scen], th=100, best=-1, bi=0, rows=[];
+    s.pods.forEach(function(p,i){
+      var cs=p.c, ls=loadScore(p.q,th), tot=cs*W+ls*1.0;
+      if(tot>best){best=tot;bi=i;}
+      rows.push({i:i,cs:cs,ls:ls,tot:tot,q:p.q});
+    });
+    var html='';
+    rows.forEach(function(r){
+      var on=(r.i===bi);
+      html+='<div style="border:1px solid '+(on?'var(--gen)':'var(--line)')+';border-radius:9px;padding:.5rem .65rem;margin:.4rem 0;background:'+(on?'rgba(255,116,184,.07)':'transparent')+'">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem">'+
+        '<span style="font-size:.85rem;font-weight:'+(on?600:400)+';color:'+(on?'var(--gen)':'var(--text)')+'">vLLM #'+(r.i+1)+(on?' &nbsp;← 선택됨':'')+'</span>'+
+        '<span class="mono" style="font-size:.75rem;color:var(--dim)">캐시 적중 '+(r.cs*100).toFixed(0)+'% · 큐 '+r.q+'</span></div>'+
+        '<div style="display:flex;gap:.5rem;align-items:center;margin-top:.35rem">'+
+        '<div class="bar" style="flex:1"><i style="width:'+Math.min(100,r.tot/3*100).toFixed(0)+'%;background:'+(on?'var(--gen)':'var(--line2)')+'"></i></div>'+
+        '<span class="mono" style="font-size:.74rem;min-width:8.5rem;color:var(--dim2)">'+
+        (r.cs).toFixed(2)+'×'+W.toFixed(1)+' + '+(r.ls).toFixed(2)+' = <b style="color:'+(on?'var(--gen)':'var(--dim)')+'">'+r.tot.toFixed(2)+'</b></span>'+
+        '</div></div>';
+    });
+    box.innerHTML=html;
+    out.innerHTML='<p style="margin:0;font-size:.86rem"><b>'+s.n+'</b> — '+s.d+'</p>';
+  }
+  w.addEventListener('input',render);
+  document.querySelectorAll('[data-eppreq]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-eppreq]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); scen=+b.dataset.eppreq; render();
+    });
+  });
+  render();
+})();
+
+/* ===== 15장: prefill/decode 흐름 ===== */
+(function(){
+  var svg=document.getElementById('pdSvg'); if(!svg) return;
+  var out=document.getElementById('pdOut'), lblS=document.getElementById('pdStep');
+  var NS='http://www.w3.org/2000/svg';
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  var nodes=[
+    {x:20,y:75,w:130,h:56,t:'클라이언트',s:'프롬프트 4000토큰'},
+    {x:190,y:75,w:140,h:56,t:'EPP',s:'prefill 파드 선택'},
+    {x:375,y:20,w:160,h:56,t:'Prefill 파드',s:'연산 집약'},
+    {x:375,y:130,w:160,h:56,t:'Decode 파드',s:'메모리 대역폭 집약'},
+    {x:590,y:75,w:150,h:56,t:'KV 전송',s:'NixlConnector · RDMA'},
+    {x:770,y:75,w:90,h:56,t:'토큰',s:'SSE'}
+  ];
+  var steps=[
+    {hi:[0],t:'클라이언트가 4000토큰짜리 프롬프트를 보냅니다. 아직 아무 계산도 시작되지 않았습니다.'},
+    {hi:[1],t:'EPP가 이 요청을 처리할 prefill 파드를 고릅니다. prefill과 decode는 별도 풀이라 각각 선택됩니다.'},
+    {hi:[2],t:'<b>Prefill 단계.</b> 4000토큰을 한 번에 읽어 KV 캐시를 채웁니다. GPU 연산 유닛이 꽉 찹니다. 이 시간이 그대로 TTFT(첫 토큰까지 시간)입니다.'},
+    {hi:[4],t:'<b>KV 전송.</b> 만들어진 KV 캐시 블록을 decode 파드로 옮깁니다. NixlConnector가 RDMA(RoCE)로 전송합니다. 여기가 분리 구조의 비용이 발생하는 지점입니다.'},
+    {hi:[3],t:'<b>Decode 단계.</b> 받은 캐시를 이어받아 토큰을 하나씩 생성합니다. 이 파드는 프리필 부하에 방해받지 않으므로 토큰 생성이 균일하게 흐릅니다.'},
+    {hi:[5],t:'토큰이 SSE로 흘러나옵니다. 사용자는 끊김 없이 글자가 찍히는 것을 봅니다. 분리하지 않았다면 다른 요청의 프리필 때문에 중간에 멈칫했을 수 있습니다.'}
+  ];
+  var cur=0;
+  function draw(){
+    svg.innerHTML='';
+    svg.appendChild(el('line',{x1:150,y1:103,x2:190,y2:103,stroke:'#36477a','stroke-width':1.4}));
+    svg.appendChild(el('path',{d:'M330 103 C 352 103, 352 48, 375 48',stroke:'#36477a','stroke-width':1.4,fill:'none'}));
+    svg.appendChild(el('path',{d:'M330 103 C 352 103, 352 158, 375 158',stroke:'#36477a','stroke-width':1.4,fill:'none'}));
+    svg.appendChild(el('path',{d:'M535 48 C 565 48, 565 103, 590 103',stroke:'#9BE86A','stroke-width':1.6,fill:'none','stroke-dasharray':'5 4'}));
+    svg.appendChild(el('path',{d:'M590 103 C 565 103, 565 158, 535 158',stroke:'#9BE86A','stroke-width':1.6,fill:'none','stroke-dasharray':'5 4'}));
+    svg.appendChild(el('path',{d:'M535 158 C 660 175, 720 150, 790 131',stroke:'#FF74B8','stroke-width':1.4,fill:'none'}));
+    nodes.forEach(function(n,i){
+      var on=steps[cur].hi.indexOf(i)>=0;
+      var c = on ? (i===2?'#9BE86A':(i===3?'#FFB34D':'#FF74B8')) : '#26335a';
+      var g=el('g',{});
+      g.appendChild(el('rect',{x:n.x,y:n.y,width:n.w,height:n.h,rx:9,fill:on?'#1d2846':'#17203a',stroke:c,'stroke-width':on?2.4:1.2}));
+      var a=el('text',{x:n.x+n.w/2,y:n.y+25,'text-anchor':'middle',fill:'#e7ecf8','font-size':'12','font-weight':'600','font-family':'IBM Plex Sans KR, sans-serif'});a.textContent=n.t;g.appendChild(a);
+      var b=el('text',{x:n.x+n.w/2,y:n.y+42,'text-anchor':'middle',fill:'#6c7ba3','font-size':'9.5','font-family':'JetBrains Mono, monospace'});b.textContent=n.s;g.appendChild(b);
+      svg.appendChild(g);
+    });
+    out.innerHTML='<p style="margin:0;font-size:.86rem">'+steps[cur].t+'</p>';
+    lblS.textContent=(cur+1)+' / '+steps.length;
+  }
+  document.getElementById('pdNext').addEventListener('click',function(){cur=(cur+1)%steps.length;draw();});
+  document.getElementById('pdPrev').addEventListener('click',function(){cur=(cur-1+steps.length)%steps.length;draw();});
+  draw();
+})();
+
+/* ===== 15장: GPU 메모리 계산기 ===== */
+(function(){
+  var p=document.getElementById('vpParams'); if(!p) return;
+  var pr=document.getElementById('vpPrec'), gp=document.getElementById('vpGpu'),
+      ctx=document.getElementById('vpCtx'), ctxl=document.getElementById('vpCtxLbl'), out=document.getElementById('vpOut');
+  var CTX=[{n:'가벼움 (동시 4 × 2K)',g:2},{n:'보통 (동시 16 × 4K)',g:8},{n:'표준 (동시 32 × 8K)',g:20},{n:'무거움 (동시 64 × 16K)',g:48},{n:'초장문 (동시 32 × 128K)',g:120}];
+  function render(){
+    var P=+p.value, B=+pr.value, G=+gp.value, c=CTX[+ctx.value];
+    ctxl.textContent=c.n;
+    var weights=P*B;                 // GB
+    var kv=c.g*(P/8)*(B/2);          // 8B/bf16 기준을 스케일
+    var over=weights*0.12+2;         // 활성화/프레임워크 오버헤드 근사
+    var total=weights+kv+over;
+    var usable=G*0.90;               // gpu-memory-utilization 0.9 가정
+    var n=Math.max(1,Math.ceil(total/usable));
+    var tp = n<=1?1:(n<=2?2:(n<=4?4:8));
+    var msg='';
+    if(n===1) msg='GPU <b>1장</b>이면 충분합니다. 병렬화 설정 없이 그냥 띄우세요.';
+    else if(tp<=8) msg='GPU <b>'+n+'장</b>이 필요합니다. 한 노드 안에서 <code>parallelism.tensor: '+tp+'</code>로 묶는 것이 일반적입니다.';
+    else msg='한 노드로는 부족합니다. 멀티노드(LeaderWorkerSet) 구성이 필요합니다.';
+    out.innerHTML='<div style="display:grid;gap:.3rem;font-size:.86rem">'+
+      '<div><span class="muted">모델 가중치</span> &nbsp;<b class="mono" style="color:var(--gpu)">'+weights.toFixed(1)+' GB</b></div>'+
+      '<div><span class="muted">KV 캐시(추정)</span> &nbsp;<b class="mono" style="color:var(--data)">'+kv.toFixed(1)+' GB</b></div>'+
+      '<div><span class="muted">오버헤드(추정)</span> &nbsp;<span class="mono">'+over.toFixed(1)+' GB</span></div>'+
+      '<div style="border-top:1px solid var(--line);margin-top:.3rem;padding-top:.35rem"><span class="muted">합계</span> &nbsp;<b class="mono" style="color:var(--gen)">'+total.toFixed(1)+' GB</b> &nbsp;<span class="muted">· GPU당 가용 '+usable.toFixed(0)+'GB</span></div>'+
+      '<div style="margin-top:.35rem">'+msg+'</div></div>';
+  }
+  [p,pr,gp,ctx].forEach(function(e){e.addEventListener('input',render);e.addEventListener('change',render);});
+  render();
+})();
+</script>
+
+<!-- ============ 17장 ============ -->
+<section class="sec" id="c17">
+  <div class="sechead">
+    <span class="chnum">17</span>
+    <div><h2>운영: 업그레이드, 관측, 멀티테넌시, 폐쇄망</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c17"> 완료</label>
+  </div>
+  <p class="lead">설치보다 어려운 건 그다음입니다. 이 장은 실제로 운영하며 부딪히는 순서대로 구성했습니다.</p>
+
+  <h3>업그레이드 — v0.17이 만든 단절</h3>
+  <div class="warn">
+    <b>v0.16 이하에서 v0.17 이상으로는 <code>helm upgrade</code>가 통하지 않습니다.</b>
+    <p>차트가 하나에서 열 개로 재편됐기 때문입니다. 공식 업그레이드 가이드의 단계별 마이그레이션을 따라야 하고, <b>반드시 비운영 환경에서 먼저</b> 검증하세요.</p>
+  </div>
+  <p>마이그레이션의 핵심은 CRD를 살려 둔 채 릴리스만 갈아 끼우는 것입니다. Helm이 CRD를 지우지 않도록 보존 어노테이션을 붙였다가, 끝나면 떼는 방식입니다.</p>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">upgrade-pattern.sh (개념)</span><button class="copy">복사</button></div>
+<pre><span class="c"># 1) CRD가 삭제되지 않도록 보존 어노테이션</span>
+<span class="k">for</span> crd <span class="k">in</span> $(kubectl get crd -o name | grep kserve); <span class="k">do</span>
+  kubectl annotate <span class="s">"$crd"</span> helm.sh/resource-policy=keep --overwrite
+<span class="k">done</span>
+
+<span class="c"># 2) 새 구조의 CRD 차트 설치/업그레이드</span>
+helm upgrade -i kserve-crd oci://ghcr.io/kserve/charts/kserve-crd \
+  --version v0.<span class="n">20</span>.<span class="n">0</span> --namespace kserve --create-namespace
+
+<span class="c"># 3) llmisvc를 쓴다면 함께</span>
+helm upgrade -i kserve-llmisvc-crd oci://ghcr.io/kserve/charts/kserve-llmisvc-crd \
+  --version v0.<span class="n">20</span>.<span class="n">0</span> --namespace kserve
+
+<span class="c"># 4) 리소스 차트들 업그레이드 … (생략)</span>
+
+<span class="c"># 5) 보존 어노테이션 제거</span>
+<span class="k">for</span> crd <span class="k">in</span> $(kubectl get crd -o name | grep kserve); <span class="k">do</span>
+  kubectl annotate <span class="s">"$crd"</span> helm.sh/resource-policy- --overwrite
+<span class="k">done</span></pre>
+  </div>
+  <div class="tip">
+    <b>업그레이드 전 체크리스트.</b>
+    <p>① 기존 isvc/llmisvc 매니페스트를 전부 백업(<code>kubectl get isvc -A -o yaml</code>) ② 릴리스 노트의 breaking change 확인 ③ ClusterServingRuntime 커스터마이즈 내역 정리 ④ 스테이징에서 동일 절차 리허설 ⑤ 롤백 계획(이전 차트 버전 고정) 준비.</p>
+  </div>
+  <p>v0.17 이후 버전 간 업그레이드는 비교적 순탄합니다. 다만 llm-d 의존성이 v0.6 → v0.7 → v0.8로 올라가며 스케줄러 플러그인 이름과 파라미터 구조가 바뀌었는데, <b>컨트롤러가 버전을 감지해 자동 마이그레이션</b>합니다. 커스텀 EndpointPickerConfig를 쓰고 있다면 마이그레이션 로그를 확인하세요.</p>
+
+  <h3>관측: 무엇을 봐야 하나</h3>
+  <div class="tblwrap"><table class="tbl">
+    <tr><th>층</th><th>봐야 할 것</th></tr>
+    <tr><td>컨트롤 플레인</td><td>컨트롤러 파드 재시작 수, reconcile 에러율, 웹훅 지연시간</td></tr>
+    <tr><td>isvc 상태</td><td><code>Ready</code> 조건, <code>ScalingReady</code>, <code>PrefillScalingReady</code>, <code>ConfigNotFound</code></td></tr>
+    <tr><td>예측형 데이터 플레인</td><td>요청 수, p50/p95/p99 지연시간, 에러율, 파드 수</td></tr>
+    <tr><td>생성형 데이터 플레인</td><td><b>TTFT</b>(첫 토큰까지), <b>TPOT</b>(토큰당 시간), 큐 깊이, <b>KV 캐시 사용률</b>, 프리픽스 캐시 적중률</td></tr>
+    <tr><td>비용</td><td>GPU 시간, 요청당 토큰 수, 테넌트별 토큰 소비량</td></tr>
+  </table></div>
+  <p>v0.19부터 <code>spec.labels</code>와 <code>spec.annotations</code>가 워크로드 Service까지 전파되어 ServiceMonitor가 잡기 쉬워졌습니다. 또 준비 상태가 바뀔 때 쿠버네티스 Event가 발생하므로(Ready는 Normal, NotReady는 Warning), 폴링 대신 이벤트 기반 알림을 만들 수 있습니다.</p>
+
+  <div class="note">
+    <b>LLM 서비스에서 가장 먼저 걸어야 할 알람 세 개.</b>
+    <p>① <b>KV 캐시 사용률 90% 초과</b> — 곧 프리픽스 캐시가 밀려나며 TTFT가 튑니다. ② <b>큐 깊이 지속 상승</b> — 오토스케일이 못 따라가고 있습니다. ③ <b>TTFT p95 급등</b> — 캐시 라우팅이 어긋났거나 프리필 경합이 생겼습니다.</p>
+  </div>
+
+  <h3>멀티테넌시와 권한</h3>
+  <p>여러 팀이 한 클러스터를 쓴다면 아래 축으로 나눕니다.</p>
+  <ul>
+    <li><b>네임스페이스 분리</b> — 팀별 네임스페이스에 isvc를 만들게 하고, ResourceQuota로 GPU 총량을 제한합니다.</li>
+    <li><b>런타임 표준화</b> — <code>ClusterServingRuntime</code>은 플랫폼 팀만 만들 수 있게 하고, 팀은 이름으로만 참조하게 합니다.</li>
+    <li><b>노드 분리</b> — GPU 노드 풀에 taint를 걸고, 승인된 워크로드만 toleration을 갖게 합니다.</li>
+    <li><b>토큰 쿼터</b> — 14장의 Envoy AI Gateway 토큰 rate limit으로 팀별 소비 상한을 겁니다.</li>
+    <li><b>스토리지 자격증명</b> — 모델 버킷 접근 권한을 네임스페이스별 ServiceAccount로 분리합니다.</li>
+  </ul>
+  <div class="warn"><b>웹훅과 네임스페이스 라벨.</b><p>4장에서 본 것처럼 <code>control-plane</code> 라벨이 붙은 네임스페이스에는 웹훅이 동작하지 않습니다. 멀티테넌시 설계에서 네임스페이스 라벨 규칙을 정할 때 이 예약어를 피하세요.</p></div>
+
+  <h3>폐쇄망(에어갭) 설치</h3>
+  <p>금융·공공 환경에서는 클러스터가 인터넷에 나가지 못합니다. KServe는 외부 의존이 많은 편이라 준비할 목록이 깁니다.</p>
+  <ol>
+    <li><b>컨테이너 이미지 미러링</b> — 컨트롤러, 웹훅, 각 ServingRuntime 이미지, storage-initializer, EPP, 그리고 vLLM 이미지(수 GB)</li>
+    <li><b>Helm 차트</b> — OCI 레지스트리(<code>ghcr.io/kserve/charts</code>)에서 <code>helm pull</code>로 받아 사내 레지스트리로 push</li>
+    <li><b>ClusterServingRuntime 이미지 치환</b> — 5장에서 언급한 대로 런타임 정의의 <code>image</code>를 전부 사내 경로로</li>
+    <li><b>모델 아티팩트</b> — <code>hf://</code>는 쓸 수 없습니다. 사내 S3 호환 스토리지(MinIO 등)나 PVC, 또는 OCI 이미지로 모델을 옮겨 두고 <code>s3://</code>, <code>pvc://</code>, <code>oci+native://</code>를 씁니다</li>
+    <li><b>의존 컴포넌트</b> — cert-manager, Istio/Envoy Gateway, Knative, KEDA, Gateway API CRD까지 전부</li>
+    <li><b>사내 CA</b> — v0.20부터 HTTPS·HuggingFace 다운로드에서 CA 번들을 존중합니다. 사내 프록시에 자체 서명 인증서를 쓴다면 이 설정이 필요합니다</li>
+  </ol>
+  <div class="tip"><b>모델을 OCI 이미지로 만들면 폐쇄망이 훨씬 편해집니다.</b><p>이미 이미지 미러링 파이프라인이 있다면 모델도 같은 경로로 들여올 수 있습니다. v0.20의 <code>oci+native://</code>는 사이드카 없이 ImageVolume으로 바로 마운트하므로 구조도 단순합니다(K8s 1.33+).</p></div>
+
+  <h3>보안 점검 항목</h3>
+  <div class="cards">
+    <div class="card rose"><h5>엔드포인트 인증</h5><p>KServe 자체는 인증을 강제하지 않습니다. 게이트웨이(Istio AuthorizationPolicy, Envoy JWT 필터)에서 걸어야 합니다. 내부망이라고 열어 두면 누구나 모델을 호출합니다.</p></div>
+    <div class="card rose"><h5>모델 출처</h5><p><code>hf://</code>로 외부 모델을 직접 받는 건 편하지만, 검증되지 않은 가중치를 프로덕션에 올리는 경로이기도 합니다. 사내 레지스트리를 거치게 하세요.</p></div>
+    <div class="card rose"><h5>CVE 추적</h5><p>KServe는 릴리스마다 상당수 CVE를 수정합니다. 이미지 태그를 고정해 두고 오래 쓰면 취약점이 쌓입니다. 분기 단위 업그레이드 리듬을 만드세요.</p></div>
+    <div class="card rose"><h5>Logger 데이터</h5><p>12장의 Logger는 요청 본문을 그대로 외부로 보냅니다. 개인정보가 포함되는 서비스라면 켜기 전에 검토가 필요합니다.</p></div>
+  </div>
+
+  <h3>버전 정책에 대한 조언</h3>
+  <p>KServe는 릴리스 주기가 빠릅니다. 2026년에만 0.17(3월), 0.18, 0.19(6월), 0.20(8월)이 나왔고 그 사이에 기본 동작이 여러 번 바뀌었습니다. 운영 관점의 권장은 이렇습니다.</p>
+  <ul>
+    <li>차트 버전을 <b>반드시 고정</b>합니다(<code>--version v0.20.0</code>). 최신 태그 추종 금지.</li>
+    <li>한 번에 한 마이너 버전씩 올립니다. 0.17에서 0.20으로 건너뛰지 마세요.</li>
+    <li>업그레이드 전 릴리스 노트의 breaking change 섹션을 읽습니다. 특히 llm-d 의존성 변경.</li>
+    <li>스테이징 클러스터를 유지합니다. KServe는 컴포넌트가 많아 문서만 읽고는 예측이 어렵습니다.</li>
+  </ul>
+</section>
+
+<!-- ============ 18장 ============ -->
+<section class="sec" id="c18">
+  <div class="sechead">
+    <span class="chnum">18</span>
+    <div><h2>증상별 트러블슈팅</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c18"> 완료</label>
+  </div>
+  <p class="lead">실제로 자주 만나는 상황을 증상 기준으로 모았습니다. 원인 후보는 발생 빈도 순입니다.</p>
+
+  <details class="acc"><summary>파드가 <code>Init:0/1</code>에서 넘어가지 않는다</summary>
+    <div class="accbody">
+      <p>스토리지 이니셜라이저가 모델을 받는 중이거나, 받지 못하고 있습니다.</p>
+      <div class="codewrap"><div class="codehead"><span class="fn">확인</span><button class="copy">복사</button></div>
+<pre>kubectl logs &lt;pod&gt; -c storage-initializer -f</pre></div>
+      <ul>
+        <li><b>진행 중</b> — 대용량 모델이면 정상입니다. 6장의 캐시 기법을 검토하세요.</li>
+        <li><b>AccessDenied / 403</b> — ServiceAccount에 자격증명이 안 붙었거나 버킷 권한 부족.</li>
+        <li><b>NoSuchKey / 404</b> — <code>storageUri</code> 경로 오타. 디렉터리를 가리켜야 하는데 파일을 가리켰거나 그 반대.</li>
+        <li><b>디스크 부족</b> — emptyDir 기본 크기가 노드 디스크에 묶여 있습니다. 대형 모델은 PVC를 쓰세요.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary><code>No such file or directory: '/mnt/models'</code></summary>
+    <div class="accbody">
+      <p>스토리지 이니셜라이저가 아예 주입되지 않았다는 뜻입니다. 순서대로 확인하세요.</p>
+      <ol>
+        <li>네임스페이스에 <code>control-plane</code> 라벨이 붙어 있지 않은지. 웹훅이 이런 네임스페이스를 의도적으로 건너뜁니다.</li>
+        <li>커스텀 컨테이너를 쓴다면 이름이 <code>kserve-container</code>인지.</li>
+        <li>커스텀 컨테이너에 <code>STORAGE_URI</code> 환경변수를 줬는지.</li>
+        <li>웹훅 파드가 살아 있는지, 인증서가 만료되지 않았는지(<code>kubectl get validatingwebhookconfiguration</code>).</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="acc"><summary>isvc가 <code>READY=False</code>인데 파드는 <code>Running</code>이다</summary>
+    <div class="accbody">
+      <p>파드는 떴지만 라우팅이나 준비 조건이 안 맞는 상태입니다.</p>
+      <div class="codewrap"><div class="codehead"><span class="fn">확인</span><button class="copy">복사</button></div>
+<pre>kubectl get isvc &lt;name&gt; -o jsonpath=<span class="s">'{.status.conditions}'</span> | jq
+kubectl describe isvc &lt;name&gt; | tail -40</pre></div>
+      <ul>
+        <li><b>IngressReady=False</b> — 게이트웨이나 HTTPRoute 문제. Gateway 리소스가 주소를 받았는지 확인.</li>
+        <li><b>readinessProbe 실패</b> — 모델은 로딩됐는데 헬스 경로가 다릅니다. 커스텀 서버라면 <code>/v1/models/&lt;name&gt;</code> 또는 <code>/v2/health/ready</code>를 구현했는지.</li>
+        <li><b>Knative 모드</b> — activator 경유 여부, 리비전 상태를 함께 확인(<code>kubectl get revision</code>).</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary>런타임을 못 찾는다 — <code>No matching runtime</code></summary>
+    <div class="accbody">
+      <ul>
+        <li><code>kubectl get clusterservingruntimes</code>가 비어 있다면 <code>kserve-runtime-configs</code> 차트를 설치하지 않은 것입니다. 가장 흔한 원인입니다.</li>
+        <li><code>modelFormat.name</code> 철자 확인. <code>sklearn</code>이지 <code>scikit-learn</code>이 아닙니다.</li>
+        <li><code>protocolVersion: v2</code>를 줬는데 그 런타임이 v2를 지원하지 않는 경우.</li>
+        <li>같은 포맷을 여러 런타임이 같은 <code>priority</code>로 지원하면 모호성 오류가 납니다. <code>runtime:</code>으로 직접 지정하세요.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary>GPU 파드가 <code>Pending</code>에서 안 움직인다</summary>
+    <div class="accbody">
+      <div class="codewrap"><div class="codehead"><span class="fn">확인</span><button class="copy">복사</button></div>
+<pre>kubectl describe pod &lt;pod&gt; | grep -A10 Events
+kubectl get nodes -o custom-columns=<span class="s">'NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu'</span></pre></div>
+      <ul>
+        <li><b>Insufficient nvidia.com/gpu</b> — 남은 GPU가 없습니다. 다른 워크로드가 점유 중이거나 클러스터 오토스케일러가 노드를 못 띄우고 있습니다.</li>
+        <li><b>taint 불일치</b> — GPU 노드에 taint가 있는데 파드에 toleration이 없습니다.</li>
+        <li><b>멀티노드(LWS)</b> — 리더+워커가 <b>동시에</b> 스케줄 가능해야 그룹이 뜹니다. 부분 배치만 가능하면 전체가 Pending입니다.</li>
+        <li><b>DRA 사용 시</b> — ResourceClaim이 만족되지 않았을 수 있습니다. <code>kubectl get resourceclaims</code>로 확인.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary>LLM 응답이 느리다 — TTFT가 튄다</summary>
+    <div class="accbody">
+      <p>14장·15장의 내용이 전부 여기서 만납니다. 확인 순서를 권합니다.</p>
+      <ol>
+        <li><b>프리픽스 캐시 적중률</b>이 낮다면 EPP 라우팅이 어긋난 것입니다. EPP 파드가 살아 있는지, 스케줄링 프로파일의 가중치가 적절한지 확인.</li>
+        <li><b>KV 캐시 사용률이 포화</b>면 캐시가 계속 밀려나고 있습니다. 레플리카를 늘리거나 v0.20의 <code>kvCacheOffloading</code>을 검토.</li>
+        <li><b>큐 깊이 상승</b> — 오토스케일이 못 따라갑니다. WVA 임계값과 KEDA 폴링 주기를 조정.</li>
+        <li><b>긴 프롬프트가 섞여 있다</b> — 프리필이 디코드를 밀어냅니다. P/D 분리를 검토(단 15장의 경고 참고).</li>
+        <li><b>모델이 방금 뜬 파드</b> — 워밍업 중일 수 있습니다. startup probe와 워밍업 요청을 설정하세요.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="acc"><summary>롤링 업데이트 때 응답이 중간에 끊긴다</summary>
+    <div class="accbody">
+      <p>v0.19의 우아한 종료 설정이 적용되지 않았거나, 시간이 부족한 경우입니다.</p>
+      <ul>
+        <li><code>terminationGracePeriodSeconds</code>가 60 미만이면 vLLM의 드레인 시간이 부족합니다.</li>
+        <li>매우 긴 생성(수천 토큰)을 다룬다면 이 값을 120 이상으로 늘리세요.</li>
+        <li>preStop의 15초 sleep은 EPP가 라우팅을 멈추기 위한 시간입니다. 이걸 없애면 종료 중인 파드로 새 요청이 들어갑니다.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary>업그레이드 후 CRD 관련 에러가 쏟아진다</summary>
+    <div class="accbody">
+      <ul>
+        <li>v0.16 이하에서 단순 <code>helm upgrade</code>를 시도한 경우가 대부분입니다. 17장의 마이그레이션 절차로 되돌아가세요.</li>
+        <li><code>ClusterStorageContainer</code> CRD가 삭제됐다면 스토리지 설정이 통째로 사라집니다. v0.19에서 이를 막는 수정이 들어갔지만, 그 이전 버전에서 업그레이드한다면 백업이 필수입니다.</li>
+        <li>minimal CRD로 설치한 클러스터에서 변환 웹훅이 필요한 상황이 생길 수 있습니다. v0.19부터 minimal 설치에서도 변환 웹훅이 활성화됩니다.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary>메트릭이 프로메테우스에 안 잡힌다</summary>
+    <div class="accbody">
+      <ul>
+        <li>ServingRuntime의 <code>prometheus.kserve.io/port</code>, <code>/path</code> 어노테이션 확인.</li>
+        <li>ServiceMonitor의 셀렉터가 KServe가 만든 Service의 라벨과 맞는지. v0.19부터 <code>spec.labels</code>가 워크로드 Service로 전파되므로 이걸 셀렉터 키로 쓰면 편합니다.</li>
+        <li>Knative 모드에서는 queue-proxy가 별도 포트로 메트릭을 냅니다. 두 소스를 모두 수집해야 그림이 완성됩니다.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="acc"><summary>트래픽 분할 그룹이 Degraded로 뜬다 (llmisvc)</summary>
+    <div class="accbody">
+      <p>v0.20의 <code>GroupDegraded</code> 조건입니다. 그룹 멤버 중 일부가 준비되지 않았다는 뜻인데, <b>서비스 자체의 <code>Ready</code>는 유지</b>됩니다. 즉 추론은 계속 됩니다.</p>
+      <ul>
+        <li>새로 올린 버전의 파드가 뜨지 못하고 있는지 확인. 모델 다운로드나 GPU 부족이 흔한 원인입니다.</li>
+        <li>여러 llmisvc가 같은 모델 라우팅 이름을 쓰면 충돌 경고가 납니다. 이름을 유일하게 맞추세요.</li>
+      </ul>
+    </div>
+  </details>
+
+  <h3>일반 디버깅 순서</h3>
+  <div class="codewrap">
+    <div class="codehead"><span class="fn">triage.sh</span><button class="copy">복사</button></div>
+<pre><span class="c"># 1. 선언은 잘 들어갔나</span>
+kubectl get isvc,llmisvc -A
+
+<span class="c"># 2. 컨트롤러가 뭐라고 하나</span>
+kubectl describe isvc &lt;name&gt; | tail -40
+kubectl logs -n kserve deploy/kserve-controller-manager --tail=100
+
+<span class="c"># 3. 만들어진 리소스는</span>
+kubectl get deploy,svc,hpa,httproute -l serving.kserve.io/inferenceservice=&lt;name&gt;
+
+<span class="c"># 4. 파드 안에서는</span>
+kubectl logs &lt;pod&gt; -c storage-initializer
+kubectl logs &lt;pod&gt; -c kserve-container --tail=200
+
+<span class="c"># 5. 클러스터 안에서 직접 찔러 보기 (게이트웨이 배제)</span>
+kubectl run curl --rm -it --image=curlimages/curl -- \
+  curl -s http://&lt;svc&gt;.&lt;ns&gt;.svc.cluster.local/v1/models/&lt;name&gt;</pre>
+  </div>
+  <p>5번이 중요합니다. 서비스 안에서 직접 호출해 보면 문제가 <b>모델 쪽인지 네트워킹 쪽인지</b> 단번에 갈립니다.</p>
+</section>
+
+<!-- ============ 19장 ============ -->
+<section class="sec" id="c19">
+  <div class="sechead">
+    <span class="chnum">19</span>
+    <div><h2>용어 사전과 확인 문제</h2></div>
+    <label class="chk"><input type="checkbox" data-ch="c19"> 완료</label>
+  </div>
+  <p class="lead">강의에 나온 용어를 한곳에 모았습니다. 검색으로 찾아 쓰세요.</p>
+
+  <div class="widget">
+    <div class="wtitle"><span class="dot"></span>용어 사전<span class="hint" id="glCount"></span></div>
+    <div class="wbody">
+      <div class="wrow">
+        <input type="text" id="glQ" placeholder="한글·영어로 검색 (예: 캐시, EPP, 프리필)" style="flex:1 1 220px">
+        <button class="btn sm on" data-glc="all">전체</button>
+        <button class="btn sm" data-glc="core">코어</button>
+        <button class="btn sm" data-glc="llm">LLM</button>
+        <button class="btn sm" data-glc="ops">운영</button>
+      </div>
+      <div id="glList" style="max-height:440px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <h3>확인 문제</h3>
+  <p>12문항입니다. 답을 고르면 바로 해설이 나옵니다.</p>
+  <div class="widget">
+    <div class="wtitle"><span class="dot" style="background:var(--gpu)"></span>퀴즈<span class="hint" id="qzScore">0 / 12</span></div>
+    <div class="wbody" id="qzBox"></div>
+  </div>
+
+  <h3>여기서 더 나아가려면</h3>
+  <div class="cards">
+    <div class="card pred"><h5>직접 띄워 보기</h5><p>kind 클러스터에 Standard 모드로 설치하고 sklearn iris 예제부터. 그다음 작은 LLM(0.5B급)을 vLLM 런타임으로 올려 보세요.</p></div>
+    <div class="card gen"><h5>EPP를 관찰하기</h5><p>같은 프롬프트를 반복 호출하면서 TTFT를 재 보세요. 캐시 적중이 생기는 순간이 숫자로 보입니다.</p></div>
+    <div class="card data"><h5>부하 테스트</h5><p>스케일이 실제로 어떻게 반응하는지 측정하세요. 9장의 시뮬레이터는 모델일 뿐입니다.</p></div>
+    <div class="card gpu"><h5>릴리스 노트 구독</h5><p>이 강의의 절반은 최근 네 릴리스의 내용입니다. 분기마다 한 번은 릴리스 노트를 확인하세요.</p></div>
+  </div>
+
+  <div class="note">
+    <b>이 강의의 기준 버전은 v0.20.0입니다.</b>
+    <p>KServe는 릴리스 주기가 빠릅니다. 설치 명령, CRD 필드 이름, 기본값은 새 버전에서 바뀔 수 있습니다. 실제 적용 전에는 여러분이 쓰는 버전의 공식 문서를 함께 보세요.</p>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p>KServe 실전 강의 · 기준 버전 v0.20.0 (2026-08-06) · 초보 AI 엔지니어를 위한 자료</p>
+    <p class="muted">KServe는 CNCF Incubating 프로젝트입니다. 이 문서의 내용은 학습 목적으로 정리한 것이며, 운영 적용 시에는 공식 문서와 사용 중인 버전의 릴리스 노트를 확인하세요.</p>
+  </div>
+</footer>
+
+<script>
+/* ===== 용어 사전 ===== */
+(function(){
+  var q=document.getElementById('glQ'); if(!q) return;
+  var list=document.getElementById('glList'), cnt=document.getElementById('glCount');
+  var cat='all';
+  var G=[
+    ['core','InferenceService (isvc)','KServe의 핵심 CRD. 예측형 모델 하나를 서빙하는 단위입니다. predictor(필수), transformer, explainer로 구성됩니다.'],
+    ['llm','LLMInferenceService (llmisvc)','생성형 AI 전용 CRD. KV 캐시 인지 라우팅, prefill/decode 분리, 분산 추론을 스펙에서 직접 다룹니다. API 버전은 v1alpha2입니다.'],
+    ['core','ServingRuntime','특정 모델 포맷을 처리할 서버의 이미지·인자·포트를 정의한 템플릿. 네임스페이스 범위입니다.'],
+    ['core','ClusterServingRuntime','클러스터 전체에서 쓰는 ServingRuntime. 기본 런타임 목록이 이 형태로 설치됩니다.'],
+    ['core','modelFormat','모델의 형식 이름(sklearn, pytorch, vllm 등). 이 값으로 알맞은 런타임이 자동 선택됩니다.'],
+    ['core','storageUri','모델 위치. s3://, gs://, hf://, pvc://, oci://, oci+native://, https:// 를 지원합니다.'],
+    ['core','storage initializer','파드 기동 시 모델을 내려받아 /mnt/models에 놓는 initContainer. 이게 끝나야 추론 서버가 시작합니다.'],
+    ['core','/mnt/models','모든 KServe 런타임이 모델을 찾는 약속된 경로입니다.'],
+    ['core','kserve-container','추론 서버 컨테이너의 예약된 이름. 커스텀 컨테이너를 쓸 때도 이 이름을 지켜야 포트·프로브·메트릭이 연결됩니다.'],
+    ['core','predictor','isvc의 필수 컴포넌트. 모델을 로딩하고 추론을 수행합니다.'],
+    ['core','transformer','predictor 앞뒤에 붙는 전/후처리 계층. 별도 파드로 뜨며 독립적으로 스케일됩니다.'],
+    ['core','explainer','예측의 근거를 계산하는 컴포넌트. :explain 엔드포인트로 호출합니다.'],
+    ['core','batcher','작은 요청들을 묶어 한 배치로 처리하는 기능. maxBatchSize와 maxLatency로 제어합니다.'],
+    ['core','logger','요청·응답을 CloudEvents 형식으로 외부에 전송하는 기능. 모니터링과 재학습 데이터 수집에 씁니다.'],
+    ['core','InferenceGraph','여러 isvc를 엮는 CRD. Sequence, Switch, Ensemble, Splitter 네 가지 라우터 타입이 있습니다.'],
+    ['core','GJSON','InferenceGraph의 condition에 쓰는 JSON 조회 문법. JSONPath와 비슷합니다.'],
+    ['core','V1 프로토콜','KServe의 단순 REST 규약. /v1/models/&lt;name&gt;:predict 로 JSON 배열을 주고받습니다.'],
+    ['core','Open Inference Protocol (V2)','텐서의 이름·모양·타입을 명시하는 표준 프로토콜. Triton, TF Serving, TorchServe가 공유합니다. gRPC와 바이너리 전송을 지원합니다.'],
+    ['core','바이너리 텐서 확장','V2에서 큰 텐서를 JSON 대신 raw 바이트로 전송하는 확장. 직렬화 비용을 없앱니다.'],
+    ['core','Knative 모드','isvc를 Knative Service로 배포하는 모드. 0까지 축소와 리비전 기반 카나리를 제공합니다.'],
+    ['core','Standard 모드','평범한 Deployment + HPA로 배포하는 모드. 이전 이름은 RawDeployment입니다.'],
+    ['core','queue-proxy','Knative 모드에서 주입되는 사이드카. 동시 요청 수를 세어 오토스케일러에 보고합니다.'],
+    ['core','KPA','Knative Pod Autoscaler. 동시 요청 수나 RPS로 스케일하며 0까지 줄일 수 있습니다.'],
+    ['core','canaryTrafficPercent','Knative 모드에서 새 리비전이 받을 트래픽 비율. 0으로 두면 롤백, 필드를 지우면 승격입니다.'],
+    ['core','TrainedModel','하나의 서버에 여러 모델을 올리는 멀티모델 서빙용 CRD.'],
+    ['llm','KV 캐시','어텐션 계산에 쓰이는 Key/Value 텐서를 GPU 메모리에 보관한 것. 토큰 수에 비례해 커집니다.'],
+    ['llm','prefill (프리필)','입력 프롬프트 전체를 읽어 KV 캐시를 채우는 단계. 연산 집약적이며 TTFT를 결정합니다.'],
+    ['llm','decode (디코드)','토큰을 하나씩 생성하는 단계. 메모리 대역폭 집약적이며 초당 토큰 수를 결정합니다.'],
+    ['llm','TTFT','Time To First Token. 요청부터 첫 토큰이 나오기까지의 시간. 체감 반응 속도의 핵심 지표입니다.'],
+    ['llm','TPOT','Time Per Output Token. 토큰 하나당 생성 시간. 글자가 흘러나오는 속도입니다.'],
+    ['llm','EPP','Endpoint Picker Pod. 각 파드의 KV 캐시 상태와 큐 깊이를 채점해 요청을 보낼 파드를 고릅니다.'],
+    ['llm','GIE','Gateway API Inference Extension. 표준 Gateway API에 AI 추론용 라우팅을 더한 쿠버네티스 SIG 프로젝트. v0.20은 v1.5.0을 씁니다.'],
+    ['llm','InferencePool','같은 모델을 서빙하는 파드들의 묶음을 나타내는 GIE 리소스. 라우팅 결정을 EPP에 위임합니다.'],
+    ['llm','prefix-cache-scorer','요청 프롬프트의 접두사와 일치하는 캐시 블록을 얼마나 갖고 있는지로 파드를 채점하는 플러그인. 기본 가중치 2.0.'],
+    ['llm','load-aware-scorer','큐 깊이로 파드를 채점하는 플러그인. 빈 큐가 0.5점, 임계값을 넘으면 0에 수렴합니다. 기본 가중치 1.0.'],
+    ['llm','max-score-picker','채점이 끝난 뒤 가중 합산 점수가 가장 높은 파드를 선택하는 플러그인.'],
+    ['llm','EndpointPickerConfig','EPP의 플러그인 파이프라인과 가중치를 정의하는 리소스. 인라인 또는 ConfigMap 참조로 지정합니다.'],
+    ['llm','llm-d','쿠버네티스 위 분산 LLM 추론 프레임워크. LLMInferenceService의 내부 구현입니다. v0.20은 llm-d v0.8.0을 씁니다.'],
+    ['llm','vLLM','페이지드 어텐션과 연속 배칭으로 높은 처리량을 내는 LLM 추론 엔진. KServe의 기본 LLM 런타임입니다.'],
+    ['llm','연속 배칭','요청이 도착하는 대로 진행 중인 배치에 끼워 넣는 vLLM의 스케줄링 방식. 별도 batcher가 필요 없는 이유입니다.'],
+    ['llm','Tensor Parallelism (TP)','한 레이어의 행렬 연산을 여러 GPU에 쪼개는 방식. 통신이 잦아 노드 안에서 씁니다.'],
+    ['llm','Data Parallelism (DP)','모델 전체 복제본을 여러 개 두어 처리량을 늘리는 방식.'],
+    ['llm','Expert Parallelism (EP)','MoE 모델의 전문가들을 여러 GPU에 분산하는 방식.'],
+    ['llm','LeaderWorkerSet (LWS)','리더 1개와 워커 N개를 한 단위로 스케일하는 쿠버네티스 워크로드 API. 멀티노드 추론에 쓰입니다.'],
+    ['llm','NixlConnector','prefill 파드가 만든 KV 캐시를 decode 파드로 전송하는 커넥터. RDMA(RoCE)를 씁니다.'],
+    ['llm','kvCacheOffloading','GPU에서 밀려나는 KV 캐시를 CPU 메모리로 내려 두는 v0.20 기능. spec.kvCacheOffloading.cpu로 설정합니다.'],
+    ['llm','WVA','Workload Variant Autoscaler. KV 캐시 사용률과 큐 깊이로 필요한 레플리카 수를 계산해 메트릭으로 내보냅니다.'],
+    ['llm','variant','같은 모델의 서로 다른 배포 구성(GPU 종류, 병렬화 전략). variantCost로 상대 비용을 적어 비용 인지 스케일링을 합니다.'],
+    ['llm','LoRA','베이스 모델은 그대로 두고 작은 어댑터만 바꿔 끼우는 파인튜닝 방식. 한 서버에 여러 어댑터를 올릴 수 있습니다.'],
+    ['llm','lora-affinity-scorer','요청한 LoRA 어댑터가 이미 활성화된 파드를 선호하는 채점기. v0.20부터 자동 주입됩니다.'],
+    ['llm','모델명 기반 라우팅','X-Gateway-Model-Name 헤더로 하나의 게이트웨이가 여러 모델을 분배하는 v0.19 기능.'],
+    ['llm','Envoy AI Gateway','LLM 트래픽 관리용 게이트웨이. 요청 수가 아닌 토큰 수 기준 rate limit이 핵심입니다. v0.20은 v1.0.0을 씁니다.'],
+    ['llm','LLMInferenceServiceConfig','재사용 가능한 LLM 배포 템플릿. Well-Known Config → baseRefs → 개별 spec 순으로 병합됩니다.'],
+    ['llm','SSE','Server-Sent Events. 서버가 연결을 열어 둔 채 토큰을 조각으로 계속 보내는 스트리밍 방식.'],
+    ['ops','LocalModelCache','모델을 노드 로컬 디스크에 캐시해 두는 CRD. 같은 노드의 파드들이 공유합니다.'],
+    ['ops','LocalModelNodeGroup','캐시를 둘 노드들의 논리적 묶음.'],
+    ['ops','ClusterStorageContainer','스토리지 백엔드별 컨테이너와 자격증명을 클러스터 차원에서 정의하는 리소스.'],
+    ['ops','oci+native://','컨테이너 런타임이 ImageVolume으로 모델 이미지를 직접 마운트하는 v0.20 스킴. 사이드카와 다운로드가 없습니다. K8s 1.33+ 필요.'],
+    ['ops','confidential serving','암호화된 모델을 TEE 안에서만 복호화하는 v0.20 기능. 평문 가중치가 TEE 밖으로 나가지 않습니다.'],
+    ['ops','TEE','Trusted Execution Environment. 호스트 OS나 하이퍼바이저도 읽을 수 없는 격리된 실행 영역입니다.'],
+    ['ops','KBS','Key Broker Service. 하드웨어 증명을 검증하고 통과한 TEE에만 복호화 키를 내려 줍니다.'],
+    ['ops','DRA','Dynamic Resource Allocation. GPU 같은 장치를 유연하게 배분하는 쿠버네티스 API. v0.20은 어노테이션 두 개로 지원합니다.'],
+    ['ops','KEDA','외부 메트릭 기반 오토스케일러. 프로메테우스 쿼리로 스케일하고 0까지 줄일 수 있습니다.'],
+    ['ops','graceful drain','종료 시 진행 중 요청을 마무리하는 절차. preStop 15초 → SIGTERM → vLLM 드레인 45초 순서입니다.'],
+    ['ops','ScalingReady','오토스케일링 리소스(HPA/ScaledObject)의 건강 상태를 나타내는 v0.19 조건.'],
+    ['ops','GroupReady / GroupDegraded','v0.20 트래픽 분할 그룹의 상태 조건. 서비스의 Ready와 독립적으로 동작합니다.'],
+    ['ops','CloudEvents','이벤트 메타데이터를 서술하는 CNCF 표준. KServe Logger가 이 형식으로 보냅니다.'],
+    ['ops','에어갭(폐쇄망)','인터넷 접근이 없는 환경. 이미지·차트·모델을 모두 사내로 미러링해야 합니다.']
+  ];
+  function render(){
+    var s=(q.value||'').trim().toLowerCase();
+    var rows=G.filter(function(g){
+      if(cat!=='all'&&g[0]!==cat) return false;
+      if(!s) return true;
+      return (g[1]+' '+g[2]).toLowerCase().indexOf(s)>=0;
+    });
+    cnt.textContent=rows.length+' / '+G.length+'개';
+    if(!rows.length){list.innerHTML='<p class="muted" style="font-size:.86rem;padding:.6rem">일치하는 용어가 없습니다. 다른 말로 찾아보세요.</p>';return;}
+    var cc={core:'var(--pred)',llm:'var(--gen)',ops:'var(--data)'};
+    list.innerHTML=rows.map(function(g){
+      return '<div style="border-bottom:1px solid var(--line);padding:.55rem .2rem">'+
+        '<div style="display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap">'+
+        '<b style="font-size:.9rem;color:'+cc[g[0]]+'">'+g[1]+'</b>'+
+        '<span class="mono" style="font-size:.66rem;color:var(--dim2)">'+({core:'코어',llm:'LLM',ops:'운영'})[g[0]]+'</span></div>'+
+        '<p style="margin:.2rem 0 0;font-size:.85rem;color:var(--dim);max-width:none">'+g[2]+'</p></div>';
+    }).join('');
+  }
+  q.addEventListener('input',render);
+  document.querySelectorAll('[data-glc]').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('[data-glc]').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on'); cat=b.dataset.glc; render();
+    });
+  });
+  render();
+})();
+
+/* ===== 퀴즈 ===== */
+(function(){
+  var box=document.getElementById('qzBox'); if(!box) return;
+  var Q=[
+    {q:'InferenceService에서 <code>modelFormat: {name: sklearn}</code>만 적었을 때, 어떤 이미지로 뜰지 결정하는 것은?',
+     a:['컨트롤러가 내장한 하드코딩 매핑','조건에 맞는 ServingRuntime / ClusterServingRuntime','Knative 리비전 설정','storageUri의 경로 패턴'],
+     c:1,e:'supportedModelFormats에 그 포맷이 있고 autoSelect가 true인 런타임이 선택됩니다. 여러 개면 priority가 높은 쪽이 이깁니다.'},
+    {q:'커스텀 컨테이너로 predictor를 만들 때 컨테이너 이름을 무엇으로 해야 하나요?',
+     a:['predictor','main','kserve-container','model-server'],
+     c:2,e:'kserve-container여야 KServe가 포트·프로브·스토리지 마운트·메트릭을 올바르게 연결합니다.'},
+    {q:'파드가 <code>No such file or directory: /mnt/models</code>로 죽습니다. 가장 먼저 확인할 것은?',
+     a:['GPU 드라이버 버전','네임스페이스에 control-plane 라벨이 붙었는지','Knative 리비전 수','프로메테우스 설정'],
+     c:1,e:'control-plane 라벨이 붙은 네임스페이스는 웹훅이 건너뛰므로 스토리지 이니셜라이저가 주입되지 않습니다.'},
+    {q:'Standard 모드의 예전 이름은?',
+     a:['Serverless','RawDeployment','ModelMesh','Classic'],
+     c:1,e:'RawDeployment가 Standard로 이름이 바뀌었습니다. 오래된 문서를 볼 때 알아 두면 좋습니다.'},
+    {q:'예측형 모델에 CPU 사용률 기반 HPA가 부적절한 이유로 가장 정확한 것은?',
+     a:['CPU 메트릭 수집이 느려서','GPU가 포화여도 CPU는 낮을 수 있어서','HPA가 GPU를 지원하지 않아서','파드 수 상한이 낮아서'],
+     c:1,e:'실제 압력은 동시 요청 수, 큐 깊이, KV 캐시 점유율에 나타납니다. CPU 사용률은 GPU 워크로드의 포화를 반영하지 못합니다.'},
+    {q:'InferenceGraph에서 앞 단계의 출력을 다음 스텝의 입력으로 넘기려면?',
+     a:['자동으로 넘어간다','해당 스텝에 <code>data: $response</code>를 준다','routerType을 Ensemble로 한다','condition을 비워 둔다'],
+     c:1,e:'명시하지 않으면 각 스텝은 노드가 받은 원본 입력을 그대로 받습니다.'},
+    {q:'EPP가 요청을 보낼 파드를 고를 때 가장 큰 기본 가중치를 갖는 채점기는?',
+     a:['load-aware-scorer (1.0)','prefix-cache-scorer (2.0)','lora-affinity-scorer (3.0)','max-score-picker (5.0)'],
+     c:1,e:'prefix-cache-scorer가 2.0, load-aware-scorer가 1.0입니다. max-score-picker는 채점기가 아니라 최종 선택기입니다.'},
+    {q:'prefill 단계의 특성으로 맞는 것은?',
+     a:['메모리 대역폭 집약적이며 TPOT를 결정','연산 집약적이며 TTFT를 결정','네트워크 집약적이며 처리량을 결정','디스크 I/O 집약적'],
+     c:1,e:'프리필은 프롬프트 전체를 병렬로 계산해 GPU 연산 유닛을 채웁니다. 이 시간이 첫 토큰까지의 지연이 됩니다.'},
+    {q:'prefill/decode 분리를 도입할 때 가장 주의해야 할 비용은?',
+     a:['컨트롤러 CPU 사용량','KV 캐시를 네트워크로 전송하는 비용','CRD 크기 증가','Helm 차트 수 증가'],
+     c:1,e:'수백 MB의 KV 캐시를 옮겨야 합니다. RDMA가 없는 환경에서는 전송 시간이 이득보다 클 수 있습니다.'},
+    {q:'Envoy AI Gateway의 토큰 단위 rate limit이 필요한 이유는?',
+     a:['토큰이 보안 자격증명이라서','LLM은 요청 1건의 비용이 크게 달라서','HTTP 표준이 요구해서','vLLM이 요청 수를 세지 못해서'],
+     c:1,e:'50토큰 질문과 3만 토큰 요약을 같은 1건으로 세면 공정하지도, 비용 통제에 유용하지도 않습니다.'},
+    {q:'v0.16에서 v0.17 이상으로 올릴 때 주의할 점은?',
+     a:['단순 helm upgrade로 충분하다','차트 구조가 바뀌어 별도 마이그레이션 절차가 필요하다','CRD를 먼저 지워야 한다','Knative를 반드시 제거해야 한다'],
+     c:1,e:'차트가 1개에서 10개로 재편됐습니다. CRD 보존 어노테이션을 활용한 단계별 절차를 따라야 합니다.'},
+    {q:'모델이 140GB인데 파드가 뜰 때마다 S3에서 받고 있습니다. 가장 먼저 검토할 선택지는?',
+     a:['minReplicas를 0으로 낮춘다','LocalModelCache 또는 oci+native 같은 적재 방식 변경','maxBatchSize를 늘린다','protocolVersion을 v2로 바꾼다'],
+     c:1,e:'콜드 스타트의 지배적 요인은 모델 적재입니다. 캐시나 이미지 볼륨 마운트로 다운로드 자체를 없애는 쪽이 효과가 큽니다. minReplicas를 0으로 낮추면 오히려 악화됩니다.'}
+  ];
+  var done={}, score=0;
+  box.innerHTML=Q.map(function(x,i){
+    return '<div style="border-bottom:1px solid var(--line);padding:.8rem 0" data-qi="'+i+'">'+
+      '<p style="margin:0 0 .5rem;font-size:.9rem"><b class="mono" style="color:var(--dim2)">Q'+(i+1)+'.</b> '+x.q+'</p>'+
+      '<div style="display:grid;gap:.3rem">'+x.a.map(function(a,j){
+        return '<button class="btn sm" style="text-align:left;justify-self:start;max-width:100%" data-qi="'+i+'" data-ai="'+j+'">'+a+'</button>';
+      }).join('')+'</div>'+
+      '<div class="qzE" style="display:none;margin-top:.5rem;font-size:.85rem;border-left:2px solid var(--gpu);padding-left:.6rem;color:var(--dim)"></div></div>';
+  }).join('');
+  box.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-ai]'); if(!b) return;
+    var i=+b.dataset.qi, j=+b.dataset.ai;
+    if(done[i]) return;
+    done[i]=true;
+    var wrap=box.querySelector('div[data-qi="'+i+'"]');
+    var ok=(j===Q[i].c);
+    if(ok) score++;
+    wrap.querySelectorAll('button[data-ai]').forEach(function(x){
+      var xi=+x.dataset.ai;
+      if(xi===Q[i].c){x.style.borderColor='var(--gpu)';x.style.color='var(--gpu)';}
+      else if(xi===j){x.style.borderColor='var(--rose)';x.style.color='var(--rose)';}
+      x.disabled=true;
+    });
+    var ex=wrap.querySelector('.qzE');
+    ex.style.display='block';
+    ex.style.borderLeftColor= ok?'var(--gpu)':'var(--rose)';
+    ex.innerHTML='<b style="color:'+(ok?'var(--gpu)':'var(--rose)')+'">'+(ok?'정답':'오답')+'</b> — '+Q[i].e;
+    document.getElementById('qzScore').textContent=score+' / '+Q.length;
+  });
+})();
+</script>
+
+<script>
+/* ===== 탭 ===== */
+document.querySelectorAll('[data-tabs]').forEach(function(bar){
+  bar.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-p]'); if(!b) return;
+    var scope=bar.parentElement;
+    bar.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+    b.classList.add('on');
+    scope.querySelectorAll(':scope > [data-panel]').forEach(function(p){
+      p.classList.toggle('on', p.dataset.panel===b.dataset.p);
+    });
+  });
+});
+
+/* ===== 코드 복사 ===== */
+document.querySelectorAll('.copy').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var pre=btn.closest('.codewrap').querySelector('pre');
+    if(!pre) return;
+    var text=pre.innerText.split('\n').filter(function(l){
+      return !/^\s*(NAME|kserve-controller-manager|llmisvc-controller|deployment\.apps\/|service\/|horizontal|sklearn-iris\s+http|storage-initializer$)/.test(l);
+    }).join('\n');
+    var done=function(){
+      var old=btn.textContent; btn.textContent='복사됨'; btn.style.color='var(--gpu)';
+      setTimeout(function(){btn.textContent=old;btn.style.color='';},1400);
+    };
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done,function(){fallback(text,done)});
+    }else{fallback(text,done);}
+  });
+});
+function fallback(text,cb){
+  var ta=document.createElement('textarea');
+  ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{document.execCommand('copy');cb();}catch(e){}
+  document.body.removeChild(ta);
+}
+
+/* ===== 진행률 바 + 메뉴 하이라이트 ===== */
+(function(){
+  var pbar=document.getElementById('pbar');
+  var links=Array.prototype.slice.call(document.querySelectorAll('#menu a'));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))}).filter(Boolean);
+  var ticking=false;
+  function update(){
+    ticking=false;
+    var h=document.documentElement;
+    var max=h.scrollHeight-h.clientHeight;
+    pbar.style.width=(max>0?(h.scrollTop/max*100):0).toFixed(2)+'%';
+    var y=h.scrollTop+140, cur=-1;
+    secs.forEach(function(s,i){ if(s.offsetTop<=y) cur=i; });
+    links.forEach(function(a,i){a.classList.toggle('on',i===cur)});
+    if(cur>=0){
+      var a=links[cur], menu=document.getElementById('menu');
+      var l=a.offsetLeft, r=l+a.offsetWidth;
+      if(l<menu.scrollLeft||r>menu.scrollLeft+menu.clientWidth){
+        menu.scrollTo({left:l-menu.clientWidth/2+a.offsetWidth/2,behavior:'smooth'});
+      }
+    }
+  }
+  window.addEventListener('scroll',function(){
+    if(!ticking){ticking=true;window.requestAnimationFrame(update);}
+  },{passive:true});
+  window.addEventListener('resize',update);
+  update();
+})();
+
+/* ===== 장 완료 체크 ===== */
+(function(){
+  var boxes=Array.prototype.slice.call(document.querySelectorAll('.chk input'));
+  if(!boxes.length) return;
+  var badge=document.createElement('div');
+  badge.style.cssText='position:fixed;right:14px;bottom:14px;z-index:60;background:var(--panel2);border:1px solid var(--line2);'+
+    'border-radius:99px;padding:.35rem .8rem;font-family:var(--mono);font-size:.72rem;color:var(--dim);'+
+    'box-shadow:0 8px 22px rgba(0,0,0,.45)';
+  document.body.appendChild(badge);
+  function update(){
+    var n=boxes.filter(function(b){return b.checked}).length;
+    badge.innerHTML='진행 <b style="color:var(--pred)">'+n+'</b> / '+boxes.length+' 장';
+    badge.style.borderColor = n===boxes.length ? 'var(--gpu)' : 'var(--line2)';
+    if(n===boxes.length) badge.innerHTML='19개 장 완료';
+  }
+  boxes.forEach(function(b){b.addEventListener('change',update)});
+  update();
+})();
+</script>
+</body>
+</html>
