@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OAuth 2.0 완전 정복 1편 — 권한 위임</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F3F6FB; --surface:#FFFFFF; --surface-2:#F8FAFD;
+  --ink:#121A2D; --ink-2:#48536E; --ink-3:#7A8599;
+  --line:#DEE4EE; --line-2:#C6CEDE;
+  --owner:#D6336C; --owner-bg:#FCEEF3;
+  --client:#5B31DE; --client-bg:#F0ECFD;
+  --auth:#DB5A00;  --auth-bg:#FDF0E5;
+  --res:#0A8F6F;   --res-bg:#E5F7F1;
+  --danger:#D22C2C; --danger-bg:#FCECEC;
+  --ok:#2C8F3E;    --ok-bg:#EAF7ED;
+  --warn:#B67400;  --warn-bg:#FDF5E2;
+  --code-bg:#141A29; --code-ink:#DBE2F0; --code-line:#26304a;
+  --shadow:0 1px 2px rgba(18,26,45,.05), 0 10px 30px -18px rgba(18,26,45,.35);
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0C101A; --surface:#151B28; --surface-2:#1A2130;
+    --ink:#E9EDF6; --ink-2:#A4AFC6; --ink-3:#6F7C96;
+    --line:#283044; --line-2:#39435E;
+    --owner:#FF7DA8; --owner-bg:#341825;
+    --client:#A895FF; --client-bg:#221D46;
+    --auth:#FF9E4F;  --auth-bg:#39220F;
+    --res:#31CFA6;   --res-bg:#0B3128;
+    --danger:#FF8585; --danger-bg:#3A1717;
+    --ok:#64D278;    --ok-bg:#12321A;
+    --warn:#F2C14B;  --warn-bg:#352A0D;
+    --code-bg:#0A0E18; --code-ink:#D5DCEC; --code-line:#1E2739;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0C101A; --surface:#151B28; --surface-2:#1A2130;
+  --ink:#E9EDF6; --ink-2:#A4AFC6; --ink-3:#6F7C96;
+  --line:#283044; --line-2:#39435E;
+  --owner:#FF7DA8; --owner-bg:#341825;
+  --client:#A895FF; --client-bg:#221D46;
+  --auth:#FF9E4F;  --auth-bg:#39220F;
+  --res:#31CFA6;   --res-bg:#0B3128;
+  --danger:#FF8585; --danger-bg:#3A1717;
+  --ok:#64D278;    --ok-bg:#12321A;
+  --warn:#F2C14B;  --warn-bg:#352A0D;
+  --code-bg:#0A0E18; --code-ink:#D5DCEC; --code-line:#1E2739;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -18px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:76px}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-size:16px; line-height:1.75; font-weight:400;
+  -webkit-font-smoothing:antialiased;
+}
+code,kbd,pre{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+a{color:var(--client)}
+:focus-visible{outline:2.5px solid var(--client); outline-offset:3px; border-radius:4px}
+@media (prefers-reduced-motion: reduce){*{animation:none !important; transition:none !important}}
+
+/* ---------- top bar ---------- */
+.bar{
+  position:sticky; top:0; z-index:50; background:color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter:saturate(1.4) blur(10px); border-bottom:1px solid var(--line);
+}
+.bar-in{max-width:1180px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:16px}
+.bar-title{font-weight:600; font-size:.92rem; letter-spacing:-.01em; white-space:nowrap}
+.bar-title span{color:var(--ink-3); font-weight:400}
+.progress{flex:1; height:5px; background:var(--line); border-radius:99px; overflow:hidden}
+.progress i{display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--owner),var(--client),var(--auth),var(--res)); transition:width .18s linear}
+.theme-btn{
+  border:1px solid var(--line-2); background:var(--surface); color:var(--ink-2);
+  border-radius:99px; padding:5px 13px; font:inherit; font-size:.8rem; cursor:pointer; white-space:nowrap;
+}
+.theme-btn:hover{border-color:var(--ink-3); color:var(--ink)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1180px; margin:0 auto; padding:0 24px; display:grid; grid-template-columns:200px minmax(0,1fr); gap:44px}
+.rail{position:sticky; top:76px; align-self:start; height:calc(100vh - 100px); overflow-y:auto; padding:30px 0 40px; font-size:.82rem}
+.rail ol{list-style:none; margin:0; padding:0}
+.rail a{display:flex; gap:9px; padding:5px 0; color:var(--ink-3); text-decoration:none; line-height:1.4; border-left:2px solid transparent; padding-left:11px; margin-left:-13px}
+.rail a b{font-variant-numeric:tabular-nums; font-weight:500; opacity:.55; min-width:1.1em}
+.rail a:hover{color:var(--ink-2)}
+.rail a.on{color:var(--ink); border-left-color:var(--client); font-weight:500}
+.rail a.on b{opacity:1; color:var(--client)}
+main{padding:0 0 120px; min-width:0}
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr; gap:0; padding:0 18px}
+  .rail{display:none}
+}
+
+/* ---------- hero ---------- */
+.hero{padding:64px 0 48px; border-bottom:1px solid var(--line)}
+.kicker{display:inline-flex; align-items:center; gap:8px; font-size:.78rem; color:var(--ink-2); background:var(--surface); border:1px solid var(--line-2); border-radius:99px; padding:5px 14px 5px 6px}
+.kicker em{font-style:normal; background:var(--client); color:#fff; border-radius:99px; padding:2px 9px; font-size:.72rem; font-weight:600}
+h1{font-size:clamp(2.1rem,5.4vw,3.35rem); line-height:1.16; letter-spacing:-.035em; font-weight:700; margin:22px 0 0; max-width:17ch}
+.lede{font-size:1.1rem; color:var(--ink-2); max-width:62ch; margin:20px 0 0; font-weight:300}
+.meta{display:flex; flex-wrap:wrap; gap:10px; margin-top:26px; font-size:.82rem; color:var(--ink-3)}
+.meta span{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:4px 11px}
+
+/* ---------- sections ---------- */
+section{padding:60px 0 8px; scroll-margin-top:76px}
+.sec-head{display:flex; align-items:baseline; gap:14px; margin-bottom:8px}
+.sec-num{
+  font-family:"IBM Plex Mono",monospace; font-size:.78rem; font-weight:600; color:var(--client);
+  background:var(--client-bg); border-radius:7px; padding:3px 9px; flex:none;
+}
+h2{font-size:clamp(1.45rem,3.2vw,1.95rem); letter-spacing:-.028em; font-weight:600; margin:0; line-height:1.3}
+h3{font-size:1.1rem; font-weight:600; letter-spacing:-.018em; margin:38px 0 10px}
+h4{font-size:.95rem; font-weight:600; margin:22px 0 8px}
+p{margin:14px 0; max-width:70ch}
+ul,ol{max-width:70ch; padding-left:1.25em}
+li{margin:7px 0}
+strong{font-weight:600}
+.dim{color:var(--ink-2)}
+hr{border:0; border-top:1px solid var(--line); margin:46px 0}
+
+/* inline code */
+p code, li code, td code, .card code{
+  background:var(--surface); border:1px solid var(--line); border-radius:6px;
+  padding:1px 6px; font-size:.86em; color:var(--client); white-space:nowrap;
+}
+
+/* ---------- generic blocks ---------- */
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:22px 24px; box-shadow:var(--shadow)}
+.grid{display:grid; gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:820px){.g3,.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.g2,.g3,.g4{grid-template-columns:1fr}}
+
+.note{border-left:3px solid var(--client); background:var(--client-bg); padding:14px 18px; border-radius:0 10px 10px 0; margin:22px 0; font-size:.94rem}
+.note b{display:block; margin-bottom:3px; color:var(--client)}
+.note.warn{border-left-color:var(--warn); background:var(--warn-bg)} .note.warn b{color:var(--warn)}
+.note.bad{border-left-color:var(--danger); background:var(--danger-bg)} .note.bad b{color:var(--danger)}
+.note.good{border-left-color:var(--ok); background:var(--ok-bg)} .note.good b{color:var(--ok)}
+.note p{margin:6px 0} .note ul{margin:6px 0} .note :last-child{margin-bottom:0}
+
+pre{
+  background:var(--code-bg); color:var(--code-ink); border-radius:11px; padding:16px 18px;
+  overflow-x:auto; font-size:.83rem; line-height:1.65; margin:14px 0; border:1px solid var(--code-line);
+}
+pre .c{color:#6C7A99} pre .k{color:#7DD3FC} pre .s{color:#FDBA74} pre .n{color:#F9A8D4} pre .g{color:#86EFAC} pre .r{color:#FCA5A5}
+
+table{width:100%; border-collapse:collapse; font-size:.9rem; margin:18px 0; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
+th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+th{background:var(--surface-2); font-weight:600; font-size:.82rem; color:var(--ink-2)}
+tr:last-child td{border-bottom:0}
+.tscroll{overflow-x:auto; margin:18px 0}
+.tscroll table{margin:0; min-width:520px}
+
+.tag{display:inline-block; font-size:.72rem; font-weight:600; padding:2px 8px; border-radius:6px; white-space:nowrap}
+.t-owner{background:var(--owner-bg); color:var(--owner)}
+.t-client{background:var(--client-bg); color:var(--client)}
+.t-auth{background:var(--auth-bg); color:var(--auth)}
+.t-res{background:var(--res-bg); color:var(--res)}
+.t-bad{background:var(--danger-bg); color:var(--danger)}
+.t-ok{background:var(--ok-bg); color:var(--ok)}
+
+button{font:inherit}
+.btn{
+  border:1px solid var(--line-2); background:var(--surface); color:var(--ink);
+  border-radius:9px; padding:8px 16px; cursor:pointer; font-size:.88rem; font-weight:500;
+  transition:border-color .12s, background .12s;
+}
+.btn:hover:not(:disabled){border-color:var(--ink-3)}
+.btn:disabled{opacity:.38; cursor:not-allowed}
+.btn.primary{background:var(--client); border-color:var(--client); color:#fff}
+.btn.primary:hover:not(:disabled){filter:brightness(1.1)}
+
+/* ---------- hero demo: 비밀번호 vs 토큰 ---------- */
+.demo{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); margin:34px 0 0}
+.demo-top{display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); background:var(--surface-2); flex-wrap:wrap}
+.demo-top p{margin:0; font-size:.88rem; color:var(--ink-2); flex:1; min-width:180px}
+.switch{display:flex; background:var(--paper); border:1px solid var(--line-2); border-radius:99px; padding:3px; gap:2px}
+.switch button{border:0; background:transparent; color:var(--ink-2); padding:6px 15px; border-radius:99px; cursor:pointer; font-size:.83rem; font-weight:500}
+.switch button[aria-pressed="true"]{background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.14)}
+#demoBody{padding:20px}
+.perm-list{list-style:none; margin:0; padding:0; display:grid; gap:7px; max-width:none}
+.perm-list li{display:flex; align-items:flex-start; gap:10px; margin:0; font-size:.9rem; padding:9px 13px; border-radius:9px; border:1px solid var(--line); background:var(--surface-2)}
+.perm-list li .ic{font-weight:700; flex:none; width:1.35em; text-align:center; line-height:1.5}
+.perm-list li.yes{border-color:color-mix(in srgb,var(--danger) 30%,var(--line)); background:var(--danger-bg)}
+.perm-list li.yes .ic{color:var(--danger)}
+.perm-list li.no .ic{color:var(--ok)}
+.perm-list li.ok{border-color:color-mix(in srgb,var(--ok) 30%,var(--line)); background:var(--ok-bg)}
+.perm-list li.ok .ic{color:var(--ok)}
+.demo-verdict{margin:16px 0 0; font-size:.9rem; padding:12px 15px; border-radius:10px; font-weight:500}
+
+/* ---------- actor cards ---------- */
+.actor{border:1px solid var(--line); border-radius:var(--radius); padding:18px; background:var(--surface); border-top:4px solid var(--c); box-shadow:var(--shadow)}
+.actor h4{margin:0; font-size:1rem; color:var(--c)}
+.actor .en{font-family:"IBM Plex Mono",monospace; font-size:.73rem; color:var(--ink-3); margin:2px 0 10px}
+.actor p{font-size:.88rem; margin:0; color:var(--ink-2); max-width:none}
+.actor .ex{margin-top:11px; padding-top:11px; border-top:1px dashed var(--line-2); font-size:.82rem; color:var(--ink-3)}
+
+/* ---------- flow stepper ---------- */
+.flow{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin:24px 0}
+.flow-stage{padding:18px 20px 6px; background:var(--surface-2); border-bottom:1px solid var(--line)}
+.flow svg{display:block; width:100%; height:auto}
+.lane-box{transition:opacity .2s}
+.lane-box.dim{opacity:.32}
+.msg-line{stroke-width:2.4; stroke-linecap:round}
+.msg-label{font-family:"IBM Plex Sans KR",sans-serif; font-size:12.5px; font-weight:500}
+.lane-t{font-family:"IBM Plex Sans KR",sans-serif; font-size:12.5px; font-weight:600}
+.lane-s{font-family:"IBM Plex Mono",monospace; font-size:10px}
+.flow-body{padding:20px}
+.flow-body h4{margin:0 0 4px; font-size:1.05rem}
+.flow-body>p{font-size:.93rem; margin:8px 0 0}
+.flow-nav{display:flex; align-items:center; gap:10px; padding:14px 20px; border-top:1px solid var(--line); background:var(--surface-2); flex-wrap:wrap}
+.dots{display:flex; gap:6px; flex:1; flex-wrap:wrap}
+.dots button{width:26px; height:26px; border-radius:7px; border:1px solid var(--line-2); background:var(--surface); color:var(--ink-3); font-size:.74rem; cursor:pointer; padding:0; font-family:"IBM Plex Mono",monospace}
+.dots button[aria-current="true"]{background:var(--client); border-color:var(--client); color:#fff; font-weight:600}
+.dots button.done{border-color:var(--client); color:var(--client)}
+
+/* ---------- pkce lab ---------- */
+.lab{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow); margin:22px 0}
+.lab-row{display:grid; grid-template-columns:150px minmax(0,1fr); gap:12px; align-items:center; margin:11px 0; font-size:.86rem}
+.lab-row label{color:var(--ink-2); font-weight:500}
+.lab-out{font-family:"IBM Plex Mono",monospace; font-size:.79rem; background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:9px 12px; word-break:break-all; min-height:38px; color:var(--ink)}
+@media (max-width:620px){.lab-row{grid-template-columns:1fr; gap:5px}}
+.arrowdown{text-align:center; color:var(--ink-3); font-size:1.1rem; line-height:1; margin:2px 0}
+
+/* ---------- wizard ---------- */
+.wiz{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); margin:22px 0}
+.wiz-q{font-weight:600; font-size:1rem; margin:0 0 14px}
+.wiz-opts{display:grid; gap:9px}
+.wiz-opts button{text-align:left; border:1px solid var(--line-2); background:var(--surface-2); border-radius:10px; padding:12px 15px; cursor:pointer; font-size:.9rem; color:var(--ink); line-height:1.5}
+.wiz-opts button:hover{border-color:var(--client); background:var(--client-bg)}
+.wiz-opts button small{display:block; color:var(--ink-3); font-size:.79rem; margin-top:2px}
+.wiz-result{border-radius:11px; padding:18px; background:var(--client-bg); border:1px solid color-mix(in srgb,var(--client) 32%, var(--line))}
+.wiz-result h4{margin:0 0 6px; color:var(--client); font-size:1.15rem; font-family:"IBM Plex Mono",monospace}
+.wiz-result p{font-size:.9rem; margin:6px 0; color:var(--ink-2)}
+.wiz-steps{display:flex; gap:5px; margin-bottom:16px}
+.wiz-steps i{height:4px; flex:1; border-radius:99px; background:var(--line)}
+.wiz-steps i.on{background:var(--client)}
+
+/* ---------- scope simulator ---------- */
+.scope-grid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:16px}
+@media (max-width:760px){.scope-grid{grid-template-columns:1fr}}
+.scope-pick label{display:flex; gap:10px; align-items:flex-start; padding:10px 13px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; cursor:pointer; background:var(--surface); font-size:.87rem}
+.scope-pick label:has(input:checked){border-color:var(--res); background:var(--res-bg)}
+.scope-pick input{margin-top:5px; accent-color:var(--res); flex:none}
+.scope-pick code{display:block; font-size:.79rem; color:var(--res); font-weight:600}
+.scope-pick small{color:var(--ink-3); font-size:.78rem}
+.consent{border:1px solid var(--line-2); border-radius:12px; background:var(--surface); overflow:hidden}
+.consent-top{padding:13px 16px; border-bottom:1px solid var(--line); background:var(--surface-2); font-size:.85rem; font-weight:600; display:flex; align-items:center; gap:8px}
+.consent-top i{width:9px; height:9px; border-radius:99px; background:var(--auth); flex:none}
+.consent-body{padding:15px 16px; font-size:.86rem}
+.consent-body ul{margin:9px 0 0; padding-left:1.1em}
+.consent-body li{margin:4px 0}
+.api-row{display:flex; align-items:center; gap:9px; font-family:"IBM Plex Mono",monospace; font-size:.76rem; padding:6px 0; border-bottom:1px dashed var(--line)}
+.api-row:last-child{border-bottom:0}
+.api-row b{flex:none; font-size:.68rem; padding:1px 6px; border-radius:5px}
+.api-row.pass b{background:var(--ok-bg); color:var(--ok)}
+.api-row.fail b{background:var(--danger-bg); color:var(--danger)}
+.api-row.fail span{color:var(--ink-3); text-decoration:line-through}
+
+/* ---------- checklist ---------- */
+.check li{list-style:none; display:flex; gap:11px; align-items:flex-start; padding:12px 15px; border:1px solid var(--line); border-radius:11px; margin:0 0 8px; background:var(--surface); font-size:.9rem; cursor:pointer}
+.check{padding:0; margin:16px 0}
+.check input{margin-top:5px; accent-color:var(--ok); flex:none; width:16px; height:16px}
+.check li:has(input:checked){background:var(--ok-bg); border-color:color-mix(in srgb,var(--ok) 32%,var(--line))}
+.check li:has(input:checked) .ct{color:var(--ink-3)}
+.check b{display:block; font-weight:600; margin-bottom:1px}
+.check .ct{display:block; color:var(--ink-2); font-size:.84rem}
+.check-score{font-size:.86rem; color:var(--ink-2); font-weight:500}
+
+/* ---------- quiz ---------- */
+.quiz{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); margin:22px 0}
+.q{padding:18px 0; border-bottom:1px solid var(--line)}
+.q:first-of-type{padding-top:0}
+.q:last-of-type{border-bottom:0}
+.q-p{font-weight:600; margin:0 0 12px; display:flex; gap:10px; font-size:.97rem}
+.q-p em{font-style:normal; color:var(--client); font-family:"IBM Plex Mono",monospace; flex:none}
+.q-opts{display:grid; gap:7px}
+.q-opts button{text-align:left; border:1px solid var(--line-2); background:var(--surface-2); border-radius:9px; padding:10px 14px; cursor:pointer; font-size:.88rem; color:var(--ink); line-height:1.5}
+.q-opts button:hover:not(:disabled){border-color:var(--client)}
+.q-opts button:disabled{cursor:default}
+.q-opts button.right{background:var(--ok-bg); border-color:var(--ok); color:var(--ink)}
+.q-opts button.wrong{background:var(--danger-bg); border-color:var(--danger); color:var(--ink)}
+.q-exp{margin:11px 0 0; font-size:.86rem; background:var(--surface-2); border-left:3px solid var(--client); padding:11px 14px; border-radius:0 8px 8px 0; color:var(--ink-2)}
+.q-exp.hide{display:none}
+.quiz-score{margin-top:20px; padding:16px; border-radius:11px; background:var(--client-bg); text-align:center; font-weight:600; font-size:.95rem; color:var(--client)}
+
+/* ---------- glossary ---------- */
+.gloss{margin:18px 0}
+.gloss details{border:1px solid var(--line); border-radius:11px; background:var(--surface); margin-bottom:8px; overflow:hidden}
+.gloss summary{cursor:pointer; padding:13px 16px; font-size:.92rem; font-weight:500; list-style:none; display:flex; align-items:center; gap:11px}
+.gloss summary::-webkit-details-marker{display:none}
+.gloss summary::after{content:"+"; margin-left:auto; color:var(--ink-3); font-family:"IBM Plex Mono",monospace}
+.gloss details[open] summary::after{content:"−"}
+.gloss details[open] summary{border-bottom:1px solid var(--line); background:var(--surface-2)}
+.gloss summary code{font-family:"IBM Plex Mono",monospace; font-size:.85rem; color:var(--client); background:var(--client-bg); padding:2px 8px; border-radius:6px}
+.gloss .gb{padding:14px 16px; font-size:.89rem; color:var(--ink-2)}
+.gloss .gb p{margin:0 0 9px} .gloss .gb :last-child{margin-bottom:0}
+.gloss .gb pre{font-size:.78rem}
+
+/* ---------- endcard ---------- */
+.end{margin-top:60px; border-radius:18px; padding:34px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); border-top:5px solid var(--client)}
+.end h2{margin-bottom:6px}
+.recap{list-style:none; padding:0; margin:20px 0 0}
+.recap li{display:flex; gap:12px; padding:11px 0; border-bottom:1px dashed var(--line); font-size:.92rem; margin:0}
+.recap li:last-child{border-bottom:0}
+.recap b{flex:none; width:2.1em; font-family:"IBM Plex Mono",monospace; color:var(--client); font-size:.82rem}
+.sr{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="bar-in">
+    <div class="bar-title">OAuth 2.0 <span>／ 1편 권한 위임</span></div>
+    <div class="progress" role="progressbar" aria-label="읽기 진행률"><i id="prog"></i></div>
+    <button class="theme-btn" id="themeBtn" type="button">다크 모드</button>
+  </div>
+</div>
+
+<div class="wrap">
+<nav class="rail" aria-label="목차">
+  <ol id="toc">
+    <li><a href="#s0"><b>00</b>OAuth가 없던 시절</a></li>
+    <li><a href="#s1"><b>01</b>네 명의 등장인물</a></li>
+    <li><a href="#s2"><b>02</b>꼭 알아야 할 용어</a></li>
+    <li><a href="#s3"><b>03</b>인가 코드 흐름</a></li>
+    <li><a href="#s4"><b>04</b>PKCE</a></li>
+    <li><a href="#s5"><b>05</b>클라이언트 자격 증명</a></li>
+    <li><a href="#s6"><b>06</b>기기 인가 흐름</a></li>
+    <li><a href="#s7"><b>07</b>사라진 방식들</a></li>
+    <li><a href="#s8"><b>08</b>스코프 설계</a></li>
+    <li><a href="#s9"><b>09</b>보안 체크리스트</a></li>
+    <li><a href="#s10"><b>10</b>이해도 점검</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<header class="hero">
+  <div class="kicker"><em>1편</em> 신입 클라우드·AI 엔지니어를 위한 인증·인가 시리즈</div>
+  <h1>비밀번호를 주지 않고 권한만 빌려주는 법</h1>
+  <p class="lede">OAuth 2.0은 "이 앱이 내 캘린더를 읽어도 좋다"는 허락을, 내 비밀번호를 넘기지 않고 전달하는 표준입니다. 이 강의에서는 왜 이런 게 필요했는지부터 시작해서, 실무에서 쓰는 네 가지 흐름과 각각의 실제 HTTP 요청까지 따라가 봅니다.</p>
+  <div class="meta">
+    <span>예상 학습 시간 40~60분</span>
+    <span>사전 지식: HTTP 요청/응답, JSON</span>
+    <span>실습 요소 7개</span>
+  </div>
+
+  <div class="demo">
+    <div class="demo-top">
+      <p>일정 관리 앱에 내 구글 캘린더를 연결하려 합니다. 두 가지 방법 중 하나를 골라 보세요.</p>
+      <div class="switch" role="group" aria-label="연결 방식 선택">
+        <button type="button" id="demoA" aria-pressed="true" onclick="setDemo('pw')">비밀번호를 준다</button>
+        <button type="button" id="demoB" aria-pressed="false" onclick="setDemo('token')">OAuth 토큰을 준다</button>
+      </div>
+    </div>
+    <div id="demoBody"></div>
+  </div>
+</header>
+
+<section id="s0">
+  <div class="sec-head"><span class="sec-num">00</span><h2>OAuth가 없던 시절</h2></div>
+
+  <p>2000년대 후반, 어떤 서비스가 내 주소록을 읽어서 "이미 가입한 친구"를 찾아주려면 방법이 하나뿐이었습니다. 그 서비스 화면에 내 지메일 아이디와 비밀번호를 그대로 입력하는 것이죠. 서비스는 그 계정으로 직접 로그인해서 주소록을 긁어 왔습니다. 이걸 <strong>비밀번호 안티패턴</strong>이라고 부릅니다.</p>
+
+  <p>당시에는 다들 그러려니 했지만, 지금 보면 문제가 한두 개가 아닙니다.</p>
+
+  <div class="grid g2" style="margin:20px 0">
+    <div class="card" style="border-top:3px solid var(--danger)">
+      <h4 style="margin-top:0; color:var(--danger)">권한을 쪼갤 수 없다</h4>
+      <p class="dim" style="font-size:.89rem; max-width:none">주소록만 읽게 하고 싶었는데, 비밀번호를 가진 서비스는 메일을 읽고 보내고 지울 수도 있습니다. 계정 비밀번호를 바꾸거나 탈퇴시킬 수도 있고요. "읽기만"이라는 개념 자체가 없습니다.</p>
+    </div>
+    <div class="card" style="border-top:3px solid var(--danger)">
+      <h4 style="margin-top:0; color:var(--danger)">되돌릴 방법이 없다</h4>
+      <p class="dim" style="font-size:.89rem; max-width:none">그 서비스만 끊고 싶어도 방법이 없습니다. 비밀번호를 바꾸면 같은 비밀번호를 준 다른 서비스 다섯 개가 동시에 멈춥니다. 권한 회수가 전부 아니면 전무입니다.</p>
+    </div>
+    <div class="card" style="border-top:3px solid var(--danger)">
+      <h4 style="margin-top:0; color:var(--danger)">사고가 연쇄된다</h4>
+      <p class="dim" style="font-size:.89rem; max-width:none">그 서비스의 DB가 털리면 내 구글 계정도 같이 털립니다. 한 곳의 사고가 다른 회사 계정으로 번집니다. 비밀번호를 평문으로 저장해 둔 곳이라면 더 말할 것도 없습니다.</p>
+    </div>
+    <div class="card" style="border-top:3px solid var(--danger)">
+      <h4 style="margin-top:0; color:var(--danger)">2단계 인증과 공존할 수 없다</h4>
+      <p class="dim" style="font-size:.89rem; max-width:none">OTP나 생체 인증을 켜는 순간, 아이디와 비밀번호만 아는 서비스는 로그인에 실패합니다. 보안을 강화할수록 연동이 깨지는 구조입니다.</p>
+    </div>
+  </div>
+
+  <p>OAuth는 이 네 가지를 한 번에 해결하려고 만들어졌습니다. 핵심 아이디어는 간단합니다. <strong>비밀번호 대신, 기한이 있고 범위가 정해진 증표를 발급한다.</strong> 그 증표를 <strong>액세스 토큰</strong>이라고 부릅니다.</p>
+
+  <div class="note">
+    <b>현실의 비유: 발레파킹 키</b>
+    <p>고급 차량에는 발레파킹 전용 키가 따로 있습니다. 시동은 걸리지만 최고 속도가 제한되고, 트렁크와 글러브 박스는 열리지 않습니다. 주차 요원에게 필요한 건 딱 그만큼이니까요. 액세스 토큰이 바로 이 발레파킹 키입니다. 마스터 키(비밀번호)는 내 주머니에 그대로 있습니다.</p>
+  </div>
+
+  <h3>용어 정리: 인증과 인가는 다릅니다</h3>
+  <p>둘 다 영어 약자가 <code>auth</code>로 시작해서 신입 때 가장 많이 헷갈리는 부분입니다. 확실히 갈라 두고 가겠습니다.</p>
+
+  <div class="tscroll"><table>
+    <thead><tr><th style="width:22%">구분</th><th style="width:39%">인증 (Authentication)</th><th style="width:39%">인가 (Authorization)</th></tr></thead>
+    <tbody>
+      <tr><td><b>질문</b></td><td>너는 누구냐?</td><td>너는 무엇을 해도 되느냐?</td></tr>
+      <tr><td><b>비유</b></td><td>공항에서 여권을 보여주는 일</td><td>탑승권에 적힌 좌석 등급으로 라운지에 들어가는 일</td></tr>
+      <tr><td><b>결과물</b></td><td>신원 정보 (누구인지)</td><td>권한 범위 (무엇을 할 수 있는지)</td></tr>
+      <tr><td><b>담당 표준</b></td><td>OpenID Connect <span class="tag t-client">2편</span></td><td>OAuth 2.0 <span class="tag t-ok">이번 편</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note warn">
+    <b>가장 흔한 오해</b>
+    <p>"구글로 로그인" 버튼을 OAuth라고 부르는 경우가 많은데, 엄밀히 말하면 그건 OAuth 위에 얹은 OpenID Connect입니다. OAuth 2.0 명세 자체에는 "이 사용자가 누구인가"를 알려주는 기능이 없습니다. 토큰을 받았다는 사실만으로 사용자의 신원을 단정하면 취약점이 됩니다. 이 부분은 2편에서 제대로 다룹니다.</p>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="sec-head"><span class="sec-num">01</span><h2>네 명의 등장인물</h2></div>
+  <p>OAuth 문서를 읽다가 막히는 첫 번째 지점은 대개 역할 이름입니다. 등장인물은 넷뿐이고, 이 강의 전체에서 각자 고유한 색을 달고 다닙니다. 색만 봐도 지금 누가 무슨 말을 하는지 알 수 있도록요.</p>
+
+  <div class="grid g4" style="margin:22px 0">
+    <div class="actor" style="--c:var(--owner)">
+      <h4>리소스 소유자</h4>
+      <div class="en">Resource Owner</div>
+      <p>데이터의 주인. 대부분의 경우 사람, 즉 사용자 본인입니다. 권한을 빌려줄지 말지 최종 결정하는 사람입니다.</p>
+      <div class="ex">예) 내 캘린더의 주인인 나</div>
+    </div>
+    <div class="actor" style="--c:var(--client)">
+      <h4>클라이언트</h4>
+      <div class="en">Client</div>
+      <p>권한을 빌리려는 앱. 이름이 헷갈리는데, 여기서 클라이언트는 "사용자"가 아니라 "인가 서버의 고객인 애플리케이션"이라는 뜻입니다.</p>
+      <div class="ex">예) 일정 관리 SaaS, 모니터링 대시보드</div>
+    </div>
+    <div class="actor" style="--c:var(--auth)">
+      <h4>인가 서버</h4>
+      <div class="en">Authorization Server</div>
+      <p>사용자를 로그인시키고, 동의를 받고, 토큰을 발급하는 주체. OAuth의 심장입니다.</p>
+      <div class="ex">예) 구글 계정 서버, Keycloak, Cognito</div>
+    </div>
+    <div class="actor" style="--c:var(--res)">
+      <h4>리소스 서버</h4>
+      <div class="en">Resource Server</div>
+      <p>실제 데이터를 가진 API 서버. 요청에 담긴 토큰을 검증해서 통과시킬지 말지 결정합니다.</p>
+      <div class="ex">예) 구글 캘린더 API</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>인가 서버와 리소스 서버가 꼭 다른 서버일 필요는 없습니다</b>
+    <p>구글처럼 규모가 큰 곳은 분리되어 있지만, 사내 서비스에서는 하나의 애플리케이션이 두 역할을 겸하는 경우도 많습니다. 중요한 건 물리적 서버 개수가 아니라 <strong>역할이 분리되어 있다는 개념</strong>입니다. 토큰을 발급하는 쪽과 토큰을 검증해서 데이터를 주는 쪽은 책임이 다릅니다.</p>
+  </div>
+
+  <h3>클라이언트의 두 종류</h3>
+  <p>같은 "앱"이라도 비밀을 지킬 수 있느냐에 따라 취급이 완전히 달라집니다. 뒤에 나오는 PKCE를 이해하려면 이 구분이 먼저 필요합니다.</p>
+
+  <div class="grid g2" style="margin:18px 0">
+    <div class="card">
+      <h4 style="margin-top:0">기밀 클라이언트 <span class="tag t-ok">비밀 보관 가능</span></h4>
+      <p style="font-size:.89rem; max-width:none" class="dim">코드가 서버에서만 돌아가는 앱입니다. 백엔드 서버, 배치 작업, 서버 사이드 렌더링 웹앱 등. 소스 코드와 설정 파일이 사용자에게 노출되지 않으므로 <code>client_secret</code>을 안전하게 보관할 수 있습니다.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">공개 클라이언트 <span class="tag t-bad">비밀 보관 불가</span></h4>
+      <p style="font-size:.89rem; max-width:none" class="dim">코드가 사용자 기기에서 돌아가는 앱입니다. 브라우저 SPA, 모바일 앱, 데스크톱 앱, CLI 도구. 아무리 숨겨도 개발자 도구나 앱 디컴파일로 다 꺼낼 수 있습니다. <strong>여기에 비밀번호나 시크릿을 넣으면 안 됩니다.</strong></p>
+    </div>
+  </div>
+
+  <div class="note bad">
+    <b>실무에서 자주 나오는 사고</b>
+    <p>React SPA를 만들면서 백엔드 예제 코드를 그대로 복사해 <code>client_secret</code>을 프론트엔드 환경 변수에 넣는 경우가 정말 많습니다. 빌드된 JS 번들에 그대로 박혀 나가기 때문에 누구나 꺼낼 수 있습니다. 공개 클라이언트는 시크릿 없이 동작하도록 설계해야 하고, 그 빈자리를 메우는 장치가 4장의 PKCE입니다.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <div class="sec-head"><span class="sec-num">02</span><h2>꼭 알아야 할 용어</h2></div>
+  <p>여기 있는 열두 개만 알면 실무 문서의 90%는 읽힙니다. 지금 다 외울 필요는 없고, 뒤 장에서 막힐 때 돌아와서 펼쳐 보세요.</p>
+
+  <div class="gloss">
+    <details><summary><code>client_id</code> 앱의 공개 신분증 번호</summary><div class="gb">
+      <p>인가 서버에 앱을 등록하면 발급되는 식별자입니다. 브라우저 주소창에 그대로 노출되는 값이라 <strong>비밀이 아닙니다</strong>. 남이 안다고 해서 문제가 생기지 않도록 설계되어 있습니다.</p>
+    </div></details>
+
+    <details><summary><code>client_secret</code> 앱임을 증명하는 비밀번호</summary><div class="gb">
+      <p>앱이 "나는 진짜 그 앱이다"라고 증명할 때 쓰는 값입니다. 서버 대 서버 통신에서만 사용하고, 기밀 클라이언트만 가질 수 있습니다. 브라우저나 모바일 앱에는 절대 넣지 않습니다.</p>
+      <p class="dim">사고가 나면 인가 서버 콘솔에서 시크릿을 재발급(rotate)하는 것이 표준 대응입니다.</p>
+    </div></details>
+
+    <details><summary><code>redirect_uri</code> 승인 결과가 돌아올 주소</summary><div class="gb">
+      <p>인가 서버가 작업을 마친 뒤 사용자를 다시 보낼 앱의 주소입니다. 앱 등록 시 미리 지정해 두고, 요청에 온 값과 <strong>문자열 단위로 정확히 일치</strong>할 때만 허용해야 합니다.</p>
+      <p>느슨하게 검증하면 공격자가 <code>redirect_uri=https://evil.com</code>을 끼워 넣어 인가 코드를 자기 서버로 배달시킬 수 있습니다. 와일드카드 허용, 하위 경로 허용, 앞부분만 비교하는 방식 모두 위험합니다.</p>
+    </div></details>
+
+    <details><summary><code>response_type</code> 무엇을 돌려받을지 지정</summary><div class="gb">
+      <p><code>code</code>면 인가 코드를 받겠다는 뜻이고, <code>token</code>이면 액세스 토큰을 브라우저로 바로 받겠다는 뜻입니다. 후자는 폐기된 Implicit 방식이라 지금은 사실상 <code>code</code>만 씁니다.</p>
+    </div></details>
+
+    <details><summary><code>scope</code> 빌리려는 권한의 범위</summary><div class="gb">
+      <p>공백으로 구분한 문자열 목록입니다. 인가 서버마다 이름이 다르며, 동의 화면에 사람이 읽을 수 있는 문장으로 번역되어 표시됩니다.</p>
+      <pre><span class="c"># 구글</span>
+scope=https://www.googleapis.com/auth/calendar.readonly
+
+<span class="c"># 깃허브</span>
+scope=repo:status read:org
+
+<span class="c"># 자체 구축(Keycloak 등)에서 흔히 쓰는 형태</span>
+scope=orders:read orders:write invoices:read</pre>
+    </div></details>
+
+    <details><summary><code>state</code> 요청과 응답을 묶는 끈</summary><div class="gb">
+      <p>앱이 만든 예측 불가능한 랜덤 문자열입니다. 요청에 실어 보내면 인가 서버가 그대로 돌려주고, 앱은 돌아온 값이 자기가 보낸 값과 같은지 확인합니다.</p>
+      <p>이걸 빠뜨리면 <strong>로그인 CSRF</strong>에 노출됩니다. 공격자가 자기 계정의 인가 코드를 피해자 브라우저로 흘려보내, 피해자가 공격자 계정에 연결되도록 만드는 공격입니다. 세션에 저장했다가 콜백에서 비교하고, 한 번 쓰면 버립니다.</p>
+    </div></details>
+
+    <details><summary>인가 코드 <code>authorization code</code> 토큰으로 바꿀 교환권</summary><div class="gb">
+      <p>수명이 아주 짧고(보통 10초~10분) 한 번만 쓸 수 있는 임시 문자열입니다. 그 자체로는 아무 데이터에도 접근할 수 없고, 오직 토큰 엔드포인트에서 액세스 토큰으로 교환하는 데만 쓰입니다.</p>
+    </div></details>
+
+    <details><summary><code>access_token</code> 실제 출입증</summary><div class="gb">
+      <p>API를 호출할 때 <code>Authorization: Bearer &lt;토큰&gt;</code> 헤더에 담아 보내는 값입니다. 수명이 짧습니다(보통 5분~1시간). 유출되더라도 피해 기간이 제한되도록 일부러 짧게 잡습니다.</p>
+      <p>형식은 명세가 강제하지 않습니다. 의미 없는 랜덤 문자열일 수도 있고(불투명 토큰), 안에 정보가 담긴 JWT일 수도 있습니다. 어느 쪽이든 앱 입장에서는 <strong>그냥 문자열</strong>로 취급하고 열어 보려 하지 않는 것이 원칙입니다.</p>
+    </div></details>
+
+    <details><summary><code>refresh_token</code> 재발급용 열쇠</summary><div class="gb">
+      <p>액세스 토큰이 만료됐을 때 사용자를 다시 로그인시키지 않고 새 토큰을 받아오는 데 씁니다. 수명이 길어서(며칠~몇 달) 액세스 토큰보다 훨씬 민감합니다. 반드시 서버 측에 암호화해서 보관합니다.</p>
+      <p>요즘은 리프레시 토큰을 쓸 때마다 새 것으로 바꿔 발급하고(rotation), 이미 쓴 토큰이 다시 들어오면 탈취로 간주해 해당 계정의 토큰을 전부 무효화하는 방식이 권장됩니다.</p>
+    </div></details>
+
+    <details><summary><code>Bearer</code> 소지자 토큰</summary><div class="gb">
+      <p>"가진 사람이 곧 주인"이라는 뜻입니다. 지하철 승차권처럼, 누가 들고 있든 유효하면 통과시킵니다. 편리한 대신 유출에 취약하므로 HTTPS는 선택이 아니라 필수이고, 로그·URL·리퍼러에 토큰이 남지 않게 관리해야 합니다.</p>
+    </div></details>
+
+    <details><summary>인가 엔드포인트 <code>/authorize</code> 사람이 방문하는 곳</summary><div class="gb">
+      <p>브라우저 주소창으로 접속하는 URL입니다. 사용자에게 로그인 화면과 동의 화면을 보여줍니다. 이 구간을 <strong>프론트 채널</strong>이라고 부르며, 브라우저를 거치므로 URL에 담긴 값은 히스토리·서버 로그·리퍼러 헤더에 남을 수 있다고 가정해야 합니다.</p>
+    </div></details>
+
+    <details><summary>토큰 엔드포인트 <code>/token</code> 서버끼리 통신하는 곳</summary><div class="gb">
+      <p>앱의 백엔드가 직접 HTTPS로 <code>POST</code>하는 API입니다. 사용자의 브라우저를 거치지 않으므로 <strong>백 채널</strong>이라고 부릅니다. 토큰처럼 민감한 값은 반드시 이 구간으로만 오갑니다.</p>
+    </div></details>
+  </div>
+</section>
+
+<section id="s3">
+  <div class="sec-head"><span class="sec-num">03</span><h2>인가 코드 흐름</h2></div>
+  <p>Authorization Code Grant. OAuth 2.0에서 가장 중요하고 가장 많이 쓰이는 흐름입니다. 이 하나만 제대로 이해하면 나머지는 변주에 가깝습니다. 아래 다이어그램에서 <strong>다음</strong>을 눌러 여덟 단계를 따라가 보세요. 각 단계마다 실제로 오가는 HTTP 요청이 함께 표시됩니다.</p>
+
+  <div class="flow">
+    <div class="flow-stage">
+      <svg viewBox="0 0 640 175" role="img" aria-labelledby="flowT flowD">
+        <title id="flowT">인가 코드 흐름 다이어그램</title>
+        <desc id="flowD">사용자, 앱, 인가 서버, 리소스 서버 네 주체 사이에서 현재 단계의 메시지가 어느 방향으로 오가는지 보여줍니다.</desc>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+        <g id="lane0" class="lane-box">
+          <rect x="12" y="8" width="140" height="48" rx="10" fill="var(--owner-bg)" stroke="var(--owner)" stroke-width="1"/>
+          <text class="lane-t" x="82" y="29" text-anchor="middle" fill="var(--owner)">사용자</text>
+          <text class="lane-s" x="82" y="44" text-anchor="middle" fill="var(--owner)" opacity=".8">browser</text>
+          <line x1="82" y1="60" x2="82" y2="150" stroke="var(--owner)" stroke-width="1" stroke-dasharray="3 4" opacity=".5"/>
+        </g>
+        <g id="lane1" class="lane-box">
+          <rect x="172" y="8" width="140" height="48" rx="10" fill="var(--client-bg)" stroke="var(--client)" stroke-width="1"/>
+          <text class="lane-t" x="242" y="29" text-anchor="middle" fill="var(--client)">클라이언트</text>
+          <text class="lane-s" x="242" y="44" text-anchor="middle" fill="var(--client)" opacity=".8">app backend</text>
+          <line x1="242" y1="60" x2="242" y2="150" stroke="var(--client)" stroke-width="1" stroke-dasharray="3 4" opacity=".5"/>
+        </g>
+        <g id="lane2" class="lane-box">
+          <rect x="332" y="8" width="140" height="48" rx="10" fill="var(--auth-bg)" stroke="var(--auth)" stroke-width="1"/>
+          <text class="lane-t" x="402" y="29" text-anchor="middle" fill="var(--auth)">인가 서버</text>
+          <text class="lane-s" x="402" y="44" text-anchor="middle" fill="var(--auth)" opacity=".8">auth server</text>
+          <line x1="402" y1="60" x2="402" y2="150" stroke="var(--auth)" stroke-width="1" stroke-dasharray="3 4" opacity=".5"/>
+        </g>
+        <g id="lane3" class="lane-box">
+          <rect x="492" y="8" width="140" height="48" rx="10" fill="var(--res-bg)" stroke="var(--res)" stroke-width="1"/>
+          <text class="lane-t" x="562" y="29" text-anchor="middle" fill="var(--res)">리소스 서버</text>
+          <text class="lane-s" x="562" y="44" text-anchor="middle" fill="var(--res)" opacity=".8">api server</text>
+          <line x1="562" y1="60" x2="562" y2="150" stroke="var(--res)" stroke-width="1" stroke-dasharray="3 4" opacity=".5"/>
+        </g>
+        <text id="msgLabel" class="msg-label" x="320" y="104" text-anchor="middle" fill="var(--ink-2)"></text>
+        <line id="msgLine" class="msg-line" x1="82" y1="120" x2="242" y2="120" stroke="var(--ink-2)" marker-end="url(#ah)"/>
+        <path id="msgSelf" d="" fill="none" stroke="var(--auth)" stroke-width="2.4" marker-end="url(#ah)" style="display:none"/>
+        <text id="msgChannel" class="lane-s" x="320" y="167" text-anchor="middle" fill="var(--ink-3)"></text>
+      </svg>
+    </div>
+    <div class="flow-body">
+      <h4 id="flowTitle"></h4>
+      <p id="flowDesc"></p>
+      <div id="flowCode"></div>
+    </div>
+    <div class="flow-nav">
+      <button class="btn" type="button" id="flowPrev" onclick="flowGo(flowI-1)">이전</button>
+      <div class="dots" id="flowDots" role="group" aria-label="단계 선택"></div>
+      <button class="btn primary" type="button" id="flowNext" onclick="flowGo(flowI+1)">다음</button>
+    </div>
+  </div>
+
+  <h3>왜 토큰을 바로 주지 않고 코드를 한 번 거칠까</h3>
+  <p>신입 엔지니어가 가장 많이 던지는 질문입니다. 인가 서버가 5단계에서 액세스 토큰을 바로 주면 왕복이 한 번 줄어들 텐데, 왜 굳이 코드를 주고 다시 교환하게 할까요. 이유는 세 가지입니다.</p>
+
+  <ol>
+    <li><strong>토큰이 브라우저를 지나가지 않게 하려고.</strong> 5단계는 브라우저 리다이렉트, 즉 URL입니다. URL은 브라우저 히스토리에 남고, 프록시와 웹 서버 액세스 로그에 남고, 그 페이지에서 다른 사이트로 나갈 때 리퍼러 헤더에 실려 갈 수도 있습니다. 여기에 실리는 값이 수명 10초짜리 일회용 코드인 것과 한 시간짜리 액세스 토큰인 것은 위험도가 완전히 다릅니다.</li>
+    <li><strong>앱의 신원을 확인하려고.</strong> 7단계의 토큰 교환은 서버 대 서버 통신이고, 여기서 <code>client_secret</code>을 함께 보냅니다. 인가 서버는 코드를 가져온 쪽이 정말 등록된 그 앱인지 확인할 수 있습니다. 코드만 훔쳐도 시크릿이 없으면 토큰으로 바꿀 수 없습니다.</li>
+    <li><strong>리프레시 토큰을 안전하게 전달하려고.</strong> 수명이 긴 리프레시 토큰은 브라우저에 절대 노출되면 안 됩니다. 백 채널에서만 오갑니다.</li>
+  </ol>
+
+  <div class="note good">
+    <b>한 줄 요약</b>
+    <p>프론트 채널(브라우저, URL)에는 훔쳐도 쓸모가 적은 것만 보내고, 백 채널(서버 대 서버)에서 진짜 값을 주고받습니다. OAuth 설계의 핵심 감각입니다.</p>
+  </div>
+</section>
+
+<section id="s4">
+  <div class="sec-head"><span class="sec-num">04</span><h2>PKCE — 시크릿 없는 앱을 지키는 법</h2></div>
+  <p>PKCE는 "픽시"라고 읽습니다. Proof Key for Code Exchange의 약자입니다. 앞 장에서 인가 코드가 안전한 이유로 "코드를 훔쳐도 <code>client_secret</code>이 없으면 토큰으로 못 바꾼다"를 들었는데, 모바일 앱과 SPA에는 그 시크릿이 없습니다. 그러면 코드를 훔친 사람이 그대로 토큰을 받아 갈 수 있습니다.</p>
+
+  <h3>공격은 이렇게 일어납니다</h3>
+  <p>모바일 앱은 보통 <code>myapp://callback</code> 같은 커스텀 URL 스킴으로 인가 코드를 돌려받습니다. 문제는 iOS와 안드로이드가 <strong>같은 스킴을 등록한 앱이 여러 개일 때 어느 앱에 전달할지를 보장하지 않는다</strong>는 점입니다.</p>
+
+  <ol>
+    <li>공격자가 <code>myapp://</code> 스킴을 똑같이 등록한 악성 앱을 사용자 기기에 설치시킵니다.</li>
+    <li>사용자가 정상 앱에서 로그인을 시작하고, 인가 서버에서 정상적으로 동의합니다.</li>
+    <li>인가 서버가 <code>myapp://callback?code=ABC</code>로 리다이렉트합니다.</li>
+    <li>OS가 이 URL을 악성 앱에 전달합니다. 인가 코드가 공격자 손에 들어갑니다.</li>
+    <li>악성 앱이 <code>client_id</code>(공개값)와 훔친 코드로 토큰을 받아 갑니다. 끝.</li>
+  </ol>
+
+  <h3>PKCE의 해결책: 매번 일회용 자물쇠를 만든다</h3>
+  <p>요청을 시작할 때마다 앱이 랜덤 문자열 <code>code_verifier</code>를 만들어 <strong>자기 메모리에만</strong> 보관합니다. 그리고 그것을 SHA-256으로 해시한 값 <code>code_challenge</code>를 인가 요청에 실어 보냅니다. 나중에 코드를 토큰으로 바꿀 때 원본 <code>code_verifier</code>를 함께 제출해야 하고, 인가 서버는 다시 해시해서 처음 받은 값과 같은지 확인합니다.</p>
+
+  <p>해시는 되돌릴 수 없으므로, 공격자가 인가 요청 URL과 인가 코드를 모두 훔쳐도 <code>code_verifier</code>는 알 수 없습니다. 자물쇠는 봤지만 열쇠는 정상 앱 메모리 안에 있는 셈입니다.</p>
+
+  <div class="lab">
+    <h4 style="margin:0 0 4px">직접 만들어 보기</h4>
+    <p style="font-size:.86rem; margin:0 0 14px" class="dim">버튼을 누르면 브라우저의 Web Crypto API로 실제 값을 생성합니다. 실무 코드에서 하는 계산과 완전히 동일합니다.</p>
+    <div class="lab-row">
+      <label for="pkceV">code_verifier</label>
+      <div class="lab-out" id="pkceV">아직 생성 안 됨</div>
+    </div>
+    <div class="arrowdown">↓ SHA-256 해시 후 base64url 인코딩</div>
+    <div class="lab-row">
+      <label for="pkceC">code_challenge</label>
+      <div class="lab-out" id="pkceC">아직 생성 안 됨</div>
+    </div>
+    <div class="lab-row">
+      <label>code_challenge_method</label>
+      <div class="lab-out">S256</div>
+    </div>
+    <div style="display:flex; gap:9px; flex-wrap:wrap; margin-top:16px">
+      <button class="btn primary" type="button" onclick="genPkce()">새 쌍 생성하기</button>
+      <button class="btn" type="button" onclick="verifyPkce()">인가 서버처럼 검증해 보기</button>
+    </div>
+    <div id="pkceMsg" style="margin-top:12px; font-size:.86rem"></div>
+  </div>
+
+  <h4>인가 요청에는 이렇게 실립니다</h4>
+  <pre><span class="c">// 1단계: 인가 요청 (프론트 채널) — 자물쇠만 보낸다</span>
+GET /authorize?response_type=code
+  &amp;client_id=mobile-app-2024
+  &amp;redirect_uri=myapp://callback
+  &amp;scope=orders:read
+  &amp;state=xyz789
+  &amp;<span class="g">code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM</span>
+  &amp;<span class="g">code_challenge_method=S256</span>
+
+<span class="c">// 2단계: 토큰 교환 (백 채널) — 열쇠 원본을 제출한다</span>
+POST /token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&amp;code=SplxlOBeZQQYbYS6WxSbIA
+&amp;redirect_uri=myapp://callback
+&amp;client_id=mobile-app-2024
+&amp;<span class="g">code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</span></pre>
+
+  <div class="note">
+    <b>이제는 모든 클라이언트의 기본값입니다</b>
+    <p>처음에는 모바일 앱을 위한 확장이었지만, OAuth 2.1 초안과 최신 보안 권고(BCP)에서는 <strong>기밀 클라이언트를 포함한 모든 인가 코드 흐름에 PKCE를 적용하라</strong>고 권고합니다. 백엔드 서버라도 인가 코드가 중간에서 주입되는 공격을 막아 주기 때문입니다. 새로 만드는 시스템이라면 고민 없이 켜 두세요.</p>
+  </div>
+
+  <div class="note warn">
+    <b>plain 방식은 쓰지 마세요</b>
+    <p><code>code_challenge_method</code>에는 <code>S256</code>과 <code>plain</code> 두 가지가 있습니다. <code>plain</code>은 해시 없이 원본을 그대로 보내는 방식이라 아무것도 보호하지 못합니다. SHA-256을 구현할 수 없는 극히 예외적인 환경을 위한 하위 호환 옵션일 뿐입니다.</p>
+  </div>
+</section>
+
+<section id="s5">
+  <div class="sec-head"><span class="sec-num">05</span><h2>클라이언트 자격 증명 흐름</h2></div>
+  <p>Client Credentials Grant. 지금까지는 "사용자를 대신해서"가 전제였는데, 이 흐름에는 <strong>사용자가 없습니다</strong>. 프로그램이 자기 자신의 권한으로 API를 부르는 경우입니다.</p>
+
+  <p>클라우드 운영 업무에서 실제로 가장 자주 마주치는 흐름이기도 합니다. 예를 들어 야간 배치가 고객사 리소스 사용량을 수집한다거나, 모니터링 시스템이 알람 API를 호출한다거나, 정산 서비스가 결제 API를 부르는 상황입니다. 이때 "동의 화면"을 띄울 사람이 없습니다. 눌러 줄 사람이 없으니까요.</p>
+
+  <p>그래서 흐름이 극단적으로 단순해집니다. 브라우저도, 리다이렉트도, 인가 코드도 없습니다.</p>
+
+  <pre><span class="c"># 요청: 앱이 자기 신분증과 비밀번호를 내밀고 토큰을 달라고 한다</span>
+POST /oauth2/token HTTP/1.1
+Host: auth.example.com
+Content-Type: application/x-www-form-urlencoded
+Authorization: Basic <span class="s">bW9uaXRvcmluZy1qb2I6czNjcjN0</span>   <span class="c"># client_id:client_secret 을 base64</span>
+
+grant_type=client_credentials&amp;scope=metrics:read+alerts:write
+
+<span class="c"># 응답</span>
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  <span class="n">"access_token"</span>: <span class="s">"eyJhbGciOiJSUzI1NiIs..."</span>,
+  <span class="n">"token_type"</span>: <span class="s">"Bearer"</span>,
+  <span class="n">"expires_in"</span>: <span class="k">3600</span>,
+  <span class="n">"scope"</span>: <span class="s">"metrics:read alerts:write"</span>
+}</pre>
+
+  <p>끝입니다. 요청 한 번, 응답 한 번. 리프레시 토큰은 발급되지 않습니다. 사용자 동의가 없는 흐름이라 만료되면 그냥 같은 요청을 다시 보내면 되기 때문입니다.</p>
+
+  <h3>운영에서 주의할 점</h3>
+  <div class="grid g2" style="margin:18px 0">
+    <div class="card">
+      <h4 style="margin-top:0">토큰을 매 요청마다 새로 받지 마세요</h4>
+      <p class="dim" style="font-size:.88rem; max-width:none">API 호출 1000번에 토큰 발급 1000번을 하는 코드를 꽤 자주 봅니다. 인가 서버에 불필요한 부하가 걸리고, 레이트 리밋에 걸려 서비스가 멈추기도 합니다. <code>expires_in</code>을 보고 메모리에 캐시했다가 만료 30~60초 전에 갱신하세요.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">시크릿은 코드에 넣지 마세요</h4>
+      <p class="dim" style="font-size:.88rem; max-width:none">깃 저장소에 <code>client_secret</code>이 올라가는 사고는 지금도 매일 일어납니다. 시크릿 매니저나 볼트에서 런타임에 주입하고, 정기적으로 교체할 수 있도록 두 개의 시크릿을 동시에 유효하게 두는 무중단 교체 절차를 준비해 두세요.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">역할마다 클라이언트를 분리하세요</h4>
+      <p class="dim" style="font-size:.88rem; max-width:none">배치, 모니터링, 정산이 모두 하나의 <code>client_id</code>를 공유하면 한 곳의 시크릿 유출이 전체 권한 유출이 됩니다. 감사 로그에서 누가 호출했는지 구분할 수도 없습니다. 워크로드 단위로 나누고 필요한 스코프만 부여하세요.</p>
+    </div>
+    <div class="card">
+      <h4 style="margin-top:0">더 나은 대안이 있으면 그쪽을 쓰세요</h4>
+      <p class="dim" style="font-size:.88rem; max-width:none">클라우드 환경이라면 장기 시크릿 대신 워크로드에 붙은 신원을 쓰는 방식(쿠버네티스 서비스 계정 토큰 연동, OIDC 페더레이션 등)이 더 안전합니다. 보관할 비밀 자체가 사라지기 때문입니다. 3편에서 자세히 다룹니다.</p>
+    </div>
+  </div>
+</section>
+
+<section id="s6">
+  <div class="sec-head"><span class="sec-num">06</span><h2>기기 인가 흐름</h2></div>
+  <p>Device Authorization Grant. 스마트 TV에서 넷플릭스를 로그인할 때, 혹은 터미널에서 <code>aws sso login</code>이나 <code>gh auth login</code>을 칠 때 마주치는 그 화면입니다. "브라우저에서 이 주소로 접속하고 아래 코드를 입력하세요"라고 나오는 흐름이죠.</p>
+
+  <p>쓰는 이유는 단순합니다. <strong>입력이 불편하거나 브라우저가 없는 기기</strong>가 있기 때문입니다. TV 리모컨으로 비밀번호를 치는 건 고통스럽고, SSH로 접속한 서버에는 띄울 브라우저가 없습니다. 그래서 인증만 내 휴대폰이나 노트북으로 넘깁니다.</p>
+
+  <pre><span class="c"># 1. 기기가 코드 두 개를 요청한다</span>
+POST /device_authorization
+client_id=cli-tool
+
+<span class="c"># 응답</span>
+{
+  <span class="n">"device_code"</span>: <span class="s">"GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS"</span>,   <span class="c"># 기기가 쓸 값</span>
+  <span class="n">"user_code"</span>: <span class="s">"WDJB-MJHT"</span>,                                  <span class="c"># 사람이 읽고 입력할 값</span>
+  <span class="n">"verification_uri"</span>: <span class="s">"https://auth.example.com/device"</span>,
+  <span class="n">"expires_in"</span>: <span class="k">900</span>,
+  <span class="n">"interval"</span>: <span class="k">5</span>                                             <span class="c"># 폴링 간격(초)</span>
+}
+
+<span class="c"># 2. 기기가 화면에 안내를 띄운다</span>
+<span class="c">#    "https://auth.example.com/device 에 접속해 WDJB-MJHT 를 입력하세요"</span>
+
+<span class="c"># 3. 그동안 기기는 5초마다 토큰 엔드포인트를 두드린다</span>
+POST /token
+grant_type=urn:ietf:params:oauth:grant-type:device_code
+&amp;device_code=GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS
+&amp;client_id=cli-tool
+
+<span class="c"># 사용자가 아직 승인 전이면</span>
+<span class="r">{ "error": "authorization_pending" }</span>
+<span class="c"># 너무 자주 물어보면</span>
+<span class="r">{ "error": "slow_down" }</span>          <span class="c"># interval을 5초 늘리고 계속</span>
+<span class="c"># 사용자가 승인하면</span>
+<span class="g">{ "access_token": "...", "token_type": "Bearer", "expires_in": 3600 }</span></pre>
+
+  <div class="note warn">
+    <b>사용자 코드는 짧고 읽기 쉬워야 합니다</b>
+    <p><code>user_code</code>에 흔히 대문자와 숫자 일부만 쓰고 <code>0</code>/<code>O</code>, <code>1</code>/<code>I</code> 같은 헷갈리는 글자를 빼는 이유가 여기 있습니다. 대신 짧은 만큼 무차별 대입에 약하므로, 인가 서버는 시도 횟수를 제한하고 유효 시간을 짧게(보통 15분) 잡아야 합니다.</p>
+  </div>
+
+  <div class="note bad">
+    <b>기억해 둘 피싱 위험</b>
+    <p>이 흐름은 "낯선 코드를 입력하는 행위"를 사용자에게 정상적인 것으로 학습시킵니다. 공격자가 자기 기기로 코드를 발급받은 뒤 그 코드를 피해자에게 보내 입력하게 만들면, 피해자 계정 권한이 공격자 기기로 넘어갑니다. 그래서 승인 화면에 "어떤 기기가 요청했는지"를 분명히 보여주고, 사용자가 직접 시작한 요청인지 한 번 더 확인시키는 설계가 필요합니다.</p>
+  </div>
+</section>
+
+<section id="s7">
+  <div class="sec-head"><span class="sec-num">07</span><h2>사라진 방식들</h2></div>
+  <p>레거시 시스템을 인수인계받거나 오래된 블로그 글을 읽다 보면 지금은 쓰지 않는 흐름이 나옵니다. 왜 폐기됐는지 알아 두면 "이 코드는 고쳐야 한다"를 근거 있게 설명할 수 있습니다.</p>
+
+  <h3>암묵적 흐름 (Implicit Grant)</h3>
+  <p>인가 코드 없이, 인가 서버가 리다이렉트할 때 액세스 토큰을 URL 프래그먼트에 바로 담아 주는 방식입니다. 예전 SPA는 백엔드가 없어서 토큰 교환을 할 수 없었기에 이 방식이 만들어졌습니다.</p>
+  <pre><span class="c"># 이런 URL로 돌아옵니다</span>
+https://myapp.com/callback<span class="r">#access_token=eyJhbGci...&amp;token_type=Bearer&amp;expires_in=3600</span></pre>
+  <p>문제는 명확합니다. 액세스 토큰이 브라우저 주소창에 노출되고, 히스토리에 남고, 브라우저 확장 프로그램이 읽을 수 있습니다. 리프레시 토큰을 줄 수 없어 만료될 때마다 사용자를 다시 인가 서버로 보내야 하고, 코드 주입 공격을 막을 방법도 없습니다. 지금은 <strong>PKCE를 적용한 인가 코드 흐름</strong>이 SPA에서도 완벽히 동작하므로 쓸 이유가 없습니다.</p>
+
+  <h3>리소스 소유자 비밀번호 흐름 (ROPC)</h3>
+  <p>사용자가 앱 화면에 아이디와 비밀번호를 직접 입력하면, 앱이 그것을 토큰 엔드포인트로 보내 토큰으로 바꾸는 방식입니다.</p>
+  <pre>POST /token
+grant_type=password&amp;username=alice&amp;password=<span class="r">hunter2</span>&amp;client_id=legacy-app</pre>
+  <p>보시다시피 <strong>0장에서 설명한 비밀번호 안티패턴으로 되돌아간 것</strong>입니다. 앱이 사용자 비밀번호를 그대로 보게 되므로 OAuth를 쓰는 의미가 사라집니다. 2단계 인증과 공존할 수 없고, 소셜 로그인 같은 외부 인증과도 연동되지 않습니다. 명세에서도 마이그레이션 목적의 예외로만 허용했고, 현재 권고는 명확히 "쓰지 말 것"입니다.</p>
+
+  <div class="tscroll"><table>
+    <thead><tr><th style="width:20%">흐름</th><th style="width:18%">상태</th><th style="width:30%">왜 그런가</th><th style="width:32%">대신 쓸 것</th></tr></thead>
+    <tbody>
+      <tr><td><b>Authorization Code + PKCE</b></td><td><span class="tag t-ok">표준</span></td><td>사용자를 대신하는 모든 경우의 정답</td><td>—</td></tr>
+      <tr><td><b>Client Credentials</b></td><td><span class="tag t-ok">표준</span></td><td>사용자가 없는 서버 간 통신</td><td>—</td></tr>
+      <tr><td><b>Device Code</b></td><td><span class="tag t-ok">표준</span></td><td>입력이 불편하거나 브라우저가 없는 기기</td><td>—</td></tr>
+      <tr><td><b>Refresh Token</b></td><td><span class="tag t-ok">표준</span></td><td>만료된 액세스 토큰 갱신용</td><td>—</td></tr>
+      <tr><td><b>Implicit</b></td><td><span class="tag t-bad">폐기</span></td><td>토큰이 URL에 노출, 리프레시 불가</td><td>Authorization Code + PKCE</td></tr>
+      <tr><td><b>Password (ROPC)</b></td><td><span class="tag t-bad">폐기</span></td><td>앱이 비밀번호를 직접 취급, 2단계 인증 불가</td><td>Authorization Code + PKCE</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>그래서 내 상황에는 무엇을 써야 하나</h3>
+  <p>세 가지만 물어보면 답이 나옵니다. 아래에서 직접 골라 보세요.</p>
+
+  <div class="wiz">
+    <div class="wiz-steps" id="wizSteps"><i></i><i></i><i></i></div>
+    <div id="wizBody"></div>
+  </div>
+</section>
+
+<section id="s8">
+  <div class="sec-head"><span class="sec-num">08</span><h2>스코프 설계</h2></div>
+  <p>스코프는 OAuth에서 가장 과소평가되는 부분입니다. 흐름은 정해진 대로 구현하면 되지만, 스코프는 <strong>우리 서비스의 권한 모델을 직접 설계하는 일</strong>이라 정답이 없습니다. 잘못 설계하면 나중에 되돌리기가 매우 어렵습니다. 이미 발급된 토큰과 이미 연동된 앱들이 전부 깨지기 때문입니다.</p>
+
+  <h3>스코프를 바꾸면 무엇이 달라지는지 직접 보기</h3>
+  <p>아래에서 요청할 스코프를 선택하면, 사용자가 보게 될 동의 화면과 실제 API 호출 결과가 함께 바뀝니다.</p>
+
+  <div class="scope-grid" style="margin:20px 0">
+    <div class="scope-pick" id="scopePick"></div>
+    <div>
+      <div class="consent">
+        <div class="consent-top"><i></i>동의 화면 미리보기</div>
+        <div class="consent-body" id="consentBody"></div>
+      </div>
+      <div class="card" style="margin-top:14px; padding:15px 17px">
+        <div style="font-size:.8rem; font-weight:600; color:var(--ink-2); margin-bottom:7px">이 토큰으로 API를 호출하면</div>
+        <div id="apiList"></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>설계 원칙 네 가지</h3>
+
+  <h4>1. 읽기와 쓰기를 반드시 나눈다</h4>
+  <p>가장 기본이면서 가장 효과가 큽니다. <code>orders</code> 하나만 두면 주문 목록을 보여주는 대시보드도 주문을 취소할 권한을 갖게 됩니다. <code>orders:read</code>와 <code>orders:write</code>로 나누면 대부분의 연동 앱은 읽기만 요청하게 되고, 사고의 파급 범위가 크게 줄어듭니다.</p>
+
+  <h4>2. 이름은 사용자가 아니라 개발자를 위한 것이다</h4>
+  <p><code>calendar.events.readonly</code>처럼 리소스와 동작이 드러나는 이름을 씁니다. 사용자에게 보여줄 문장("내 일정을 볼 수 있습니다")은 동의 화면에서 따로 번역합니다. 이 둘을 섞어서 스코프 이름을 한글 문장으로 만드는 실수를 하면 나중에 다국어 지원에서 곤란해집니다.</p>
+
+  <h4>3. 너무 잘게 쪼개지 않는다</h4>
+  <p>권한을 50개로 쪼개면 동의 화면이 스크롤 두 페이지가 되고, 사용자는 읽지 않고 그냥 승인합니다. 아무도 읽지 않는 동의 화면은 보안 장치가 아니라 요식 행위입니다. <strong>사용자가 의미를 이해할 수 있는 단위</strong>가 적절한 입자 크기입니다. 보통 리소스 종류 × (읽기/쓰기) 정도면 충분합니다.</p>
+
+  <h4>4. 나중에 추가할 수는 있어도 빼기는 어렵다</h4>
+  <p>스코프를 추가하는 건 쉽습니다. 기존 토큰은 그대로 동작하고, 새 권한이 필요한 앱만 다시 동의를 받으면 됩니다. 하지만 기존 스코프를 없애거나 의미를 좁히면 이미 연동된 앱이 전부 깨집니다. <strong>처음에 좁게 시작해서 넓히는 방향</strong>이 언제나 안전합니다.</p>
+
+  <div class="note">
+    <b>점진적 인가 (Incremental Authorization)</b>
+    <p>가입 시점에 모든 권한을 한꺼번에 요구하지 말고, 그 기능을 실제로 쓰려는 순간에 추가로 요청하는 방식입니다. "파일 내보내기" 버튼을 누를 때 비로소 드라이브 쓰기 권한에 동의를 받는 식이죠. 사용자 입장에서는 왜 그 권한이 필요한지 맥락이 분명해서 동의율이 올라가고, 서비스 입장에서는 불필요한 권한을 들고 있지 않아도 됩니다.</p>
+  </div>
+</section>
+
+<section id="s9">
+  <div class="sec-head"><span class="sec-num">09</span><h2>보안 체크리스트</h2></div>
+  <p>OAuth 관련 사고는 대부분 프로토콜 자체의 결함이 아니라 <strong>구현에서 한두 가지를 빠뜨려서</strong> 일어납니다. 아래는 코드 리뷰나 구축 검수 때 그대로 써도 되는 목록입니다. 항목을 눌러 체크해 보세요.</p>
+
+  <div style="display:flex; align-items:center; gap:12px; margin:18px 0 6px; flex-wrap:wrap">
+    <div class="check-score" id="checkScore">0 / 10 확인</div>
+    <button class="btn" type="button" onclick="resetCheck()">초기화</button>
+  </div>
+  <ul class="check" id="checkList"></ul>
+</section>
+
+<section id="s10">
+  <div class="sec-head"><span class="sec-num">10</span><h2>이해도 점검</h2></div>
+  <p>여덟 문제입니다. 틀려도 바로 해설이 나오니 편하게 골라 보세요.</p>
+  <div class="quiz" id="quiz"></div>
+</section>
+
+<div class="end">
+  <h2>1편 정리</h2>
+  <p class="dim" style="margin-top:4px">여기까지 왔다면 OAuth 2.0 문서를 읽을 기본기는 갖춘 것입니다. 핵심만 다시 짚고 가겠습니다.</p>
+  <ul class="recap">
+    <li><b>01</b><span>OAuth는 비밀번호를 넘기지 않고, 범위와 기한이 정해진 액세스 토큰으로 권한만 위임하는 표준이다.</span></li>
+    <li><b>02</b><span>등장인물은 넷. 리소스 소유자(사용자), 클라이언트(앱), 인가 서버, 리소스 서버.</span></li>
+    <li><b>03</b><span>민감한 값은 백 채널(서버 대 서버)로만 오간다. 브라우저를 지나는 프론트 채널에는 훔쳐도 쓸모가 적은 일회용 코드만 싣는다.</span></li>
+    <li><b>04</b><span>시크릿을 숨길 수 없는 공개 클라이언트는 PKCE로 코드 탈취를 막는다. 이제는 모든 클라이언트의 기본값이다.</span></li>
+    <li><b>05</b><span>사용자가 없는 서버 간 통신은 Client Credentials, 입력이 불편한 기기는 Device Code를 쓴다.</span></li>
+    <li><b>06</b><span>Implicit와 ROPC는 폐기됐다. 둘 다 Authorization Code + PKCE로 대체한다.</span></li>
+    <li><b>07</b><span>OAuth는 인가만 다룬다. "이 사용자가 누구인가"는 아직 아무도 대답하지 않았다.</span></li>
+  </ul>
+
+  <hr>
+  <h3 style="margin-top:0">2편에서 이어집니다</h3>
+  <p class="dim" style="font-size:.93rem">마지막 항목이 2편의 출발점입니다. 액세스 토큰을 받았다는 사실만으로 "이 사람은 앨리스다"라고 판단하면 왜 취약점이 되는지, 그 문제를 풀기 위해 OAuth 위에 얹은 OpenID Connect가 무엇인지 다룹니다. <code>id_token</code>의 JWT 구조를 한 줄씩 뜯어보고, 서명 검증에 쓰는 JWKS와 <code>.well-known/openid-configuration</code> 문서를 실제로 열어 봅니다. 토큰을 어디에 저장해야 하는지, 로그아웃이 왜 그렇게 어려운지도 함께 살펴봅니다.</p>
+</div>
+
+</main>
+</div>
+
+<script>
+/* ---------- theme ---------- */
+(function(){
+  var root=document.documentElement, btn=document.getElementById('themeBtn');
+  var stored=null;
+  try{ stored=localStorage.getItem('oauth-lec-theme'); }catch(e){}
+  var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var cur = stored || (sysDark ? 'dark' : 'light');
+  apply(cur);
+  btn.addEventListener('click', function(){ cur = (cur==='dark'?'light':'dark'); apply(cur); try{ localStorage.setItem('oauth-lec-theme',cur); }catch(e){} });
+  function apply(m){ root.setAttribute('data-theme', m); btn.textContent = (m==='dark' ? '라이트 모드' : '다크 모드'); }
+})();
+
+/* ---------- progress + toc ---------- */
+(function(){
+  var bar=document.getElementById('prog');
+  var links=[].slice.call(document.querySelectorAll('.rail a'));
+  var secs=links.map(function(a){ return document.getElementById(a.getAttribute('href').slice(1)); });
+  function upd(){
+    var h=document.documentElement;
+    var max=h.scrollHeight-h.clientHeight;
+    bar.style.width=(max>0?Math.min(100,(h.scrollTop/max)*100):0)+'%';
+    var i=0;
+    for(var k=0;k<secs.length;k++){ if(secs[k] && secs[k].getBoundingClientRect().top<=140) i=k; }
+    links.forEach(function(a,j){ a.classList.toggle('on', j===i); });
+  }
+  window.addEventListener('scroll', upd, {passive:true});
+  window.addEventListener('resize', upd);
+  upd();
+})();
+
+/* ---------- hero demo ---------- */
+var DEMO={
+  pw:{
+    items:[
+      ['yes','내 캘린더를 읽는다','원래 부탁한 일'],
+      ['yes','내 메일을 전부 읽는다','부탁한 적 없음'],
+      ['yes','내 이름으로 메일을 보낸다','부탁한 적 없음'],
+      ['yes','내 비밀번호를 바꾼다','부탁한 적 없음'],
+      ['yes','내 계정을 삭제한다','부탁한 적 없음']
+    ],
+    verdict:['bad','비밀번호는 곧 마스터 키입니다. 권한을 쪼갤 수도, 이 앱만 골라서 끊을 수도 없습니다. 게다가 2단계 인증을 켜면 연동 자체가 깨집니다.']
+  },
+  token:{
+    items:[
+      ['ok','내 캘린더를 읽는다','허용한 범위'],
+      ['no','내 메일을 읽는다','스코프에 없어 403'],
+      ['no','내 이름으로 메일을 보낸다','스코프에 없어 403'],
+      ['no','내 비밀번호를 바꾼다','토큰으로 불가능'],
+      ['no','내 계정을 삭제한다','토큰으로 불가능']
+    ],
+    verdict:['ok','앱은 캘린더 읽기 권한만 가진 토큰을 들고 있습니다. 토큰은 한 시간 뒤 만료되고, 계정 설정에서 이 앱만 골라 연결을 끊을 수 있습니다.']
+  }
+};
+function setDemo(k){
+  var d=DEMO[k];
+  document.getElementById('demoA').setAttribute('aria-pressed', k==='pw');
+  document.getElementById('demoB').setAttribute('aria-pressed', k==='token');
+  var html='<ul class="perm-list">';
+  d.items.forEach(function(it){
+    var ic = it[0]==='yes' ? '⚠' : (it[0]==='ok' ? '✓' : '✕');
+    html+='<li class="'+it[0]+'"><span class="ic">'+ic+'</span><span><b style="font-weight:500">'+it[1]+'</b><br><span style="color:var(--ink-3); font-size:.82rem">'+it[2]+'</span></span></li>';
+  });
+  html+='</ul>';
+  var v=d.verdict;
+  var bg = v[0]==='bad' ? 'var(--danger-bg)' : 'var(--ok-bg)';
+  var fg = v[0]==='bad' ? 'var(--danger)' : 'var(--ok)';
+  html+='<div class="demo-verdict" style="background:'+bg+'; color:'+fg+'">'+v[1]+'</div>';
+  document.getElementById('demoBody').innerHTML=html;
+}
+setDemo('pw');
+
+/* ---------- flow stepper ---------- */
+var CX=[82,242,402,562];
+var CLR=['var(--owner)','var(--client)','var(--auth)','var(--res)'];
+var FLOW=[
+ {from:0,to:1,label:'연동 시작',ch:'사용자 조작',
+  title:'1. 사용자가 연동을 시작한다',
+  desc:'일정 관리 앱에서 "구글 캘린더 연결" 버튼을 누릅니다. 아직 OAuth는 시작되지 않았고, 그냥 앱 내부의 클릭입니다.',
+  code:''},
+
+ {from:1,to:0,label:'302 리다이렉트',ch:'프론트 채널 · 브라우저를 거침',
+  title:'2. 앱이 브라우저를 인가 서버로 보낸다',
+  desc:'앱은 먼저 예측 불가능한 state와 PKCE용 code_verifier를 만들어 세션에 저장합니다. 그리고 브라우저에게 "인가 서버로 가라"는 302 응답을 돌려줍니다. 앱이 직접 인가 서버를 호출하는 게 아니라, 사용자의 브라우저를 심부름 보내는 것이 핵심입니다.',
+  code:'<pre>HTTP/1.1 302 Found\nLocation: https://auth.example.com/authorize\n  ?response_type=<span class="s">code</span>\n  &amp;client_id=<span class="s">calendar-sync-app</span>\n  &amp;redirect_uri=<span class="s">https://app.example.com/callback</span>\n  &amp;scope=<span class="s">calendar.readonly</span>\n  &amp;state=<span class="s">xyz789</span>\n  &amp;code_challenge=<span class="s">E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM</span>\n  &amp;code_challenge_method=<span class="s">S256</span></pre>'},
+
+ {from:0,to:2,label:'GET /authorize',ch:'프론트 채널 · 브라우저를 거침',
+  title:'3. 브라우저가 인가 서버에 도착한다',
+  desc:'인가 서버는 화면을 띄우기 전에 먼저 검증합니다. client_id가 등록된 앱인가, redirect_uri가 등록된 값과 문자열 단위로 정확히 일치하는가. 여기서 틀리면 사용자를 돌려보내지 않고 그 자리에서 에러를 표시해야 합니다. 검증되지 않은 주소로 리다이렉트하는 순간 그것이 공격 통로가 되기 때문입니다.',
+  code:''},
+
+ {from:2,to:2,label:'로그인 · 동의',ch:'인가 서버 내부 · 앱은 볼 수 없음',
+  title:'4. 사용자가 로그인하고 동의한다',
+  desc:'이 화면은 전적으로 인가 서버의 영역입니다. 비밀번호도, 2단계 인증 코드도, 생체 인증도 모두 인가 서버에만 전달됩니다. 앱은 여기서 무슨 일이 일어나는지 전혀 볼 수 없고, 그게 바로 OAuth가 해결하려던 문제입니다. 이미 로그인된 세션이 있고 전에 같은 스코프에 동의한 적이 있다면 이 단계는 화면 없이 지나갑니다.',
+  code:''},
+
+ {from:2,to:0,label:'302 code=...',ch:'프론트 채널 · 브라우저를 거침',
+  title:'5. 인가 코드를 들고 앱으로 돌아온다',
+  desc:'인가 서버가 미리 등록된 redirect_uri로 브라우저를 되돌려 보냅니다. URL에 담긴 것은 액세스 토큰이 아니라 수명이 짧고 한 번만 쓸 수 있는 인가 코드입니다. 2단계에서 보낸 state도 그대로 돌아옵니다.',
+  code:'<pre>HTTP/1.1 302 Found\nLocation: https://app.example.com/callback\n  ?code=<span class="s">SplxlOBeZQQYbYS6WxSbIA</span>\n  &amp;state=<span class="s">xyz789</span></pre>'},
+
+ {from:0,to:1,label:'GET /callback',ch:'프론트 채널 · 브라우저를 거침',
+  title:'6. 앱이 콜백을 받고 state를 검증한다',
+  desc:'앱이 가장 먼저 할 일은 코드를 쓰는 것이 아니라 state를 확인하는 것입니다. 돌아온 값이 2단계에서 세션에 저장해 둔 값과 다르면 즉시 중단합니다. 이 검증 한 줄이 로그인 CSRF를 막습니다. 자주 빠뜨리는 부분이니 코드 리뷰 때 꼭 확인하세요.',
+  code:'<pre><span class="c">// 앱 백엔드의 콜백 핸들러</span>\n<span class="k">if</span> (query.state !== session.oauthState) {\n  <span class="k">return</span> res.status(<span class="k">400</span>).send(<span class="s">"state 불일치 — 요청을 폐기합니다"</span>);\n}\n<span class="k">delete</span> session.oauthState;  <span class="c">// 한 번 쓰면 버린다</span></pre>'},
+
+ {from:1,to:2,label:'POST /token',ch:'백 채널 · 서버 대 서버 HTTPS',
+  title:'7. 코드를 액세스 토큰으로 교환한다',
+  desc:'여기가 진짜 거래가 일어나는 곳입니다. 브라우저를 거치지 않고 앱의 백엔드가 인가 서버에 직접 요청합니다. 인가 코드, client_secret, PKCE의 code_verifier를 함께 제출하면 인가 서버가 세 가지를 모두 검증한 뒤 토큰을 내줍니다.',
+  code:'<pre>POST /token HTTP/1.1\nHost: auth.example.com\nContent-Type: application/x-www-form-urlencoded\n\ngrant_type=<span class="s">authorization_code</span>\n&amp;code=<span class="s">SplxlOBeZQQYbYS6WxSbIA</span>\n&amp;redirect_uri=<span class="s">https://app.example.com/callback</span>\n&amp;client_id=<span class="s">calendar-sync-app</span>\n&amp;client_secret=<span class="r">s3cr3t-서버에만-존재</span>\n&amp;code_verifier=<span class="s">dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</span>\n\n<span class="c">// 응답</span>\n{\n  <span class="n">"access_token"</span>: <span class="g">"ya29.a0AfH6SMBx..."</span>,\n  <span class="n">"token_type"</span>: <span class="s">"Bearer"</span>,\n  <span class="n">"expires_in"</span>: <span class="k">3600</span>,\n  <span class="n">"refresh_token"</span>: <span class="g">"1//04dXk9v..."</span>,\n  <span class="n">"scope"</span>: <span class="s">"calendar.readonly"</span>\n}</pre>'},
+
+ {from:1,to:3,label:'Bearer 토큰으로 호출',ch:'백 채널 · 서버 대 서버 HTTPS',
+  title:'8. 토큰으로 API를 호출한다',
+  desc:'이제부터는 매 요청마다 Authorization 헤더에 토큰을 실어 보냅니다. 리소스 서버는 토큰이 유효한지, 만료되지 않았는지, 이 API에 필요한 스코프를 담고 있는지 확인하고 데이터를 내줍니다. 스코프가 부족하면 401이 아니라 403을 돌려주는 것이 관례입니다.',
+  code:'<pre>GET /calendar/v3/calendars/primary/events HTTP/1.1\nHost: api.example.com\nAuthorization: Bearer <span class="g">ya29.a0AfH6SMBx...</span>\n\n<span class="c">// 성공</span>\nHTTP/1.1 200 OK\n{ <span class="n">"items"</span>: [ { <span class="n">"summary"</span>: <span class="s">"주간 회의"</span>, ... } ] }\n\n<span class="c">// 스코프가 부족할 때</span>\nHTTP/1.1 <span class="r">403 Forbidden</span>\nWWW-Authenticate: Bearer error=<span class="s">"insufficient_scope"</span>,\n  scope=<span class="s">"calendar.events.write"</span></pre>'}
+];
+var flowI=0, flowMax=0;
+function flowGo(i){
+  if(i<0||i>=FLOW.length) return;
+  flowI=i; if(i>flowMax) flowMax=i;
+  var s=FLOW[i];
+  for(var k=0;k<4;k++){
+    document.getElementById('lane'+k).classList.toggle('dim', k!==s.from && k!==s.to);
+  }
+  var line=document.getElementById('msgLine'), self=document.getElementById('msgSelf');
+  var lab=document.getElementById('msgLabel'), chn=document.getElementById('msgChannel');
+  if(s.from===s.to){
+    line.style.display='none'; self.style.display='';
+    var cx=CX[s.from];
+    self.setAttribute('d','M '+(cx-6)+' 112 C '+(cx+58)+' 106, '+(cx+58)+' 146, '+(cx+2)+' 140');
+    self.setAttribute('stroke', CLR[s.from]);
+    lab.setAttribute('x', cx); lab.setAttribute('y', 100);
+  }else{
+    self.style.display='none'; line.style.display='';
+    line.setAttribute('x1', CX[s.from]); line.setAttribute('x2', CX[s.to]);
+    line.setAttribute('stroke', CLR[s.from]);
+    lab.setAttribute('x', (CX[s.from]+CX[s.to])/2); lab.setAttribute('y', 100);
+  }
+  lab.setAttribute('fill', CLR[s.from]);
+  lab.textContent=s.label;
+  chn.textContent=s.ch;
+  document.getElementById('flowTitle').textContent=s.title;
+  document.getElementById('flowDesc').textContent=s.desc;
+  document.getElementById('flowCode').innerHTML=s.code;
+  document.getElementById('flowPrev').disabled=(i===0);
+  document.getElementById('flowNext').disabled=(i===FLOW.length-1);
+  document.getElementById('flowNext').textContent = (i===FLOW.length-1) ? '끝' : '다음';
+  [].forEach.call(document.querySelectorAll('#flowDots button'), function(b,j){
+    b.setAttribute('aria-current', j===i);
+    b.classList.toggle('done', j<=flowMax && j!==i);
+  });
+}
+(function(){
+  var d=document.getElementById('flowDots'), h='';
+  for(var i=0;i<FLOW.length;i++) h+='<button type="button" onclick="flowGo('+i+')" aria-label="'+(i+1)+'단계">'+(i+1)+'</button>';
+  d.innerHTML=h; flowGo(0);
+})();
+
+/* ---------- PKCE lab ---------- */
+var pkce={v:null,c:null};
+function b64url(bytes){
+  var s=''; var a=new Uint8Array(bytes);
+  for(var i=0;i<a.length;i++) s+=String.fromCharCode(a[i]);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function sha256b64(str){
+  var data=new TextEncoder().encode(str);
+  var hash=await crypto.subtle.digest('SHA-256', data);
+  return b64url(hash);
+}
+async function genPkce(){
+  var rnd=new Uint8Array(32); crypto.getRandomValues(rnd);
+  pkce.v=b64url(rnd);
+  pkce.c=await sha256b64(pkce.v);
+  document.getElementById('pkceV').textContent=pkce.v;
+  document.getElementById('pkceC').textContent=pkce.c;
+  document.getElementById('pkceMsg').innerHTML='<span style="color:var(--ink-3)">생성했습니다. 위쪽 값은 앱 메모리에만 남고, 아래쪽 값만 인가 요청 URL에 실려 나갑니다.</span>';
+}
+async function verifyPkce(){
+  var el=document.getElementById('pkceMsg');
+  if(!pkce.v){ el.innerHTML='<span style="color:var(--warn)">먼저 새 쌍을 생성해 주세요.</span>'; return; }
+  var ok=await sha256b64(pkce.v);
+  var fakeRnd=new Uint8Array(32); crypto.getRandomValues(fakeRnd);
+  var fake=await sha256b64(b64url(fakeRnd));
+  el.innerHTML =
+   '<div style="padding:11px 14px; border-radius:9px; background:var(--ok-bg); color:var(--ok); margin-bottom:8px">'+
+   '<b>정상 앱</b> · 보관하던 code_verifier 제출 → 해시 결과 '+(ok===pkce.c?'일치':'불일치')+' → <b>토큰 발급</b></div>'+
+   '<div style="padding:11px 14px; border-radius:9px; background:var(--danger-bg); color:var(--danger)">'+
+   '<b>코드를 훔친 공격자</b> · code_verifier를 모르니 아무 값이나 제출 → 해시 결과 '+(fake===pkce.c?'일치':'불일치')+' → <b>invalid_grant 거절</b></div>';
+}
+
+/* ---------- grant type wizard ---------- */
+var WIZ={
+  q1:{step:0,q:'이 요청에 사람이 관여하나요?',opts:[
+    ['사용자를 대신해 그 사람의 데이터에 접근한다','캘린더 읽기, 파일 가져오기, 내 주문 내역 조회','q2'],
+    ['사람 없이 시스템이 자기 권한으로 동작한다','야간 배치, 모니터링 수집, 서비스 간 내부 호출','r_cc']
+  ]},
+  q2:{step:1,q:'사용자 환경에서 브라우저를 띄울 수 있나요?',opts:[
+    ['웹이나 모바일이라 브라우저를 열 수 있다','일반적인 웹 서비스, iOS·안드로이드 앱','q3'],
+    ['브라우저가 없거나 입력이 몹시 불편하다','스마트 TV, CLI 도구, 헤드리스 서버, IoT 기기','r_dev']
+  ]},
+  q3:{step:2,q:'앱이 client_secret을 안전하게 보관할 수 있나요?',opts:[
+    ['서버에서만 도는 코드가 있다','백엔드 API, 서버 사이드 렌더링 웹앱','r_ac_conf'],
+    ['사용자 기기에서 도는 코드뿐이다','React·Vue SPA, 모바일 앱, 데스크톱 앱','r_ac_pub']
+  ]},
+  r_cc:{res:'client_credentials',name:'Client Credentials',
+    body:'사용자 동의 화면도 리다이렉트도 없습니다. 토큰 엔드포인트에 client_id와 client_secret을 보내고 토큰을 바로 받습니다.',
+    tips:['토큰을 캐시해서 재사용하세요. 만료 30~60초 전에 갱신합니다.','워크로드마다 클라이언트를 분리하고 최소 스코프만 부여하세요.','클라우드라면 장기 시크릿 대신 워크로드 신원 연동을 먼저 검토하세요.']},
+  r_dev:{res:'device_code',name:'Device Authorization',
+    body:'기기는 코드를 화면에 띄우고 폴링만 합니다. 인증은 사용자의 휴대폰이나 노트북 브라우저에서 진행됩니다.',
+    tips:['user_code는 짧게, 헷갈리는 글자는 빼고, 유효 시간은 15분 내외로.','slow_down 응답을 받으면 폴링 간격을 반드시 늘리세요.','승인 화면에 요청한 기기 정보를 표시해 피싱을 줄이세요.']},
+  r_ac_conf:{res:'authorization_code + PKCE',name:'Authorization Code (기밀 클라이언트)',
+    body:'표준 중의 표준입니다. 백엔드가 client_secret으로 신원을 증명하고, PKCE를 더해 코드 주입까지 막습니다.',
+    tips:['PKCE는 백엔드가 있어도 켜세요. 최신 권고는 전 클라이언트 적용입니다.','state 검증을 빠뜨리지 마세요.','리프레시 토큰은 서버에 암호화 보관하고 회전시키세요.']},
+  r_ac_pub:{res:'authorization_code + PKCE',name:'Authorization Code (공개 클라이언트)',
+    body:'시크릿 없이 PKCE만으로 동작합니다. SPA와 모바일 앱의 유일한 정답입니다.',
+    tips:['client_secret을 절대 넣지 마세요. 번들에서 그대로 추출됩니다.','SPA는 토큰을 localStorage 대신 메모리에 두는 편이 안전합니다.','모바일은 커스텀 스킴보다 앱 링크·유니버설 링크를 쓰세요.']}
+};
+function wizGo(k){
+  var n=WIZ[k], b=document.getElementById('wizBody'), st=document.getElementById('wizSteps');
+  if(n.q){
+    [].forEach.call(st.children, function(i,j){ i.classList.toggle('on', j<=n.step); });
+    var h='<p class="wiz-q">'+n.q+'</p><div class="wiz-opts">';
+    n.opts.forEach(function(o){ h+='<button type="button" onclick="wizGo(\''+o[2]+'\')">'+o[0]+'<small>'+o[1]+'</small></button>'; });
+    h+='</div>';
+    if(k!=='q1') h+='<div style="margin-top:14px"><button class="btn" type="button" onclick="wizGo(\'q1\')">처음부터</button></div>';
+    b.innerHTML=h;
+  }else{
+    [].forEach.call(st.children, function(i){ i.classList.add('on'); });
+    var t='<div class="wiz-result"><h4>'+n.res+'</h4><p style="font-weight:500; color:var(--ink)">'+n.name+'</p><p>'+n.body+'</p><ul style="margin:10px 0 0; padding-left:1.1em; font-size:.87rem; color:var(--ink-2)">';
+    n.tips.forEach(function(x){ t+='<li>'+x+'</li>'; });
+    t+='</ul></div><div style="margin-top:14px"><button class="btn" type="button" onclick="wizGo(\'q1\')">다시 고르기</button></div>';
+    b.innerHTML=t;
+  }
+}
+wizGo('q1');
+
+/* ---------- scope simulator ---------- */
+var SCOPES=[
+  {id:'profile:read',  label:'기본 프로필 조회', consent:'회원님의 이름과 프로필 사진을 볼 수 있습니다'},
+  {id:'orders:read',   label:'주문 내역 조회',   consent:'회원님의 주문 내역을 볼 수 있습니다'},
+  {id:'orders:write',  label:'주문 생성·취소',   consent:'회원님을 대신해 주문을 만들고 취소할 수 있습니다'},
+  {id:'payments:read', label:'결제 수단 조회',   consent:'회원님이 등록한 결제 수단 목록을 볼 수 있습니다'}
+];
+var APIS=[
+  {m:'GET',    p:'/v1/me',                need:'profile:read'},
+  {m:'GET',    p:'/v1/orders',            need:'orders:read'},
+  {m:'POST',   p:'/v1/orders',            need:'orders:write'},
+  {m:'DELETE', p:'/v1/orders/8821',       need:'orders:write'},
+  {m:'GET',    p:'/v1/payment-methods',   need:'payments:read'}
+];
+function renderScope(){
+  var picked=[].slice.call(document.querySelectorAll('#scopePick input:checked')).map(function(i){ return i.value; });
+  var cb=document.getElementById('consentBody');
+  if(!picked.length){
+    cb.innerHTML='<p style="margin:0; color:var(--ink-3)">스코프를 하나도 요청하지 않으면 동의받을 것이 없습니다. 인가 서버에 따라 기본 스코프만 주거나 요청을 거절합니다.</p>';
+  }else{
+    var h='<b>일정 관리 앱</b>이 다음 권한을 요청합니다<ul>';
+    SCOPES.forEach(function(s){ if(picked.indexOf(s.id)>=0) h+='<li>'+s.consent+'</li>'; });
+    h+='</ul><div style="margin-top:13px; display:flex; gap:8px"><span class="btn" style="background:var(--auth); border-color:var(--auth); color:#fff; font-size:.8rem; padding:6px 14px">허용</span><span class="btn" style="font-size:.8rem; padding:6px 14px">취소</span></div>';
+    cb.innerHTML=h;
+  }
+  var a='';
+  APIS.forEach(function(x){
+    var ok=picked.indexOf(x.need)>=0;
+    a+='<div class="api-row '+(ok?'pass':'fail')+'"><b>'+(ok?'200':'403')+'</b><span>'+x.m+' '+x.p+'</span></div>';
+  });
+  document.getElementById('apiList').innerHTML=a;
+}
+(function(){
+  var h='';
+  SCOPES.forEach(function(s){
+    h+='<label><input type="checkbox" value="'+s.id+'" onchange="renderScope()"><span><code>'+s.id+'</code><small>'+s.label+'</small></span></label>';
+  });
+  document.getElementById('scopePick').innerHTML=h;
+  renderScope();
+})();
+
+/* ---------- checklist ---------- */
+var CHECKS=[
+  ['모든 구간에 HTTPS를 강제한다','Bearer 토큰은 가진 사람이 곧 주인입니다. 평문 구간이 한 곳이라도 있으면 전부 무의미해집니다.'],
+  ['redirect_uri를 문자열 단위로 정확히 비교한다','와일드카드, 접두사 비교, 하위 경로 자동 허용은 모두 코드 탈취 통로가 됩니다.'],
+  ['state를 생성하고 콜백에서 반드시 검증한다','검증하지 않으면 로그인 CSRF에 그대로 노출됩니다. 한 번 쓴 값은 즉시 폐기합니다.'],
+  ['모든 인가 코드 흐름에 PKCE(S256)를 적용한다','공개 클라이언트는 필수, 기밀 클라이언트도 권고 사항입니다. plain 방식은 쓰지 않습니다.'],
+  ['인가 코드는 일회용이며 수명이 짧다','같은 코드가 두 번 들어오면 탈취로 간주하고 발급된 토큰까지 무효화하는 것이 안전합니다.'],
+  ['액세스 토큰 수명을 짧게 잡는다','유출되더라도 피해 기간이 제한됩니다. 보통 5분에서 1시간 사이로 잡습니다.'],
+  ['리프레시 토큰은 서버에 암호화 보관하고 회전시킨다','이미 사용한 리프레시 토큰이 재사용되면 계정의 전체 토큰을 무효화합니다.'],
+  ['client_secret을 소스 코드나 프론트엔드에 두지 않는다','시크릿 매니저에서 런타임에 주입하고, 무중단 교체 절차를 미리 준비합니다.'],
+  ['최소 권한 원칙으로 스코프를 요청한다','지금 필요한 것만 요청하고, 나머지는 실제로 쓰는 시점에 추가로 동의받습니다.'],
+  ['토큰이 로그·URL·리퍼러에 남지 않게 한다','액세스 로그, APM 트레이스, 에러 리포팅 도구에 토큰이 그대로 실려 나가는 사고가 흔합니다.']
+];
+function renderCheck(){
+  var h='';
+  CHECKS.forEach(function(c,i){
+    h+='<li><input type="checkbox" id="ck'+i+'" onchange="scoreCheck()"><label for="ck'+i+'" style="cursor:pointer"><b>'+c[0]+'</b><span class="ct">'+c[1]+'</span></label></li>';
+  });
+  document.getElementById('checkList').innerHTML=h;
+  scoreCheck();
+}
+function scoreCheck(){
+  var n=document.querySelectorAll('#checkList input:checked').length;
+  var el=document.getElementById('checkScore');
+  el.textContent=n+' / '+CHECKS.length+' 확인';
+  el.style.color = n===CHECKS.length ? 'var(--ok)' : 'var(--ink-2)';
+}
+function resetCheck(){
+  [].forEach.call(document.querySelectorAll('#checkList input'), function(i){ i.checked=false; });
+  scoreCheck();
+}
+renderCheck();
+
+/* ---------- quiz ---------- */
+var QUIZ=[
+ {q:'OAuth 2.0이 표준화한 것은 다음 중 무엇인가?',
+  o:['사용자가 누구인지 확인하는 인증','앱에 권한만 위임하는 인가','비밀번호를 안전하게 저장하는 해싱','세션 쿠키의 암호화 방식'],
+  a:1,e:'OAuth 2.0은 인가(authorization) 표준입니다. "이 사용자가 누구인가"를 다루는 인증은 그 위에 얹은 OpenID Connect의 몫이며, 2편에서 다룹니다.'},
+
+ {q:'인가 서버가 액세스 토큰을 바로 주지 않고 인가 코드를 한 번 거치는 가장 큰 이유는?',
+  o:['네트워크 왕복 횟수를 줄이기 위해','토큰이 브라우저 URL에 노출되지 않게 하기 위해','토큰 길이를 짧게 유지하기 위해','여러 리소스 서버를 지원하기 위해'],
+  a:1,e:'리다이렉트 URL은 브라우저 히스토리, 서버 액세스 로그, 리퍼러 헤더에 남을 수 있습니다. 거기에 실리는 값이 수명 짧은 일회용 코드인 것과 한 시간짜리 토큰인 것은 위험도가 전혀 다릅니다.'},
+
+ {q:'React SPA에 client_secret을 넣으면 안 되는 이유는?',
+  o:['SPA는 HTTPS를 쓸 수 없어서','빌드 결과물에 포함되어 누구나 추출할 수 있어서','브라우저가 시크릿 헤더를 지원하지 않아서','시크릿 길이 제한 때문에'],
+  a:1,e:'SPA는 코드가 사용자 기기에서 도는 공개 클라이언트입니다. 환경 변수에 넣어도 번들에 그대로 박혀 나갑니다. 시크릿 대신 PKCE로 보호합니다.'},
+
+ {q:'PKCE에서 인가 요청 URL에 실려 나가는 값은?',
+  o:['code_verifier 원본','code_challenge (해시된 값)','client_secret','refresh_token'],
+  a:1,e:'원본 code_verifier는 앱 메모리에만 두고, 해시한 code_challenge만 보냅니다. 해시는 되돌릴 수 없으므로 URL을 훔쳐봐도 원본을 알 수 없습니다.'},
+
+ {q:'state 파라미터를 검증하지 않으면 어떤 공격에 노출되는가?',
+  o:['SQL 인젝션','로그인 CSRF','토큰 만료 우회','중간자 공격(MITM)'],
+  a:1,e:'공격자가 자기 계정의 인가 코드를 피해자 브라우저로 흘려보내, 피해자가 자기도 모르게 공격자 계정에 연결되도록 만드는 공격입니다. state를 대조하면 막을 수 있습니다.'},
+
+ {q:'야간 배치가 사용자 개입 없이 내부 API를 호출해야 한다. 알맞은 흐름은?',
+  o:['Authorization Code + PKCE','Client Credentials','Device Authorization','Implicit'],
+  a:1,e:'사용자가 없고 동의 화면을 띄울 대상도 없으므로 Client Credentials가 정답입니다. 앱이 자기 권한으로 토큰을 받습니다.'},
+
+ {q:'Implicit 흐름이 폐기된 이유로 옳지 않은 것은?',
+  o:['액세스 토큰이 URL 프래그먼트에 노출된다','리프레시 토큰을 발급받을 수 없다','HTTPS를 지원하지 않는다','코드 주입 공격을 막을 수단이 없다'],
+  a:2,e:'HTTPS와는 무관합니다. 나머지 셋은 모두 실제 폐기 사유이며, 지금은 PKCE를 적용한 인가 코드 흐름으로 대체합니다.'},
+
+ {q:'리소스 서버가 토큰은 유효하지만 스코프가 부족할 때 돌려주는 응답으로 가장 적절한 것은?',
+  o:['401 Unauthorized','403 Forbidden with insufficient_scope','404 Not Found','500 Internal Server Error'],
+  a:1,e:'토큰 자체가 없거나 유효하지 않으면 401, 토큰은 멀쩡한데 권한 범위가 모자라면 403에 insufficient_scope를 함께 알려 주는 것이 관례입니다.'}
+];
+var quizAns=[];
+(function(){
+  var h='';
+  QUIZ.forEach(function(q,i){
+    h+='<div class="q"><p class="q-p"><em>Q'+(i+1)+'</em><span>'+q.q+'</span></p><div class="q-opts" id="qo'+i+'">';
+    q.o.forEach(function(o,j){ h+='<button type="button" onclick="answer('+i+','+j+')">'+o+'</button>'; });
+    h+='</div><div class="q-exp hide" id="qe'+i+'">'+q.e+'</div></div>';
+  });
+  h+='<div class="quiz-score" id="quizScore">0 / '+QUIZ.length+' 정답</div>';
+  document.getElementById('quiz').innerHTML=h;
+})();
+function answer(i,j){
+  if(quizAns[i]!==undefined) return;
+  quizAns[i]=j;
+  var btns=document.getElementById('qo'+i).children;
+  for(var k=0;k<btns.length;k++){
+    btns[k].disabled=true;
+    if(k===QUIZ[i].a) btns[k].classList.add('right');
+    else if(k===j) btns[k].classList.add('wrong');
+  }
+  document.getElementById('qe'+i).classList.remove('hide');
+  var right=0, done=0;
+  quizAns.forEach(function(v,idx){ if(v!==undefined){ done++; if(v===QUIZ[idx].a) right++; } });
+  var el=document.getElementById('quizScore');
+  el.textContent=right+' / '+QUIZ.length+' 정답';
+  if(done===QUIZ.length){
+    el.textContent += right===QUIZ.length ? ' — 완벽합니다. 2편으로 넘어가도 좋습니다.'
+      : (right>=6 ? ' — 충분합니다. 틀린 문항의 해설만 다시 읽어 보세요.'
+                  : ' — 3장과 4장을 한 번 더 훑어보길 권합니다.');
+  }
+}
+</script>
+</body>
+</html>
