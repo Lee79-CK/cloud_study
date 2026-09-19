@@ -1,0 +1,3462 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>네트워크 4종 비교 — AWS · Azure · Kubernetes · 온프레미스</title>
+<meta name="description" content="같은 HTTP 요청이 AWS VPC, Azure VNet, 쿠버네티스, 온프레미스 VM 환경에서 각각 어떤 경로를 지나는지 한 홉씩 따라가며 배우는 초보 클라우드 엔지니어용 네트워크 강의.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ────────────────────────────────────────────────────────────
+   토큰 — 다크가 기본. data-theme="light" 일 때만 밝은 색으로 교체.
+   플랫폼 4색은 스위치 포트 LED 색(황/청/보라/녹)에서 가져왔고,
+   문서 전체에서 "이 색 = 이 플랫폼"이라는 규칙으로만 쓴다.
+   ──────────────────────────────────────────────────────────── */
+:root{
+  color-scheme: dark;
+  --ink:#0A121E;
+  --panel:#101B2B;
+  --panel2:#152337;
+  --panel3:#1B2D45;
+  --line:#243953;
+  --line-soft:#1B2B41;
+  --fg:#E6EDF8;
+  --fg-dim:#94A8C4;
+  --fg-faint:#6C81A0;
+
+  --aws:#FF9D3D;  --aws-bg:rgba(255,157,61,.12);  --aws-line:rgba(255,157,61,.38);
+  --azr:#4CC2FF;  --azr-bg:rgba(76,194,255,.12);  --azr-line:rgba(76,194,255,.38);
+  --k8s:#A78BFA;  --k8s-bg:rgba(167,139,250,.14); --k8s-line:rgba(167,139,250,.38);
+  --onp:#3FDCA0;  --onp-bg:rgba(63,220,160,.12);  --onp-line:rgba(63,220,160,.36);
+
+  --good:#3FDCA0; --warn:#FFC046; --bad:#FF7089; --info:#4CC2FF;
+  --good-bg:rgba(63,220,160,.1); --warn-bg:rgba(255,192,70,.1);
+  --bad-bg:rgba(255,112,137,.1); --info-bg:rgba(76,194,255,.1);
+
+  --sans:'IBM Plex Sans KR',system-ui,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --mono:'IBM Plex Mono','SFMono-Regular',ui-monospace,Menlo,Consolas,monospace;
+
+  --rail-w:286px;
+  --read:74ch;
+  --shadow:0 18px 44px -28px rgba(0,0,0,.9);
+}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --ink:#EDF2F8;
+  --panel:#FFFFFF;
+  --panel2:#F4F8FC;
+  --panel3:#E8F0F8;
+  --line:#CBDAEA;
+  --line-soft:#DDE7F2;
+  --fg:#0B1726;
+  --fg-dim:#4B6280;
+  --fg-faint:#728AA8;
+
+  --aws:#B85E00;  --aws-bg:rgba(184,94,0,.10);   --aws-line:rgba(184,94,0,.34);
+  --azr:#0A6FB5;  --azr-bg:rgba(10,111,181,.10); --azr-line:rgba(10,111,181,.32);
+  --k8s:#6340D2;  --k8s-bg:rgba(99,64,210,.10);  --k8s-line:rgba(99,64,210,.30);
+  --onp:#07845A;  --onp-bg:rgba(7,132,90,.10);   --onp-line:rgba(7,132,90,.30);
+
+  --good:#07845A; --warn:#A8630B; --bad:#C2304A; --info:#0A6FB5;
+  --good-bg:rgba(7,132,90,.09); --warn-bg:rgba(168,99,11,.10);
+  --bad-bg:rgba(194,48,74,.09); --info-bg:rgba(10,111,181,.09);
+  --shadow:0 14px 34px -26px rgba(16,40,70,.5);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:86px}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+body{
+  margin:0;background:var(--ink);color:var(--fg);
+  font-family:var(--sans);font-weight:400;font-size:16.5px;line-height:1.78;
+  -webkit-font-smoothing:antialiased;letter-spacing:-.003em;
+}
+img,svg{max-width:100%}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--azr);outline-offset:3px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:0;z-index:99;background:var(--azr);color:var(--ink);padding:10px 16px;border-radius:0 0 8px 0;font-weight:600}
+.skip:focus{left:0}
+
+/* ── 상단 바 ─────────────────────────────────────────────── */
+.topbar{
+  position:sticky;top:0;z-index:40;
+  background:var(--ink);
+  background:color-mix(in srgb,var(--ink) 88%,transparent);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line-soft);
+}
+.topbar-in{
+  max-width:1460px;margin:0 auto;padding:11px 22px;
+  display:flex;align-items:center;gap:14px;
+}
+.brandmark{display:flex;align-items:center;gap:11px;font-weight:600;font-size:14.5px;letter-spacing:-.01em;min-width:0}
+.brandmark .dots{display:flex;gap:3px;flex:none}
+.brandmark .dots i{width:7px;height:7px;border-radius:2px;display:block}
+.brandmark .dots i:nth-child(1){background:var(--aws)}
+.brandmark .dots i:nth-child(2){background:var(--azr)}
+.brandmark .dots i:nth-child(3){background:var(--k8s)}
+.brandmark .dots i:nth-child(4){background:var(--onp)}
+.brandmark span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar .spacer{flex:1}
+.tb-btn{
+  font:inherit;font-size:13.5px;font-weight:500;color:var(--fg-dim);
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+  transition:color .16s,border-color .16s,background .16s;flex:none;
+}
+.tb-btn:hover{color:var(--fg);border-color:var(--fg-faint)}
+.tb-btn svg{width:15px;height:15px;flex:none}
+#railToggle{display:none}
+.progress-track{position:absolute;left:0;right:0;bottom:-1px;height:2px;background:transparent}
+.progress-bar{height:100%;width:0;background:linear-gradient(90deg,var(--aws),var(--azr) 34%,var(--k8s) 67%,var(--onp));transition:width .12s linear}
+
+/* ── 셸 ──────────────────────────────────────────────────── */
+.shell{max-width:1460px;margin:0 auto;display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);gap:34px;padding:0 22px}
+.rail{
+  position:sticky;top:64px;align-self:start;height:calc(100vh - 78px);
+  overflow-y:auto;overscroll-behavior:contain;padding:26px 8px 60px 0;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.rail::-webkit-scrollbar{width:7px}
+.rail::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.rail h4{
+  margin:22px 0 9px;font-size:11.5px;font-weight:600;color:var(--fg-faint);
+  letter-spacing:.06em;padding-left:13px;
+}
+.rail h4:first-child{margin-top:0}
+.rail a{
+  display:block;text-decoration:none;color:var(--fg-dim);font-size:14px;line-height:1.5;
+  padding:7px 12px 7px 13px;border-left:2px solid transparent;border-radius:0 7px 7px 0;
+  transition:color .15s,background .15s,border-color .15s;
+}
+.rail a:hover{color:var(--fg);background:var(--panel2)}
+.rail a.on{color:var(--fg);border-left-color:var(--accent,var(--azr));background:var(--panel2);font-weight:500}
+.rail a[data-p="aws"]{--accent:var(--aws)}
+.rail a[data-p="azr"]{--accent:var(--azr)}
+.rail a[data-p="k8s"]{--accent:var(--k8s)}
+.rail a[data-p="onp"]{--accent:var(--onp)}
+.rail .sub{padding-left:28px;font-size:13.2px;color:var(--fg-faint)}
+
+main{padding:30px 0 140px;min-width:0}
+
+/* ── 섹션 · 타이포 ───────────────────────────────────────── */
+section{margin:0 0 76px;scroll-margin-top:86px}
+section > *{max-width:var(--read)}
+section > .wide,section > figure,section > .tbl-wrap,section > .fourlane{max-width:none}
+h1{font-size:clamp(34px,5.4vw,58px);line-height:1.1;font-weight:700;letter-spacing:-.035em;margin:0 0 20px}
+h2{
+  font-size:clamp(25px,3.2vw,34px);line-height:1.22;font-weight:600;letter-spacing:-.028em;
+  margin:0 0 10px;display:flex;align-items:baseline;gap:13px;flex-wrap:wrap;
+}
+h2 .num{
+  font-family:var(--mono);font-size:.52em;font-weight:500;color:var(--fg-faint);
+  border:1px solid var(--line);border-radius:6px;padding:2px 8px;flex:none;letter-spacing:0;
+}
+h3{font-size:20.5px;line-height:1.34;font-weight:600;letter-spacing:-.02em;margin:44px 0 12px}
+h4{font-size:16.8px;font-weight:600;margin:30px 0 8px;letter-spacing:-.015em}
+p{margin:0 0 15px}
+.lede{font-size:18.5px;line-height:1.72;color:var(--fg-dim);margin-bottom:26px;font-weight:300}
+.sec-intro{color:var(--fg-dim);font-size:17px;margin-bottom:28px}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:0 0 7px}
+li::marker{color:var(--fg-faint)}
+strong{font-weight:600;color:var(--fg)}
+em{font-style:normal;color:var(--fg);border-bottom:1.5px solid var(--azr-line);padding-bottom:1px}
+hr.rule{border:0;border-top:1px solid var(--line-soft);margin:54px 0}
+
+code:not(pre code){
+  font-family:var(--mono);font-size:.855em;background:var(--panel2);
+  border:1px solid var(--line-soft);border-radius:5px;padding:1.5px 5px;color:var(--fg);
+  word-break:break-word;
+}
+
+/* 플랫폼 이름 인라인 강조 */
+.p-aws,.p-azr,.p-k8s,.p-onp{font-weight:600;white-space:nowrap}
+.p-aws{color:var(--aws)} .p-azr{color:var(--azr)} .p-k8s{color:var(--k8s)} .p-onp{color:var(--onp)}
+
+/* ── 패널: 색 레일로 플랫폼을 표시. 그림자 대신 경계선 사용 ── */
+.panel{
+  background:var(--panel);border:1px solid var(--line-soft);border-radius:14px;
+  padding:20px 22px;margin:22px 0;
+}
+.panel > :first-child{margin-top:0}
+.panel > :last-child{margin-bottom:0}
+.panel[data-p]{border-left:3px solid var(--pc);background:linear-gradient(90deg,var(--pcbg),transparent 190px),var(--panel)}
+.panel[data-p="aws"]{--pc:var(--aws);--pcbg:var(--aws-bg)}
+.panel[data-p="azr"]{--pc:var(--azr);--pcbg:var(--azr-bg)}
+.panel[data-p="k8s"]{--pc:var(--k8s);--pcbg:var(--k8s-bg)}
+.panel[data-p="onp"]{--pc:var(--onp);--pcbg:var(--onp-bg)}
+.panel h4:first-child{margin-top:0}
+
+/* ── 콜아웃 ─────────────────────────────────────────────── */
+.call{
+  border-radius:12px;padding:15px 18px;margin:20px 0;font-size:15.5px;line-height:1.7;
+  border:1px solid var(--cl);background:var(--cbg);
+}
+.call > :first-child{margin-top:0}.call > :last-child{margin-bottom:0}
+.call .ttl{display:block;font-weight:600;color:var(--cc);margin-bottom:5px;font-size:14.5px}
+.call.tip{--cc:var(--good);--cl:var(--onp-line);--cbg:var(--good-bg)}
+.call.warn{--cc:var(--warn);--cl:rgba(255,192,70,.3);--cbg:var(--warn-bg)}
+.call.trap{--cc:var(--bad);--cl:rgba(255,112,137,.3);--cbg:var(--bad-bg)}
+.call.note{--cc:var(--info);--cl:var(--azr-line);--cbg:var(--info-bg)}
+
+/* ── 칩 · 배지 ──────────────────────────────────────────── */
+.chip{
+  display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;
+  padding:3px 10px;border-radius:999px;border:1px solid var(--cc,var(--line));
+  color:var(--cc,var(--fg-dim));background:var(--cbg,transparent);white-space:nowrap;
+  font-family:var(--sans);letter-spacing:-.005em;
+}
+.chip[data-p="aws"]{--cc:var(--aws);--cbg:var(--aws-bg)}
+.chip[data-p="azr"]{--cc:var(--azr);--cbg:var(--azr-bg)}
+.chip[data-p="k8s"]{--cc:var(--k8s);--cbg:var(--k8s-bg)}
+.chip[data-p="onp"]{--cc:var(--onp);--cbg:var(--onp-bg)}
+.chiprow{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 18px}
+
+/* ── 4열 그리드 ─────────────────────────────────────────── */
+.g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:22px 0}
+.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:22px 0}
+.cell{
+  background:var(--panel);border:1px solid var(--line-soft);border-top:3px solid var(--cc,var(--line));
+  border-radius:4px 4px 12px 12px;padding:15px 16px;font-size:14.6px;line-height:1.66;
+}
+.cell[data-p="aws"]{--cc:var(--aws)} .cell[data-p="azr"]{--cc:var(--azr)}
+.cell[data-p="k8s"]{--cc:var(--k8s)} .cell[data-p="onp"]{--cc:var(--onp)}
+.cell h5{margin:0 0 7px;font-size:14.5px;font-weight:600;color:var(--cc,var(--fg))}
+.cell p{margin:0 0 8px}.cell > :last-child{margin-bottom:0}
+.cell ul{padding-left:17px;margin-bottom:0}
+.cell li{margin-bottom:4px;font-size:14px}
+
+/* ── 히어로 4레인 홉 추적기 ─────────────────────────────── */
+.hero{
+  border:1px solid var(--line);border-radius:18px;background:var(--panel);
+  padding:0;overflow:hidden;margin:30px 0 20px;box-shadow:var(--shadow);
+}
+.hero-head{padding:20px 22px 16px;border-bottom:1px solid var(--line-soft);background:var(--panel2)}
+.hero-head p{margin:0;color:var(--fg-dim);font-size:15px}
+.hero-head .q{font-size:17px;color:var(--fg);font-weight:500;margin-bottom:4px;display:block}
+.fourlane{display:grid;grid-template-columns:150px repeat(4,minmax(0,1fr));gap:0}
+.fl-h{
+  padding:13px 14px;font-size:13.6px;font-weight:600;border-bottom:1px solid var(--line);
+  background:var(--panel2);position:sticky;top:0;
+}
+.fl-h.stub{color:var(--fg-faint);font-weight:500}
+.fl-h[data-p="aws"]{color:var(--aws);box-shadow:inset 0 -3px 0 var(--aws)}
+.fl-h[data-p="azr"]{color:var(--azr);box-shadow:inset 0 -3px 0 var(--azr)}
+.fl-h[data-p="k8s"]{color:var(--k8s);box-shadow:inset 0 -3px 0 var(--k8s)}
+.fl-h[data-p="onp"]{color:var(--onp);box-shadow:inset 0 -3px 0 var(--onp)}
+.fl-stub{
+  padding:14px;border-bottom:1px solid var(--line-soft);font-size:13.8px;color:var(--fg-dim);
+  display:flex;gap:10px;align-items:flex-start;background:var(--panel2);
+}
+.fl-stub b{color:var(--fg);font-weight:600;display:block;font-size:14.2px;margin-bottom:2px}
+.fl-stub .hopno{
+  font-family:var(--mono);font-size:11.5px;color:var(--fg-faint);border:1px solid var(--line);
+  border-radius:4px;padding:0 5px;line-height:1.7;flex:none;margin-top:2px;
+}
+.fl-c{
+  padding:14px;border-bottom:1px solid var(--line-soft);border-left:1px solid var(--line-soft);
+  font-size:14px;line-height:1.6;opacity:.38;transition:opacity .35s,background .35s;
+}
+.fl-c.lit{opacity:1;background:var(--cbg)}
+.fl-c[data-p="aws"]{--cbg:var(--aws-bg);--cc:var(--aws)}
+.fl-c[data-p="azr"]{--cbg:var(--azr-bg);--cc:var(--azr)}
+.fl-c[data-p="k8s"]{--cbg:var(--k8s-bg);--cc:var(--k8s)}
+.fl-c[data-p="onp"]{--cbg:var(--onp-bg);--cc:var(--onp)}
+.fl-c .nm{font-weight:600;color:var(--cc);display:block;margin-bottom:3px;font-size:14.2px}
+.fl-c .ds{color:var(--fg-dim);font-size:13.2px;line-height:1.55}
+.fl-stub{transition:opacity .35s}
+.fl-stub.dim{opacity:.42}
+.hero-ctl{
+  display:flex;align-items:center;gap:12px;padding:15px 20px;border-top:1px solid var(--line);
+  background:var(--panel2);flex-wrap:wrap;
+}
+.hero-ctl .count{font-family:var(--mono);font-size:13.5px;color:var(--fg-dim);min-width:74px}
+.btn{
+  font:inherit;font-size:14px;font-weight:500;padding:8px 15px;border-radius:9px;cursor:pointer;
+  background:var(--panel3);color:var(--fg);border:1px solid var(--line);
+  transition:background .15s,border-color .15s,opacity .15s;
+}
+.btn:hover:not(:disabled){border-color:var(--fg-faint)}
+.btn:disabled{opacity:.36;cursor:not-allowed}
+.btn.pri{background:var(--azr);color:#04101C;border-color:var(--azr);font-weight:600}
+:root[data-theme="light"] .btn.pri{color:#fff}
+.btn.pri:hover{filter:brightness(1.08)}
+
+/* ── 탭 ─────────────────────────────────────────────────── */
+.tabs{margin:24px 0}
+.tablist{display:flex;gap:5px;border-bottom:1px solid var(--line);flex-wrap:wrap;margin-bottom:0}
+.tab{
+  font:inherit;font-size:14.2px;font-weight:500;padding:9px 15px;cursor:pointer;
+  background:transparent;border:1px solid transparent;border-bottom:0;color:var(--fg-dim);
+  border-radius:9px 9px 0 0;margin-bottom:-1px;transition:color .15s,background .15s;
+}
+.tab:hover{color:var(--fg)}
+.tab[aria-selected="true"]{
+  color:var(--tc,var(--fg));background:var(--panel);border-color:var(--line);
+  box-shadow:inset 0 2px 0 var(--tc,var(--azr));font-weight:600;
+}
+.tab[data-p="aws"]{--tc:var(--aws)} .tab[data-p="azr"]{--tc:var(--azr)}
+.tab[data-p="k8s"]{--tc:var(--k8s)} .tab[data-p="onp"]{--tc:var(--onp)}
+.tabpanel{
+  border:1px solid var(--line);border-top:0;border-radius:0 0 13px 13px;padding:20px 22px;
+  background:var(--panel);
+}
+.tabpanel[hidden]{display:none}
+.tabpanel > :first-child{margin-top:0}.tabpanel > :last-child{margin-bottom:0}
+
+/* ── 코드 블록 ──────────────────────────────────────────── */
+.codewrap{position:relative;margin:16px 0}
+.codewrap .cap{
+  font-family:var(--mono);font-size:12px;color:var(--fg-faint);
+  background:var(--panel2);border:1px solid var(--line-soft);border-bottom:0;
+  border-radius:10px 10px 0 0;padding:7px 13px;display:flex;justify-content:space-between;align-items:center;gap:10px;
+}
+.copy{
+  font:inherit;font-family:var(--sans);font-size:11.8px;font-weight:500;padding:2px 9px;border-radius:6px;
+  background:transparent;border:1px solid var(--line);color:var(--fg-dim);cursor:pointer;flex:none;
+}
+.copy:hover{color:var(--fg);border-color:var(--fg-faint)}
+.copy.done{color:var(--good);border-color:var(--onp-line)}
+pre{
+  margin:0;background:var(--panel2);border:1px solid var(--line-soft);border-radius:10px;
+  padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:13.1px;line-height:1.72;
+  color:var(--fg);white-space:pre;
+}
+.cap + pre{border-radius:0 0 10px 10px}
+pre .c{color:var(--fg-faint)}
+pre .k{color:var(--k8s);font-weight:500}
+pre .s{color:var(--good)}
+pre .n{color:var(--warn)}
+pre .y{color:var(--azr)}
+
+/* ── 비교 표 ────────────────────────────────────────────── */
+.tbl-wrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:13px;background:var(--panel)}
+table.tbl{border-collapse:collapse;width:100%;min-width:780px;font-size:14.4px}
+table.tbl th,table.tbl td{padding:12px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line-soft);line-height:1.6}
+table.tbl thead th{
+  background:var(--panel2);font-weight:600;font-size:13.6px;position:sticky;top:0;z-index:2;
+  border-bottom:1px solid var(--line);
+}
+table.tbl thead th[data-p="aws"]{color:var(--aws);box-shadow:inset 0 -3px 0 var(--aws)}
+table.tbl thead th[data-p="azr"]{color:var(--azr);box-shadow:inset 0 -3px 0 var(--azr)}
+table.tbl thead th[data-p="k8s"]{color:var(--k8s);box-shadow:inset 0 -3px 0 var(--k8s)}
+table.tbl thead th[data-p="onp"]{color:var(--onp);box-shadow:inset 0 -3px 0 var(--onp)}
+table.tbl tbody tr:last-child td{border-bottom:0}
+table.tbl tbody tr:hover td{background:var(--panel2)}
+table.tbl td:first-child,table.tbl th:first-child{font-weight:600;color:var(--fg);background:var(--panel2)}
+table.tbl tbody td code{font-size:.82em}
+table.tbl .mini{display:block;color:var(--fg-faint);font-size:12.6px;margin-top:3px;line-height:1.5}
+.tbl-filter{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:20px 0 4px}
+.fbtn{
+  font:inherit;font-size:13.2px;font-weight:500;padding:6px 13px;border-radius:999px;cursor:pointer;
+  background:transparent;border:1px solid var(--line);color:var(--fg-dim);transition:all .15s;
+}
+.fbtn:hover{color:var(--fg);border-color:var(--fg-faint)}
+.fbtn[aria-pressed="true"]{background:var(--fg);color:var(--ink);border-color:var(--fg);font-weight:600}
+
+/* ── 검색 입력 ──────────────────────────────────────────── */
+.search{
+  width:100%;max-width:440px;font:inherit;font-size:15px;padding:10px 14px;border-radius:10px;
+  background:var(--panel2);border:1px solid var(--line);color:var(--fg);margin:8px 0 18px;
+}
+.search::placeholder{color:var(--fg-faint)}
+.emptymsg{color:var(--fg-dim);font-size:14.5px;padding:14px 2px;display:none}
+.emptymsg.on{display:block}
+
+/* ── 아코디언 ───────────────────────────────────────────── */
+details.acc{
+  border:1px solid var(--line-soft);border-radius:11px;background:var(--panel);margin:10px 0;overflow:hidden;
+}
+details.acc > summary{
+  cursor:pointer;padding:13px 17px;font-weight:500;font-size:15.3px;list-style:none;
+  display:flex;align-items:center;gap:11px;transition:background .15s;
+}
+details.acc > summary::-webkit-details-marker{display:none}
+details.acc > summary::after{
+  content:'';width:8px;height:8px;border-right:1.8px solid var(--fg-faint);border-bottom:1.8px solid var(--fg-faint);
+  transform:rotate(45deg);margin-left:auto;flex:none;transition:transform .2s;margin-top:-4px;
+}
+details.acc[open] > summary::after{transform:rotate(-135deg);margin-top:2px}
+details.acc > summary:hover{background:var(--panel2)}
+details.acc[open] > summary{border-bottom:1px solid var(--line-soft);background:var(--panel2)}
+.acc-body{padding:16px 18px;font-size:15.2px}
+.acc-body > :first-child{margin-top:0}.acc-body > :last-child{margin-bottom:0}
+
+/* ── 용어 사전 ──────────────────────────────────────────── */
+.term{
+  border-bottom:1px solid var(--line-soft);padding:15px 2px;display:grid;
+  grid-template-columns:210px minmax(0,1fr);gap:20px;
+}
+.term:last-child{border-bottom:0}
+.term dt{font-weight:600;font-size:15.4px;line-height:1.45}
+.term dt .en{display:block;font-family:var(--mono);font-size:12.3px;color:var(--fg-faint);font-weight:400;margin-top:2px}
+.term dd{margin:0;color:var(--fg-dim);font-size:15px;line-height:1.7}
+.term dd b{color:var(--fg)}
+.term.hide{display:none}
+
+/* ── 퀴즈 ───────────────────────────────────────────────── */
+.quiz{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:20px 22px;margin:18px 0}
+.quiz .qh{display:flex;gap:11px;align-items:baseline;margin-bottom:13px}
+.quiz .qn{font-family:var(--mono);font-size:12.5px;color:var(--fg-faint);border:1px solid var(--line);border-radius:5px;padding:1px 7px;flex:none}
+.quiz .qt{font-weight:500;font-size:16.2px;line-height:1.6;margin:0}
+.opts{display:grid;gap:8px;margin:0 0 4px;padding:0;list-style:none}
+.opt{
+  font:inherit;text-align:left;width:100%;font-size:14.9px;line-height:1.55;padding:11px 14px;
+  border-radius:10px;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+  cursor:pointer;transition:border-color .15s,background .15s;display:flex;gap:10px;
+}
+.opt:hover:not(:disabled){border-color:var(--fg-faint)}
+.opt .mk{font-family:var(--mono);color:var(--fg-faint);flex:none}
+.opt:disabled{cursor:default}
+.opt.right{border-color:var(--good);background:var(--good-bg)}
+.opt.right .mk{color:var(--good)}
+.opt.wrong{border-color:var(--bad);background:var(--bad-bg)}
+.opt.wrong .mk{color:var(--bad)}
+.expl{
+  margin-top:13px;padding:13px 15px;border-radius:10px;font-size:14.6px;line-height:1.7;
+  background:var(--panel2);border:1px solid var(--line-soft);display:none;
+}
+.expl.on{display:block}
+.expl b{color:var(--good)}
+.expl.no b{color:var(--bad)}
+.score{
+  margin:20px 0;padding:16px 20px;border-radius:13px;border:1px solid var(--line);
+  background:var(--panel2);font-size:15.5px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+}
+.score .big{font-family:var(--mono);font-size:24px;font-weight:600;color:var(--azr)}
+
+/* ── 체크리스트 ─────────────────────────────────────────── */
+.check{list-style:none;padding:0;margin:16px 0}
+.check li{margin:0;border-bottom:1px solid var(--line-soft)}
+.check label{display:flex;gap:12px;align-items:flex-start;padding:11px 4px;cursor:pointer;font-size:15.2px;line-height:1.62}
+.check input{margin-top:5px;flex:none;width:16px;height:16px;accent-color:var(--good);cursor:pointer}
+.check input:checked + span{color:var(--fg-faint);text-decoration:line-through;text-decoration-color:var(--line)}
+.check span b{color:var(--fg);font-weight:600}
+.check input:checked + span b{color:var(--fg-faint)}
+
+/* ── 다이어그램 ─────────────────────────────────────────── */
+figure{margin:26px 0;border:1px solid var(--line-soft);border-radius:14px;background:var(--panel);padding:20px 18px 14px;overflow:hidden}
+figure .svgscroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+figure svg{display:block;width:100%;height:auto}
+figcaption{margin-top:12px;font-size:13.6px;color:var(--fg-dim);line-height:1.65;text-align:left;border-top:1px solid var(--line-soft);padding-top:11px}
+.svg-bx{fill:var(--panel2);stroke:var(--line)}
+.svg-lb{fill:var(--fg);font-family:var(--sans);font-size:13px;font-weight:500}
+.svg-sm{fill:var(--fg-dim);font-family:var(--sans);font-size:11.2px}
+.svg-mn{fill:var(--fg-faint);font-family:var(--mono);font-size:10.6px}
+.svg-ln{stroke:var(--fg-faint);fill:none;stroke-width:1.4}
+.svg-zone{fill:none;stroke-dasharray:5 4;stroke-width:1.2}
+
+/* ── CIDR 계산기 ────────────────────────────────────────── */
+.calc{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:20px 22px;margin:24px 0}
+.calc-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12.8px;color:var(--fg-dim);font-weight:500}
+.field input,.field select{
+  font:inherit;font-family:var(--mono);font-size:15px;padding:9px 12px;border-radius:9px;
+  background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+}
+.calc-out{display:grid;grid-template-columns:repeat(auto-fit,minmax(164px,1fr));gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);border-radius:11px;overflow:hidden}
+.calc-out div{background:var(--panel2);padding:12px 14px}
+.calc-out dt{font-size:12.2px;color:var(--fg-dim);margin-bottom:3px}
+.calc-out dd{margin:0;font-family:var(--mono);font-size:15px;font-weight:500;word-break:break-all}
+.bits{font-family:var(--mono);font-size:12.5px;line-height:1.9;margin-top:14px;word-break:break-all}
+.bits .net{color:var(--azr);font-weight:600}
+.bits .host{color:var(--fg-faint)}
+.calc-note{margin-top:14px;font-size:14px;color:var(--fg-dim);line-height:1.7}
+.calc-note b{color:var(--fg)}
+
+/* ── 로제타 표 (용어 대응) ──────────────────────────────── */
+.rosetta td:first-child{min-width:160px}
+mark{background:var(--warn-bg);color:var(--fg);border-radius:3px;padding:0 2px;box-shadow:inset 0 -1px 0 var(--warn)}
+
+/* ── 푸터 ───────────────────────────────────────────────── */
+.foot{border-top:1px solid var(--line-soft);padding-top:26px;color:var(--fg-dim);font-size:14.6px}
+
+/* ── 반응형 ─────────────────────────────────────────────── */
+@media (max-width:760px){
+  figure .svgscroll svg{min-width:640px}
+  figure{padding:16px 14px 12px}
+}
+@media (max-width:1120px){
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g3{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fourlane{grid-template-columns:132px repeat(4,minmax(0,1fr));font-size:13px}
+  .fl-c{padding:11px 10px;font-size:13.2px}
+  .fl-stub{padding:11px 10px}
+}
+@media (max-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr);gap:0}
+  .rail{
+    position:fixed;inset:53px 0 auto 0;height:auto;max-height:calc(100vh - 53px);
+    background:var(--ink);border-bottom:1px solid var(--line);z-index:39;
+    padding:18px 20px 30px;display:none;
+  }
+  .rail.open{display:block}
+  #railToggle{display:inline-flex}
+  main{padding-top:22px}
+  .fourlane{grid-template-columns:minmax(0,1fr);border-top:1px solid var(--line-soft)}
+  .fl-h{display:none}
+  .fl-c{border-left:3px solid var(--cc);opacity:1;padding:12px 14px}
+  .fl-c::before{content:attr(data-plat);display:block;font-size:11.5px;font-weight:600;color:var(--cc);margin-bottom:4px;letter-spacing:.02em}
+  .fl-stub{background:var(--panel3);border-top:1px solid var(--line)}
+  .fl-stub.dim{opacity:1}
+  .term{grid-template-columns:minmax(0,1fr);gap:5px}
+  section > *{max-width:none}
+}
+@media (max-width:620px){
+  body{font-size:16px}
+  .g4,.g3,.g2{grid-template-columns:minmax(0,1fr)}
+  .topbar-in{padding:9px 14px;gap:9px}
+  .shell{padding:0 14px}
+  .brandmark span{display:none}
+  .hero-head,.hero-ctl{padding-left:15px;padding-right:15px}
+  .panel{padding:16px 15px}
+  .tabpanel{padding:16px 15px}
+}
+@media print{
+  .topbar,.rail,.hero-ctl,.copy,.tbl-filter,.search{display:none}
+  body{background:#fff;color:#000}
+  .tabpanel[hidden]{display:block!important}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">본문 바로가기</a>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brandmark">
+      <span class="dots"><i></i><i></i><i></i><i></i></span>
+      <span>네트워크 4종 비교</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="tb-btn" id="railToggle" aria-expanded="false" aria-controls="rail">목차</button>
+    <button class="tb-btn" id="themeBtn" aria-label="밝은 테마로 전환">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.1 5.1l1.4 1.4M17.5 17.5l1.4 1.4M18.9 5.1l-1.4 1.4M6.5 17.5l-1.4 1.4"/></svg>
+      <span id="themeLabel">라이트</span>
+    </button>
+  </div>
+  <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+</header>
+
+<div class="shell">
+<nav class="rail" id="rail" aria-label="강의 목차">
+  <h4>들어가며</h4>
+  <a href="#hero">같은 요청, 네 갈래 길</a>
+  <a href="#how">이 강의를 읽는 법</a>
+  <h4>1부 · 공통 뼈대</h4>
+  <a href="#five">모든 네트워크가 답해야 할 5가지</a>
+  <a href="#basics" class="sub">주소 · 서브넷 · CIDR</a>
+  <a href="#calc" class="sub">CIDR 계산기</a>
+  <a href="#route" class="sub">라우팅 · NAT · DNS</a>
+  <a href="#lb" class="sub">로드밸런서와 계층</a>
+  <h4>2부 · 플랫폼별 설계</h4>
+  <a href="#aws" data-p="aws">AWS VPC</a>
+  <a href="#azure" data-p="azr">Azure VNet</a>
+  <a href="#k8s" data-p="k8s">Kubernetes 네이티브</a>
+  <a href="#onprem" data-p="onp">온프레미스 VM</a>
+  <h4>3부 · 비교와 실전</h4>
+  <a href="#rosetta">용어 대응표</a>
+  <a href="#compare">항목별 정면 비교</a>
+  <a href="#scenario">같은 서비스를 네 곳에</a>
+  <a href="#trouble">장애 대응 플레이북</a>
+  <a href="#mistakes">신입이 자주 밟는 지뢰</a>
+  <h4>마무리</h4>
+  <a href="#glossary">용어 사전</a>
+  <a href="#quiz">퀴즈 12문항</a>
+  <a href="#next">다음 단계</a>
+</nav>
+
+<main id="main">
+
+<section id="hero">
+  <h1>같은 요청,<br>네 갈래 길</h1>
+  <p class="lede">
+    사용자가 <code>https://shop.example.com</code> 을 누르는 순간부터 DB 응답이 돌아오기까지,
+    패킷은 언제나 <strong>비슷한 일</strong>을 겪습니다. 이름을 IP로 바꾸고, 경계를 넘고, 허락을 받고,
+    누군가에게 배달됩니다. 달라지는 건 <strong>그 일을 해 주는 장비의 이름</strong>뿐입니다.
+    아래에서 한 홉씩 넘기며 네 환경을 나란히 보세요. 이 강의 전체가 이 표를 자세히 풀어쓴 것입니다.
+  </p>
+
+  <div class="hero">
+    <div class="hero-head">
+      <span class="q">요청: 인터넷의 사용자 → 웹 서버 → 내부 DB → 외부 결제 API</span>
+      <p>왼쪽 칸은 “무슨 일이 일어나는가”, 오른쪽 네 칸은 “그 일을 어떤 장비가 하는가”입니다.</p>
+    </div>
+
+    <div class="fourlane" id="lane">
+      <div class="fl-h stub">일어나는 일</div>
+      <div class="fl-h" data-p="aws">AWS</div>
+      <div class="fl-h" data-p="azr">Azure</div>
+      <div class="fl-h" data-p="k8s">Kubernetes</div>
+      <div class="fl-h" data-p="onp">온프레미스</div>
+
+      <!-- HOP 1 -->
+      <div class="fl-stub" data-hop="1"><span class="hopno">01</span><span><b>이름을 IP로 바꾼다</b>DNS 조회</span></div>
+      <div class="fl-c" data-hop="1" data-p="aws" data-plat="AWS"><span class="nm">Route 53</span><span class="ds">퍼블릭 호스팅 영역의 ALIAS 레코드가 ALB를 가리킵니다.</span></div>
+      <div class="fl-c" data-hop="1" data-p="azr" data-plat="Azure"><span class="nm">Azure DNS 영역</span><span class="ds">A 레코드가 Application Gateway의 공용 IP를 가리킵니다.</span></div>
+      <div class="fl-c" data-hop="1" data-p="k8s" data-plat="Kubernetes"><span class="nm">외부 DNS + CoreDNS</span><span class="ds">바깥 이름은 ExternalDNS가 등록하고, 클러스터 안 이름은 CoreDNS가 풉니다.</span></div>
+      <div class="fl-c" data-hop="1" data-p="onp" data-plat="온프레미스"><span class="nm">사내 DNS 서버</span><span class="ds">BIND나 Windows DNS에 사람이 직접 등록한 A 레코드가 VIP를 가리킵니다.</span></div>
+
+      <!-- HOP 2 -->
+      <div class="fl-stub" data-hop="2"><span class="hopno">02</span><span><b>경계를 넘어 들어온다</b>인터넷 → 내 네트워크</span></div>
+      <div class="fl-c" data-hop="2" data-p="aws" data-plat="AWS"><span class="nm">인터넷 게이트웨이</span><span class="ds">퍼블릭 서브넷의 라우트 테이블에 <code>0.0.0.0/0 → igw</code> 가 있어야 합니다.</span></div>
+      <div class="fl-c" data-hop="2" data-p="azr" data-plat="Azure"><span class="nm">공용 IP 리소스</span><span class="ds">게이트웨이 없이 공용 IP 리소스를 붙이는 것만으로 인터넷과 이어집니다.</span></div>
+      <div class="fl-c" data-hop="2" data-p="k8s" data-plat="Kubernetes"><span class="nm">LoadBalancer / MetalLB</span><span class="ds">클라우드면 클라우드 LB가, 베어메탈이면 MetalLB가 VIP를 광고합니다.</span></div>
+      <div class="fl-c" data-hop="2" data-p="onp" data-plat="온프레미스"><span class="nm">회선 → 경계 라우터 → 방화벽</span><span class="ds">ISP 회선을 받아 라우터를 지나 방화벽 외부 존, 그리고 DMZ로 들어옵니다.</span></div>
+
+      <!-- HOP 3 -->
+      <div class="fl-stub" data-hop="3"><span class="hopno">03</span><span><b>HTTP를 해석한다</b>L7 진입점</span></div>
+      <div class="fl-c" data-hop="3" data-p="aws" data-plat="AWS"><span class="nm">ALB</span><span class="ds">443 리스너 + 호스트/경로 규칙 + ACM 인증서로 TLS를 종료합니다.</span></div>
+      <div class="fl-c" data-hop="3" data-p="azr" data-plat="Azure"><span class="nm">Application Gateway</span><span class="ds">리스너 + 라우팅 규칙 + WAF. 전 세계 분산이면 Front Door를 앞에 둡니다.</span></div>
+      <div class="fl-c" data-hop="3" data-p="k8s" data-plat="Kubernetes"><span class="nm">Gateway / HTTPRoute</span><span class="ds">규칙은 YAML 객체이고, 실제 프록시는 클러스터 안의 컨트롤러 파드입니다.</span></div>
+      <div class="fl-c" data-hop="3" data-p="onp" data-plat="온프레미스"><span class="nm">F5·L4/L7 스위치 VIP</span><span class="ds">가상 서버 <code>VIP:443</code> 에서 SSL을 내리고 iRule로 분기합니다.</span></div>
+
+      <!-- HOP 4 -->
+      <div class="fl-stub" data-hop="4"><span class="hopno">04</span><span><b>통과시킬지 판단한다</b>방화벽 규칙</span></div>
+      <div class="fl-c" data-hop="4" data-p="aws" data-plat="AWS"><span class="nm">보안 그룹 + NACL</span><span class="ds">SG는 상태 저장·허용만, NACL은 무상태·거부 가능. 둘 다 통과해야 합니다.</span></div>
+      <div class="fl-c" data-hop="4" data-p="azr" data-plat="Azure"><span class="nm">NSG (+ Azure Firewall)</span><span class="ds">우선순위 번호가 낮은 규칙부터 평가하고, 첫 매치에서 멈춥니다.</span></div>
+      <div class="fl-c" data-hop="4" data-p="k8s" data-plat="Kubernetes"><span class="nm">NetworkPolicy</span><span class="ds">정책은 표준 객체지만 실제 집행은 CNI가 합니다. CNI가 없으면 무시됩니다.</span></div>
+      <div class="fl-c" data-hop="4" data-p="onp" data-plat="온프레미스"><span class="nm">방화벽 존 정책</span><span class="ds">출발지·목적지·포트를 사람이 심사하고 결재받아 한 줄씩 추가합니다.</span></div>
+
+      <!-- HOP 5 -->
+      <div class="fl-stub" data-hop="5"><span class="hopno">05</span><span><b>어느 서버로 보낼지 고른다</b>부하 분산</span></div>
+      <div class="fl-c" data-hop="5" data-p="aws" data-plat="AWS"><span class="nm">타깃 그룹</span><span class="ds">헬스체크를 통과한 대상 중에서 고릅니다. 실패하면 조용히 빠집니다.</span></div>
+      <div class="fl-c" data-hop="5" data-p="azr" data-plat="Azure"><span class="nm">백엔드 풀 + 상태 프로브</span><span class="ds">VM 확장 집합이면 인스턴스가 자동으로 풀에 등록·해제됩니다.</span></div>
+      <div class="fl-c" data-hop="5" data-p="k8s" data-plat="Kubernetes"><span class="nm">Service → EndpointSlice</span><span class="ds">Ready 상태 파드 목록을 만들고, kube-proxy나 eBPF가 목적지를 바꿉니다.</span></div>
+      <div class="fl-c" data-hop="5" data-p="onp" data-plat="온프레미스"><span class="nm">풀 멤버 + 모니터</span><span class="ds">TCP·HTTP 모니터로 살아 있는 멤버를 골라 RR이나 least-conn으로 분배합니다.</span></div>
+
+      <!-- HOP 6 -->
+      <div class="fl-stub" data-hop="6"><span class="hopno">06</span><span><b>마지막 한 홉</b>워크로드 도착</span></div>
+      <div class="fl-c" data-hop="6" data-p="aws" data-plat="AWS"><span class="nm">ENI</span><span class="ds">EC2에 붙은 탄력적 네트워크 인터페이스가 최종 목적지입니다.</span></div>
+      <div class="fl-c" data-hop="6" data-p="azr" data-plat="Azure"><span class="nm">NIC 리소스</span><span class="ds">VM과 별개로 존재하는 NIC 리소스의 IP 구성이 목적지입니다.</span></div>
+      <div class="fl-c" data-hop="6" data-p="k8s" data-plat="Kubernetes"><span class="nm">veth → 파드 eth0</span><span class="ds">노드에 생긴 가상 케이블 한 쌍이 파드의 네트워크 공간으로 이어집니다.</span></div>
+      <div class="fl-c" data-hop="6" data-p="onp" data-plat="온프레미스"><span class="nm">vSwitch 포트그룹 → vNIC</span><span class="ds">물리 NIC에서 가상 스위치를 거쳐 VLAN 태그가 붙은 포트그룹으로 갑니다.</span></div>
+
+      <!-- HOP 7 -->
+      <div class="fl-stub" data-hop="7"><span class="hopno">07</span><span><b>내부 DB를 부른다</b>동서 트래픽</span></div>
+      <div class="fl-c" data-hop="7" data-p="aws" data-plat="AWS"><span class="nm">프라이빗 서브넷 RDS</span><span class="ds">DB의 SG가 <strong>웹 SG 자체</strong>를 출발지로 참조합니다. IP를 적지 않습니다.</span></div>
+      <div class="fl-c" data-hop="7" data-p="azr" data-plat="Azure"><span class="nm">Private Endpoint</span><span class="ds">공용 FQDN을 사설 DNS 영역이 사설 IP로 바꿔 줍니다.</span></div>
+      <div class="fl-c" data-hop="7" data-p="k8s" data-plat="Kubernetes"><span class="nm">ClusterIP + CoreDNS</span><span class="ds"><code>db.prod.svc.cluster.local</code> 이라는 이름 하나로 끝납니다.</span></div>
+      <div class="fl-c" data-hop="7" data-p="onp" data-plat="온프레미스"><span class="nm">DB VLAN + 존 간 정책</span><span class="ds">웹 존에서 DB 존으로 가는 3306 한 줄이 방화벽에 있어야 합니다.</span></div>
+
+      <!-- HOP 8 -->
+      <div class="fl-stub" data-hop="8"><span class="hopno">08</span><span><b>바깥으로 나간다</b>아웃바운드</span></div>
+      <div class="fl-c" data-hop="8" data-p="aws" data-plat="AWS"><span class="nm">NAT 게이트웨이</span><span class="ds">프라이빗 서브넷 → NAT GW → IGW. 가용 영역마다 하나씩 두는 게 정석입니다.</span></div>
+      <div class="fl-c" data-hop="8" data-p="azr" data-plat="Azure"><span class="nm">NAT 게이트웨이</span><span class="ds">2025년 9월 30일부로 새 VM에는 기본 아웃바운드가 없어 반드시 붙여야 합니다.</span></div>
+      <div class="fl-c" data-hop="8" data-p="k8s" data-plat="Kubernetes"><span class="nm">노드 SNAT</span><span class="ds">클러스터 밖으로 나갈 때 출발지가 파드 IP에서 노드 IP로 바뀝니다.</span></div>
+      <div class="fl-c" data-hop="8" data-p="onp" data-plat="온프레미스"><span class="nm">방화벽 PAT</span><span class="ds">여러 사설 IP가 방화벽의 공인 IP 하나를 포트로 나눠 씁니다.</span></div>
+    </div>
+
+    <div class="hero-ctl">
+      <button class="btn" id="hopPrev" disabled>이전 홉</button>
+      <button class="btn pri" id="hopNext">다음 홉</button>
+      <span class="count" id="hopCount">홉 1 / 8</span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn" id="hopAll">전체 펼치기</button>
+    </div>
+  </div>
+
+  <div class="call note">
+    <span class="ttl">이 표에서 가져갈 한 가지</span>
+    네 플랫폼은 서로 다른 기술이 아니라, <strong>같은 여덟 가지 역할을 각자의 방식으로 나눠 맡은 것</strong>입니다.
+    새로운 환경을 만나면 “이 환경에서 3번 역할은 누가 하지?”라고 물으세요. 이름만 새로 외우면 됩니다.
+  </div>
+</section>
+
+<section id="how">
+  <h2><span class="num">00</span>이 강의를 읽는 법</h2>
+  <p class="sec-intro">
+    1~2년차 엔지니어가 현장에서 바로 쓸 수 있도록, 개념 → 플랫폼별 구현 → 정면 비교 → 장애 대응 순으로 갑니다.
+    순서대로 읽는 걸 권하지만, 급하면 필요한 부분만 뽑아 읽어도 되도록 각 절을 독립적으로 썼습니다.
+  </p>
+
+  <div class="g2">
+    <div class="cell">
+      <h5>색이 곧 플랫폼입니다</h5>
+      <p>문서 전체에서 색은 장식이 아니라 정보입니다. 표, 다이어그램, 탭, 코드 어디서든 같은 규칙입니다.</p>
+      <div class="chiprow" style="margin-bottom:0">
+        <span class="chip" data-p="aws">AWS</span>
+        <span class="chip" data-p="azr">Azure</span>
+        <span class="chip" data-p="k8s">Kubernetes</span>
+        <span class="chip" data-p="onp">온프레미스</span>
+      </div>
+    </div>
+    <div class="cell">
+      <h5>이렇게 읽으면 빠릅니다</h5>
+      <ul>
+        <li>이미 아는 플랫폼 장부터 읽고, 나머지는 <a href="#rosetta">용어 대응표</a>로 번역하세요.</li>
+        <li>장애 대응만 급하면 <a href="#trouble">플레이북</a>으로 바로 가세요.</li>
+        <li>마지막 <a href="#quiz">퀴즈 12문항</a>으로 구멍을 찾으세요.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>네 환경을 한 줄로 요약하면</h3>
+  <div class="g4">
+    <div class="cell" data-p="aws">
+      <h5>AWS VPC</h5>
+      <p><strong>서브넷이 모든 것의 단위.</strong> 라우팅도, 가용 영역도, 인터넷 연결 여부도 서브넷에 붙습니다.</p>
+      <p style="color:var(--fg-faint);font-size:13.4px;margin-bottom:0">명시적으로 하나씩 붙여야 동작</p>
+    </div>
+    <div class="cell" data-p="azr">
+      <h5>Azure VNet</h5>
+      <p><strong>기본값이 관대한 대신 리소스가 잘게 쪼개짐.</strong> NIC, 공용 IP, NSG가 각각 별도 리소스입니다.</p>
+      <p style="color:var(--fg-faint);font-size:13.4px;margin-bottom:0">붙이지 않아도 어느 정도 통함</p>
+    </div>
+    <div class="cell" data-p="k8s">
+      <h5>Kubernetes</h5>
+      <p><strong>IP는 일회용, 이름이 계약.</strong> 파드 IP는 수시로 바뀌고 서비스 이름만 유지됩니다.</p>
+      <p style="color:var(--fg-faint);font-size:13.4px;margin-bottom:0">플랫폼이 아니라 CNI가 구현</p>
+    </div>
+    <div class="cell" data-p="onp">
+      <h5>온프레미스 VM</h5>
+      <p><strong>물리가 곧 설계 제약.</strong> VLAN 수, 포트 수, 케이블 길이가 아키텍처를 결정합니다.</p>
+      <p style="color:var(--fg-faint);font-size:13.4px;margin-bottom:0">바꾸려면 사람과 시간이 듦</p>
+    </div>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">MSP·운영 엔지니어에게 특히 중요한 이유</span>
+    고객사마다 쓰는 환경이 다르고, 한 고객사 안에서도 네 가지가 섞여 있는 경우가 흔합니다.
+    “AWS만 아는 사람”은 온프레미스 장애 콜에서 손을 못 대고, 반대도 마찬가지입니다.
+    네 가지의 <strong>대응 관계</strong>를 알면 낯선 환경에서도 무엇을 물어봐야 할지 알 수 있습니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="five">
+  <h2><span class="num">01</span>모든 네트워크가 답해야 하는 다섯 가지 질문</h2>
+  <p class="sec-intro">
+    클라우드든 온프레미스든, 네트워크를 설계한다는 건 결국 다섯 개의 질문에 답을 채워 넣는 일입니다.
+    이 다섯 칸만 채우면 어떤 환경이든 설명할 수 있고, 반대로 낯선 환경에 던져졌을 때도
+    이 다섯 개만 물어보면 구조가 잡힙니다.
+  </p>
+
+  <div class="panel">
+    <h4>질문 1 — 주소는 누가, 어떻게 주는가</h4>
+    <p>
+      통신하려면 모두가 주소를 가져야 합니다. 누가 주소 대역을 정하고, 개별 장비에는 어떻게 배분되는지가 첫 번째 질문입니다.
+      AWS·Azure는 서브넷 대역에서 자동으로 꺼내 주고, 쿠버네티스는 CNI의 IPAM이 파드마다 하나씩 떼어 주며,
+      온프레미스는 사람이 엑셀이나 IPAM 도구로 관리합니다.
+    </p>
+    <h4>질문 2 — 경계는 어디까지인가</h4>
+    <p>
+      “한 덩어리”로 취급되는 범위가 어디까지인지입니다. AWS의 VPC, Azure의 VNet, 쿠버네티스의 클러스터,
+      온프레미스의 VLAN·존이 각각 그 경계입니다. 경계 안에서는 대체로 자유롭게 통신되고, 경계를 넘으려면 별도 장치가 필요합니다.
+    </p>
+    <h4>질문 3 — 길은 누가 정하는가</h4>
+    <p>
+      목적지 IP를 보고 어디로 보낼지 결정하는 주체입니다. 클라우드는 라우트 테이블이라는 설정 화면이고,
+      쿠버네티스는 노드의 커널 라우팅 테이블과 CNI이며, 온프레미스는 라우터와 L3 스위치가 OSPF·BGP로 서로 학습합니다.
+    </p>
+    <h4>질문 4 — 누가 막는가</h4>
+    <p>
+      허용·차단을 판단하는 지점입니다. 보안 그룹, NSG, NetworkPolicy, 물리 방화벽이 여기에 해당합니다.
+      <strong>“기본이 허용인가 차단인가”</strong>와 <strong>“상태를 기억하는가”</strong> 두 가지만 확인하면 절반은 이해한 겁니다.
+    </p>
+    <h4>질문 5 — 바깥과는 어떻게 잇는가</h4>
+    <p>
+      인터넷, 다른 네트워크, 사내 데이터센터와 연결하는 방법입니다. 인터넷 게이트웨이, NAT, VPN, 전용선,
+      피어링이 모두 이 질문의 답입니다. 실무 장애의 상당수가 이 칸을 비워 두었거나 반쯤 채워서 생깁니다.
+    </p>
+  </div>
+
+  <h3>계층을 알면 장비 이름이 정리됩니다</h3>
+  <p>
+    네트워크 장비를 외우기 어려운 건 이름이 많아서가 아니라, <em>각 장비가 패킷의 어느 부분을 보는지</em>를 모르기 때문입니다.
+    L2 장비는 MAC 주소만, L3 장비는 IP까지, L4 장비는 포트 번호까지, L7 장비는 HTTP 헤더와 URL까지 봅니다.
+    아래 표에 네 환경의 장비를 계층별로 올려놓으면 대응 관계가 바로 보입니다.
+  </p>
+
+  <figure>
+    <div class="svgscroll"><svg viewBox="0 0 900 352" role="img" aria-label="OSI 계층별로 네 플랫폼의 네트워크 장비를 비교한 표">
+      <text class="svg-sm" x="8" y="20">패킷의 어디까지 보는가</text>
+      <rect x="120" y="4" width="195" height="24" rx="4" fill="var(--aws-bg)"/>
+      <rect x="315" y="4" width="195" height="24" rx="4" fill="var(--azr-bg)"/>
+      <rect x="510" y="4" width="195" height="24" rx="4" fill="var(--k8s-bg)"/>
+      <rect x="705" y="4" width="190" height="24" rx="4" fill="var(--onp-bg)"/>
+      <text x="132" y="21" style="fill:var(--aws)" class="svg-lb">AWS</text>
+      <text x="327" y="21" style="fill:var(--azr)" class="svg-lb">Azure</text>
+      <text x="522" y="21" style="fill:var(--k8s)" class="svg-lb">Kubernetes</text>
+      <text x="717" y="21" style="fill:var(--onp)" class="svg-lb">온프레미스</text>
+
+      <g id="l7">
+        <rect x="4" y="38" width="112" height="70" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="16" y="66">L7 응용</text>
+        <text class="svg-mn" x="16" y="84">URL · 헤더</text>
+        <text class="svg-mn" x="16" y="99">쿠키 · 호스트</text>
+        <rect x="120" y="38" width="195" height="70" rx="7" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+        <text class="svg-lb" x="134" y="66">ALB</text><text class="svg-sm" x="134" y="86">CloudFront · WAF</text>
+        <rect x="315" y="38" width="195" height="70" rx="7" fill="var(--azr-bg)" stroke="var(--azr-line)"/>
+        <text class="svg-lb" x="329" y="66">Application Gateway</text><text class="svg-sm" x="329" y="86">Front Door · WAF</text>
+        <rect x="510" y="38" width="195" height="70" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s-line)"/>
+        <text class="svg-lb" x="524" y="66">Gateway · HTTPRoute</text><text class="svg-sm" x="524" y="86">Ingress(레거시) · 메시</text>
+        <rect x="705" y="38" width="190" height="70" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="719" y="66">F5 BIG-IP</text><text class="svg-sm" x="719" y="86">WAF 어플라이언스</text>
+      </g>
+      <g id="l4">
+        <rect x="4" y="112" width="112" height="70" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="16" y="140">L4 전송</text>
+        <text class="svg-mn" x="16" y="158">TCP/UDP 포트</text>
+        <text class="svg-mn" x="16" y="173">세션 상태</text>
+        <rect x="120" y="112" width="195" height="70" rx="7" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+        <text class="svg-lb" x="134" y="140">NLB</text><text class="svg-sm" x="134" y="160">보안 그룹 · NACL</text>
+        <rect x="315" y="112" width="195" height="70" rx="7" fill="var(--azr-bg)" stroke="var(--azr-line)"/>
+        <text class="svg-lb" x="329" y="140">Azure Load Balancer</text><text class="svg-sm" x="329" y="160">NSG · Azure Firewall</text>
+        <rect x="510" y="112" width="195" height="70" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s-line)"/>
+        <text class="svg-lb" x="524" y="140">Service · kube-proxy</text><text class="svg-sm" x="524" y="160">NetworkPolicy</text>
+        <rect x="705" y="112" width="190" height="70" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="719" y="140">L4 스위치</text><text class="svg-sm" x="719" y="160">상태 저장 방화벽</text>
+      </g>
+      <g id="l3">
+        <rect x="4" y="186" width="112" height="70" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="16" y="214">L3 네트워크</text>
+        <text class="svg-mn" x="16" y="232">IP 주소</text>
+        <text class="svg-mn" x="16" y="247">라우팅 · NAT</text>
+        <rect x="120" y="186" width="195" height="70" rx="7" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+        <text class="svg-lb" x="134" y="214">라우트 테이블</text><text class="svg-sm" x="134" y="234">IGW · NAT GW · TGW</text>
+        <rect x="315" y="186" width="195" height="70" rx="7" fill="var(--azr-bg)" stroke="var(--azr-line)"/>
+        <text class="svg-lb" x="329" y="214">UDR · 시스템 라우트</text><text class="svg-sm" x="329" y="234">NAT GW · Virtual WAN</text>
+        <rect x="510" y="186" width="195" height="70" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s-line)"/>
+        <text class="svg-lb" x="524" y="214">CNI 라우팅</text><text class="svg-sm" x="524" y="234">노드 라우트 · SNAT</text>
+        <rect x="705" y="186" width="190" height="70" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="719" y="214">라우터 · L3 스위치</text><text class="svg-sm" x="719" y="234">OSPF · BGP · VRF</text>
+      </g>
+      <g id="l2">
+        <rect x="4" y="260" width="112" height="70" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="16" y="288">L2 링크</text>
+        <text class="svg-mn" x="16" y="306">MAC 주소</text>
+        <text class="svg-mn" x="16" y="321">프레임 · VLAN</text>
+        <rect x="120" y="260" width="195" height="70" rx="7" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/>
+        <text class="svg-sm" x="134" y="288">서브넷 뒤로 숨김</text><text class="svg-mn" x="134" y="307">사용자가 만질 수 없음</text>
+        <rect x="315" y="260" width="195" height="70" rx="7" fill="none" stroke="var(--line)" stroke-dasharray="4 4"/>
+        <text class="svg-sm" x="329" y="288">서브넷 뒤로 숨김</text><text class="svg-mn" x="329" y="307">사용자가 만질 수 없음</text>
+        <rect x="510" y="260" width="195" height="70" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s-line)"/>
+        <text class="svg-lb" x="524" y="288">veth · 브리지</text><text class="svg-sm" x="524" y="308">VXLAN 오버레이</text>
+        <rect x="705" y="260" width="190" height="70" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="719" y="288">VLAN · 트렁크</text><text class="svg-sm" x="719" y="308">LACP · STP</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>
+      가장 큰 구조적 차이는 맨 아랫줄입니다. AWS와 Azure는 L2를 아예 감춰 버려서 VLAN도 ARP 튜닝도 할 수 없습니다.
+      반대로 온프레미스와 쿠버네티스는 L2를 직접 다뤄야 하고, 그래서 배울 것도 고장 날 것도 많습니다.
+      클라우드가 “쉽다”고 느껴지는 이유의 절반이 이 한 줄에 있습니다.
+    </figcaption>
+  </figure>
+</section>
+
+<section id="basics">
+  <h2><span class="num">02</span>주소 · 서브넷 · CIDR</h2>
+  <p class="sec-intro">
+    여기는 네 환경 모두에 똑같이 적용되는 기초입니다. 이 절이 헷갈리면 뒤의 모든 장이 흔들리니,
+    이미 안다고 생각해도 한 번 훑고 가세요. 현장 장애의 체감 30%는 “대역을 잘못 잡아서”입니다.
+  </p>
+
+  <h3>CIDR 표기를 읽는 법</h3>
+  <p>
+    <code>10.0.0.0/16</code> 같은 표기에서 슬래시 뒤 숫자는 <strong>앞에서부터 몇 비트가 네트워크 주소인지</strong>를 뜻합니다.
+    IPv4 주소는 32비트이므로, <code>/16</code>이면 앞 16비트가 네트워크, 나머지 16비트가 호스트 몫입니다.
+    숫자가 <strong>작을수록 큰 대역</strong>이라는 점이 처음엔 직관에 어긋나는데, “자물쇠를 몇 칸 잠갔는가”로 생각하면 쉽습니다.
+    적게 잠글수록 자유로운 칸이 많아집니다.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>표기</th><th>총 주소 수</th><th>클라우드에서 쓸 수 있는 수</th><th>주로 쓰는 곳</th></tr></thead>
+      <tbody>
+        <tr><td><code>/16</code></td><td>65,536</td><td>65,531</td><td>VPC·VNet 전체 대역</td></tr>
+        <tr><td><code>/20</code></td><td>4,096</td><td>4,091</td><td>큰 워커 노드 서브넷</td></tr>
+        <tr><td><code>/24</code></td><td>256</td><td>251</td><td>가장 흔한 서브넷 단위</td></tr>
+        <tr><td><code>/26</code></td><td>64</td><td>59</td><td>DB·관리용 소형 서브넷</td></tr>
+        <tr><td><code>/28</code></td><td>16</td><td>11</td><td>게이트웨이 전용 서브넷 최소 단위</td></tr>
+        <tr><td><code>/32</code></td><td>1</td><td>—</td><td>특정 호스트 하나를 지칭할 때</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call warn">
+    <span class="ttl">클라우드는 서브넷마다 IP를 몇 개 뺏어 갑니다</span>
+    온프레미스에서 <code>/24</code>는 254개를 쓸 수 있지만(네트워크·브로드캐스트 2개 제외),
+    <strong>AWS와 Azure는 서브넷마다 5개를 예약</strong>합니다. 첫 주소(네트워크), 마지막 주소(브로드캐스트),
+    그리고 게이트웨이·DNS·미래 확장용 3개입니다. 그래서 <code>/24</code>에서 실제로 쓸 수 있는 건 251개입니다.
+    <code>/28</code>이면 16개 중 11개만 남으니, 노드가 늘어나는 서브넷을 <code>/28</code>로 잡으면 곧 후회합니다.
+  </div>
+
+  <h3>사설 IP 대역 — 이 세 개만 기억하면 됩니다</h3>
+  <p>
+    인터넷에 직접 나가지 않는 내부망에는 RFC 1918이 정한 사설 대역을 씁니다. 전 세계 누구나 이 대역을 자유롭게 쓰므로,
+    <strong>회사끼리 연결할 때 대역이 겹치는 사고</strong>가 끊이지 않습니다.
+  </p>
+  <div class="g3">
+    <div class="cell"><h5><code>10.0.0.0/8</code></h5><p>1,600만 개. 대기업·클라우드 기본값. AWS·Azure 예제가 대부분 <code>10.</code>으로 시작하는 이유입니다.</p></div>
+    <div class="cell"><h5><code>172.16.0.0/12</code></h5><p>100만 개. <code>172.16</code>부터 <code>172.31</code>까지만 사설입니다. <code>172.32</code>는 공인 대역이니 주의하세요.</p></div>
+    <div class="cell"><h5><code>192.168.0.0/16</code></h5><p>65,536개. 가정용 공유기의 기본값이라, 사내 VPN을 쓰는 직원 집 대역과 충돌하기 쉽습니다.</p></div>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">가장 비싼 실수: 대역 겹침</span>
+    <code>10.0.0.0/16</code>은 예제에서 하도 많이 써서 거의 모든 회사가 하나쯤 갖고 있습니다.
+    나중에 VPC 피어링이나 VPN으로 두 망을 잇는 순간, 겹친 대역은 <strong>라우팅이 불가능</strong>해집니다.
+    이때 할 수 있는 건 한쪽을 통째로 재구축하거나 NAT를 이중으로 거는 것뿐이고, 둘 다 몇 주짜리 작업입니다.
+    처음부터 <strong>회사 전체 대역 관리표</strong>를 만들고, 환경(운영/개발), 리전, 용도까지 자리를 정해 두세요.
+    예: <code>10.10.x.x</code>=서울 운영, <code>10.20.x.x</code>=서울 개발, <code>10.30.x.x</code>=온프레미스.
+  </div>
+</section>
+
+<section id="calc">
+  <h2><span class="num">03</span>직접 해 보는 CIDR 계산</h2>
+  <p class="sec-intro">
+    말로 백 번 듣는 것보다 숫자를 한 번 바꿔 보는 게 빠릅니다. 대역과 프리픽스를 바꿔 가며
+    비트가 어떻게 나뉘는지, 쓸 수 있는 IP가 몇 개로 줄어드는지 확인해 보세요.
+  </p>
+
+  <div class="calc">
+    <div class="calc-row">
+      <div class="field">
+        <label for="cidrIp">네트워크 주소</label>
+        <input id="cidrIp" type="text" value="10.10.0.0" inputmode="decimal" size="15" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="cidrPfx">프리픽스</label>
+        <select id="cidrPfx"></select>
+      </div>
+      <div class="field">
+        <label for="cidrEnv">환경</label>
+        <select id="cidrEnv">
+          <option value="cloud">AWS · Azure (5개 예약)</option>
+          <option value="onprem">온프레미스 (2개 예약)</option>
+          <option value="k8s">쿠버네티스 파드 대역</option>
+        </select>
+      </div>
+    </div>
+    <dl class="calc-out" id="calcOut"></dl>
+    <div class="bits" id="calcBits"></div>
+    <p class="calc-note" id="calcNote"></p>
+  </div>
+
+  <h3>서브넷을 쪼개는 실전 감각</h3>
+  <p>
+    VPC 대역 <code>10.10.0.0/16</code> 하나를 받았다고 합시다. 여기서 가용 영역 3개 × 계층 3개(퍼블릭·앱·DB)로
+    9개 서브넷을 만들어야 합니다. 이때 흔히 저지르는 실수가 “필요한 만큼만 딱 맞게” 자르는 것입니다.
+    <strong>나중에 넓힐 수 없다</strong>는 걸 기억하세요. 서브넷 대역은 만든 뒤 변경이 불가능합니다.
+  </p>
+
+  <div class="codewrap">
+    <div class="cap"><span>권장 배치 예시 — 10.10.0.0/16</span><button class="copy">복사</button></div>
+<pre><span class="c"># 퍼블릭 (LB, NAT GW, 배스천) — 작아도 됩니다. LB는 IP를 몇 개 안 씁니다</span>
+10.10.0.0/24    ap-northeast-2a  public-a
+10.10.1.0/24    ap-northeast-2b  public-b
+10.10.2.0/24    ap-northeast-2c  public-c
+
+<span class="c"># 앱 (EC2, 파드) — 가장 크게. 오토스케일링으로 IP가 급증합니다</span>
+10.10.16.0/20   ap-northeast-2a  app-a      <span class="c"># 4,091개</span>
+10.10.32.0/20   ap-northeast-2b  app-b
+10.10.48.0/20   ap-northeast-2c  app-c
+
+<span class="c"># DB — 인스턴스 수가 예측 가능하므로 작게</span>
+10.10.64.0/24   ap-northeast-2a  db-a
+10.10.65.0/24   ap-northeast-2b  db-b
+10.10.66.0/24   ap-northeast-2c  db-c
+
+<span class="c"># 10.10.80.0 ~ 10.10.255.255 는 비워 둡니다 (미래의 나를 위한 선물)</span></pre>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">비워 두는 습관</span>
+    대역의 절반 정도는 의도적으로 비워 두세요. 몇 달 뒤 “EKS 클러스터를 추가해야 한다”,
+    “전용선 연결용 서브넷이 필요하다”는 요청이 반드시 옵니다. 그때 빈 칸이 없으면
+    새 VPC를 만들고 피어링으로 붙이는 복잡한 구조로 가게 됩니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="route">
+  <h2><span class="num">04</span>라우팅 · NAT · DNS</h2>
+  <p class="sec-intro">
+    주소를 나눠 줬으면 이제 길을 알려 줘야 합니다. 이 세 가지는 이름만 다를 뿐 네 환경에서 똑같이 동작하는
+    원리이고, 신입이 가장 자주 헤매는 지점이기도 합니다.
+  </p>
+
+  <h3>라우팅 — 가장 구체적인 경로가 이깁니다</h3>
+  <p>
+    라우트 테이블은 “이 목적지로 가려면 저리로 보내라”는 규칙의 목록입니다. 규칙이 여러 개 걸리면
+    <strong>프리픽스가 더 긴(= 더 구체적인) 쪽이 무조건 이깁니다</strong>. 이걸 최장 일치(longest prefix match)라고 부릅니다.
+  </p>
+
+  <div class="codewrap">
+    <div class="cap"><span>10.10.5.20 으로 가는 패킷은 어느 규칙을 탈까</span><button class="copy">복사</button></div>
+<pre>목적지               다음 홉          프리픽스 길이
+0.0.0.0/0            NAT 게이트웨이    0     <span class="c">← 매치되지만 가장 짧음</span>
+10.10.0.0/16         local            16    <span class="c">← 매치, 더 구체적</span>
+10.10.5.0/24         피어링 연결       24    <span class="c">← 매치, 가장 구체적 → 승리</span>
+
+결과: 10.10.5.20 행 패킷은 피어링 연결로 나갑니다.</pre>
+  </div>
+
+  <p>
+    <code>0.0.0.0/0</code>은 “나머지 전부”라는 뜻이고 기본 경로(default route)라고 부릅니다. 항상 지는 규칙이지만,
+    아무 규칙도 안 걸렸을 때 마지막으로 받아 주는 역할이라 없으면 인터넷에 못 나갑니다.
+    <code>local</code>은 “내 네트워크 안이니 밖으로 보내지 말라”는 뜻으로, 클라우드에서는 자동으로 들어가 있고 지울 수 없습니다.
+  </p>
+
+  <div class="g2">
+    <div class="cell" data-p="aws">
+      <h5>AWS는 서브넷에 붙입니다</h5>
+      <p>라우트 테이블을 만들고 <strong>서브넷에 연결</strong>합니다. 같은 테이블을 여러 서브넷이 공유할 수 있고,
+      연결을 안 하면 VPC의 메인 라우트 테이블이 적용됩니다. “퍼블릭 서브넷”이라는 리소스 종류는 없습니다.
+      <strong><code>0.0.0.0/0 → IGW</code> 를 가진 라우트 테이블이 붙어 있으면 퍼블릭</strong>, 그게 전부입니다.</p>
+    </div>
+    <div class="cell" data-p="azr">
+      <h5>Azure는 기본이 이미 깔려 있습니다</h5>
+      <p>VNet을 만들면 보이지 않는 시스템 라우트가 자동 생성되어 인터넷과 VNet 내부 통신이 이미 됩니다.
+      기본 동작을 <strong>바꾸고 싶을 때만</strong> 사용자 정의 라우트(UDR)를 만들어 서브넷에 붙입니다.
+      “방화벽을 반드시 거치게 하라” 같은 요구가 UDR의 대표 용도입니다.</p>
+    </div>
+  </div>
+
+  <h3>NAT — 주소를 갈아 끼우는 일</h3>
+  <p>
+    사설 IP는 인터넷에서 통하지 않습니다. 그래서 밖으로 나갈 때 출발지 주소를 공인 IP로 바꿔치기하는데,
+    이게 NAT입니다. 방향에 따라 이름이 다릅니다.
+  </p>
+  <ul>
+    <li><strong>SNAT (출발지 NAT)</strong> — 안에서 밖으로. 내부 서버가 인터넷의 패키지 저장소에서 다운로드할 때 씁니다. AWS·Azure의 NAT 게이트웨이, 쿠버네티스의 노드 마스커레이드, 방화벽의 PAT가 전부 이것입니다.</li>
+    <li><strong>DNAT (목적지 NAT)</strong> — 밖에서 안으로. 로드밸런서가 <code>VIP:443</code>으로 온 패킷의 목적지를 실제 서버 IP로 바꾸는 동작이 DNAT입니다. 쿠버네티스의 Service도 본질은 DNAT입니다.</li>
+  </ul>
+
+  <div class="call note">
+    <span class="ttl">포트 고갈이라는 함정</span>
+    NAT는 출발지 포트 번호로 세션을 구분합니다. 공인 IP 하나당 쓸 수 있는 포트는 약 64,000개인데,
+    목적지가 같은 IP:포트라면 <strong>한 목적지에 대해 약 64,000 세션</strong>이 한계입니다.
+    AWS NAT 게이트웨이의 <code>ErrorPortAllocation</code> 지표나 Azure NAT 게이트웨이의 SNAT 고갈이
+    바로 이 증상이고, “가끔 연결이 안 돼요”의 흔한 원인입니다. 해결은 공인 IP를 늘리거나,
+    외부 호출을 커넥션 풀로 재사용하거나, VPC 엔드포인트로 NAT를 우회하는 것입니다.
+  </div>
+
+  <h3>DNS — 이름이 곧 계약</h3>
+  <p>
+    IP는 바뀌지만 이름은 유지됩니다. 그래서 요즘 아키텍처는 “IP를 코드에 적지 않는다”가 원칙이고,
+    이걸 가능하게 하는 게 DNS입니다. 네 환경 모두 <strong>내부용 DNS</strong>와 <strong>외부용 DNS</strong>를 구분합니다.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>구분</th><th data-p="aws">AWS</th><th data-p="azr">Azure</th><th data-p="k8s">Kubernetes</th><th data-p="onp">온프레미스</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>공개용 이름</td>
+          <td>Route 53 퍼블릭 호스팅 영역</td>
+          <td>Azure DNS 공용 영역</td>
+          <td>클러스터 밖 DNS에 ExternalDNS가 자동 등록</td>
+          <td>공인 DNS 서비스 또는 자체 BIND</td>
+        </tr>
+        <tr>
+          <td>내부용 이름</td>
+          <td>Route 53 프라이빗 호스팅 영역<span class="mini">VPC에 연결해야 동작</span></td>
+          <td>프라이빗 DNS 영역<span class="mini">VNet 링크를 걸어야 동작</span></td>
+          <td>CoreDNS<span class="mini">svc.cluster.local 자동 생성</span></td>
+          <td>사내 AD DNS 또는 BIND<span class="mini">사람이 수동 등록</span></td>
+        </tr>
+        <tr>
+          <td>내장 리졸버 주소</td>
+          <td><code>VPC 대역 + 2</code><span class="mini">10.10.0.0/16이면 10.10.0.2</span></td>
+          <td><code>168.63.129.16</code><span class="mini">외우세요. Azure 만능 주소입니다</span></td>
+          <td>kube-dns 서비스 ClusterIP</td>
+          <td>DHCP나 수동 설정으로 배포</td>
+        </tr>
+        <tr>
+          <td>흔한 장애</td>
+          <td>프라이빗 영역을 VPC에 연결 안 함</td>
+          <td>Private Endpoint를 만들고 DNS 영역 연결을 빠뜨림</td>
+          <td>파드의 <code>ndots:5</code> 로 검색 도메인을 여러 번 시도해 느려짐</td>
+          <td>레코드 지우는 걸 잊어 유령 IP로 요청이 감</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">쿠버네티스의 ndots 함정</span>
+    파드의 <code>/etc/resolv.conf</code>에는 기본적으로 <code>options ndots:5</code>가 들어갑니다.
+    점이 5개 미만인 이름(예: <code>api.github.com</code> — 점 2개)은 <strong>먼저 클러스터 내부 도메인을 붙여서</strong>
+    <code>api.github.com.prod.svc.cluster.local</code>, <code>api.github.com.svc.cluster.local</code> … 순으로 시도합니다.
+    외부 도메인 하나 찾는 데 DNS 질의를 4~5번 하게 되고, CoreDNS 부하와 응답 지연으로 이어집니다.
+    외부 호출이 많은 파드라면 이름 끝에 점을 붙여(<code>api.github.com.</code>) 절대 도메인으로 만들거나,
+    해당 파드의 <code>dnsConfig</code>에서 <code>ndots</code>를 2로 낮추세요.
+  </div>
+</section>
+
+<section id="lb">
+  <h2><span class="num">05</span>로드밸런서 — L4와 L7의 차이</h2>
+  <p class="sec-intro">
+    “ALB를 써야 하나 NLB를 써야 하나”는 신입이 가장 많이 받는 질문 중 하나입니다.
+    답은 언제나 <strong>“패킷의 어디까지 봐야 하는가”</strong>에서 나옵니다.
+  </p>
+
+  <div class="g2">
+    <div class="cell">
+      <h5>L4 로드밸런서 — 봉투만 보고 배달</h5>
+      <p>출발지·목적지 IP와 포트만 보고 서버를 고릅니다. 안의 내용은 열어 보지 않습니다.</p>
+      <ul>
+        <li>빠르고 지연이 거의 없습니다</li>
+        <li>TCP·UDP 어떤 프로토콜이든 처리합니다</li>
+        <li>URL 기반 분기, 쿠키 세션 유지는 불가능합니다</li>
+        <li>클라이언트 IP를 그대로 넘기기 쉽습니다</li>
+      </ul>
+      <p style="margin-bottom:0"><strong>쓰는 경우</strong>: 게임 서버, DB 프록시, gRPC, 초저지연이 필요한 서비스, 고정 IP가 필요한 경우</p>
+    </div>
+    <div class="cell">
+      <h5>L7 로드밸런서 — 봉투를 열어 보고 배달</h5>
+      <p>HTTP 요청을 해석해 호스트·경로·헤더를 보고 서버를 고릅니다. 자기가 요청을 다시 만들어 보냅니다.</p>
+      <ul>
+        <li><code>/api</code>는 A그룹, <code>/img</code>는 B그룹으로 분기 가능</li>
+        <li>TLS 종료, 인증, 압축, 재시도, 헤더 조작 가능</li>
+        <li>L4보다 느리고 리소스를 더 씁니다</li>
+        <li>클라이언트 IP는 <code>X-Forwarded-For</code> 헤더로 전달됩니다</li>
+      </ul>
+      <p style="margin-bottom:0"><strong>쓰는 경우</strong>: 일반적인 웹 서비스, 마이크로서비스 라우팅, WAF가 필요한 경우</p>
+    </div>
+  </div>
+
+  <div class="call warn">
+    <span class="ttl">앱 로그에 로드밸런서 IP만 찍힌다면</span>
+    L7 로드밸런서를 쓰면 백엔드 입장에서 출발지 IP는 항상 로드밸런서입니다.
+    실제 사용자 IP는 <code>X-Forwarded-For</code> 헤더 안에 들어 있으니, 앱이나 웹서버 설정에서
+    이 헤더를 읽도록 바꿔야 합니다(NGINX의 <code>real_ip_header</code>, Tomcat의 <code>RemoteIpValve</code>).
+    접속 IP 기반 차단이나 감사 로그를 쓰는 곳이라면 반드시 확인하세요.
+    <strong>헤더를 그대로 믿어서도 안 됩니다</strong> — 신뢰하는 프록시에서 온 값만 받도록 설정해야
+    사용자가 헤더를 위조해 IP 차단을 우회하는 걸 막을 수 있습니다.
+  </div>
+
+  <h3>헬스체크 — 로드밸런서의 눈</h3>
+  <p>
+    로드밸런서는 주기적으로 각 백엔드에 “살아 있니?”를 물어보고, 답이 없으면 명단에서 뺍니다.
+    이게 헬스체크이고, 네 환경 모두 같은 개념입니다. 실무에서 문제가 되는 건 대개 <strong>무엇을 확인하느냐</strong>입니다.
+  </p>
+  <ul>
+    <li><strong>TCP 헬스체크</strong>는 포트가 열렸는지만 봅니다. 앱이 죽어 있어도 웹서버가 살아 있으면 통과해 버립니다.</li>
+    <li><strong>HTTP 헬스체크</strong>는 특정 경로에 200이 오는지 봅니다. 그 경로가 <code>/</code>면 메인 페이지 전체를 렌더링하느라 무거워집니다. <code>/healthz</code> 같은 가벼운 전용 경로를 따로 만드세요.</li>
+    <li><strong>DB까지 확인하는 헬스체크</strong>는 위험합니다. DB가 잠깐 느려지면 모든 서버가 동시에 명단에서 빠져 서비스 전체가 멈춥니다.</li>
+  </ul>
+
+  <div class="call tip">
+    <span class="ttl">헬스체크 경로는 두 개로 나누세요</span>
+    쿠버네티스가 정리한 이 구분은 다른 환경에서도 그대로 쓸 만합니다.
+    <strong>liveness</strong>는 “프로세스가 살아 있나”만 보고 실패하면 재시작,
+    <strong>readiness</strong>는 “지금 요청을 받을 준비가 됐나”를 보고 실패하면 트래픽만 끊습니다.
+    부팅에 시간이 걸리는 앱이라면 <strong>startup</strong>까지 셋으로 나누세요.
+    로드밸런서의 헬스체크는 readiness에 해당합니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="aws">
+  <h2><span class="num">06</span><span class="p-aws">AWS</span> — VPC로 짓는 네트워크</h2>
+  <p class="sec-intro">
+    AWS 네트워크의 핵심 문장은 하나입니다. <strong>“서브넷이 모든 것의 단위다.”</strong>
+    가용 영역도 서브넷에 붙고, 라우팅도 서브넷에 붙고, 인터넷에 나갈 수 있는지도 서브넷에 붙은 라우트 테이블이 결정합니다.
+    이 한 문장을 잡고 가면 나머지는 자연스럽게 따라옵니다.
+  </p>
+
+  <div class="chiprow">
+    <span class="chip" data-p="aws">VPC</span>
+    <span class="chip" data-p="aws">서브넷</span>
+    <span class="chip" data-p="aws">라우트 테이블</span>
+    <span class="chip" data-p="aws">IGW · NAT GW</span>
+    <span class="chip" data-p="aws">보안 그룹 · NACL</span>
+    <span class="chip" data-p="aws">ELB</span>
+    <span class="chip" data-p="aws">VPC 엔드포인트</span>
+    <span class="chip" data-p="aws">TGW · DX</span>
+  </div>
+
+  <h3>전체 구조 한눈에</h3>
+  <figure>
+    <div class="svgscroll"><svg viewBox="0 0 900 442" role="img" aria-label="두 개의 가용 영역에 걸친 AWS 3계층 VPC 구조도">
+      <text class="svg-sm" x="14" y="18">인터넷</text>
+      <path class="svg-ln" d="M60 14 H436" stroke-dasharray="3 3"/>
+      <rect x="392" y="36" width="116" height="28" rx="6" fill="var(--aws-bg)" stroke="var(--aws)"/>
+      <text class="svg-lb" x="404" y="55" style="fill:var(--aws)">인터넷 게이트웨이</text>
+      <path class="svg-ln" d="M450 14 V36" stroke="var(--aws)"/>
+
+      <rect x="12" y="50" width="876" height="380" rx="12" fill="none" stroke="var(--aws-line)" stroke-dasharray="6 4"/>
+      <text class="svg-lb" x="26" y="78" style="fill:var(--aws)">VPC</text>
+      <text class="svg-mn" x="64" y="78">10.10.0.0/16 — 리전 하나에 속하고, 만든 뒤 대역 축소 불가</text>
+
+      <rect x="26" y="90" width="424" height="326" rx="10" class="svg-zone" stroke="var(--fg-faint)"/>
+      <text class="svg-mn" x="38" y="108">가용 영역 ap-northeast-2a</text>
+      <rect x="462" y="90" width="424" height="326" rx="10" class="svg-zone" stroke="var(--fg-faint)"/>
+      <text class="svg-mn" x="474" y="108">가용 영역 ap-northeast-2c</text>
+
+      <!-- public subnets -->
+      <rect x="38" y="118" width="400" height="82" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="50" y="138">퍼블릭 서브넷 10.10.0.0/24</text>
+      <text class="svg-mn" x="50" y="154">라우트: 0.0.0.0/0 → IGW</text>
+      <rect x="248" y="126" width="84" height="30" rx="6" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+      <text class="svg-sm" x="266" y="145" style="fill:var(--aws)">ALB</text>
+      <rect x="340" y="126" width="88" height="30" rx="6" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+      <text class="svg-sm" x="352" y="145" style="fill:var(--aws)">NAT GW</text>
+      <text class="svg-mn" x="50" y="176">LB와 NAT만 두고, 실제 서버는 두지 않습니다</text>
+
+      <rect x="474" y="118" width="400" height="82" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="486" y="138">퍼블릭 서브넷 10.10.1.0/24</text>
+      <text class="svg-mn" x="486" y="154">라우트: 0.0.0.0/0 → IGW</text>
+      <rect x="684" y="126" width="84" height="30" rx="6" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+      <text class="svg-sm" x="702" y="145" style="fill:var(--aws)">ALB</text>
+      <rect x="776" y="126" width="88" height="30" rx="6" fill="var(--aws-bg)" stroke="var(--aws-line)"/>
+      <text class="svg-sm" x="788" y="145" style="fill:var(--aws)">NAT GW</text>
+      <text class="svg-mn" x="486" y="176">NAT는 AZ마다 하나씩 — 한쪽이 죽어도 반대쪽이 삽니다</text>
+
+      <!-- app subnets -->
+      <rect x="38" y="212" width="400" height="92" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="50" y="232">앱 서브넷 10.10.16.0/20</text>
+      <text class="svg-mn" x="50" y="248">라우트: 0.0.0.0/0 → NAT GW (같은 AZ의 것)</text>
+      <rect x="50" y="258" width="112" height="32" rx="6" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-sm" x="66" y="278">EC2 / 파드</text>
+      <rect x="172" y="258" width="112" height="32" rx="6" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-sm" x="188" y="278">EC2 / 파드</text>
+      <text class="svg-mn" x="296" y="278">공인 IP 없음</text>
+
+      <rect x="474" y="212" width="400" height="92" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="486" y="232">앱 서브넷 10.10.32.0/20</text>
+      <text class="svg-mn" x="486" y="248">라우트: 0.0.0.0/0 → NAT GW (같은 AZ의 것)</text>
+      <rect x="486" y="258" width="112" height="32" rx="6" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-sm" x="502" y="278">EC2 / 파드</text>
+      <rect x="608" y="258" width="112" height="32" rx="6" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-sm" x="624" y="278">EC2 / 파드</text>
+      <text class="svg-mn" x="732" y="278">공인 IP 없음</text>
+
+      <!-- db subnets -->
+      <rect x="38" y="316" width="400" height="88" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="50" y="336">DB 서브넷 10.10.64.0/24</text>
+      <text class="svg-mn" x="50" y="352">라우트: 0.0.0.0/0 없음 — 인터넷과 완전히 단절</text>
+      <rect x="50" y="362" width="132" height="30" rx="6" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-sm" x="66" y="381">RDS 주 인스턴스</text>
+
+      <rect x="474" y="316" width="400" height="88" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="486" y="336">DB 서브넷 10.10.65.0/24</text>
+      <text class="svg-mn" x="486" y="352">같은 서브넷 그룹에 묶여 장애 시 자동 전환</text>
+      <rect x="486" y="362" width="132" height="30" rx="6" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-sm" x="502" y="381">RDS 대기 인스턴스</text>
+
+      <path class="svg-ln" d="M290 156 V212" stroke="var(--aws)" stroke-width="1.6"/>
+      <path class="svg-ln" d="M726 156 V212" stroke="var(--aws)" stroke-width="1.6"/>
+      <path class="svg-ln" d="M106 290 V316" stroke="var(--fg-faint)" stroke-dasharray="3 3"/>
+      <path class="svg-ln" d="M542 290 V316" stroke="var(--fg-faint)" stroke-dasharray="3 3"/>
+    </svg>
+    </div>
+    <figcaption>
+      3계층 구조의 핵심은 <strong>DB 서브넷에 기본 경로가 없다는 것</strong>입니다.
+      <code>0.0.0.0/0</code> 규칙 자체가 없으면 설정 실수로 공인 IP가 붙어도 인터넷에 나갈 수 없습니다.
+      방화벽 규칙보다 라우팅으로 막는 쪽이 훨씬 튼튼합니다.
+    </figcaption>
+  </figure>
+
+  <h3>퍼블릭 서브넷과 프라이빗 서브넷은 리소스 종류가 아닙니다</h3>
+  <p>
+    콘솔 어디에도 “퍼블릭 서브넷 만들기” 버튼은 없습니다. 서브넷은 다 똑같고,
+    <strong>어떤 라우트 테이블이 붙어 있느냐</strong>로 성격이 정해집니다.
+  </p>
+  <div class="codewrap">
+    <div class="cap"><span>서브넷의 성격을 결정하는 건 라우트 테이블 한 줄</span><button class="copy">복사</button></div>
+<pre><span class="c"># 퍼블릭이 되는 조건</span>
+10.10.0.0/16   local
+0.0.0.0/0      igw-0a1b2c3d      <span class="c">← 이 한 줄 때문에 퍼블릭</span>
+
+<span class="c"># 프라이빗 — 나가기는 하지만 밖에서 들어올 수는 없음</span>
+10.10.0.0/16   local
+0.0.0.0/0      nat-0a1b2c3d      <span class="c">← NAT를 거치므로 단방향</span>
+
+<span class="c"># 격리 — DB용. 인터넷과 완전 차단</span>
+10.10.0.0/16   local
+<span class="c">(기본 경로 없음)</span></pre>
+  </div>
+
+  <div class="call warn">
+    <span class="ttl">EC2에 공인 IP가 있어도 IGW가 없으면 못 나갑니다</span>
+    퍼블릭 IP를 붙였는데 인터넷이 안 된다는 신고의 90%는 이 셋 중 하나입니다.
+    ① 서브넷의 라우트 테이블에 <code>0.0.0.0/0 → IGW</code>가 없다,
+    ② 보안 그룹 아웃바운드가 막혀 있다,
+    ③ NACL이 돌아오는 임시 포트(1024~65535)를 막고 있다.
+    이 순서대로 확인하면 거의 다 잡힙니다.
+  </div>
+
+  <h3>보안 그룹과 NACL — 둘 다 통과해야 합니다</h3>
+  <p>
+    AWS에는 방화벽이 두 겹 있습니다. 신입이 가장 혼란스러워하는 부분인데,
+    실무에서는 <strong>거의 항상 보안 그룹만 쓰고 NACL은 기본값 그대로 둡니다</strong>.
+    그래도 차이는 알아야 장애를 잡을 수 있습니다.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>비교 항목</th><th data-p="aws">보안 그룹 (SG)</th><th data-p="aws">네트워크 ACL (NACL)</th></tr></thead>
+      <tbody>
+        <tr><td>붙는 위치</td><td>ENI (인스턴스 단위)</td><td>서브넷 전체</td></tr>
+        <tr><td>상태 저장 여부</td><td>저장함 — 들어온 요청의 응답은 자동 허용<span class="mini">인바운드만 열면 응답은 알아서 나감</span></td><td>저장 안 함 — 응답도 규칙에 맞아야 통과<span class="mini">아웃바운드에 1024-65535를 열어야 함</span></td></tr>
+        <tr><td>규칙 종류</td><td>허용만 가능</td><td>허용 + 거부 모두 가능</td></tr>
+        <tr><td>평가 방식</td><td>모든 규칙을 보고, 하나라도 맞으면 통과</td><td>번호 순으로 평가하고 첫 매치에서 멈춤</td></tr>
+        <tr><td>출발지 지정</td><td>CIDR + <strong>다른 보안 그룹 ID</strong>로 지정 가능</td><td>CIDR만 가능</td></tr>
+        <tr><td>기본값</td><td>인바운드 전체 차단 / 아웃바운드 전체 허용</td><td>인바운드·아웃바운드 전체 허용</td></tr>
+        <tr><td>실무 쓰임</td><td>거의 모든 제어를 여기서<span class="mini">일상 업무의 99%</span></td><td>특정 IP 대역 통째 차단 같은 예외 상황<span class="mini">건드리면 디버깅이 어려워짐</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">보안 그룹의 진짜 강점: SG를 출발지로 쓰기</span>
+    DB 보안 그룹에 <code>3306 허용, 출발지 = sg-web</code>이라고 적으면,
+    웹 서버가 몇 대로 늘어나든 IP가 바뀌든 규칙을 고칠 필요가 없습니다.
+    <strong>IP 대신 역할로 정책을 쓰는 것</strong>이고, 쿠버네티스의 NetworkPolicy가 라벨로 하는 일과 똑같습니다.
+    CIDR을 하드코딩한 보안 그룹을 보면 대부분 개선 여지가 있습니다.
+  </div>
+
+  <h3>세 가지 로드밸런서</h3>
+  <div class="g3">
+    <div class="cell" data-p="aws">
+      <h5>ALB — 애플리케이션</h5>
+      <p>L7. HTTP/HTTPS와 gRPC. 호스트·경로·헤더 기반 분기, WAF 연동, Cognito 인증까지.</p>
+      <p style="margin-bottom:0"><strong>IP가 바뀝니다.</strong> 고정 IP가 필요한 고객사 방화벽 등록에는 부적합합니다.</p>
+    </div>
+    <div class="cell" data-p="aws">
+      <h5>NLB — 네트워크</h5>
+      <p>L4. TCP·UDP·TLS. 초고성능, 낮은 지연. AZ마다 <strong>고정 IP</strong>를 줄 수 있습니다.</p>
+      <p style="margin-bottom:0">클라이언트 IP가 그대로 보존되므로 백엔드 보안 그룹은 클라이언트 IP를 허용해야 합니다.</p>
+    </div>
+    <div class="cell" data-p="aws">
+      <h5>GWLB — 게이트웨이</h5>
+      <p>L3. 방화벽·IDS 같은 보안 어플라이언스를 트래픽 경로에 끼워 넣을 때 씁니다.</p>
+      <p style="margin-bottom:0">일반 웹 서비스에서는 쓸 일이 거의 없습니다. 있다는 것만 알아 두세요.</p>
+    </div>
+  </div>
+
+  <h3>VPC 엔드포인트 — NAT 요금을 줄이는 지름길</h3>
+  <p>
+    프라이빗 서브넷의 서버가 S3에 파일을 올린다고 해 봅시다. 기본 경로대로면
+    NAT 게이트웨이를 거쳐 인터넷으로 나갔다가 다시 AWS로 들어옵니다.
+    같은 AWS 안인데 굳이 인터넷을 한 바퀴 도는 셈이고, <strong>NAT 처리 요금이 GB당 붙습니다</strong>.
+    VPC 엔드포인트는 이 경로를 AWS 내부로 직결시킵니다.
+  </p>
+  <div class="g2">
+    <div class="cell" data-p="aws">
+      <h5>게이트웨이 엔드포인트 — 무료</h5>
+      <p>S3와 DynamoDB <strong>두 개만</strong> 지원합니다. 라우트 테이블에 경로가 추가되는 방식이고,
+      <strong>요금이 없습니다</strong>. 안 만들 이유가 없으니 VPC를 만들 때 세트로 넣으세요.</p>
+    </div>
+    <div class="cell" data-p="aws">
+      <h5>인터페이스 엔드포인트 (PrivateLink)</h5>
+      <p>서브넷 안에 ENI가 생기고 사설 IP가 부여됩니다. 대부분의 AWS 서비스와
+      다른 계정의 서비스까지 연결할 수 있습니다. <strong>시간당 + 데이터 처리 요금</strong>이 있으니
+      실제로 트래픽이 많은 서비스에만 거세요.</p>
+    </div>
+  </div>
+
+  <h3>다른 네트워크와 잇기</h3>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>방법</th><th>연결 대상</th><th>특징과 주의점</th></tr></thead>
+      <tbody>
+        <tr><td>VPC 피어링</td><td>VPC ↔ VPC</td><td>1:1 직결. 저렴하고 빠릅니다. <strong>전이가 안 됩니다</strong> — A-B, B-C가 있어도 A는 C와 통신 못 합니다. VPC가 4~5개를 넘으면 연결 수가 폭발합니다.</td></tr>
+        <tr><td>Transit Gateway</td><td>VPC 다수 + VPN + DX</td><td>허브 역할. VPC가 많아지면 정답입니다. 대신 <strong>연결당 시간 요금 + 데이터 처리 요금</strong>이 붙어 비용이 만만치 않습니다.</td></tr>
+        <tr><td>Site-to-Site VPN</td><td>온프레미스</td><td>인터넷 위에 IPsec 터널. 빠르게 구축되고 저렴하지만 대역폭과 지연이 인터넷에 좌우됩니다. 터널 2개로 이중화하세요.</td></tr>
+        <tr><td>Direct Connect</td><td>온프레미스</td><td>전용 물리 회선. 안정적이고 데이터 전송 요금이 쌉니다. 대신 <strong>신청부터 개통까지 몇 주~몇 달</strong> 걸립니다. 보통 DX + VPN 백업 조합으로 갑니다.</td></tr>
+        <tr><td>PrivateLink</td><td>특정 서비스만</td><td>네트워크를 통째로 잇지 않고 서비스 하나만 노출합니다. 대역 겹침 문제가 없어 SaaS 제공·구독에 적합합니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">피어링은 전이되지 않습니다</span>
+    이 규칙을 몰라서 생기는 문의가 정말 많습니다. VPC A–B를 잇고 B–C를 이었다고
+    A에서 C로 통신되지 않습니다. 중간의 B가 라우터 역할을 해 주지 않기 때문입니다.
+    VPC 세 개까지는 피어링 세 개로 버티지만, 다섯 개면 열 개가 필요하고,
+    그때는 이미 Transit Gateway로 갔어야 합니다.
+  </div>
+
+  <h3>손으로 만들어 보기</h3>
+  <div class="tabs" data-tabs>
+    <div class="tablist" role="tablist" aria-label="AWS 실습 코드">
+      <button class="tab" data-p="aws" role="tab" aria-selected="true" id="t-aws-tf" aria-controls="p-aws-tf">Terraform</button>
+      <button class="tab" data-p="aws" role="tab" aria-selected="false" id="t-aws-cli" aria-controls="p-aws-cli">AWS CLI</button>
+      <button class="tab" data-p="aws" role="tab" aria-selected="false" id="t-aws-dbg" aria-controls="p-aws-dbg">점검 명령어</button>
+    </div>
+    <div class="tabpanel" id="p-aws-tf" role="tabpanel" aria-labelledby="t-aws-tf">
+      <div class="codewrap">
+        <div class="cap"><span>최소 구성 VPC — 퍼블릭 1 · 프라이빗 1</span><button class="copy">복사</button></div>
+<pre><span class="k">resource</span> <span class="s">"aws_vpc"</span> <span class="s">"main"</span> {
+  cidr_block           = <span class="s">"10.10.0.0/16"</span>
+  enable_dns_hostnames = <span class="n">true</span>   <span class="c"># 끄면 내부 FQDN이 안 생깁니다</span>
+  enable_dns_support   = <span class="n">true</span>
+  tags = { Name = <span class="s">"prod-vpc"</span> }
+}
+
+<span class="k">resource</span> <span class="s">"aws_subnet"</span> <span class="s">"public_a"</span> {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = <span class="s">"10.10.0.0/24"</span>
+  availability_zone = <span class="s">"ap-northeast-2a"</span>
+  <span class="c"># 운영에서는 false 권장. 실수로 공인 IP가 붙는 걸 막습니다</span>
+  map_public_ip_on_launch = <span class="n">false</span>
+}
+
+<span class="k">resource</span> <span class="s">"aws_internet_gateway"</span> <span class="s">"igw"</span> {
+  vpc_id = aws_vpc.main.id
+}
+
+<span class="k">resource</span> <span class="s">"aws_route_table"</span> <span class="s">"public"</span> {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = <span class="s">"0.0.0.0/0"</span>
+    gateway_id = aws_internet_gateway.igw.id
+  }
+}
+
+<span class="c"># 이 연결을 빠뜨리면 라우트 테이블은 있어도 적용이 안 됩니다</span>
+<span class="k">resource</span> <span class="s">"aws_route_table_association"</span> <span class="s">"public_a"</span> {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
+
+<span class="c"># 웹 → DB 를 SG 참조로. IP를 적지 않는 것이 핵심</span>
+<span class="k">resource</span> <span class="s">"aws_security_group_rule"</span> <span class="s">"db_from_web"</span> {
+  type                     = <span class="s">"ingress"</span>
+  from_port                = <span class="n">3306</span>
+  to_port                  = <span class="n">3306</span>
+  protocol                 = <span class="s">"tcp"</span>
+  security_group_id        = aws_security_group.db.id
+  source_security_group_id = aws_security_group.web.id
+}</pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-aws-cli" role="tabpanel" aria-labelledby="t-aws-cli" hidden>
+      <div class="codewrap">
+        <div class="cap"><span>콘솔 대신 CLI로 같은 것 만들기</span><button class="copy">복사</button></div>
+<pre><span class="c"># VPC 생성 후 ID를 변수에 담기</span>
+VPC_ID=$(aws ec2 create-vpc --cidr-block 10.10.0.0/16 \
+  --query Vpc.VpcId --output text)
+
+<span class="c"># 서브넷</span>
+SUBNET_ID=$(aws ec2 create-subnet --vpc-id $VPC_ID \
+  --cidr-block 10.10.0.0/24 --availability-zone ap-northeast-2a \
+  --query Subnet.SubnetId --output text)
+
+<span class="c"># IGW 생성 후 VPC에 붙이기 (만드는 것과 붙이는 것은 별개입니다)</span>
+IGW_ID=$(aws ec2 create-internet-gateway \
+  --query InternetGateway.InternetGatewayId --output text)
+aws ec2 attach-internet-gateway --vpc-id $VPC_ID --internet-gateway-id $IGW_ID
+
+<span class="c"># 라우트 테이블 + 기본 경로 + 서브넷 연결</span>
+RTB_ID=$(aws ec2 create-route-table --vpc-id $VPC_ID \
+  --query RouteTable.RouteTableId --output text)
+aws ec2 create-route --route-table-id $RTB_ID \
+  --destination-cidr-block 0.0.0.0/0 --gateway-id $IGW_ID
+aws ec2 associate-route-table --route-table-id $RTB_ID --subnet-id $SUBNET_ID</pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-aws-dbg" role="tabpanel" aria-labelledby="t-aws-dbg" hidden>
+      <div class="codewrap">
+        <div class="cap"><span>장애 시 이 순서로 확인</span><button class="copy">복사</button></div>
+<pre><span class="c"># 1. 이 서브넷에 어떤 라우트 테이블이 붙어 있나</span>
+aws ec2 describe-route-tables \
+  --filters Name=association.subnet-id,Values=subnet-xxxx
+
+<span class="c"># 2. 보안 그룹 규칙 확인</span>
+aws ec2 describe-security-groups --group-ids sg-xxxx \
+  --query 'SecurityGroups[0].IpPermissions'
+
+<span class="c"># 3. 가장 강력한 도구 — 네트워크 접근 분석기</span>
+<span class="c">#    "A에서 B로 갈 수 있는가"를 AWS가 직접 계산해 줍니다</span>
+aws ec2 start-network-insights-analysis \
+  --network-insights-path-id nip-xxxx
+
+<span class="c"># 4. VPC 플로우 로그로 실제 허용/거부 확인 (ACCEPT / REJECT)</span>
+<span class="c">#    REJECT가 찍히면 SG나 NACL 문제, 아예 안 찍히면 라우팅 문제입니다</span>
+aws logs filter-log-events --log-group-name /aws/vpc/flowlogs \
+  --filter-pattern '"REJECT"'</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="call note">
+    <span class="ttl">플로우 로그를 읽는 요령</span>
+    <strong>REJECT가 찍혔다 = 패킷이 도착은 했는데 방화벽이 막았다</strong> → 보안 그룹·NACL을 보세요.
+    <strong>아무 로그도 없다 = 패킷이 아예 도착하지 못했다</strong> → 라우팅, DNS, 또는 출발지 쪽 문제입니다.
+    이 두 갈래만 구분해도 조사 범위가 절반으로 줄어듭니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="azure">
+  <h2><span class="num">07</span><span class="p-azr">Azure</span> — VNet으로 짓는 네트워크</h2>
+  <p class="sec-intro">
+    AWS를 먼저 배운 사람에게 Azure는 “비슷한데 미묘하게 다른” 느낌을 줍니다.
+    그 미묘함이 장애로 이어지니, 다른 점을 콕 집어 정리하고 갑니다. Azure의 핵심 문장은
+    <strong>“기본값이 관대한 대신, 리소스가 잘게 쪼개져 있다”</strong>입니다.
+  </p>
+
+  <div class="chiprow">
+    <span class="chip" data-p="azr">VNet</span>
+    <span class="chip" data-p="azr">서브넷</span>
+    <span class="chip" data-p="azr">NSG · ASG</span>
+    <span class="chip" data-p="azr">UDR</span>
+    <span class="chip" data-p="azr">Load Balancer · App Gateway</span>
+    <span class="chip" data-p="azr">Private Endpoint</span>
+    <span class="chip" data-p="azr">Virtual WAN · ExpressRoute</span>
+  </div>
+
+  <h3>리소스가 잘게 쪼개져 있다는 것의 의미</h3>
+  <p>
+    AWS에서 EC2를 만들면 ENI와 공인 IP가 딸려 옵니다. Azure에서는 <strong>VM, NIC, 공용 IP, 디스크가 전부 독립된 리소스</strong>입니다.
+    처음엔 번거롭지만 장점도 뚜렷합니다. VM을 지워도 NIC과 공용 IP는 남아서,
+    같은 IP로 새 VM을 붙일 수 있습니다. 반대로 <strong>지웠다고 생각한 공용 IP가 계속 과금되는</strong> 일도 흔합니다.
+  </p>
+
+  <div class="codewrap">
+    <div class="cap"><span>Azure의 리소스 계층 구조</span><button class="copy">복사</button></div>
+<pre>구독 (Subscription)          <span class="c">← 과금과 할당량의 단위</span>
+└─ 리소스 그룹 (Resource Group)   <span class="c">← 생명주기를 함께하는 묶음. 지우면 통째로 사라짐</span>
+   ├─ 가상 네트워크 (VNet)       10.20.0.0/16
+   │  ├─ 서브넷 snet-web         10.20.1.0/24
+   │  └─ 서브넷 snet-db          10.20.2.0/24
+   ├─ 네트워크 보안 그룹 (NSG)     <span class="c">← 서브넷 또는 NIC에 연결</span>
+   ├─ 네트워크 인터페이스 (NIC)     <span class="c">← VM과 별개 리소스</span>
+   ├─ 공용 IP 주소              <span class="c">← NIC이나 LB에 붙이는 별도 리소스</span>
+   └─ 가상 머신 (VM)
+
+<span class="c"># 주의: VNet은 리전에 속하고, 리소스 그룹은 리전과 무관합니다.</span>
+<span class="c">#       서울 리소스 그룹 안에 도쿄 VNet을 넣는 것도 가능합니다(권장하진 않음).</span></pre>
+  </div>
+
+  <h3>NSG — 우선순위 번호가 전부입니다</h3>
+  <p>
+    Azure의 방화벽은 NSG 하나입니다. AWS처럼 두 겹이 아니라 한 겹이지만,
+    <strong>서브넷과 NIC 양쪽에 붙일 수 있어서</strong> 결과적으로 두 번 평가될 수 있습니다.
+    둘 다 붙어 있으면 인바운드는 서브넷 → NIC 순으로, 아웃바운드는 NIC → 서브넷 순으로 평가되고
+    <strong>양쪽 모두 허용해야</strong> 통과합니다.
+  </p>
+  <ul>
+    <li>규칙마다 <strong>100~4096의 우선순위 번호</strong>를 부여하고, <strong>낮은 번호부터</strong> 평가합니다.</li>
+    <li>처음 매치되는 규칙에서 판단이 끝납니다. 아래 규칙은 보지 않습니다.</li>
+    <li>SG와 달리 <strong>거부(Deny) 규칙을 쓸 수 있습니다.</strong></li>
+    <li>상태 저장 방식이라 AWS의 SG처럼 응답 트래픽은 자동 허용됩니다.</li>
+  </ul>
+
+  <div class="codewrap">
+    <div class="cap"><span>기본 규칙 — 지울 수 없고, 번호로 덮어쓰는 것만 가능</span><button class="copy">복사</button></div>
+<pre>인바운드
+ 65000  AllowVnetInBound              VirtualNetwork → VirtualNetwork   Allow
+ 65001  AllowAzureLoadBalancerInBound AzureLoadBalancer → Any           Allow
+ 65500  DenyAllInBound                Any → Any                         Deny
+
+아웃바운드
+ 65000  AllowVnetOutBound             VirtualNetwork → VirtualNetwork   Allow
+ 65001  AllowInternetOutBound         Any → Internet                    Allow
+ 65500  DenyAllOutBound               Any → Any                         Deny
+
+<span class="c"># 읽는 법:</span>
+<span class="c">#  · VNet 안에서는 서브넷이 달라도 기본적으로 다 통합니다 (65000번)</span>
+<span class="c">#  · 아웃바운드는 기본 허용입니다 (65001번)</span>
+<span class="c">#  · 막으려면 65000보다 낮은 번호로 Deny 규칙을 추가해야 합니다</span></pre>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">AWS 출신이 가장 많이 놀라는 지점</span>
+    <strong>Azure는 같은 VNet 안이면 서브넷이 달라도 기본적으로 통신됩니다.</strong>
+    AWS는 서브넷 간 통신도 보안 그룹에서 허용해야 하지만, Azure는 <code>AllowVnetInBound</code>가
+    이미 열어 두고 있습니다. “DB 서브넷을 분리했으니 안전하다”고 생각했는데
+    같은 VNet의 모든 서브넷에서 접근 가능한 상태인 경우가 흔합니다.
+    <strong>분리하려면 명시적으로 Deny 규칙을 써야 합니다.</strong>
+  </div>
+
+  <h3>ASG — 라벨로 방화벽 쓰기</h3>
+  <p>
+    AWS의 “SG를 출발지로 참조하기”에 해당하는 기능이 Azure에서는 애플리케이션 보안 그룹(ASG)입니다.
+    VM의 NIC에 ASG 태그를 붙여 두고, NSG 규칙에서 IP 대신 ASG 이름을 씁니다.
+  </p>
+  <div class="codewrap">
+    <div class="cap"><span>IP를 하드코딩하지 않는 NSG 규칙</span><button class="copy">복사</button></div>
+<pre>규칙: allow-web-to-db
+  우선순위      : 200
+  출발지        : asg-web        <span class="c">← IP가 아니라 그룹 이름</span>
+  목적지        : asg-db
+  포트          : 3306
+  동작          : Allow
+
+<span class="c"># 웹 VM을 10대로 늘려도 각 NIC에 asg-web만 붙이면 규칙은 그대로입니다.</span></pre>
+  </div>
+
+  <h3>기본 아웃바운드 폐지 — 2025년 9월 30일</h3>
+  <div class="call warn">
+    <span class="ttl">최근 변경이라 오래된 문서·블로그와 다릅니다</span>
+    <p>
+      예전 Azure에서는 VM을 만들면 아무 설정 없이도 인터넷에 나갈 수 있었습니다.
+      Azure가 보이지 않는 공용 IP를 임시로 빌려줬기 때문입니다.
+      <a href="https://azure.microsoft.com/updates/default-outbound-access-for-vms-in-azure-will-be-retired-transition-to-a-new-method-of-internet-access">2025년 9월 30일부로 이 기본 동작이 폐지</a>되었습니다.
+    </p>
+    <ul style="margin-bottom:0">
+      <li>그 이전부터 쓰던 VNet의 기존 VM은 계속 동작합니다.</li>
+      <li>하지만 <strong>그 이후에 만든 VM은 명시적 아웃바운드 수단이 없으면 인터넷에 못 나갑니다.</strong></li>
+      <li>명시적 수단은 세 가지입니다: <strong>NAT 게이트웨이</strong>(권장), 표준 Load Balancer의 아웃바운드 규칙, NIC에 직접 붙인 공용 IP.</li>
+      <li>증상은 “VM은 만들어졌는데 <code>apt update</code>가 멈춘다”입니다. 신규 구축에서 자주 보게 됩니다.</li>
+    </ul>
+  </div>
+
+  <h3>Service Endpoint와 Private Endpoint — 헷갈리면 안 되는 둘</h3>
+  <p>
+    Azure의 PaaS 서비스(스토리지, SQL 등)에 사설로 접근하는 방법이 두 가지인데,
+    이름이 비슷해서 자주 섞입니다. <strong>동작 원리가 완전히 다릅니다.</strong>
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>비교</th><th data-p="azr">Service Endpoint</th><th data-p="azr">Private Endpoint</th></tr></thead>
+      <tbody>
+        <tr><td>한 줄 요약</td><td>“내 서브넷에서 오는 건 믿어 줘”</td><td>“그 서비스를 내 VNet 안으로 끌어온다”</td></tr>
+        <tr><td>IP 주소</td><td>서비스의 <strong>공인 IP를 그대로 사용</strong><span class="mini">경로만 Azure 백본으로 바뀜</span></td><td>내 서브넷의 <strong>사설 IP가 부여됨</strong><span class="mini">10.20.1.5 같은 주소</span></td></tr>
+        <tr><td>DNS</td><td>바뀌지 않음</td><td><strong>사설 DNS 영역이 반드시 필요</strong><span class="mini">안 하면 여전히 공인 IP로 감</span></td></tr>
+        <tr><td>온프레미스에서 접근</td><td>불가능</td><td>가능 (VPN·ExpressRoute 경유)</td></tr>
+        <tr><td>요금</td><td>무료</td><td>시간당 + 데이터 처리 요금</td></tr>
+        <tr><td>AWS 대응</td><td>게이트웨이 엔드포인트와 비슷</td><td>인터페이스 엔드포인트(PrivateLink)와 같음</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">Private Endpoint 만들고 끝내면 절반만 한 것</span>
+    Private Endpoint를 만들어도 <strong>DNS를 안 고치면 아무 효과가 없습니다.</strong>
+    <code>mystorage.blob.core.windows.net</code>을 조회했을 때 여전히 공인 IP가 나오면
+    트래픽은 인터넷으로 갑니다. 반드시 <code>privatelink.blob.core.windows.net</code>
+    사설 DNS 영역을 만들고 <strong>VNet 링크</strong>까지 연결하세요.
+    확인 방법은 VM에서 <code>nslookup mystorage.blob.core.windows.net</code>을 쳐서
+    <code>10.x.x.x</code>가 나오는지 보는 것입니다.
+  </div>
+
+  <h3>로드밸런서 삼형제</h3>
+  <div class="g3">
+    <div class="cell" data-p="azr">
+      <h5>Azure Load Balancer</h5>
+      <p>L4. 리전 내부. AWS의 NLB에 해당합니다. 기본(Basic) SKU는 퇴역했으므로 <strong>표준(Standard) SKU</strong>를 쓰세요.</p>
+      <p style="margin-bottom:0">표준 SKU는 기본적으로 모든 인바운드를 막으므로 NSG를 반드시 붙여야 합니다.</p>
+    </div>
+    <div class="cell" data-p="azr">
+      <h5>Application Gateway</h5>
+      <p>L7. 리전 내부. AWS의 ALB에 해당하고, WAF를 켤 수 있습니다.</p>
+      <p style="margin-bottom:0"><strong>전용 서브넷이 필요합니다.</strong> 다른 리소스와 섞어 쓸 수 없으니 서브넷 설계 때 미리 자리를 잡아 두세요.</p>
+    </div>
+    <div class="cell" data-p="azr">
+      <h5>Front Door</h5>
+      <p>L7. <strong>전 세계 엣지</strong>에서 받아 가장 가까운 리전으로 보냅니다. CDN 기능도 포함합니다.</p>
+      <p style="margin-bottom:0">AWS의 CloudFront + Global Accelerator에 가깝습니다. 다중 리전 서비스라면 최상단에 둡니다.</p>
+    </div>
+  </div>
+
+  <h3>다른 네트워크와 잇기</h3>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>방법</th><th>대응하는 AWS 기능</th><th>특징</th></tr></thead>
+      <tbody>
+        <tr><td>VNet 피어링</td><td>VPC 피어링</td><td>AWS와 마찬가지로 <strong>전이되지 않습니다</strong>. 다만 허브 VNet에 방화벽이나 NVA를 두고 UDR로 강제 경유시키면 전이처럼 동작시킬 수 있습니다.</td></tr>
+        <tr><td>Virtual WAN</td><td>Transit Gateway</td><td>허브-스포크를 관리형으로 제공합니다. 지점이 많은 기업망에 적합합니다.</td></tr>
+        <tr><td>VPN Gateway</td><td>Site-to-Site VPN</td><td>IPsec 터널. 게이트웨이 전용 서브넷 <code>GatewaySubnet</code>이 필요하고, 이름을 정확히 이렇게 써야 합니다.</td></tr>
+        <tr><td>ExpressRoute</td><td>Direct Connect</td><td>전용 회선. 개통까지 시간이 걸리는 것도 동일합니다.</td></tr>
+        <tr><td>Azure Firewall</td><td>Network Firewall</td><td>관리형 L3~L7 방화벽. FQDN 기반 필터링이 강점입니다. <code>AzureFirewallSubnet</code> 전용 서브넷이 필요합니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call note">
+    <span class="ttl">Azure의 “이름이 정해진 서브넷”들</span>
+    Azure에는 <strong>이름을 정확히 맞춰야 하는 특수 서브넷</strong>이 몇 개 있습니다.
+    <code>GatewaySubnet</code>(VPN·ExpressRoute), <code>AzureFirewallSubnet</code>,
+    <code>AzureBastionSubnet</code>. 오타가 나면 리소스 생성이 실패합니다.
+    크기도 최소치가 있어서 Bastion은 <code>/26</code> 이상, Firewall은 <code>/26</code> 이상이 필요합니다.
+    서브넷을 설계할 때 이 자리들을 미리 빼 두지 않으면 나중에 넣을 공간이 없어 곤란해집니다.
+  </div>
+
+  <h3>손으로 만들어 보기</h3>
+  <div class="tabs" data-tabs>
+    <div class="tablist" role="tablist" aria-label="Azure 실습 코드">
+      <button class="tab" data-p="azr" role="tab" aria-selected="true" id="t-az-cli" aria-controls="p-az-cli">Azure CLI</button>
+      <button class="tab" data-p="azr" role="tab" aria-selected="false" id="t-az-bicep" aria-controls="p-az-bicep">Bicep</button>
+      <button class="tab" data-p="azr" role="tab" aria-selected="false" id="t-az-dbg" aria-controls="p-az-dbg">점검 명령어</button>
+    </div>
+    <div class="tabpanel" id="p-az-cli" role="tabpanel" aria-labelledby="t-az-cli">
+      <div class="codewrap">
+        <div class="cap"><span>VNet · 서브넷 · NSG · NAT 게이트웨이</span><button class="copy">복사</button></div>
+<pre><span class="c"># 리소스 그룹과 VNet</span>
+az group create -n rg-prod-net -l koreacentral
+az network vnet create -g rg-prod-net -n vnet-prod \
+  --address-prefix 10.20.0.0/16 \
+  --subnet-name snet-web --subnet-prefix 10.20.1.0/24
+
+<span class="c"># NSG 생성 후 서브넷에 연결</span>
+az network nsg create -g rg-prod-net -n nsg-web
+az network nsg rule create -g rg-prod-net --nsg-name nsg-web \
+  -n allow-https --priority 200 \
+  --source-address-prefixes Internet --destination-port-ranges 443 \
+  --access Allow --protocol Tcp
+
+az network vnet subnet update -g rg-prod-net --vnet-name vnet-prod \
+  -n snet-web --network-security-group nsg-web
+
+<span class="c"># 아웃바운드용 NAT 게이트웨이 — 2025-09-30 이후 필수</span>
+az network public-ip create -g rg-prod-net -n pip-nat --sku Standard
+az network nat gateway create -g rg-prod-net -n natgw-prod \
+  --public-ip-addresses pip-nat --idle-timeout 10
+az network vnet subnet update -g rg-prod-net --vnet-name vnet-prod \
+  -n snet-web --nat-gateway natgw-prod</pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-az-bicep" role="tabpanel" aria-labelledby="t-az-bicep" hidden>
+      <div class="codewrap">
+        <div class="cap"><span>선언형으로 같은 구성</span><button class="copy">복사</button></div>
+<pre><span class="k">param</span> location string = resourceGroup().location
+
+<span class="k">resource</span> vnet <span class="s">'Microsoft.Network/virtualNetworks@2024-05-01'</span> = {
+  name: <span class="s">'vnet-prod'</span>
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: [ <span class="s">'10.20.0.0/16'</span> ] }
+    subnets: [
+      {
+        name: <span class="s">'snet-web'</span>
+        properties: {
+          addressPrefix: <span class="s">'10.20.1.0/24'</span>
+          networkSecurityGroup: { id: nsgWeb.id }
+          natGateway: { id: natGw.id }
+        }
+      }
+      {
+        name: <span class="s">'snet-db'</span>
+        properties: {
+          addressPrefix: <span class="s">'10.20.2.0/24'</span>
+          <span class="c">// PaaS를 서브넷에 위임할 때 사용</span>
+          privateEndpointNetworkPolicies: <span class="s">'Disabled'</span>
+        }
+      }
+    ]
+  }
+}</pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-az-dbg" role="tabpanel" aria-labelledby="t-az-dbg" hidden>
+      <div class="codewrap">
+        <div class="cap"><span>장애 시 이 순서로 확인</span><button class="copy">복사</button></div>
+<pre><span class="c"># 1. 이 NIC에 실제로 적용된 NSG 규칙 전부 보기 (서브넷+NIC 합산 결과)</span>
+az network nic list-effective-nsg -g rg-prod-net -n nic-web01
+
+<span class="c"># 2. 실제로 적용된 라우트 보기 (시스템 라우트 + UDR 합산)</span>
+az network nic show-effective-route-table -g rg-prod-net -n nic-web01
+
+<span class="c"># 3. A에서 B로 갈 수 있는지 Azure가 직접 판정 (Network Watcher)</span>
+az network watcher test-ip-connectivity \
+  --source-resource vm-web01 --dest-address 10.20.2.10 --dest-port 3306
+
+<span class="c"># 4. DNS가 사설 IP로 풀리는지 — Private Endpoint 점검의 핵심</span>
+nslookup mystorage.blob.core.windows.net
+<span class="c">#   10.20.x.x  → 정상</span>
+<span class="c">#   20.x.x.x   → DNS 영역 연결 누락</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">effective 명령어 두 개만 외우세요</span>
+    <code>list-effective-nsg</code>와 <code>show-effective-route-table</code>은
+    “설정이 어떻게 되어 있는가”가 아니라 <strong>“지금 실제로 뭐가 적용 중인가”</strong>를 보여 줍니다.
+    서브넷 NSG와 NIC NSG가 겹치고 UDR까지 섞인 상황에서 이 두 명령어 없이 추측하면
+    반드시 틀립니다. Azure 장애 대응의 첫 두 줄입니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="k8s">
+  <h2><span class="num">08</span><span class="p-k8s">Kubernetes</span> — 이름으로 짓는 네트워크</h2>
+  <p class="sec-intro">
+    쿠버네티스 네트워크가 어렵게 느껴지는 이유는 딱 하나입니다.
+    <strong>쿠버네티스 자신은 네트워크를 구현하지 않습니다.</strong> 규격만 정해 두고 실제 구현은 CNI 플러그인에게 맡깁니다.
+    그래서 같은 YAML을 써도 Calico 클러스터와 Cilium 클러스터의 동작이 다를 수 있습니다.
+    이 사실을 받아들이고 나면 나머지는 논리적입니다.
+  </p>
+
+  <div class="chiprow">
+    <span class="chip" data-p="k8s">CNI</span>
+    <span class="chip" data-p="k8s">Pod CIDR</span>
+    <span class="chip" data-p="k8s">Service · EndpointSlice</span>
+    <span class="chip" data-p="k8s">kube-proxy</span>
+    <span class="chip" data-p="k8s">CoreDNS</span>
+    <span class="chip" data-p="k8s">Gateway API</span>
+    <span class="chip" data-p="k8s">NetworkPolicy</span>
+    <span class="chip" data-p="k8s">MetalLB</span>
+  </div>
+
+  <h3>쿠버네티스가 정한 네 가지 약속</h3>
+  <p>
+    쿠버네티스는 CNI 구현체에게 다음 네 가지만 지키라고 요구합니다. 어떻게 지키는지는 상관하지 않습니다.
+  </p>
+  <ol>
+    <li><strong>모든 파드는 고유한 IP를 갖는다.</strong> 포트 매핑 같은 건 없습니다.</li>
+    <li><strong>모든 파드는 NAT 없이 서로 통신할 수 있다.</strong> 노드가 달라도 마찬가지입니다.</li>
+    <li><strong>노드의 에이전트는 그 노드의 모든 파드와 통신할 수 있다.</strong></li>
+    <li><strong>파드가 보는 자기 IP와 남이 보는 그 파드의 IP가 같다.</strong></li>
+  </ol>
+  <p>
+    이 약속 덕분에 쿠버네티스 네트워크는 <strong>“하나의 평평한 네트워크”</strong>처럼 보입니다.
+    도커의 포트 매핑(<code>-p 8080:80</code>)이 없는 이유이기도 합니다.
+  </p>
+
+  <h3>세 개의 IP 대역을 구분하세요</h3>
+  <div class="g3">
+    <div class="cell" data-p="k8s">
+      <h5>노드 IP</h5>
+      <p>실제 VM이나 서버의 주소. VPC·VNet 서브넷이나 물리 VLAN에서 받습니다.</p>
+      <p style="margin-bottom:0"><code>10.10.16.0/20</code> 같은 대역. 클러스터 밖에서도 보입니다.</p>
+    </div>
+    <div class="cell" data-p="k8s">
+      <h5>파드 CIDR</h5>
+      <p>파드에 주는 주소. 클러스터를 만들 때 <code>--pod-network-cidr</code>로 정합니다.</p>
+      <p style="margin-bottom:0"><code>10.244.0.0/16</code> 같은 대역. 보통 클러스터 <strong>안에서만</strong> 유효합니다.</p>
+    </div>
+    <div class="cell" data-p="k8s">
+      <h5>서비스 CIDR</h5>
+      <p>ClusterIP에 주는 가상 주소. <strong>실제로 존재하지 않는 IP</strong>입니다.</p>
+      <p style="margin-bottom:0"><code>10.96.0.0/12</code> 같은 대역. ping이 안 되는 게 정상입니다.</p>
+    </div>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">가장 흔한 초기 구축 사고</span>
+    이 세 대역 중 하나라도 기존 사내망이나 VPC 대역과 겹치면 반드시 터집니다.
+    기본값 <code>10.244.0.0/16</code>, <code>10.96.0.0/12</code>를 그대로 쓰다가
+    나중에 온프레미스와 VPN을 연결하는 순간 <code>10.96.x.x</code>대의 사내 서버로 못 가게 됩니다.
+    <strong>클러스터를 만들기 전에 세 대역을 회사 IP 관리표에 등록하세요.</strong>
+    만든 뒤에는 클러스터를 다시 세우는 것 말고 방법이 없습니다.
+  </div>
+
+  <h3>패킷이 클러스터 안에서 지나는 길</h3>
+  <figure>
+    <div class="svgscroll"><svg viewBox="0 0 900 424" role="img" aria-label="외부 요청이 로드밸런서와 노드를 거쳐 파드에 도달하는 경로">
+      <rect x="330" y="6" width="240" height="30" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s)"/>
+      <text class="svg-lb" x="344" y="26" style="fill:var(--k8s)">외부 LB · MetalLB VIP</text>
+      <text class="svg-mn" x="602" y="26">LoadBalancer 타입 서비스가 만든 진입점</text>
+      <path class="svg-ln" d="M420 36 V56 H230 V72" stroke="var(--k8s)" stroke-width="1.6"/>
+      <path class="svg-ln" d="M480 36 V56 H670 V72" stroke="var(--k8s)" stroke-width="1.6"/>
+
+      <!-- node 1 -->
+      <rect x="24" y="72" width="412" height="336" rx="11" fill="none" stroke="var(--k8s-line)" stroke-dasharray="6 4"/>
+      <text class="svg-lb" x="38" y="94" style="fill:var(--k8s)">워커 노드 1</text>
+      <text class="svg-mn" x="126" y="94">10.10.16.11</text>
+
+      <rect x="40" y="104" width="380" height="36" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="54" y="127">노드 eth0</text>
+      <text class="svg-mn" x="140" y="127">NodePort 또는 LB가 보낸 패킷이 여기로 도착</text>
+
+      <rect x="40" y="152" width="380" height="44" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s-line)"/>
+      <text class="svg-lb" x="54" y="172" style="fill:var(--k8s)">kube-proxy · eBPF</text>
+      <text class="svg-mn" x="54" y="188">목적지를 ClusterIP에서 실제 파드 IP로 바꿉니다 (DNAT)</text>
+
+      <rect x="40" y="208" width="380" height="44" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="54" y="228">CNI 데이터 경로</text>
+      <text class="svg-mn" x="54" y="244">브리지·라우팅·VXLAN 중 CNI가 선택한 방식으로 전달</text>
+
+      <rect x="40" y="264" width="182" height="62" rx="7" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-lb" x="54" y="286">파드 web-1</text>
+      <text class="svg-mn" x="54" y="304">10.244.1.5</text>
+      <text class="svg-mn" x="54" y="318">veth ↔ eth0</text>
+      <rect x="238" y="264" width="182" height="62" rx="7" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-lb" x="252" y="286">파드 web-2</text>
+      <text class="svg-mn" x="252" y="304">10.244.1.6</text>
+      <text class="svg-mn" x="252" y="318">veth ↔ eth0</text>
+
+      <text class="svg-mn" x="54" y="352">같은 노드의 파드끼리는 브리지에서 바로 오갑니다</text>
+      <path class="svg-ln" d="M131 326 V344 H329 V326" stroke="var(--fg-faint)" stroke-dasharray="3 3"/>
+
+      <path class="svg-ln" d="M230 140 V152" stroke="var(--k8s)"/>
+      <path class="svg-ln" d="M230 196 V208" stroke="var(--k8s)"/>
+      <path class="svg-ln" d="M131 252 V264" stroke="var(--k8s)"/>
+
+      <!-- node 2 -->
+      <rect x="464" y="72" width="412" height="336" rx="11" fill="none" stroke="var(--k8s-line)" stroke-dasharray="6 4"/>
+      <text class="svg-lb" x="478" y="94" style="fill:var(--k8s)">워커 노드 2</text>
+      <text class="svg-mn" x="566" y="94">10.10.32.21</text>
+
+      <rect x="480" y="104" width="380" height="36" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="494" y="127">노드 eth0</text>
+      <text class="svg-mn" x="580" y="127">10.10.32.21</text>
+
+      <rect x="480" y="152" width="380" height="44" rx="7" fill="var(--k8s-bg)" stroke="var(--k8s-line)"/>
+      <text class="svg-lb" x="494" y="172" style="fill:var(--k8s)">kube-proxy · eBPF</text>
+      <text class="svg-mn" x="494" y="188">모든 노드가 똑같은 전달 규칙 사본을 들고 있습니다</text>
+
+      <rect x="480" y="208" width="380" height="44" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+      <text class="svg-lb" x="494" y="228">CNI 데이터 경로</text>
+      <text class="svg-mn" x="494" y="244">노드가 다르면 여기서 캡슐화하거나 라우팅합니다</text>
+
+      <rect x="480" y="264" width="182" height="62" rx="7" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-lb" x="494" y="286">파드 api-1</text>
+      <text class="svg-mn" x="494" y="304">10.244.2.7</text>
+      <rect x="678" y="264" width="182" height="62" rx="7" fill="var(--panel3)" stroke="var(--line)"/>
+      <text class="svg-lb" x="692" y="286">파드 api-2</text>
+      <text class="svg-mn" x="692" y="304">10.244.2.8</text>
+
+      <path class="svg-ln" d="M670 140 V152" stroke="var(--k8s)"/>
+      <path class="svg-ln" d="M670 196 V208" stroke="var(--k8s)"/>
+      <path class="svg-ln" d="M571 252 V264" stroke="var(--k8s)"/>
+
+      <!-- cross node -->
+      <path class="svg-ln" d="M420 230 H480" stroke="var(--k8s)" stroke-width="1.6" stroke-dasharray="5 3"/>
+      <text class="svg-mn" x="378" y="392">노드 간 파드 통신 — CNI 방식에 따라 터널 또는 순수 라우팅</text>
+    </svg>
+    </div>
+    <figcaption>
+      핵심은 <strong>kube-proxy 층이 모든 노드에 똑같이 존재한다</strong>는 점입니다.
+      어느 노드로 패킷이 들어와도 같은 규칙으로 목적지를 바꿔 주기 때문에,
+      “어느 노드로 보내든 상관없다”는 쿠버네티스 특유의 성질이 생깁니다.
+    </figcaption>
+  </figure>
+
+  <h3>CNI — 오버레이냐 라우팅이냐</h3>
+  <p>
+    노드가 다른 파드끼리 통신할 때 CNI가 쓰는 방법은 크게 두 갈래입니다. 이 선택이 성능과 디버깅 난이도를 결정합니다.
+  </p>
+  <div class="g2">
+    <div class="cell" data-p="k8s">
+      <h5>오버레이 — 원래 패킷을 한 번 더 감싸기</h5>
+      <p>파드 패킷을 VXLAN이나 IP-in-IP로 감싸 노드 IP로 배달합니다. 밑에 깔린 네트워크는
+      파드 대역을 몰라도 됩니다.</p>
+      <ul>
+        <li>어디서든 동작합니다. 물리망을 건드릴 필요가 없습니다.</li>
+        <li>헤더가 붙으므로 <strong>실제 쓸 수 있는 MTU가 줄어듭니다</strong>(VXLAN은 50바이트).</li>
+        <li>tcpdump로 잡으면 껍데기만 보여 디버깅이 번거롭습니다.</li>
+      </ul>
+      <p style="margin-bottom:0">Flannel(VXLAN), Calico(IPIP/VXLAN 모드)</p>
+    </div>
+    <div class="cell" data-p="k8s">
+      <h5>라우팅 — 밑단 네트워크에 파드 대역을 알리기</h5>
+      <p>“10.244.1.0/24는 노드1에 있다”를 물리 라우터나 VPC 라우트 테이블에 직접 등록합니다.</p>
+      <ul>
+        <li>캡슐화가 없어 <strong>성능 손실이 거의 없습니다</strong>.</li>
+        <li>패킷이 그대로 보여 디버깅이 쉽습니다.</li>
+        <li>밑단 네트워크의 협조가 필요합니다(BGP 피어링 또는 클라우드 연동).</li>
+      </ul>
+      <p style="margin-bottom:0">Calico(BGP 모드), Cilium(네이티브 라우팅), AWS VPC CNI</p>
+    </div>
+  </div>
+
+  <div class="call note">
+    <span class="ttl">관리형 클러스터는 제3의 길을 씁니다</span>
+    EKS의 AWS VPC CNI는 <strong>파드에 VPC 서브넷의 IP를 직접 줍니다.</strong>
+    파드 CIDR이라는 개념이 따로 없고, 파드가 곧 VPC의 일급 시민이 됩니다.
+    보안 그룹을 파드에 걸 수 있다는 강력한 장점이 있지만,
+    <strong>서브넷 IP가 빠르게 고갈된다</strong>는 대가가 따릅니다.
+    노드 타입별로 최대 파드 수가 ENI 개수에 묶이는 것도 여기서 나옵니다.
+    AKS도 비슷하게 Azure CNI(VNet IP 직접 할당)와 kubenet(오버레이) 중 고를 수 있습니다.
+  </div>
+
+  <h3>kube-proxy의 세 가지 모드</h3>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>모드</th><th>동작 방식</th><th>규모에 따른 특성</th></tr></thead>
+      <tbody>
+        <tr><td>iptables</td><td>서비스마다 iptables 규칙 체인을 만들어 무작위로 백엔드 선택</td><td>기본값이고 안정적입니다. 다만 서비스가 수천 개가 되면 <strong>규칙 갱신에 수 초가 걸려</strong> 배포 중 순단이 생길 수 있습니다.</td></tr>
+        <tr><td>IPVS</td><td>리눅스 커널의 L4 로드밸런서를 사용. 해시 테이블 기반</td><td>규칙 수가 많아도 조회가 O(1)에 가깝습니다. 라운드로빈·최소연결 등 <strong>알고리즘을 고를 수 있습니다.</strong></td></tr>
+        <tr><td>eBPF (kube-proxy 대체)</td><td>Cilium 등이 kube-proxy를 아예 없애고 커널 프로그램으로 직접 처리</td><td>가장 빠르고 관측성이 좋습니다. 최신 커널이 필요하고, 문제 생겼을 때 <strong>디버깅에 별도 도구</strong>가 필요합니다.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Service 네 가지 타입</h3>
+  <div class="tabs" data-tabs>
+    <div class="tablist" role="tablist" aria-label="Service 타입">
+      <button class="tab" data-p="k8s" role="tab" aria-selected="true" id="t-svc-cip" aria-controls="p-svc-cip">ClusterIP</button>
+      <button class="tab" data-p="k8s" role="tab" aria-selected="false" id="t-svc-np" aria-controls="p-svc-np">NodePort</button>
+      <button class="tab" data-p="k8s" role="tab" aria-selected="false" id="t-svc-lb" aria-controls="p-svc-lb">LoadBalancer</button>
+      <button class="tab" data-p="k8s" role="tab" aria-selected="false" id="t-svc-hl" aria-controls="p-svc-hl">Headless</button>
+    </div>
+    <div class="tabpanel" id="p-svc-cip" role="tabpanel" aria-labelledby="t-svc-cip">
+      <p><strong>클러스터 안에서만 쓰는 가상 IP.</strong> 기본값이고 가장 많이 씁니다.
+      실제로 존재하지 않는 IP라 ping은 안 되지만, 해당 포트로 접속하면 파드로 전달됩니다.</p>
+      <div class="codewrap">
+<pre><span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: Service
+<span class="k">metadata</span>:
+  name: api
+  namespace: prod
+<span class="k">spec</span>:
+  selector:
+    app: api          <span class="c"># 이 라벨을 가진 파드를 자동으로 모읍니다</span>
+  ports:
+    - port: 80        <span class="c"># 서비스가 노출하는 포트</span>
+      targetPort: 8080 <span class="c"># 파드가 실제로 듣고 있는 포트</span>
+
+<span class="c"># 다른 파드에서 호출하는 방법</span>
+<span class="c">#   같은 네임스페이스면      http://api</span>
+<span class="c">#   다른 네임스페이스면      http://api.prod</span>
+<span class="c">#   완전한 이름(권장)       http://api.prod.svc.cluster.local</span></pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-svc-np" role="tabpanel" aria-labelledby="t-svc-np" hidden>
+      <p><strong>모든 노드의 특정 포트를 열어 외부에 노출합니다.</strong>
+      기본 범위는 30000~32767입니다. 개발·테스트에는 편하지만 운영에는 잘 쓰지 않습니다.
+      노드 IP를 클라이언트가 알아야 하고, 노드가 죽으면 그 IP로는 접속이 안 되기 때문입니다.</p>
+      <div class="codewrap">
+<pre><span class="k">spec</span>:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 8080
+      nodePort: 30080   <span class="c"># 생략하면 자동 배정</span>
+
+<span class="c"># externalTrafficPolicy 가 중요한 설정입니다</span>
+  externalTrafficPolicy: Cluster  <span class="c"># 기본값</span>
+<span class="c">#   Cluster : 어느 노드로 와도 전체 파드로 분산. 대신 한 번 더 홉을 타고</span>
+<span class="c">#             SNAT 되어 클라이언트 IP가 사라집니다</span>
+<span class="c">#   Local   : 그 노드에 있는 파드로만 보냄. 클라이언트 IP가 보존되지만</span>
+<span class="c">#             파드가 없는 노드로 오면 연결이 끊깁니다</span></pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-svc-lb" role="tabpanel" aria-labelledby="t-svc-lb" hidden>
+      <p><strong>클라우드 로드밸런서를 자동으로 만들어 줍니다.</strong>
+      클라우드 컨트롤러 매니저가 이 서비스를 보고 ALB나 Azure LB를 프로비저닝합니다.
+      베어메탈에는 이 역할을 할 주체가 없어서, <strong>MetalLB</strong> 같은 걸 따로 설치해야 합니다.</p>
+      <div class="codewrap">
+<pre><span class="k">spec</span>:
+  type: LoadBalancer
+  ports: [{ port: 443, targetPort: 8443 }]
+
+<span class="c"># 베어메탈 MetalLB의 두 가지 모드</span>
+<span class="c">#   L2 모드  : 한 노드가 VIP의 ARP에 응답. 설정이 쉽지만</span>
+<span class="c">#              모든 트래픽이 그 노드 하나로 몰립니다</span>
+<span class="c">#   BGP 모드 : 여러 노드가 라우터에 VIP를 광고해 실제 분산.</span>
+<span class="c">#              물리 라우터와 BGP 피어링을 맺어야 합니다</span>
+
+<span class="c"># 주의: type: LoadBalancer 서비스를 여러 개 만들면</span>
+<span class="c">#       클라우드 LB도 그만큼 생기고 요금도 그만큼 나옵니다.</span>
+<span class="c">#       보통은 Gateway 하나만 LoadBalancer로 두고 나머지는 라우팅으로 처리합니다.</span></pre>
+      </div>
+    </div>
+    <div class="tabpanel" id="p-svc-hl" role="tabpanel" aria-labelledby="t-svc-hl" hidden>
+      <p><strong>가상 IP를 만들지 않고, DNS로 파드 IP 목록을 그대로 돌려줍니다.</strong>
+      <code>clusterIP: None</code>으로 설정합니다. 클라이언트가 직접 각 파드를 구분해야 하는
+      StatefulSet(카프카, DB 클러스터 등)에서 씁니다.</p>
+      <div class="codewrap">
+<pre><span class="k">spec</span>:
+  clusterIP: None
+  selector: { app: kafka }
+
+<span class="c"># DNS 조회 결과가 다릅니다</span>
+<span class="c">#  일반 서비스  : dig api.prod.svc.cluster.local  → 10.96.31.7 (가상 IP 하나)</span>
+<span class="c">#  헤드리스     : dig kafka.prod.svc.cluster.local → 10.244.1.5</span>
+<span class="c">#                                                   10.244.2.7</span>
+<span class="c">#                                                   10.244.3.9 (파드 전부)</span>
+
+<span class="c"># StatefulSet과 함께 쓰면 파드마다 고정 이름이 생깁니다</span>
+<span class="c">#   kafka-0.kafka.prod.svc.cluster.local</span>
+<span class="c">#   kafka-1.kafka.prod.svc.cluster.local</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <h3>Ingress에서 Gateway API로</h3>
+  <div class="call warn">
+    <span class="ttl">2026년 3월부로 ingress-nginx는 유지보수가 끝났습니다</span>
+    <p>
+      쿠버네티스 SIG Network와 보안 대응 위원회는 ingress-nginx의 퇴역을 발표했고, 최선 노력 유지보수는 2026년 3월까지였습니다. 그 이후로는 새 릴리스도, 버그 수정도, 발견되는 보안 취약점에 대한 업데이트도 없습니다.
+      기존 배포본은 계속 동작하고 설치 아티팩트도 남아 있지만, 위원회는 Gateway API로 즉시 마이그레이션할 것을 권고했습니다.
+    </p>
+    <p style="margin-bottom:0">
+      국내 현장에도 ingress-nginx가 깔린 클러스터가 아주 많습니다.
+      <strong>지금 당장 안 터지지만, 보안 패치가 없는 진입점을 인터넷에 노출한 상태</strong>라는 점이 중요합니다.
+      MSP 입장에서는 고객사 클러스터의 인그레스 컨트롤러 종류를 파악해 두는 것이 우선이고,
+      신규 구축이라면 처음부터 Gateway API 구현체(Envoy Gateway, Cilium, Istio, 클라우드 제공 컨트롤러 등)를 고르는 게 맞습니다.
+    </p>
+  </div>
+
+  <p>
+    Gateway API가 기존 Ingress보다 나은 점은 <strong>역할 분리</strong>입니다.
+    Ingress는 TLS 설정, 로드밸런서 옵션, 라우팅 규칙이 어노테이션 속에 뒤섞여 있어
+    개발팀이 인프라 설정을 건드릴 수밖에 없었습니다. Gateway API는 이걸 세 개의 객체로 나눕니다.
+  </p>
+  <div class="codewrap">
+    <div class="cap"><span>Gateway API의 역할 분리</span><button class="copy">복사</button></div>
+<pre><span class="c"># ① 인프라 제공자가 관리 — 어떤 구현체를 쓸 것인가</span>
+<span class="k">kind</span>: GatewayClass
+<span class="k">metadata</span>: { name: envoy }
+<span class="k">spec</span>: { controllerName: gateway.envoyproxy.io/gatewayclass-controller }
+---
+<span class="c"># ② 클러스터 운영자가 관리 — 어떤 포트와 인증서를 열 것인가</span>
+<span class="k">kind</span>: Gateway
+<span class="k">metadata</span>: { name: prod-gw, namespace: infra }
+<span class="k">spec</span>:
+  gatewayClassName: envoy
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs: [{ name: wildcard-cert }]
+      allowedRoutes:
+        namespaces: { from: Selector, selector: { matchLabels: { team: app } } }
+---
+<span class="c"># ③ 애플리케이션 팀이 관리 — 내 서비스로 오는 규칙만</span>
+<span class="k">kind</span>: HTTPRoute
+<span class="k">metadata</span>: { name: shop, namespace: prod }
+<span class="k">spec</span>:
+  parentRefs: [{ name: prod-gw, namespace: infra }]
+  hostnames: [<span class="s">"shop.example.com"</span>]
+  rules:
+    - matches: [{ path: { type: PathPrefix, value: /api } }]
+      backendRefs: [{ name: api, port: 80 }]
+    - matches: [{ path: { type: PathPrefix, value: / } }]
+      backendRefs: [{ name: web, port: 80 }]</pre>
+  </div>
+  <p>
+    현재 Gateway API는 GatewayClass, Gateway, ListenerSet, HTTPRoute, GRPCRoute, TLSRoute, TCPRoute, UDPRoute, BackendTLSPolicy, ReferenceGrant까지 정식(GA) 지원합니다.
+    HTTP뿐 아니라 TCP·UDP·gRPC까지 같은 모델로 다룰 수 있다는 뜻이고,
+    Ingress로는 어노테이션 없이는 불가능했던 것들입니다.
+  </p>
+
+  <h3>NetworkPolicy — 기본은 전면 허용입니다</h3>
+  <p>
+    쿠버네티스의 기본값은 <strong>“모든 파드가 모든 파드와 통신 가능”</strong>입니다.
+    네임스페이스를 나눠도 네트워크는 안 나뉩니다. 이걸 제한하려면 NetworkPolicy를 써야 하는데,
+    <strong>CNI가 NetworkPolicy를 지원하지 않으면 객체를 만들어도 무시됩니다.</strong>
+    Flannel 단독 구성이 대표적인 예이고, 정책이 적용된 줄 알고 있다가 감사에서 지적받는 일이 흔합니다.
+  </p>
+  <div class="codewrap">
+    <div class="cap"><span>기본 차단부터 깔고 필요한 것만 여는 순서</span><button class="copy">복사</button></div>
+<pre><span class="c"># ① 이 네임스페이스의 모든 인바운드를 차단 (기반 정책)</span>
+<span class="k">kind</span>: NetworkPolicy
+<span class="k">metadata</span>: { name: default-deny-ingress, namespace: prod }
+<span class="k">spec</span>:
+  podSelector: {}           <span class="c"># 빈 selector = 네임스페이스의 모든 파드</span>
+  policyTypes: [Ingress]
+---
+<span class="c"># ② 웹 파드에서 API 파드로 가는 8080만 허용</span>
+<span class="k">kind</span>: NetworkPolicy
+<span class="k">metadata</span>: { name: allow-web-to-api, namespace: prod }
+<span class="k">spec</span>:
+  podSelector:
+    matchLabels: { app: api }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: web }   <span class="c"># IP가 아니라 라벨로 지정</span>
+      ports:
+        - { protocol: TCP, port: 8080 }
+
+<span class="c"># 잊기 쉬운 것: DNS도 막힙니다.</span>
+<span class="c"># default-deny-egress 를 걸었다면 kube-system 의 CoreDNS 로 가는</span>
+<span class="c"># UDP/TCP 53 을 반드시 열어 줘야 합니다. 안 그러면 모든 이름 조회가 실패합니다.</span></pre>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">네 환경의 방화벽 철학이 여기서 만납니다</span>
+    AWS는 <strong>보안 그룹 ID</strong>로, Azure는 <strong>ASG</strong>로, 쿠버네티스는 <strong>라벨</strong>로 정책을 씁니다.
+    셋 다 “IP를 적지 않는다”는 같은 결론에 도달한 겁니다.
+    반면 온프레미스 방화벽은 여전히 IP와 대역으로 씁니다. 그래서 서버가 늘어날 때마다
+    방화벽 담당자에게 요청을 넣어야 하고, 이게 온프레미스 운영이 느린 가장 큰 이유입니다.
+  </div>
+
+  <h3>디버깅 — 순서대로만 하면 됩니다</h3>
+  <div class="codewrap">
+    <div class="cap"><span>“파드가 서비스에 접속을 못 해요” 대응 순서</span><button class="copy">복사</button></div>
+<pre><span class="c"># 1. 이름이 풀리는가 (DNS 문제인지 먼저 가른다)</span>
+kubectl run tmp --rm -it --image=nicolaka/netshoot -- \
+  nslookup api.prod.svc.cluster.local
+
+<span class="c"># 2. 서비스 뒤에 파드가 실제로 붙어 있는가 — 가장 흔한 원인</span>
+kubectl get endpointslice -n prod -l kubernetes.io/service-name=api
+<span class="c">#    비어 있다면 selector 라벨 오타이거나, 파드가 Ready가 아닙니다</span>
+
+<span class="c"># 3. 파드가 정말 Ready인가</span>
+kubectl get pod -n prod -l app=api -o wide
+
+<span class="c"># 4. 포트가 맞는가 — targetPort와 컨테이너 포트 불일치도 흔합니다</span>
+kubectl get svc api -n prod -o yaml | grep -A3 ports
+
+<span class="c"># 5. 파드 IP로 직접 때려 본다 (서비스 문제인지 앱 문제인지 가른다)</span>
+kubectl run tmp --rm -it --image=nicolaka/netshoot -- \
+  curl -sv 10.244.2.7:8080/healthz
+
+<span class="c"># 6. NetworkPolicy가 막고 있는가</span>
+kubectl get networkpolicy -n prod
+<span class="c">#    Cilium이면 더 직접적인 확인이 가능합니다</span>
+<span class="c">#    cilium monitor --type drop</span></pre>
+  </div>
+
+  <div class="call note">
+    <span class="ttl">2번에서 대부분 끝납니다</span>
+    실무에서 “서비스 접속 안 됨” 신고의 절반 이상이
+    <strong>EndpointSlice가 비어 있는 것</strong>입니다. 원인은 거의 항상 둘 중 하나입니다.
+    서비스의 <code>selector</code>와 파드의 라벨이 다르거나(오타, 대소문자),
+    파드가 readiness 프로브를 통과하지 못해 Ready가 아니거나.
+    이 명령어 하나를 먼저 치는 습관을 들이면 조사 시간이 크게 줄어듭니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="onprem">
+  <h2><span class="num">09</span><span class="p-onp">온프레미스</span> — VM 기반 데이터센터 네트워크</h2>
+  <p class="sec-intro">
+    클라우드만 만져 본 사람이 온프레미스에 처음 들어가면 두 가지에 놀랍니다.
+    하나는 <strong>만질 수 있는 계층이 훨씬 많다</strong>는 것이고, 다른 하나는
+    <strong>바꾸는 데 사람과 시간이 든다</strong>는 것입니다.
+    클라우드에서 30초 걸리는 일이 여기서는 결재 → 작업 일정 → 야간 점검 순서를 거칩니다.
+    구조를 이해하면 그 이유도 납득이 됩니다.
+  </p>
+
+  <div class="chiprow">
+    <span class="chip" data-p="onp">VLAN · 트렁크</span>
+    <span class="chip" data-p="onp">LACP 본딩</span>
+    <span class="chip" data-p="onp">STP</span>
+    <span class="chip" data-p="onp">vSwitch · 포트그룹</span>
+    <span class="chip" data-p="onp">VXLAN · NSX</span>
+    <span class="chip" data-p="onp">VRRP · HSRP</span>
+    <span class="chip" data-p="onp">F5 · L4 스위치</span>
+    <span class="chip" data-p="onp">스파인-리프</span>
+  </div>
+
+  <h3>인터넷에서 VM까지, 전체 경로</h3>
+  <figure>
+    <div class="svgscroll"><svg viewBox="0 0 900 470" role="img" aria-label="온프레미스 데이터센터에서 인터넷부터 가상 머신까지의 네트워크 계층 구조">
+      <g>
+        <rect x="8" y="8" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="28">회선</text><text class="svg-mn" x="22" y="44">WAN</text>
+        <rect x="172" y="8" width="720" height="44" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="188" y="28" style="fill:var(--onp)">ISP A 회선</text>
+        <text class="svg-lb" x="470" y="28" style="fill:var(--onp)">ISP B 회선</text>
+        <text class="svg-mn" x="188" y="44">서로 다른 통신사에서 받아야 진짜 이중화입니다</text>
+      </g>
+      <g>
+        <rect x="8" y="64" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="84">경계 라우터</text><text class="svg-mn" x="22" y="100">L3 · BGP</text>
+        <rect x="172" y="64" width="720" height="44" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+        <text class="svg-lb" x="188" y="84">Router 1</text><text class="svg-lb" x="470" y="84">Router 2</text>
+        <text class="svg-mn" x="188" y="100">BGP로 경로를 학습하고 한쪽 회선이 끊기면 자동 전환</text>
+      </g>
+      <g>
+        <rect x="8" y="120" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="140">방화벽</text><text class="svg-mn" x="22" y="156">존 분리</text>
+        <rect x="172" y="120" width="720" height="44" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="188" y="140" style="fill:var(--onp)">FW-01 (Active)</text>
+        <text class="svg-lb" x="470" y="140" style="fill:var(--onp)">FW-02 (Standby)</text>
+        <text class="svg-mn" x="188" y="156">세션 테이블을 서로 동기화해 전환 때 연결이 끊기지 않게 합니다</text>
+      </g>
+      <g>
+        <rect x="8" y="176" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="196">로드밸런서</text><text class="svg-mn" x="22" y="212">L4 · L7</text>
+        <rect x="172" y="176" width="720" height="44" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+        <text class="svg-lb" x="188" y="196">F5 BIG-IP HA 쌍</text>
+        <text class="svg-mn" x="360" y="196">VIP 203.0.113.10 : 443</text>
+        <text class="svg-mn" x="188" y="212">SSL 오프로드 · 풀 멤버 헬스 모니터 · iRule 분기</text>
+      </g>
+      <g>
+        <rect x="8" y="232" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="252">코어 스위치</text><text class="svg-mn" x="22" y="268">L3 게이트웨이</text>
+        <rect x="172" y="232" width="720" height="44" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+        <text class="svg-lb" x="188" y="252">Core-01</text><text class="svg-lb" x="470" y="252">Core-02</text>
+        <text class="svg-mn" x="188" y="268">VRRP로 가상 게이트웨이 IP 하나를 둘이 나눠 맡습니다</text>
+      </g>
+      <g>
+        <rect x="8" y="288" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="308">ToR 스위치</text><text class="svg-mn" x="22" y="324">랙 상단 L2</text>
+        <rect x="172" y="288" width="720" height="44" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="188" y="308" style="fill:var(--onp)">ToR-A</text>
+        <text class="svg-lb" x="470" y="308" style="fill:var(--onp)">ToR-B</text>
+        <text class="svg-mn" x="188" y="324">랙마다 두 대. MLAG로 묶어 서버가 양쪽에 동시에 연결됩니다</text>
+      </g>
+      <g>
+        <rect x="8" y="344" width="152" height="44" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="364">물리 서버</text><text class="svg-mn" x="22" y="380">NIC 본딩</text>
+        <rect x="172" y="344" width="720" height="44" rx="7" fill="var(--panel2)" stroke="var(--line)"/>
+        <text class="svg-lb" x="188" y="364">NIC0 + NIC1 → bond0 (LACP)</text>
+        <text class="svg-mn" x="480" y="364">트렁크 포트로 VLAN 여러 개를 함께 받음</text>
+        <text class="svg-mn" x="188" y="380">케이블 한 가닥이 빠져도 서비스는 계속됩니다</text>
+      </g>
+      <g>
+        <rect x="8" y="400" width="152" height="60" rx="7" class="svg-bx"/>
+        <text class="svg-lb" x="22" y="420">가상 스위치</text><text class="svg-mn" x="22" y="436">포트그룹</text><text class="svg-mn" x="22" y="452">= VLAN 배정</text>
+        <rect x="172" y="400" width="720" height="60" rx="7" fill="var(--onp-bg)" stroke="var(--onp-line)"/>
+        <text class="svg-lb" x="188" y="420" style="fill:var(--onp)">PG-WEB (VLAN 10)</text>
+        <text class="svg-lb" x="424" y="420" style="fill:var(--onp)">PG-APP (VLAN 20)</text>
+        <text class="svg-lb" x="660" y="420" style="fill:var(--onp)">PG-DB (VLAN 30)</text>
+        <text class="svg-mn" x="188" y="440">VM 3대</text>
+        <text class="svg-mn" x="424" y="440">VM 6대</text>
+        <text class="svg-mn" x="660" y="440">VM 2대</text>
+        <text class="svg-mn" x="188" y="454">VM을 어느 포트그룹에 꽂느냐가 곧 어느 네트워크에 두느냐입니다</text>
+      </g>
+      <path class="svg-ln" d="M532 52 V64 M532 108 V120 M532 164 V176 M532 220 V232 M532 276 V288 M532 332 V344 M532 388 V400" stroke="var(--onp)" stroke-width="1.6"/>
+    </svg>
+    </div>
+    <figcaption>
+      클라우드에서 <strong>버튼 하나</strong>인 것들이 여기서는 <strong>물리 장비 한 쌍</strong>씩입니다.
+      그리고 각 쌍마다 이중화 방식이 다릅니다 — BGP, HA 세션 동기화, VRRP, MLAG, LACP.
+      온프레미스 설계가 어려운 건 이 계층들을 <strong>모두 동시에 살려야</strong> 하기 때문입니다.
+    </figcaption>
+  </figure>
+
+  <h3>VLAN — 온프레미스의 서브넷</h3>
+  <p>
+    VLAN은 물리적으로 같은 스위치에 꽂혀 있어도 논리적으로 다른 네트워크로 나누는 기술입니다.
+    프레임에 12비트짜리 태그(1~4094)를 붙여서 구분합니다.
+    클라우드의 서브넷과 역할이 같지만, 결정적 차이가 있습니다.
+  </p>
+  <div class="g2">
+    <div class="cell" data-p="onp">
+      <h5>액세스 포트</h5>
+      <p>VLAN 하나에만 속합니다. 태그가 없는 프레임이 오가고, 스위치가 알아서 붙였다 뗍니다.</p>
+      <p style="margin-bottom:0">일반 PC, 프린터, 단일 용도 서버가 여기 꽂힙니다.</p>
+    </div>
+    <div class="cell" data-p="onp">
+      <h5>트렁크 포트</h5>
+      <p>여러 VLAN을 한 케이블로 실어 나릅니다. 태그가 붙은 채로 전달됩니다.</p>
+      <p style="margin-bottom:0">하이퍼바이저 서버는 <strong>반드시 트렁크</strong>여야 합니다. 그래야 한 서버 위의 VM들이 서로 다른 VLAN에 속할 수 있습니다.</p>
+    </div>
+  </div>
+
+  <div class="call trap">
+    <span class="ttl">“VM을 만들었는데 통신이 안 돼요” 1순위 원인</span>
+    새 VLAN을 만들어 포트그룹에 배정했는데, <strong>ToR 스위치의 트렁크 포트에
+    그 VLAN을 허용(allowed vlan)하지 않은 경우</strong>입니다.
+    가상 쪽 설정만 보고 있으면 절대 안 보입니다.
+    서버 담당과 네트워크 담당이 다른 조직이면 이 문제로 반나절이 날아갑니다.
+    <strong>새 VLAN 작업은 항상 “스위치 포트 → 하이퍼바이저 → VM” 세 곳을 함께 확인하세요.</strong>
+  </div>
+
+  <div class="codewrap">
+    <div class="cap"><span>스위치 쪽에서 확인해야 하는 것</span><button class="copy">복사</button></div>
+<pre><span class="c"># 트렁크 포트에 VLAN 40이 허용되어 있는가 (Cisco 계열 예시)</span>
+show interface GigabitEthernet1/0/10 switchport
+<span class="c">#   Trunking VLANs Enabled: 10,20,30     ← 40이 없으면 이게 원인</span>
+
+<span class="c"># 허용 VLAN 추가 — 기존 목록을 덮어쓰지 않도록 add 를 꼭 붙입니다</span>
+interface GigabitEthernet1/0/10
+  switchport trunk allowed vlan add 40
+
+<span class="c"># 서버 쪽(리눅스)에서 본딩과 VLAN 상태 확인</span>
+cat /proc/net/bonding/bond0     <span class="c"># LACP 협상 상태, 슬레이브 링크 상태</span>
+ip -d link show bond0.40         <span class="c"># VLAN 인터페이스가 올라와 있는지</span>
+bridge vlan show                 <span class="c"># OVS·리눅스 브리지의 VLAN 매핑</span></pre>
+  </div>
+
+  <h3>LACP 본딩 — 케이블 두 가닥을 하나처럼</h3>
+  <p>
+    서버 NIC 두 개를 ToR 스위치 두 대에 각각 꽂고, 논리적으로 하나의 인터페이스(<code>bond0</code>)로 묶습니다.
+    한쪽 케이블이나 스위치가 죽어도 서비스가 유지되고, 대역폭도 합쳐집니다.
+  </p>
+  <ul>
+    <li><strong>LACP (802.3ad)</strong> — 서버와 스위치가 협상해서 묶습니다. 가장 권장되는 방식입니다. 스위치 쪽에도 설정이 필요합니다.</li>
+    <li><strong>Active-Backup</strong> — 한 가닥만 쓰고 나머지는 대기. 스위치 설정이 필요 없어서 간편하지만 대역폭은 늘지 않습니다.</li>
+    <li>대역폭이 합쳐진다고 <strong>한 세션이 2배 빨라지는 건 아닙니다.</strong> 출발지·목적지 해시로 가닥을 고르므로, 한 TCP 세션은 한 가닥만 씁니다. “10G 두 개 묶었는데 왜 단일 전송이 10G밖에 안 나오죠”의 답입니다.</li>
+  </ul>
+
+  <h3>스파인-리프 — 요즘 데이터센터의 표준 모양</h3>
+  <p>
+    예전 3계층(액세스-분배-코어) 구조는 서버 간 통신(동서 트래픽)이 늘면서 한계에 부딪혔습니다.
+    A랙 서버가 B랙 서버와 통신하려면 코어까지 올라갔다 내려와야 하고, 코어가 병목이 됩니다.
+    스파인-리프는 모든 리프를 모든 스파인에 연결해 <strong>어느 서버에서 어느 서버로 가든 홉 수를 똑같이</strong> 만듭니다.
+  </p>
+  <div class="g2">
+    <div class="cell" data-p="onp">
+      <h5>3계층 (전통)</h5>
+      <p>액세스 → 분배 → 코어. STP로 루프를 막느라 <strong>링크의 절반이 놀고 있습니다.</strong></p>
+      <p style="margin-bottom:0">남북 트래픽(클라이언트↔서버) 중심 시대의 설계입니다.</p>
+    </div>
+    <div class="cell" data-p="onp">
+      <h5>스파인-리프 (현대)</h5>
+      <p>리프(ToR) ↔ 스파인 전 연결. L3와 ECMP로 <strong>모든 링크를 동시에 씁니다.</strong></p>
+      <p style="margin-bottom:0">VXLAN + EVPN을 얹어 L2 구간을 랙 너머로 확장합니다. 용량이 부족하면 스파인을 한 대 더 추가하면 됩니다.</p>
+    </div>
+  </div>
+
+  <div class="call note">
+    <span class="ttl">VXLAN이 온프레미스에도 있습니다</span>
+    쿠버네티스 CNI가 쓰는 그 VXLAN이 맞습니다. 온프레미스에서는 VLAN의 한계
+    (최대 4094개, 랙을 넘어 확장하기 어려움)를 넘기 위해 씁니다.
+    VXLAN은 24비트 식별자를 써서 <strong>1,600만 개의 논리 네트워크</strong>를 만들 수 있고,
+    L3 네트워크 위로 L2 구간을 늘릴 수 있습니다.
+    VMware NSX, Cisco ACI 같은 제품이 이 위에 정책 관리를 얹은 것입니다.
+    <strong>MTU를 꼭 확인하세요</strong> — VXLAN 헤더 50바이트 때문에 밑단 물리망은
+    점보 프레임(9000)으로 설정해 두는 것이 정석입니다.
+  </div>
+
+  <h3>존 설계 — 온프레미스 보안의 뼈대</h3>
+  <p>
+    클라우드는 리소스마다 방화벽을 붙이지만, 온프레미스는 <strong>존(zone)</strong>이라는 큰 덩어리로 나누고
+    존 사이 통행만 심사합니다. 전형적인 구성은 이렇습니다.
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>존</th><th>들어 있는 것</th><th>허용되는 통신</th></tr></thead>
+      <tbody>
+        <tr><td>Untrust</td><td>인터넷 방향</td><td>DMZ의 특정 서비스 포트로만</td></tr>
+        <tr><td>DMZ</td><td>웹 서버, 리버스 프록시, 메일 게이트웨이</td><td>내부 앱 존으로 <strong>특정 포트만</strong>. DB 존 직접 접근은 금지</td></tr>
+        <tr><td>Internal (앱)</td><td>WAS, 애플리케이션 서버</td><td>DB 존으로 DB 포트만. 인터넷은 프록시 경유</td></tr>
+        <tr><td>DB</td><td>데이터베이스</td><td>앱 존에서 오는 것만 수신. 밖으로 나가는 통신은 원칙적으로 차단</td></tr>
+        <tr><td>Management</td><td>iDRAC/iLO, 백업 서버, 모니터링, 점프 서버</td><td>운영자 대역에서만 접근. <strong>절대 인터넷에 노출하면 안 됩니다</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call warn">
+    <span class="ttl">관리 네트워크 분리는 타협 대상이 아닙니다</span>
+    서버의 원격 관리 포트(iDRAC, iLO, IPMI)는 서버가 꺼져 있어도 동작하고,
+    전원 제어와 콘솔 접근까지 가능합니다. 여기가 뚫리면 방화벽이고 뭐고 의미가 없습니다.
+    <strong>서비스 VLAN과 물리적으로 분리하고</strong>, 인터넷 접근은 완전히 차단하며,
+    점프 서버를 통해서만 접근하도록 설계하세요.
+    스토리지 네트워크(iSCSI, NFS)도 같은 이유와 성능 이유로 별도 VLAN·별도 NIC으로 분리합니다.
+  </div>
+
+  <h3>IP 주소 관리 — 엑셀을 벗어나세요</h3>
+  <p>
+    클라우드는 IP를 자동으로 주고 회수하지만, 온프레미스는 사람이 기록합니다.
+    그래서 시간이 지나면 <strong>“이 IP 누가 쓰는지 아무도 모름”</strong> 상태가 반드시 옵니다.
+    퇴사자가 만든 VM이 IP를 붙잡고 있고, 엑셀에는 다른 서버 이름이 적혀 있는 식입니다.
+  </p>
+  <ul>
+    <li>고정 IP 서버라도 <strong>DHCP 예약</strong>으로 관리하면 중앙에서 현황이 보입니다.</li>
+    <li>phpIPAM, NetBox 같은 IPAM 도구를 쓰면 대역·VLAN·서버를 연결해서 관리할 수 있습니다.</li>
+    <li>정기적으로 <code>nmap -sn 10.30.10.0/24</code> 같은 스캔을 돌려 실제 사용 현황과 기록을 대조하세요.</li>
+    <li>서버 폐기 절차에 <strong>“IP 반납”과 “DNS 레코드 삭제”</strong>를 반드시 넣으세요. 유령 레코드가 남으면 나중에 엉뚱한 서버로 트래픽이 갑니다.</li>
+  </ul>
+
+  <h3>점검 명령어 모음</h3>
+  <div class="codewrap">
+    <div class="cap"><span>온프레미스 VM에서 네트워크 문제 좁히기</span><button class="copy">복사</button></div>
+<pre><span class="c"># 1. 내 IP와 게이트웨이부터</span>
+ip -br addr ; ip route show default
+
+<span class="c"># 2. 게이트웨이까지 L2가 닿는가 — ARP가 풀리면 VLAN은 정상</span>
+ping -c2 10.30.10.1
+ip neigh show 10.30.10.1
+<span class="c">#   FAILED 또는 incomplete → VLAN·트렁크·포트그룹 문제입니다</span>
+<span class="c">#   REACHABLE 인데 그다음이 안 되면 라우팅이나 방화벽 문제입니다</span>
+
+<span class="c"># 3. 어디까지 가는지 경로 추적 — 방화벽에서 끊기면 거기서 멈춥니다</span>
+traceroute -n 10.30.30.20
+mtr -n -c 20 10.30.30.20      <span class="c"># 구간별 손실률까지 보여 줍니다</span>
+
+<span class="c"># 4. 포트가 열려 있는지 (방화벽 정책 확인)</span>
+nc -zv 10.30.30.20 3306
+<span class="c">#   Connection refused → 목적지까지는 갔는데 서비스가 안 떠 있음</span>
+<span class="c">#   timeout           → 중간 방화벽에서 버려짐. 정책 신청이 필요합니다</span>
+
+<span class="c"># 5. MTU 문제 의심될 때 — 조각화 금지 비트를 켜고 크기를 키워 본다</span>
+ping -M do -s 1472 -c2 10.30.30.20   <span class="c"># 1472+28 = 1500</span>
+ping -M do -s 8972 -c2 10.30.30.20   <span class="c"># 점보 프레임 확인용</span>
+<span class="c">#   "message too long" 이 나오면 경로 어딘가의 MTU가 작습니다</span>
+
+<span class="c"># 6. 실제 패킷이 들어오긴 하는가</span>
+sudo tcpdump -i bond0.30 -nn host 10.30.30.20 and port 3306</pre>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">2번에서 문제를 반으로 가릅니다</span>
+    게이트웨이 ARP가 풀리는지만 보면 <strong>L2 문제인지 L3 이상 문제인지</strong>가 즉시 갈립니다.
+    ARP가 안 풀리면 VLAN·트렁크·포트그룹·케이블 쪽이고, 풀리는데 안 되면
+    라우팅·방화벽·서비스 쪽입니다. 클라우드에도 그대로 적용되는 사고법이고,
+    실제로 이 한 단계 때문에 장애 조사 시간이 크게 줄어듭니다.
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="rosetta">
+  <h2><span class="num">10</span>용어 대응표</h2>
+  <p class="sec-intro">
+    이 표 하나만 출력해서 모니터 옆에 붙여 두면 낯선 환경에서도 대화가 됩니다.
+    “AWS의 NAT 게이트웨이에 해당하는 게 여기선 뭐죠?”라고 물을 수 있게 되는 것,
+    그게 멀티 환경 엔지니어의 출발점입니다.
+  </p>
+  <label for="rosSearch" style="display:block;font-size:13.5px;color:var(--fg-dim);margin-bottom:2px">용어 검색 — 한글·영문 모두 가능합니다</label>
+  <input class="search" id="rosSearch" type="search" placeholder="예: NAT, 방화벽, 로드밸런서, DNS" autocomplete="off">
+  <div class="tbl-wrap">
+    <table class="tbl rosetta" id="rosTable">
+      <thead><tr>
+        <th>역할</th>
+        <th data-p="aws">AWS</th>
+        <th data-p="azr">Azure</th>
+        <th data-p="k8s">Kubernetes</th>
+        <th data-p="onp">온프레미스</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>최상위 네트워크 경계</td><td>VPC</td><td>VNet</td><td>클러스터</td><td>데이터센터 · 보안 존</td></tr>
+        <tr><td>논리 분할 단위</td><td>서브넷<span class="mini">AZ에 묶임</span></td><td>서브넷<span class="mini">AZ에 안 묶임</span></td><td>파드 CIDR<span class="mini">네임스페이스는 네트워크 분리가 아님</span></td><td>VLAN</td></tr>
+        <tr><td>라우팅 규칙</td><td>라우트 테이블</td><td>UDR + 시스템 라우트</td><td>노드 라우트 + CNI</td><td>라우터 라우팅 테이블 · OSPF/BGP</td></tr>
+        <tr><td>인터넷 진입점</td><td>인터넷 게이트웨이</td><td>공용 IP 리소스</td><td>LoadBalancer · NodePort</td><td>경계 라우터 + 방화벽</td></tr>
+        <tr><td>아웃바운드 NAT</td><td>NAT 게이트웨이</td><td>NAT 게이트웨이</td><td>노드 SNAT (마스커레이드)</td><td>방화벽 PAT</td></tr>
+        <tr><td>인스턴스 단위 방화벽</td><td>보안 그룹</td><td>NSG (NIC 연결)</td><td>NetworkPolicy</td><td>호스트 방화벽 · 존 정책</td></tr>
+        <tr><td>네트워크 단위 방화벽</td><td>네트워크 ACL</td><td>NSG (서브넷 연결)</td><td>(별도 없음)</td><td>VLAN ACL · 물리 방화벽</td></tr>
+        <tr><td>역할 기반 정책 참조</td><td>보안 그룹 ID 참조</td><td>애플리케이션 보안 그룹</td><td>파드 라벨 셀렉터</td><td>(없음 — IP로 지정)</td></tr>
+        <tr><td>L4 로드밸런서</td><td>NLB</td><td>Azure Load Balancer</td><td>Service (LoadBalancer)</td><td>L4 스위치 · F5 LTM</td></tr>
+        <tr><td>L7 로드밸런서</td><td>ALB</td><td>Application Gateway</td><td>Gateway · HTTPRoute</td><td>F5 BIG-IP · 리버스 프록시</td></tr>
+        <tr><td>글로벌 분산</td><td>CloudFront · Global Accelerator</td><td>Front Door · Traffic Manager</td><td>(클러스터 밖에서 처리)</td><td>GSLB 장비</td></tr>
+        <tr><td>내부 이름 해석</td><td>Route 53 프라이빗 호스팅 영역</td><td>프라이빗 DNS 영역</td><td>CoreDNS</td><td>사내 DNS (AD · BIND)</td></tr>
+        <tr><td>PaaS 사설 연결</td><td>VPC 엔드포인트 · PrivateLink</td><td>Private Endpoint · Service Endpoint</td><td>ClusterIP · ExternalName</td><td>내부 VIP</td></tr>
+        <tr><td>망과 망 직결</td><td>VPC 피어링</td><td>VNet 피어링</td><td>(클러스터 간 메시 · 멀티클러스터)</td><td>라우팅 · VRF</td></tr>
+        <tr><td>다대다 허브</td><td>Transit Gateway</td><td>Virtual WAN</td><td>(해당 없음)</td><td>코어 스위치 · MPLS</td></tr>
+        <tr><td>전용 회선</td><td>Direct Connect</td><td>ExpressRoute</td><td>(해당 없음)</td><td>사업자 전용 회선</td></tr>
+        <tr><td>사이트 간 VPN</td><td>Site-to-Site VPN</td><td>VPN Gateway</td><td>(해당 없음)</td><td>IPsec 방화벽 · VPN 장비</td></tr>
+        <tr><td>네트워크 인터페이스</td><td>ENI</td><td>NIC 리소스</td><td>veth · 파드 eth0</td><td>vNIC · 물리 NIC</td></tr>
+        <tr><td>트래픽 로그</td><td>VPC 플로우 로그</td><td>VNet · NSG 플로우 로그</td><td>Hubble · 메시 텔레메트리</td><td>방화벽 로그 · SPAN/TAP</td></tr>
+        <tr><td>연결성 자동 진단</td><td>Reachability Analyzer</td><td>Network Watcher</td><td>kubectl + netshoot</td><td>traceroute · mtr · 스위치 CLI</td></tr>
+        <tr><td>고가용 게이트웨이</td><td>(관리형이라 불필요)</td><td>(관리형이라 불필요)</td><td>(노드 다중화로 해결)</td><td>VRRP · HSRP</td></tr>
+        <tr><td>링크 이중화</td><td>(추상화됨)</td><td>(추상화됨)</td><td>(노드 밑단에 위임)</td><td>LACP 본딩 · MLAG</td></tr>
+        <tr><td>오버레이 기술</td><td>(AWS 내부에서 처리)</td><td>(Azure 내부에서 처리)</td><td>VXLAN · IP-in-IP · Geneve</td><td>VXLAN · NSX · ACI</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="emptymsg" id="rosEmpty">검색어와 일치하는 용어가 없습니다. 다른 단어로 찾아보세요.</p>
+</section>
+
+<section id="compare">
+  <h2><span class="num">11</span>항목별 정면 비교</h2>
+  <p class="sec-intro">
+    같은 질문을 네 환경에 던져 보면 설계 철학의 차이가 드러납니다.
+    주제를 눌러 필요한 부분만 골라 보세요.
+  </p>
+
+  <div class="tbl-filter" id="cmpFilter" role="group" aria-label="비교 주제 필터">
+    <button class="fbtn" data-topic="all" aria-pressed="true">전체</button>
+    <button class="fbtn" data-topic="addr" aria-pressed="false">주소와 격리</button>
+    <button class="fbtn" data-topic="sec" aria-pressed="false">보안</button>
+    <button class="fbtn" data-topic="lb" aria-pressed="false">부하 분산</button>
+    <button class="fbtn" data-topic="hybrid" aria-pressed="false">하이브리드 연결</button>
+    <button class="fbtn" data-topic="ops" aria-pressed="false">운영과 관측</button>
+    <button class="fbtn" data-topic="cost" aria-pressed="false">비용과 확장</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="tbl" id="cmpTable">
+      <thead><tr>
+        <th>질문</th>
+        <th data-p="aws">AWS</th>
+        <th data-p="azr">Azure</th>
+        <th data-p="k8s">Kubernetes</th>
+        <th data-p="onp">온프레미스</th>
+      </tr></thead>
+      <tbody>
+        <tr data-topic="addr"><td>IP는 누가 주나</td><td>서브넷에서 자동 할당. ENI에 부여</td><td>서브넷에서 자동 할당. NIC 리소스에 부여</td><td>CNI의 IPAM이 파드마다 할당. 재시작하면 바뀜</td><td>DHCP 또는 사람이 수동 배정</td></tr>
+        <tr data-topic="addr"><td>대역을 나중에 넓힐 수 있나</td><td>VPC에 보조 CIDR 추가 가능. 서브넷은 <strong>불가</strong></td><td>VNet 주소 공간 추가 가능. 서브넷은 비어 있으면 변경 가능</td><td>파드 CIDR 변경은 사실상 <strong>클러스터 재구축</strong></td><td>VLAN에 대역 추가는 가능하지만 라우팅·방화벽 전체 손봐야 함</td></tr>
+        <tr data-topic="addr"><td>같은 경계 안에서 기본 통신이 되나</td><td>안 됨. 보안 그룹에서 허용해야 함</td><td><strong>됨.</strong> AllowVnetInBound 기본 규칙</td><td><strong>됨.</strong> 네임스페이스가 달라도 통신됨</td><td>VLAN이 다르면 라우팅+방화벽 필요</td></tr>
+        <tr data-topic="addr"><td>가용 영역과의 관계</td><td>서브넷이 AZ 하나에 <strong>고정</strong></td><td>서브넷은 AZ에 묶이지 않음. 리소스가 영역을 가짐</td><td>노드의 위치를 따라감. 토폴로지 인식 라우팅 가능</td><td>랙·전원 계통이 장애 도메인</td></tr>
+        <tr data-topic="sec"><td>방화벽이 몇 겹인가</td><td>두 겹 (보안 그룹 + NACL)</td><td>한 겹이지만 두 곳에 붙일 수 있음 (서브넷 + NIC)</td><td>NetworkPolicy 한 겹. 메시를 얹으면 L7까지</td><td>여러 겹 (경계 방화벽 + 존 방화벽 + 호스트 방화벽)</td></tr>
+        <tr data-topic="sec"><td>기본 정책이 허용인가 차단인가</td><td>인바운드 차단 · 아웃바운드 허용</td><td>VNet 내부 허용 · 인터넷 아웃바운드 허용</td><td><strong>전면 허용.</strong> 정책을 안 쓰면 다 통함</td><td>존 간 차단이 기본. 한 줄씩 열어 줌</td></tr>
+        <tr data-topic="sec"><td>정책을 IP 없이 쓸 수 있나</td><td>가능 — 보안 그룹 ID 참조</td><td>가능 — ASG</td><td>가능 — 라벨 셀렉터</td><td><strong>어려움</strong> — 대부분 IP·대역으로 작성</td></tr>
+        <tr data-topic="sec"><td>정책 변경에 걸리는 시간</td><td>수 초</td><td>수 초</td><td>수 초 (CNI가 즉시 반영)</td><td><strong>수 시간~수 일</strong> (신청·승인·작업 일정)</td></tr>
+        <tr data-topic="lb"><td>L7 로드밸런서를 어떻게 얻나</td><td>ALB 생성 후 타깃 그룹 연결</td><td>App Gateway 생성. <strong>전용 서브넷 필요</strong></td><td>Gateway 객체를 만들면 컨트롤러가 프로비저닝</td><td>F5 장비 구매·설치 후 VIP 구성</td></tr>
+        <tr data-topic="lb"><td>고정 IP를 받을 수 있나</td><td>NLB는 가능, ALB는 <strong>불가</strong></td><td>표준 LB에 정적 공용 IP 할당 가능</td><td>클라우드면 LB에 따름. 베어메탈은 MetalLB로 지정</td><td>VIP를 직접 지정하므로 당연히 가능</td></tr>
+        <tr data-topic="lb"><td>클라이언트 IP가 보존되나</td><td>NLB는 보존, ALB는 X-Forwarded-For</td><td>LB는 보존, App Gateway는 X-Forwarded-For</td><td>externalTrafficPolicy 설정에 따라 다름</td><td>L4는 보존, L7 프록시는 헤더로 전달</td></tr>
+        <tr data-topic="hybrid"><td>온프레미스와 어떻게 잇나</td><td>Site-to-Site VPN 또는 Direct Connect</td><td>VPN Gateway 또는 ExpressRoute</td><td>밑단 네트워크(VPC·VNet·물리망)에 위임</td><td>이미 온프레미스임 — 클라우드 쪽으로 터널을 받음</td></tr>
+        <tr data-topic="hybrid"><td>망끼리 전이 연결이 되나</td><td>피어링은 전이 안 됨. TGW 필요</td><td>피어링은 전이 안 됨. 허브+UDR 또는 vWAN</td><td>클러스터 간은 별도 설계 필요</td><td>라우터가 있으므로 자연스럽게 전이됨</td></tr>
+        <tr data-topic="hybrid"><td>대역 겹침이 생기면</td><td>피어링 불가. 재설계 또는 이중 NAT</td><td>피어링 불가. 동일</td><td>클러스터 대역이 겹치면 통신 불가</td><td>NAT로 우회 가능하지만 관리가 복잡해짐</td></tr>
+        <tr data-topic="ops"><td>“왜 안 되지”를 어떻게 조사하나</td><td>플로우 로그 + Reachability Analyzer</td><td>effective NSG/route + Network Watcher</td><td>EndpointSlice → 파드 IP 직접 호출 → 정책 확인</td><td>ARP → traceroute → 방화벽 로그 → 패킷 캡처</td></tr>
+        <tr data-topic="ops"><td>변경 이력이 남나</td><td>CloudTrail에 API 호출 전부 기록</td><td>Activity Log에 기록</td><td>감사 로그 + Git(선언형이라 추적 쉬움)</td><td>장비별 설정 이력. <strong>수동 변경은 흔적이 안 남는 경우도</strong></td></tr>
+        <tr data-topic="ops"><td>재현 가능한가</td><td>Terraform·CloudFormation으로 완전 재현</td><td>Bicep·Terraform으로 완전 재현</td><td>YAML이 곧 상태. 가장 재현성 높음</td><td>장비 설정 백업은 있으나 <strong>전체 재현은 어려움</strong></td></tr>
+        <tr data-topic="cost"><td>무엇에 돈이 나가나</td><td>NAT GW 시간·처리량, 공인 IPv4, 데이터 전송, TGW</td><td>NAT GW, 공용 IP, 대역 간 전송, App Gateway 용량 단위</td><td>밑단 인프라 비용 + LB 개수</td><td>장비 구매·유지보수·상면·전력. 초기 투자가 큼</td></tr>
+        <tr data-topic="cost"><td>흔한 비용 함정</td><td>NAT 게이트웨이 처리량 요금. VPC 엔드포인트로 줄일 수 있음</td><td>지우지 않은 공용 IP와 미사용 App Gateway</td><td>서비스마다 type: LoadBalancer 를 써서 LB가 수십 개</td><td>쓰지 않는 장비의 유지보수 계약 갱신</td></tr>
+        <tr data-topic="cost"><td>용량이 부족하면</td><td>즉시 늘어남 (대부분 자동)</td><td>즉시 늘어남</td><td>노드를 추가하면 즉시</td><td><strong>장비 발주 → 입고 → 설치 → 배선.</strong> 수 주~수 개월</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="emptymsg" id="cmpEmpty">이 주제에 해당하는 항목이 없습니다.</p>
+
+  <div class="call tip">
+    <span class="ttl">표를 다 외울 필요는 없습니다</span>
+    대신 <strong>“기본이 허용인가 차단인가”</strong> 한 줄만 정확히 기억하세요.
+    이 한 줄이 틀리면 보안 사고가 나고, 맞으면 대부분의 설계 실수를 피할 수 있습니다.
+    AWS는 차단, Azure는 VNet 내부 허용, 쿠버네티스는 전면 허용, 온프레미스는 존 간 차단입니다.
+  </div>
+</section>
+
+<section id="scenario">
+  <h2><span class="num">12</span>같은 서비스를 네 곳에 올려보기</h2>
+  <p class="sec-intro">
+    이론을 붙이는 가장 빠른 방법은 하나의 요구사항을 네 환경에 각각 그려 보는 것입니다.
+    요구사항은 이렇습니다. <strong>“HTTPS 웹 서비스. 앱 서버는 인터넷에서 직접 접근 불가.
+    DB는 앱에서만 접근. 앱은 외부 결제 API를 호출해야 함. 장애 시 서비스 중단 없음.”</strong>
+  </p>
+
+  <div class="tabs" data-tabs>
+    <div class="tablist" role="tablist" aria-label="환경별 구성 시나리오">
+      <button class="tab" data-p="aws" role="tab" aria-selected="true" id="t-sc-aws" aria-controls="p-sc-aws">AWS로 구성</button>
+      <button class="tab" data-p="azr" role="tab" aria-selected="false" id="t-sc-azr" aria-controls="p-sc-azr">Azure로 구성</button>
+      <button class="tab" data-p="k8s" role="tab" aria-selected="false" id="t-sc-k8s" aria-controls="p-sc-k8s">쿠버네티스로 구성</button>
+      <button class="tab" data-p="onp" role="tab" aria-selected="false" id="t-sc-onp" aria-controls="p-sc-onp">온프레미스로 구성</button>
+    </div>
+
+    <div class="tabpanel" id="p-sc-aws" role="tabpanel" aria-labelledby="t-sc-aws">
+      <h4>구성 요소</h4>
+      <ol>
+        <li>VPC <code>10.10.0.0/16</code>, 가용 영역 2곳에 퍼블릭·앱·DB 서브넷 각 2개씩 총 6개</li>
+        <li>퍼블릭 서브넷에 <strong>ALB</strong>(443 리스너, ACM 인증서)와 <strong>NAT 게이트웨이 2대</strong>(AZ당 1대)</li>
+        <li>앱 서브넷에 오토스케일링 그룹. 라우트 테이블은 <code>0.0.0.0/0 → 같은 AZ의 NAT GW</code></li>
+        <li>DB 서브넷에 RDS 다중 AZ. 라우트 테이블에 <strong>기본 경로 없음</strong></li>
+        <li>보안 그룹 3개: <code>sg-alb</code>(인터넷 443), <code>sg-app</code>(sg-alb에서 8080), <code>sg-db</code>(sg-app에서 3306)</li>
+      </ol>
+      <h4>요구사항을 어떻게 만족시키나</h4>
+      <ul>
+        <li><strong>앱 직접 접근 차단</strong> — 앱 서브넷에 IGW 경로가 없고, <code>sg-app</code>은 ALB의 보안 그룹만 허용</li>
+        <li><strong>DB 접근 제한</strong> — <code>sg-db</code>가 <code>sg-app</code>을 출발지로 참조. IP를 적지 않음</li>
+        <li><strong>외부 API 호출</strong> — NAT 게이트웨이 경유. 결제사에 등록할 고정 IP는 NAT의 탄력적 IP</li>
+        <li><strong>무중단</strong> — ALB가 AZ 2곳에 걸치고, ASG가 AZ에 분산, RDS는 다중 AZ 자동 전환</li>
+      </ul>
+      <div class="call warn" style="margin-bottom:0">
+        <span class="ttl">빠뜨리기 쉬운 것</span>
+        NAT 게이트웨이를 비용 아끼려고 1대만 두면, 그 AZ가 장애 날 때 반대편 AZ의 앱도 외부 API를 못 부릅니다.
+        무중단 요구가 있으면 <strong>AZ마다 하나씩</strong>이 정답입니다.
+        그리고 S3를 쓴다면 게이트웨이 엔드포인트는 무료이니 반드시 추가하세요.
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-sc-azr" role="tabpanel" aria-labelledby="t-sc-azr" hidden>
+      <h4>구성 요소</h4>
+      <ol>
+        <li>VNet <code>10.20.0.0/16</code>. 서브넷은 <code>snet-agw</code>(App Gateway 전용), <code>snet-app</code>, <code>snet-db</code></li>
+        <li><strong>Application Gateway v2</strong> + WAF, 영역 중복(zone-redundant) 설정, 정적 공용 IP</li>
+        <li><code>snet-app</code>에 VM 확장 집합. 서브넷에 <strong>NAT 게이트웨이</strong> 연결</li>
+        <li>Azure SQL 또는 VM DB. PaaS라면 <strong>Private Endpoint</strong> + 사설 DNS 영역 + VNet 링크</li>
+        <li>NSG 3개와 ASG 3개(<code>asg-agw</code>, <code>asg-app</code>, <code>asg-db</code>)</li>
+      </ol>
+      <h4>요구사항을 어떻게 만족시키나</h4>
+      <ul>
+        <li><strong>앱 직접 접근 차단</strong> — 앱 VM에 공용 IP를 붙이지 않고, NSG에서 <code>asg-agw</code>만 허용. <strong>기본 VNet 허용 규칙을 덮는 Deny 규칙</strong>을 낮은 번호로 추가</li>
+        <li><strong>DB 접근 제한</strong> — <code>asg-app</code>에서 오는 것만 허용. Private Endpoint면 공용 접근을 아예 비활성화</li>
+        <li><strong>외부 API 호출</strong> — NAT 게이트웨이의 공용 IP가 고정 출발지가 됨</li>
+        <li><strong>무중단</strong> — App Gateway를 영역 중복으로, VMSS를 여러 영역에 분산</li>
+      </ul>
+      <div class="call warn" style="margin-bottom:0">
+        <span class="ttl">빠뜨리기 쉬운 것</span>
+        ① App Gateway 전용 서브넷을 미리 안 잡아 두면 나중에 넣을 자리가 없습니다.
+        ② <strong>기본 아웃바운드 폐지</strong> 때문에 NAT 게이트웨이 없이 만든 새 VM은 인터넷에 못 나갑니다.
+        ③ Private Endpoint만 만들고 사설 DNS 영역 링크를 빠뜨리면 여전히 공인 IP로 나갑니다.
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-sc-k8s" role="tabpanel" aria-labelledby="t-sc-k8s" hidden>
+      <h4>구성 요소</h4>
+      <ol>
+        <li>워커 노드 3대 이상, 서로 다른 장애 도메인에 분산</li>
+        <li><strong>Gateway</strong> 하나(443, TLS 인증서) + <code>HTTPRoute</code>로 경로 분기. LoadBalancer 서비스는 이 게이트웨이 하나만</li>
+        <li>앱은 Deployment + ClusterIP 서비스. <code>topologySpreadConstraints</code>로 노드 분산</li>
+        <li>DB는 클러스터 밖의 관리형 DB를 권장. 클러스터 안이라면 StatefulSet + 헤드리스 서비스</li>
+        <li>NetworkPolicy: 네임스페이스 기본 차단 + 게이트웨이→앱, 앱→DB, 전체→CoreDNS</li>
+      </ol>
+      <h4>요구사항을 어떻게 만족시키나</h4>
+      <ul>
+        <li><strong>앱 직접 접근 차단</strong> — 앱 서비스는 ClusterIP만. NetworkPolicy로 게이트웨이 네임스페이스에서 오는 것만 허용</li>
+        <li><strong>DB 접근 제한</strong> — 파드 라벨 <code>app: api</code>에서 오는 5432만 허용</li>
+        <li><strong>외부 API 호출</strong> — 노드 SNAT로 나감. 고정 IP가 필요하면 밑단 NAT 게이트웨이의 IP를 등록하거나 이그레스 게이트웨이를 둠</li>
+        <li><strong>무중단</strong> — 레플리카를 노드에 분산하고 <code>PodDisruptionBudget</code>을 설정. readiness 프로브를 제대로 구현</li>
+      </ul>
+      <div class="call warn" style="margin-bottom:0">
+        <span class="ttl">빠뜨리기 쉬운 것</span>
+        ① <strong>default-deny를 걸고 DNS를 안 열면</strong> 모든 것이 동시에 멈춥니다. CoreDNS로 가는 53 허용을 먼저 넣으세요.
+        ② 서비스마다 <code>type: LoadBalancer</code>를 쓰면 클라우드 LB가 서비스 수만큼 생겨 요금이 폭증합니다.
+        ③ ingress-nginx를 쓰고 있다면 유지보수 종료 대상이니 이전 계획을 세워야 합니다.
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-sc-onp" role="tabpanel" aria-labelledby="t-sc-onp" hidden>
+      <h4>구성 요소</h4>
+      <ol>
+        <li>VLAN 3개: <code>VLAN 10</code> DMZ(웹), <code>VLAN 20</code> 앱, <code>VLAN 30</code> DB. 각 VLAN의 게이트웨이는 코어 스위치의 VRRP 가상 IP</li>
+        <li>방화벽 HA 쌍. 존 정의: Untrust · DMZ · Internal · DB · Management</li>
+        <li>F5 BIG-IP HA 쌍에 VIP <code>203.0.113.10:443</code>. SSL 오프로드 후 웹 풀로 분배</li>
+        <li>하이퍼바이저 호스트는 ToR 스위치 두 대에 LACP 본딩. 트렁크로 VLAN 10·20·30 전달</li>
+        <li>포트그룹 3개를 만들고 VM을 역할에 맞는 포트그룹에 연결</li>
+      </ol>
+      <h4>요구사항을 어떻게 만족시키나</h4>
+      <ul>
+        <li><strong>앱 직접 접근 차단</strong> — 앱 VM은 VLAN 20에만 있고 공인 IP가 없음. 방화벽이 Untrust→Internal 직접 통행을 거부</li>
+        <li><strong>DB 접근 제한</strong> — Internal→DB 존 정책에 3306만 등록. 나머지는 기본 거부</li>
+        <li><strong>외부 API 호출</strong> — 방화벽 PAT로 나감. 결제사에 방화벽 공인 IP를 등록</li>
+        <li><strong>무중단</strong> — 모든 계층이 쌍으로. 회선 2개, 방화벽 HA, F5 HA, 코어 VRRP, ToR MLAG, 서버 본딩. <strong>VM은 서로 다른 물리 호스트에 배치</strong></li>
+      </ul>
+      <div class="call warn" style="margin-bottom:0">
+        <span class="ttl">빠뜨리기 쉬운 것</span>
+        ① 이중화 VM 두 대가 <strong>같은 물리 호스트</strong>에 올라가 있으면 이중화가 아닙니다. 안티어피니티 규칙을 거세요.
+        ② 새 VLAN을 ToR 트렁크에 허용하지 않아 통신이 안 되는 사고가 1순위입니다.
+        ③ 방화벽 정책 신청에 리드타임이 있으니 <strong>구축 일정에 미리 반영</strong>하세요.
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="trouble">
+  <h2><span class="num">13</span>장애 대응 플레이북</h2>
+  <p class="sec-intro">
+    “네트워크가 안 돼요”라는 신고를 받았을 때, 증상에 따라 어디부터 볼지 정리했습니다.
+    순서가 중요합니다. <strong>범위를 절반씩 잘라 나가는 것</strong>이 핵심이고,
+    이건 네 환경 모두 같습니다.
+  </p>
+
+  <details class="acc">
+    <summary>증상 1 — 접속이 “거부됨(refused)”으로 즉시 실패한다</summary>
+    <div class="acc-body">
+      <p><strong>해석:</strong> 패킷은 목적지까지 도달했습니다. 방화벽 문제가 아닙니다.
+      목적지에서 그 포트를 듣고 있는 프로세스가 없다는 뜻입니다.</p>
+      <ol>
+        <li>서버에 들어가 <code>ss -tlnp</code>로 실제 리스닝 포트 확인</li>
+        <li><code>127.0.0.1</code>에만 바인딩되어 있지 않은지 확인 — <code>0.0.0.0</code>이어야 외부에서 접속됩니다</li>
+        <li>쿠버네티스라면 <code>targetPort</code>와 컨테이너의 실제 포트가 같은지 확인</li>
+        <li>애플리케이션 로그에서 기동 실패가 없는지 확인</li>
+      </ol>
+      <p style="margin-bottom:0"><strong>네트워크 담당을 부를 필요가 없는 증상입니다.</strong> 앱이나 서버 쪽 문제입니다.</p>
+    </div>
+  </details>
+
+  <details class="acc">
+    <summary>증상 2 — 접속이 한참 기다리다 타임아웃된다</summary>
+    <div class="acc-body">
+      <p><strong>해석:</strong> 패킷이 중간 어딘가에서 조용히 버려지고 있습니다. 방화벽이나 라우팅 문제입니다.</p>
+      <ol>
+        <li><strong>경로부터</strong> — 출발지 서브넷·VLAN에 목적지로 가는 경로가 있는가</li>
+        <li><strong>방화벽</strong> — 양방향 모두 확인. <span class="p-aws">AWS</span>는 SG와 NACL 둘 다, <span class="p-azr">Azure</span>는 <code>list-effective-nsg</code>, <span class="p-k8s">K8s</span>는 NetworkPolicy, <span class="p-onp">온프레미스</span>는 존 정책</li>
+        <li><strong>로그 확인</strong> — 플로우 로그에 REJECT가 찍히면 방화벽, 아무것도 없으면 라우팅</li>
+        <li><strong>중간 지점에서 확인</strong> — 같은 서브넷의 다른 서버에서 시도해 범위를 좁힙니다</li>
+      </ol>
+      <p style="margin-bottom:0"><strong>요령:</strong> “되는 곳”과 “안 되는 곳”의 차이점을 찾는 게 가장 빠릅니다.
+      같은 서브넷의 다른 서버는 되는가? 다른 포트는 되는가? 어제는 됐는가?</p>
+    </div>
+  </details>
+
+  <details class="acc">
+    <summary>증상 3 — 이름으로는 안 되는데 IP로는 된다</summary>
+    <div class="acc-body">
+      <p><strong>해석:</strong> 순수 DNS 문제입니다. 네트워크 경로는 정상입니다.</p>
+      <ol>
+        <li><code>nslookup</code> 또는 <code>dig</code>로 실제 응답 확인. 응답 자체가 없는지, 틀린 IP가 오는지 구분</li>
+        <li><span class="p-aws">AWS</span> — 프라이빗 호스팅 영역이 해당 VPC에 연결되어 있는가. VPC의 <code>enableDnsSupport</code>가 켜져 있는가</li>
+        <li><span class="p-azr">Azure</span> — Private Endpoint용 사설 DNS 영역에 <strong>VNet 링크</strong>가 걸려 있는가</li>
+        <li><span class="p-k8s">K8s</span> — CoreDNS 파드가 살아 있는가(<code>kubectl -n kube-system get pod -l k8s-app=kube-dns</code>). NetworkPolicy가 53을 막고 있지 않은가</li>
+        <li><span class="p-onp">온프레미스</span> — <code>/etc/resolv.conf</code>의 DNS 서버가 맞는가. 레코드가 남아 있는 유령 서버는 아닌가</li>
+      </ol>
+      <p style="margin-bottom:0"><strong>캐시에 주의하세요.</strong> TTL 때문에 고친 뒤에도 한동안 옛날 답이 옵니다. 테스트할 때는 <code>dig +trace</code>나 권한 서버 직접 조회로 확인하세요.</p>
+    </div>
+  </details>
+
+  <details class="acc">
+    <summary>증상 4 — 가끔씩만 실패한다 (간헐적 장애)</summary>
+    <div class="acc-body">
+      <p><strong>해석:</strong> 가장 골치 아픈 유형입니다. 원인은 대개 “여러 개 중 하나가 고장” 또는 “한계에 도달”입니다.</p>
+      <ul>
+        <li><strong>백엔드 중 하나만 고장</strong> — 로드밸런서 뒤 서버 4대 중 1대만 이상하면 25% 확률로 실패합니다. 각 백엔드에 직접 요청해 보세요</li>
+        <li><strong>SNAT 포트 고갈</strong> — 트래픽이 몰릴 때만 실패합니다. <span class="p-aws">AWS</span>의 <code>ErrorPortAllocation</code>, <span class="p-azr">Azure</span>의 SNAT 고갈 지표를 확인하세요</li>
+        <li><strong>커넥션 수 한계</strong> — 방화벽·LB의 동시 세션 한계에 걸렸을 수 있습니다</li>
+        <li><strong>DNS 라운드로빈에 죽은 IP 포함</strong> — 여러 A 레코드 중 하나가 유령이면 간헐적으로 실패합니다</li>
+        <li><strong>MTU 불일치</strong> — 작은 요청은 되고 큰 응답만 멈춥니다. 매우 특징적인 증상입니다</li>
+        <li><strong>이중화 장비 중 한 쪽만 설정 누락</strong> — 온프레미스에서 흔합니다. Active/Standby 전환 시에만 실패합니다</li>
+      </ul>
+      <p style="margin-bottom:0"><strong>실패 패턴을 기록하세요.</strong> 몇 %가 실패하는지, 특정 시간대인지, 특정 크기 이상에서만인지를 알면 원인이 좁혀집니다.</p>
+    </div>
+  </details>
+
+  <details class="acc">
+    <summary>증상 5 — 작은 요청은 되는데 큰 파일 전송이 멈춘다</summary>
+    <div class="acc-body">
+      <p><strong>해석:</strong> 거의 확실히 MTU 문제입니다. TCP 연결은 맺어지는데 큰 패킷만 사라집니다.</p>
+      <ol>
+        <li><code>ping -M do -s 1472 대상</code>으로 조각화 없이 1500바이트가 가는지 확인</li>
+        <li>실패하면 크기를 줄여 가며 경로의 실제 MTU를 찾습니다(1400, 1350, 1300…)</li>
+        <li>원인 후보: VPN·VXLAN 터널의 캡슐화 오버헤드, 오버레이 CNI, 경로상 ICMP 차단</li>
+        <li><strong>근본 원인은 대개 ICMP 차단</strong>입니다. 경로 MTU 탐색은 ICMP “Fragmentation Needed” 메시지에 의존하는데, 이걸 막아 두면 송신 측이 크기를 줄일 줄 모릅니다</li>
+        <li>임시 해결: 인터페이스 MTU를 낮추거나 TCP MSS 클램핑 적용. 근본 해결: 해당 ICMP 타입을 허용</li>
+      </ol>
+      <p style="margin-bottom:0"><strong>ICMP를 전부 막는 건 보안이 아니라 장애 원인입니다.</strong> Type 3 Code 4는 반드시 허용하세요.</p>
+    </div>
+  </details>
+
+  <details class="acc">
+    <summary>증상 6 — 어제까지 되던 게 오늘 안 된다</summary>
+    <div class="acc-body">
+      <p><strong>해석:</strong> 무언가 바뀌었습니다. 원인 추적보다 <strong>변경 찾기</strong>가 빠릅니다.</p>
+      <ol>
+        <li><span class="p-aws">AWS</span> CloudTrail, <span class="p-azr">Azure</span> Activity Log에서 최근 24시간 네트워크 관련 변경 조회</li>
+        <li><span class="p-k8s">K8s</span>는 <code>kubectl get events -A --sort-by=.lastTimestamp</code>와 Git 커밋 이력</li>
+        <li><span class="p-onp">온프레미스</span>는 변경 관리 대장과 장비 설정 백업 비교(<code>diff</code>)</li>
+        <li>인증서 만료도 의심하세요. “갑자기 안 됨”의 흔한 원인이고 날짜가 딱 떨어집니다</li>
+        <li>클라우드 제공자의 상태 페이지와 공지도 확인하세요. 오늘 본 <strong>기본 아웃바운드 폐지</strong> 같은 정책 변경이 실제로 있습니다</li>
+      </ol>
+      <p style="margin-bottom:0"><strong>“아무것도 안 바꿨는데요”는 대부분 사실이 아닙니다.</strong> 다른 팀의 변경, 자동 배포, 만료된 무언가를 찾으세요.</p>
+    </div>
+  </details>
+</section>
+
+<section id="mistakes">
+  <h2><span class="num">14</span>신입이 자주 밟는 지뢰</h2>
+  <p class="sec-intro">
+    실제 현장에서 반복적으로 나오는 실수들입니다. 미리 읽어 두면 한 번은 피할 수 있습니다.
+  </p>
+
+  <div class="g2">
+    <div class="cell" data-p="aws">
+      <h5>AWS</h5>
+      <ul>
+        <li>라우트 테이블을 만들고 <strong>서브넷에 연결하지 않음</strong></li>
+        <li>NAT 게이트웨이를 1대만 두고 무중단이라고 생각함</li>
+        <li>보안 그룹에 IP를 하드코딩해 서버가 늘 때마다 수정</li>
+        <li>NACL을 건드려 놓고 SG만 보며 디버깅</li>
+        <li>S3 게이트웨이 엔드포인트를 안 만들어 NAT 요금 폭탄</li>
+        <li>ALB에 고정 IP가 없다는 걸 모르고 고객사에 IP를 알려 줌</li>
+      </ul>
+    </div>
+    <div class="cell" data-p="azr">
+      <h5>Azure</h5>
+      <ul>
+        <li>VNet 안에서는 기본 통신이 된다는 걸 몰라 <strong>분리했다고 착각</strong></li>
+        <li>NAT 게이트웨이 없이 새 VM을 만들고 인터넷이 안 된다고 함</li>
+        <li>Private Endpoint만 만들고 <strong>사설 DNS 영역 링크를 빠뜨림</strong></li>
+        <li>App Gateway·Bastion 전용 서브넷 자리를 안 남겨 둠</li>
+        <li>VM을 지웠는데 NIC과 공용 IP가 남아 계속 과금</li>
+        <li>NSG 우선순위를 65000보다 크게 줘서 기본 규칙에 먼저 걸림</li>
+      </ul>
+    </div>
+    <div class="cell" data-p="k8s">
+      <h5>Kubernetes</h5>
+      <ul>
+        <li>파드·서비스 CIDR이 사내망과 겹침 (재구축 외 방법 없음)</li>
+        <li>서비스 <code>selector</code> 오타로 EndpointSlice가 비어 있음</li>
+        <li>default-deny를 걸고 <strong>DNS를 안 열어</strong> 전면 장애</li>
+        <li>Flannel을 쓰면서 NetworkPolicy가 적용될 거라고 믿음</li>
+        <li>서비스마다 <code>type: LoadBalancer</code>를 써서 LB 요금 폭증</li>
+        <li>readiness 프로브를 구현 안 해 배포 때마다 순단</li>
+      </ul>
+    </div>
+    <div class="cell" data-p="onp">
+      <h5>온프레미스</h5>
+      <ul>
+        <li>새 VLAN을 ToR 트렁크에 <strong>허용하지 않음</strong> (1순위 원인)</li>
+        <li>이중화 VM 두 대가 같은 물리 호스트에 있음</li>
+        <li>관리 네트워크를 서비스망과 섞어 씀</li>
+        <li>MTU를 한쪽만 9000으로 바꿔 큰 전송이 멈춤</li>
+        <li>서버를 없앴는데 DNS 레코드와 F5 풀 멤버가 남음</li>
+        <li>방화벽 정책 리드타임을 일정에 반영하지 않음</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>구축 전 체크리스트</h3>
+  <p>새 환경을 설계할 때 이 항목들을 훑어보세요. 진행 상황은 브라우저에 저장됩니다.</p>
+  <ul class="check" id="checklist">
+    <li><label><input type="checkbox" data-k="c1"><span><b>대역 등록</b> — 쓸 CIDR을 회사 전체 IP 관리표에 등록하고 겹치지 않는지 확인했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c2"><span><b>여유 공간</b> — 대역의 최소 절반을 미래를 위해 비워 뒀다</span></label></li>
+    <li><label><input type="checkbox" data-k="c3"><span><b>쿠버네티스 3대역</b> — 노드·파드·서비스 CIDR을 각각 정하고 사내망과 겹치지 않음을 확인했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c4"><span><b>특수 서브넷</b> — 게이트웨이·방화벽·Bastion·App Gateway용 자리를 미리 잡았다</span></label></li>
+    <li><label><input type="checkbox" data-k="c5"><span><b>아웃바운드 경로</b> — 인터넷으로 나가는 방법을 명시적으로 정했다 (Azure는 필수)</span></label></li>
+    <li><label><input type="checkbox" data-k="c6"><span><b>고정 출발지 IP</b> — 외부 연동처에 등록할 IP가 무엇인지 정하고 고정했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c7"><span><b>장애 도메인 분산</b> — 모든 계층이 최소 2개의 가용 영역·랙·호스트에 걸쳐 있다</span></label></li>
+    <li><label><input type="checkbox" data-k="c8"><span><b>기본 차단</b> — 방화벽 기본값을 확인하고, 필요한 것만 여는 구조로 설계했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c9"><span><b>DNS 허용</b> — 차단 정책을 걸었다면 DNS 경로를 명시적으로 열었다</span></label></li>
+    <li><label><input type="checkbox" data-k="c10"><span><b>역할 기반 정책</b> — IP 대신 보안 그룹·ASG·라벨로 정책을 작성했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c11"><span><b>관리망 분리</b> — 원격 관리·스토리지 네트워크를 서비스망과 분리했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c12"><span><b>관측 준비</b> — 플로우 로그를 켜고 저장 위치와 보존 기간을 정했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c13"><span><b>비용 점검</b> — NAT·LB·엔드포인트 개수와 예상 요금을 계산했다</span></label></li>
+    <li><label><input type="checkbox" data-k="c14"><span><b>코드화</b> — 전체 구성을 Terraform·Bicep·YAML로 재현할 수 있다</span></label></li>
+    <li><label><input type="checkbox" data-k="c15"><span><b>인수인계 문서</b> — 대역표·경로도·정책 목록을 한 곳에 정리했다</span></label></li>
+  </ul>
+</section>
+
+<hr class="rule">
+
+<section id="glossary">
+  <h2><span class="num">15</span>용어 사전</h2>
+  <p class="sec-intro">
+    회의에서 나왔을 때 “그게 뭐죠?”라고 묻기 애매한 단어들을 모았습니다. 검색으로 바로 찾으세요.
+  </p>
+  <label for="glSearch" style="display:block;font-size:13.5px;color:var(--fg-dim);margin-bottom:2px">용어 검색</label>
+  <input class="search" id="glSearch" type="search" placeholder="예: ARP, MTU, SNAT, VRRP, EndpointSlice" autocomplete="off">
+  <dl id="glossaryList">
+    <div class="term"><dt>ARP<span class="en">Address Resolution Protocol</span></dt><dd>같은 L2 구간에서 <b>IP 주소로 MAC 주소를 알아내는</b> 절차입니다. 게이트웨이 ARP가 안 풀리면 VLAN·포트그룹·케이블 문제이고, 풀리는데 통신이 안 되면 그 위 계층 문제입니다. 장애 조사에서 범위를 반으로 가르는 첫 단계입니다.</dd></div>
+    <div class="term"><dt>ASG<span class="en">Application Security Group</span></dt><dd>Azure에서 VM의 NIC에 붙이는 <b>논리적 그룹 태그</b>입니다. NSG 규칙에서 IP 대신 이 이름을 쓰면 서버가 늘어나도 규칙을 고칠 필요가 없습니다. AWS의 보안 그룹 참조에 해당합니다.</dd></div>
+    <div class="term"><dt>BGP<span class="en">Border Gateway Protocol</span></dt><dd>서로 다른 조직의 네트워크가 <b>경로 정보를 주고받는</b> 프로토콜입니다. 인터넷 전체가 이걸로 돌아갑니다. 온프레미스 경계 라우터, Direct Connect·ExpressRoute, Calico의 라우팅 모드, MetalLB의 BGP 모드가 모두 BGP를 씁니다.</dd></div>
+    <div class="term"><dt>CIDR<span class="en">Classless Inter-Domain Routing</span></dt><dd><code>10.0.0.0/16</code> 같은 표기법입니다. 슬래시 뒤 숫자는 <b>앞에서부터 몇 비트가 네트워크인지</b>를 뜻합니다. 숫자가 작을수록 큰 대역입니다.</dd></div>
+    <div class="term"><dt>CNI<span class="en">Container Network Interface</span></dt><dd>쿠버네티스가 정한 <b>네트워크 플러그인 규격</b>입니다. 쿠버네티스 자신은 네트워크를 구현하지 않고, Calico·Cilium·Flannel 같은 CNI가 실제 동작을 담당합니다. 클러스터의 성격을 결정하는 가장 중요한 선택입니다.</dd></div>
+    <div class="term"><dt>CoreDNS</dt><dd>쿠버네티스 클러스터 안의 <b>DNS 서버</b>입니다. <code>서비스명.네임스페이스.svc.cluster.local</code> 형식의 이름을 ClusterIP로 바꿔 줍니다. 여기가 멈추면 클러스터 전체가 동시에 고장 난 것처럼 보입니다.</dd></div>
+    <div class="term"><dt>DMZ<span class="en">Demilitarized Zone</span></dt><dd>인터넷과 내부망 사이에 둔 <b>완충 구역</b>입니다. 웹 서버나 리버스 프록시처럼 외부에 노출해야 하는 것만 여기 두고, DMZ에서 내부망으로 가는 통신은 엄격히 제한합니다.</dd></div>
+    <div class="term"><dt>ECMP<span class="en">Equal-Cost Multi-Path</span></dt><dd>비용이 같은 경로가 여러 개일 때 <b>트래픽을 나눠 보내는</b> 기법입니다. 스파인-리프 구조에서 모든 링크를 동시에 쓸 수 있게 해 주는 핵심 기술입니다.</dd></div>
+    <div class="term"><dt>ENI<span class="en">Elastic Network Interface</span></dt><dd>AWS의 가상 랜카드입니다. 사설 IP, 보안 그룹, MAC 주소를 갖고 있고 인스턴스와 <b>별개로 존재</b>합니다. 인스턴스를 바꿔도 ENI를 옮겨 붙이면 IP와 정책이 그대로 따라갑니다.</dd></div>
+    <div class="term"><dt>EndpointSlice</dt><dd>쿠버네티스 Service 뒤에 실제로 붙어 있는 <b>파드 IP 목록</b>입니다. 예전의 Endpoints를 대체했습니다. “서비스 접속 안 됨” 장애에서 가장 먼저 확인할 대상이고, 비어 있다면 라벨 오타이거나 파드가 Ready가 아닌 것입니다.</dd></div>
+    <div class="term"><dt>Gateway API</dt><dd>쿠버네티스의 <b>차세대 트래픽 진입 규격</b>입니다. GatewayClass(인프라), Gateway(운영자), HTTPRoute(앱팀)로 역할을 나눠 어노테이션 범벅이던 Ingress의 문제를 해결했습니다. ingress-nginx 유지보수 종료 이후의 표준 경로입니다.</dd></div>
+    <div class="term"><dt>ICMP</dt><dd>ping과 traceroute가 쓰는 프로토콜이자, <b>네트워크가 문제를 알려 주는 통로</b>입니다. 보안을 이유로 전부 막으면 경로 MTU 탐색이 깨져 큰 전송이 멈춥니다. 최소한 Type 3 Code 4는 허용해야 합니다.</dd></div>
+    <div class="term"><dt>IGW<span class="en">Internet Gateway</span></dt><dd>AWS VPC를 인터넷에 잇는 관문입니다. 만들기만 해서는 안 되고 <b>VPC에 붙이고 라우트 테이블에 경로를 추가</b>해야 동작합니다. 대역폭 제한이 없고 요금도 없습니다.</dd></div>
+    <div class="term"><dt>LACP<span class="en">Link Aggregation Control Protocol</span></dt><dd>여러 물리 링크를 <b>하나의 논리 링크로 묶는</b> 표준입니다. 서버와 스위치 양쪽에 설정이 필요합니다. 대역폭이 합쳐지지만 <b>한 TCP 세션은 한 가닥만</b> 쓴다는 점을 기억하세요.</dd></div>
+    <div class="term"><dt>MetalLB</dt><dd>클라우드가 아닌 환경에서 <code>type: LoadBalancer</code> 서비스를 동작하게 해 주는 도구입니다. L2 모드는 한 노드가 ARP로 VIP를 대표하고, BGP 모드는 여러 노드가 라우터에 광고해 실제로 분산됩니다.</dd></div>
+    <div class="term"><dt>MLAG</dt><dd>스위치 두 대가 <b>한 대인 척</b> 동작해 서버가 양쪽에 동시에 LACP로 묶일 수 있게 하는 기술입니다. 벤더마다 이름이 다릅니다(vPC, MC-LAG, Stacking).</dd></div>
+    <div class="term"><dt>MTU<span class="en">Maximum Transmission Unit</span></dt><dd>한 번에 보낼 수 있는 <b>최대 패킷 크기</b>입니다. 이더넷 기본값은 1500바이트입니다. VPN이나 VXLAN이 헤더를 덧붙이면 실제 쓸 수 있는 크기가 줄어들고, 이게 맞지 않으면 “작은 건 되는데 큰 건 멈추는” 특유의 증상이 납니다.</dd></div>
+    <div class="term"><dt>NACL<span class="en">Network ACL</span></dt><dd>AWS의 서브넷 단위 방화벽입니다. <b>무상태</b>라서 응답 트래픽도 별도로 허용해야 하고, 번호 순으로 평가해 첫 매치에서 멈춥니다. 실무에서는 대개 기본값 그대로 둡니다.</dd></div>
+    <div class="term"><dt>NAT 게이트웨이</dt><dd>사설 IP만 가진 서버가 인터넷에 나갈 수 있게 <b>출발지 주소를 공인 IP로 바꿔 주는</b> 관리형 장비입니다. 안에서 밖으로만 가능하고 밖에서 안으로는 못 들어옵니다. 시간당 요금과 처리량 요금이 모두 붙습니다.</dd></div>
+    <div class="term"><dt>ndots</dt><dd>파드의 <code>resolv.conf</code>에 있는 옵션으로, <b>점이 몇 개 미만이면 검색 도메인을 붙여 볼지</b>를 정합니다. 기본값 5 때문에 외부 도메인 조회가 여러 번 실패한 뒤에야 성공해 느려집니다.</dd></div>
+    <div class="term"><dt>NetworkPolicy</dt><dd>쿠버네티스에서 파드 간 통신을 제한하는 객체입니다. IP가 아니라 <b>라벨</b>로 대상을 지정합니다. CNI가 지원하지 않으면 객체를 만들어도 <b>조용히 무시</b>된다는 점이 가장 중요합니다.</dd></div>
+    <div class="term"><dt>NSG<span class="en">Network Security Group</span></dt><dd>Azure의 방화벽입니다. 서브넷과 NIC 양쪽에 붙일 수 있고 둘 다 통과해야 합니다. <b>우선순위 번호가 낮은 규칙부터</b> 평가하며 첫 매치에서 멈춥니다. 허용과 거부를 모두 쓸 수 있습니다.</dd></div>
+    <div class="term"><dt>PAT<span class="en">Port Address Translation</span></dt><dd>여러 사설 IP가 <b>공인 IP 하나를 포트로 나눠 쓰는</b> 방식입니다. 가정용 공유기가 하는 일이 이것이고, 온프레미스 방화벽의 아웃바운드도 같습니다. NAT 과부하라고도 부릅니다.</dd></div>
+    <div class="term"><dt>PrivateLink · Private Endpoint</dt><dd>외부 서비스를 <b>내 네트워크 안의 사설 IP로 끌어오는</b> 기능입니다. 인터넷을 거치지 않고, 대역이 겹쳐도 문제가 없습니다. Azure에서는 반드시 사설 DNS 영역까지 연결해야 효과가 납니다.</dd></div>
+    <div class="term"><dt>SNAT · DNAT</dt><dd>SNAT는 <b>출발지</b> 주소를 바꾸는 것(안→밖), DNAT는 <b>목적지</b> 주소를 바꾸는 것(밖→안)입니다. 로드밸런서와 쿠버네티스 Service의 본질이 DNAT입니다.</dd></div>
+    <div class="term"><dt>STP<span class="en">Spanning Tree Protocol</span></dt><dd>L2 네트워크에서 <b>루프를 막기 위해 일부 링크를 차단</b>하는 프로토콜입니다. 안전하지만 링크의 절반이 놀게 되어, 요즘 데이터센터는 스파인-리프와 L3 라우팅으로 대체하는 추세입니다.</dd></div>
+    <div class="term"><dt>Transit Gateway · Virtual WAN</dt><dd>여러 네트워크를 <b>허브 하나에 모아</b> 연결하는 관리형 서비스입니다. 피어링이 전이되지 않는 한계를 해결합니다. 연결 수와 처리량에 따라 요금이 붙으므로 규모를 먼저 계산하세요.</dd></div>
+    <div class="term"><dt>UDR<span class="en">User Defined Route</span></dt><dd>Azure에서 기본 시스템 라우트를 <b>덮어쓰기 위해</b> 만드는 사용자 정의 경로입니다. “모든 트래픽을 방화벽으로 보내라” 같은 요구를 구현할 때 씁니다.</dd></div>
+    <div class="term"><dt>veth 페어<span class="en">virtual ethernet pair</span></dt><dd>리눅스의 <b>가상 랜 케이블 한 쌍</b>입니다. 한쪽은 파드 안의 <code>eth0</code>, 다른 쪽은 노드의 네트워크 공간에 놓여 파드와 노드를 잇습니다. 컨테이너 네트워킹의 기본 부품입니다.</dd></div>
+    <div class="term"><dt>VIP<span class="en">Virtual IP</span></dt><dd>특정 장비 하나가 아니라 <b>서비스를 대표하는 주소</b>입니다. 로드밸런서의 서비스 주소, VRRP의 게이트웨이 주소, 쿠버네티스의 ClusterIP가 모두 VIP입니다.</dd></div>
+    <div class="term"><dt>VLAN</dt><dd>물리적으로 같은 스위치에 있어도 <b>논리적으로 네트워크를 나누는</b> 기술입니다. 프레임에 12비트 태그를 붙여 구분하며 최대 4094개까지 만들 수 있습니다. 클라우드의 서브넷에 해당합니다.</dd></div>
+    <div class="term"><dt>VRRP · HSRP</dt><dd>라우터나 스위치 <b>두 대가 게이트웨이 IP 하나를 함께 맡는</b> 프로토콜입니다. 한 대가 죽으면 나머지가 즉시 그 IP를 이어받아 서버들은 아무것도 몰라도 됩니다.</dd></div>
+    <div class="term"><dt>VXLAN</dt><dd>L3 네트워크 위로 <b>L2 구간을 확장</b>하는 오버레이 기술입니다. 24비트 식별자로 1,600만 개의 논리 네트워크를 만들 수 있습니다. 헤더 50바이트가 붙으므로 MTU 설계가 필수입니다.</dd></div>
+    <div class="term"><dt>X-Forwarded-For</dt><dd>L7 프록시가 <b>원래 클라이언트 IP를 담아 전달하는</b> HTTP 헤더입니다. 앱이 이 헤더를 읽도록 설정해야 실제 사용자 IP가 로그에 남습니다. 위조가 가능하므로 신뢰하는 프록시에서 온 값만 받아야 합니다.</dd></div>
+    <div class="term"><dt>가용 영역<span class="en">Availability Zone</span></dt><dd>같은 리전 안에서 <b>전원·냉각·네트워크가 독립된</b> 데이터센터 묶음입니다. 하나가 통째로 죽어도 나머지가 살아남도록 설계된 단위이고, 온프레미스의 랙·전원 계통에 해당합니다.</dd></div>
+    <div class="term"><dt>상태 저장 방화벽<span class="en">stateful firewall</span></dt><dd>나간 연결을 기억해 두었다가 <b>돌아오는 응답을 자동으로 허용</b>하는 방화벽입니다. AWS 보안 그룹, Azure NSG, 대부분의 물리 방화벽이 여기 속합니다. 반대로 AWS NACL은 무상태입니다.</dd></div>
+    <div class="term"><dt>점보 프레임<span class="en">jumbo frame</span></dt><dd>MTU를 9000바이트로 키운 프레임입니다. 대용량 전송과 스토리지 네트워크에서 효율이 좋아집니다. <b>경로상의 모든 장비가 같이 설정</b>되어야 하고, 한 곳이라도 빠지면 장애가 납니다.</dd></div>
+    <div class="term"><dt>최장 일치<span class="en">longest prefix match</span></dt><dd>라우팅 규칙이 여러 개 걸릴 때 <b>프리픽스가 더 긴 쪽이 이기는</b> 규칙입니다. <code>0.0.0.0/0</code>이 항상 마지막에 적용되는 이유입니다.</dd></div>
+  </dl>
+  <p class="emptymsg" id="glEmpty">검색어와 일치하는 용어가 없습니다.</p>
+</section>
+
+<section id="quiz">
+  <h2><span class="num">16</span>퀴즈 12문항</h2>
+  <p class="sec-intro">
+    실제로 현장에서 마주치는 상황으로 냈습니다. 틀려도 괜찮습니다.
+    해설을 읽고 해당 절로 돌아가면 그 부분이 확실히 남습니다.
+  </p>
+
+  <div class="score" id="scoreBox" hidden>
+    <span class="big" id="scoreNum">0 / 12</span>
+    <span id="scoreMsg"></span>
+    <button class="btn" id="quizReset" style="margin-left:auto">다시 풀기</button>
+  </div>
+
+  <div id="quizWrap"></div>
+</section>
+
+<section id="next">
+  <h2><span class="num">17</span>여기까지 왔다면</h2>
+  <p class="sec-intro">
+    네 환경의 구조를 한 번씩 훑었습니다. 이제 중요한 건 <strong>손으로 만들어 보는 것</strong>입니다.
+    읽어서 아는 것과 만들어 본 것의 차이는 장애가 났을 때 드러납니다.
+  </p>
+
+  <h3>다음에 해 볼 것</h3>
+  <ol>
+    <li><strong>가장 익숙한 환경에서 3계층을 직접 만들어 보세요.</strong> 콘솔 말고 코드로요. 만들고 지우고를 세 번만 반복하면 구조가 손에 붙습니다.</li>
+    <li><strong>일부러 고장 내 보세요.</strong> 라우트 한 줄을 지우고, 보안 그룹 한 줄을 막고, 어떤 증상이 나는지 관찰하세요. 이게 가장 빠른 장애 대응 훈련입니다.</li>
+    <li><strong>담당 중인 환경의 네트워크 구성도를 직접 그려 보세요.</strong> 그리다 보면 모르는 부분이 반드시 나옵니다. 그 부분이 다음에 공부할 것입니다.</li>
+    <li><strong>플로우 로그를 켜고 한 번 읽어 보세요.</strong> 평소 트래픽이 어떻게 생겼는지 알아야 이상한 때를 알아챌 수 있습니다.</li>
+  </ol>
+
+  <h3>운영 중인 환경이라면 지금 확인할 것</h3>
+  <div class="g2">
+    <div class="cell">
+      <h5>보안</h5>
+      <ul>
+        <li>인터넷에 열려 있는 포트 목록을 뽑아 보기</li>
+        <li><code>0.0.0.0/0</code>으로 열린 SSH·RDP가 있는지</li>
+        <li>관리 인터페이스가 서비스망에 섞여 있지 않은지</li>
+        <li>클러스터의 인그레스 컨트롤러 종류와 지원 상태</li>
+      </ul>
+    </div>
+    <div class="cell">
+      <h5>안정성</h5>
+      <ul>
+        <li>단일 장애점이 남아 있는 계층 찾기 (NAT 1대, LB 1대 등)</li>
+        <li>인증서 만료일 목록 만들기</li>
+        <li>대역 사용률 — 남은 IP가 얼마나 되는지</li>
+        <li>이중화 장비 양쪽 설정이 같은지 대조</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="call tip">
+    <span class="ttl">마지막으로</span>
+    네트워크는 <strong>평소에 아무도 칭찬하지 않다가 문제가 생기면 모두가 쳐다보는</strong> 영역입니다.
+    그래서 잘하는 사람의 가치가 큽니다. 위의 네 가지 환경 중 두 개만 자신 있게 설명할 수 있어도
+    현장에서 드문 인재입니다. 하나씩 늘려 가세요.
+  </div>
+
+  <div class="foot">
+    <p style="margin-bottom:6px">네트워크 4종 비교 — AWS · Azure · Kubernetes · 온프레미스</p>
+    <p style="margin:0;color:var(--fg-faint);font-size:13.6px">
+      제품 사양과 정책은 계속 바뀝니다. 특히 요금, 서비스 한도, 기본 동작은
+      실제 적용 전에 각 제공자의 최신 공식 문서를 확인하세요.
+    </p>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ── 안전한 로컬 저장 ────────────────────────────────── */
+  var store = {
+    get: function(k){ try { return window.localStorage.getItem(k); } catch(e){ return null; } },
+    set: function(k,v){ try { window.localStorage.setItem(k,v); } catch(e){} }
+  };
+
+  /* ── 테마 ────────────────────────────────────────────── */
+  var root = document.documentElement;
+  var themeBtn = document.getElementById('themeBtn');
+  var themeLabel = document.getElementById('themeLabel');
+
+  function applyTheme(t){
+    root.setAttribute('data-theme', t);
+    var toLight = (t === 'dark');
+    themeLabel.textContent = toLight ? '라이트' : '다크';
+    themeBtn.setAttribute('aria-label', toLight ? '밝은 테마로 전환' : '어두운 테마로 전환');
+  }
+  applyTheme(store.get('net4-theme') === 'light' ? 'light' : 'dark');
+  themeBtn.addEventListener('click', function(){
+    var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    store.set('net4-theme', next);
+  });
+
+  /* ── 모바일 목차 ─────────────────────────────────────── */
+  var rail = document.getElementById('rail');
+  var railToggle = document.getElementById('railToggle');
+  railToggle.addEventListener('click', function(){
+    var open = rail.classList.toggle('open');
+    railToggle.setAttribute('aria-expanded', String(open));
+  });
+  rail.addEventListener('click', function(e){
+    if (e.target.tagName === 'A' && window.innerWidth <= 900){
+      rail.classList.remove('open');
+      railToggle.setAttribute('aria-expanded','false');
+    }
+  });
+
+  /* ── 진행률 + 스크롤 스파이 ──────────────────────────── */
+  var bar = document.getElementById('progressBar');
+  var links = Array.prototype.slice.call(rail.querySelectorAll('a[href^="#"]'));
+  var targets = links.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+
+  var ticking = false;
+  function onScroll(){
+    if (ticking) return;
+    ticking = true;
+    window.requestAnimationFrame(function(){
+      var h = document.documentElement.scrollHeight - window.innerHeight;
+      bar.style.width = (h > 0 ? Math.min(100, (window.scrollY / h) * 100) : 0) + '%';
+
+      var best = -1, bestTop = -Infinity;
+      for (var i = 0; i < targets.length; i++){
+        var el = targets[i];
+        if (!el) continue;
+        var top = el.getBoundingClientRect().top - 110;
+        if (top <= 0 && top > bestTop){ bestTop = top; best = i; }
+      }
+      for (var j = 0; j < links.length; j++){
+        links[j].classList.toggle('on', j === best);
+      }
+      ticking = false;
+    });
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  window.addEventListener('resize', onScroll);
+  onScroll();
+
+  /* ── 히어로 홉 추적기 ────────────────────────────────── */
+  var TOTAL = 8;
+  var cur = 1;
+  var showAll = false;
+  var lane = document.getElementById('lane');
+  var hopPrev = document.getElementById('hopPrev');
+  var hopNext = document.getElementById('hopNext');
+  var hopCount = document.getElementById('hopCount');
+  var hopAll = document.getElementById('hopAll');
+
+  function renderHops(){
+    var cells = lane.querySelectorAll('[data-hop]');
+    for (var i = 0; i < cells.length; i++){
+      var n = parseInt(cells[i].getAttribute('data-hop'), 10);
+      var lit = showAll || n <= cur;
+      if (cells[i].classList.contains('fl-c')) cells[i].classList.toggle('lit', lit);
+      else cells[i].classList.toggle('dim', !lit);
+    }
+    hopCount.textContent = showAll ? ('홉 1–' + TOTAL + ' 전체') : ('홉 ' + cur + ' / ' + TOTAL);
+    hopPrev.disabled = showAll || cur === 1;
+    hopNext.disabled = showAll || cur === TOTAL;
+    hopAll.textContent = showAll ? '한 홉씩 보기' : '전체 펼치기';
+  }
+  hopNext.addEventListener('click', function(){ if (cur < TOTAL){ cur++; renderHops(); } });
+  hopPrev.addEventListener('click', function(){ if (cur > 1){ cur--; renderHops(); } });
+  hopAll.addEventListener('click', function(){
+    showAll = !showAll;
+    if (!showAll) cur = 1;
+    renderHops();
+  });
+  renderHops();
+
+  /* ── 탭 ──────────────────────────────────────────────── */
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tabs]'), function(group){
+    var tabs = Array.prototype.slice.call(group.querySelectorAll('.tab'));
+    function select(tab){
+      tabs.forEach(function(t){
+        var on = (t === tab);
+        t.setAttribute('aria-selected', String(on));
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        if (panel) panel.hidden = !on;
+      });
+    }
+    tabs.forEach(function(t, i){
+      t.addEventListener('click', function(){ select(t); });
+      t.addEventListener('keydown', function(e){
+        var d = e.key === 'ArrowRight' ? 1 : (e.key === 'ArrowLeft' ? -1 : 0);
+        if (!d) return;
+        e.preventDefault();
+        var next = tabs[(i + d + tabs.length) % tabs.length];
+        next.focus(); select(next);
+      });
+    });
+  });
+
+  /* ── 코드 복사 ───────────────────────────────────────── */
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest ? e.target.closest('.copy') : null;
+    if (!btn) return;
+    var wrap = btn.closest('.codewrap');
+    var pre = wrap && wrap.querySelector('pre');
+    if (!pre) return;
+    var text = pre.innerText;
+    var done = function(){
+      btn.textContent = '복사됨';
+      btn.classList.add('done');
+      setTimeout(function(){ btn.textContent = '복사'; btn.classList.remove('done'); }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, function(){});
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch(err){}
+      document.body.removeChild(ta);
+    }
+  });
+
+  /* ── CIDR 계산기 ─────────────────────────────────────── */
+  var ipIn = document.getElementById('cidrIp');
+  var pfxIn = document.getElementById('cidrPfx');
+  var envIn = document.getElementById('cidrEnv');
+  var out = document.getElementById('calcOut');
+  var bitsEl = document.getElementById('calcBits');
+  var noteEl = document.getElementById('calcNote');
+
+  for (var p = 8; p <= 30; p++){
+    var o = document.createElement('option');
+    o.value = String(p); o.textContent = '/' + p;
+    if (p === 24) o.selected = true;
+    pfxIn.appendChild(o);
+  }
+
+  function toInt(ip){
+    var parts = ip.trim().split('.');
+    if (parts.length !== 4) return null;
+    var n = 0;
+    for (var i = 0; i < 4; i++){
+      var v = parseInt(parts[i], 10);
+      if (isNaN(v) || v < 0 || v > 255 || !/^\d+$/.test(parts[i].trim())) return null;
+      n = (n * 256) + v;
+    }
+    return n;
+  }
+  function toStr(n){
+    return [ Math.floor(n / 16777216) % 256, Math.floor(n / 65536) % 256,
+             Math.floor(n / 256) % 256, n % 256 ].join('.');
+  }
+  function bin8(v){ var s = v.toString(2); while (s.length < 8) s = '0' + s; return s; }
+
+  function calc(){
+    var ipn = toInt(ipIn.value);
+    var pfx = parseInt(pfxIn.value, 10);
+    if (ipn === null){
+      out.innerHTML = '<div><dt>입력 확인</dt><dd style="font-size:13.5px">0.0.0.0 형식으로 입력하세요</dd></div>';
+      bitsEl.textContent = ''; noteEl.textContent = '';
+      return;
+    }
+    var size = Math.pow(2, 32 - pfx);
+    var net = Math.floor(ipn / size) * size;
+    var bcast = net + size - 1;
+    var env = envIn.value;
+    var reserved = env === 'cloud' ? 5 : (env === 'onprem' ? 2 : 0);
+    var usable = Math.max(0, size - reserved);
+
+    var firstUsable = env === 'k8s' ? net : net + (env === 'cloud' ? 4 : 1);
+    var lastUsable  = env === 'k8s' ? bcast : bcast - 1;
+
+    var rows = [
+      ['네트워크 주소', toStr(net) + '/' + pfx],
+      ['서브넷 마스크', toStr(4294967296 - size)],
+      ['브로드캐스트', toStr(bcast)],
+      ['사용 가능 범위', toStr(firstUsable) + ' ~ ' + toStr(lastUsable)],
+      ['총 주소 수', size.toLocaleString('ko-KR') + '개'],
+      ['실제 사용 가능', usable.toLocaleString('ko-KR') + '개']
+    ];
+    out.innerHTML = rows.map(function(r){
+      return '<div><dt>' + r[0] + '</dt><dd>' + r[1] + '</dd></div>';
+    }).join('');
+
+    var full = bin8(Math.floor(net / 16777216) % 256) + bin8(Math.floor(net / 65536) % 256) +
+               bin8(Math.floor(net / 256) % 256) + bin8(net % 256);
+    var html = '';
+    for (var i = 0; i < 32; i++){
+      if (i > 0 && i % 8 === 0) html += '<span class="host"> . </span>';
+      html += '<span class="' + (i < pfx ? 'net' : 'host') + '">' + full[i] + '</span>';
+    }
+    bitsEl.innerHTML = '<span style="color:var(--fg-dim);font-size:12px">비트 배치 — ' +
+      '<span class="net">파란색 ' + pfx + '비트</span>가 네트워크, 나머지 ' + (32 - pfx) + '비트가 호스트</span><br>' + html;
+
+    var notes = {
+      cloud: '<b>AWS·Azure</b>는 서브넷마다 5개를 예약합니다. 첫 주소, 마지막 주소, 그리고 게이트웨이·DNS·예비용 3개입니다. 같은 <code>/' + pfx + '</code>라도 온프레미스보다 3개 적게 쓸 수 있습니다.',
+      onprem: '<b>온프레미스</b>는 네트워크 주소와 브로드캐스트 주소 2개만 빠집니다. 다만 게이트웨이 IP도 하나 차지하므로 서버에 실제로 배정 가능한 건 ' + Math.max(0, usable - 1).toLocaleString('ko-KR') + '개입니다.',
+      k8s: '<b>파드 CIDR</b>은 대개 전체를 쓸 수 있습니다. 다만 노드마다 이 대역에서 작은 조각(기본 <code>/24</code>)을 떼어 가므로, <code>/' + pfx + '</code>이면 최대 ' + (pfx <= 24 ? Math.pow(2, 24 - pfx).toLocaleString('ko-KR') : '1') + '개 노드까지만 수용됩니다.'
+    };
+    noteEl.innerHTML = notes[env];
+  }
+  ipIn.addEventListener('input', calc);
+  pfxIn.addEventListener('change', calc);
+  envIn.addEventListener('change', calc);
+  calc();
+
+  /* ── 표 검색 ─────────────────────────────────────────── */
+  function wireSearch(inputId, rowSelector, emptyId){
+    var input = document.getElementById(inputId);
+    var empty = document.getElementById(emptyId);
+    if (!input) return;
+    input.addEventListener('input', function(){
+      var q = input.value.trim().toLowerCase();
+      var rows = document.querySelectorAll(rowSelector);
+      var shown = 0;
+      Array.prototype.forEach.call(rows, function(r){
+        var hit = !q || r.textContent.toLowerCase().indexOf(q) !== -1;
+        if (r.tagName === 'TR') r.style.display = hit ? '' : 'none';
+        else r.classList.toggle('hide', !hit);
+        if (hit) shown++;
+      });
+      empty.classList.toggle('on', shown === 0);
+    });
+  }
+  wireSearch('rosSearch', '#rosTable tbody tr', 'rosEmpty');
+  wireSearch('glSearch', '#glossaryList .term', 'glEmpty');
+
+  /* ── 비교표 주제 필터 ────────────────────────────────── */
+  var cmpFilter = document.getElementById('cmpFilter');
+  var cmpEmpty = document.getElementById('cmpEmpty');
+  cmpFilter.addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('.fbtn') : null;
+    if (!b) return;
+    Array.prototype.forEach.call(cmpFilter.querySelectorAll('.fbtn'), function(x){
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+    var topic = b.getAttribute('data-topic');
+    var rows = document.querySelectorAll('#cmpTable tbody tr');
+    var shown = 0;
+    Array.prototype.forEach.call(rows, function(r){
+      var hit = topic === 'all' || r.getAttribute('data-topic') === topic;
+      r.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    cmpEmpty.classList.toggle('on', shown === 0);
+  });
+
+  /* ── 체크리스트 저장 ─────────────────────────────────── */
+  var checklist = document.getElementById('checklist');
+  if (checklist){
+    Array.prototype.forEach.call(checklist.querySelectorAll('input[type=checkbox]'), function(cb){
+      var key = 'net4-chk-' + cb.getAttribute('data-k');
+      if (store.get(key) === '1') cb.checked = true;
+      cb.addEventListener('change', function(){ store.set(key, cb.checked ? '1' : '0'); });
+    });
+  }
+
+  /* ── 퀴즈 ────────────────────────────────────────────── */
+  var QUESTIONS = [
+    {
+      q: 'AWS에서 어떤 서브넷을 “퍼블릭 서브넷”으로 만드는 것은 무엇인가요?',
+      o: ['서브넷 생성 시 퍼블릭 옵션을 선택한다',
+          '라우트 테이블에 0.0.0.0/0 → 인터넷 게이트웨이 경로가 있다',
+          '서브넷 안의 인스턴스에 공인 IP가 붙어 있다',
+          '보안 그룹에서 인바운드 443을 허용한다'],
+      a: 1,
+      e: '퍼블릭·프라이빗은 리소스 종류가 아니라 <b>붙어 있는 라우트 테이블의 성격</b>입니다. 공인 IP가 있어도 IGW 경로가 없으면 인터넷에 나갈 수 없습니다.'
+    },
+    {
+      q: 'AWS에 <code>/24</code> 서브넷을 만들면 실제로 인스턴스에 배정할 수 있는 IP는 몇 개인가요?',
+      o: ['256개', '254개', '251개', '250개'],
+      a: 2,
+      e: 'AWS와 Azure는 서브넷마다 <b>5개를 예약</b>합니다. 네트워크 주소, 브로드캐스트, 그리고 게이트웨이·DNS·예비용 3개입니다. 온프레미스의 254개와 다릅니다.'
+    },
+    {
+      q: 'Azure의 같은 VNet 안에서 서브넷이 다른 두 VM은 아무 설정도 하지 않으면 어떻게 되나요?',
+      o: ['통신되지 않는다. NSG에서 허용해야 한다',
+          '기본적으로 통신된다',
+          'UDR을 만들어야 통신된다',
+          'VNet 피어링을 걸어야 통신된다'],
+      a: 1,
+      e: 'Azure의 기본 규칙 <code>AllowVnetInBound</code>가 VNet 내부 통신을 열어 둡니다. AWS와 반대이므로 <b>“서브넷을 나눴으니 격리됐다”는 착각</b>이 보안 사고로 이어집니다. 막으려면 명시적 Deny 규칙이 필요합니다.'
+    },
+    {
+      q: 'AWS 보안 그룹과 네트워크 ACL의 차이로 올바른 것은?',
+      o: ['보안 그룹은 무상태, NACL은 상태 저장이다',
+          '보안 그룹은 상태 저장이고 허용 규칙만 쓸 수 있다',
+          '둘 다 서브넷에 붙는다',
+          '보안 그룹은 번호 순으로 평가하고 첫 매치에서 멈춘다'],
+      a: 1,
+      e: '보안 그룹은 <b>상태 저장 + 허용만</b>, NACL은 <b>무상태 + 허용·거부 모두</b>입니다. NACL을 건드렸다면 응답 트래픽용 임시 포트(1024–65535)를 열었는지 꼭 확인하세요.'
+    },
+    {
+      q: '“파드가 서비스에 접속을 못 한다”는 신고를 받았습니다. 가장 먼저 확인할 것은?',
+      o: ['노드의 iptables 규칙을 덤프한다',
+          'CNI 파드 로그를 본다',
+          'EndpointSlice에 파드가 등록되어 있는지 본다',
+          '클러스터를 재시작한다'],
+      a: 2,
+      e: '이 증상의 절반 이상이 <b>EndpointSlice가 비어 있는 것</b>입니다. 원인은 서비스 <code>selector</code>와 파드 라벨 불일치이거나, 파드가 readiness 프로브를 통과하지 못한 것입니다. 한 줄이면 확인됩니다.'
+    },
+    {
+      q: 'VPC 피어링으로 A–B를 잇고 B–C를 이었습니다. A에서 C로 통신할 수 있나요?',
+      o: ['된다. B가 중계해 준다',
+          '라우트 테이블에 경로를 추가하면 된다',
+          '되지 않는다. 피어링은 전이되지 않는다',
+          '같은 리전이면 된다'],
+      a: 2,
+      e: '피어링은 <b>전이되지 않습니다</b>. AWS·Azure 모두 동일합니다. VPC가 많아지면 Transit Gateway나 Virtual WAN 같은 허브 구조로 가야 합니다.'
+    },
+    {
+      q: '온프레미스에서 새 VM을 만들어 새 VLAN에 연결했는데 통신이 전혀 안 됩니다. 1순위로 의심할 것은?',
+      o: ['ToR 스위치 트렁크 포트에 해당 VLAN이 허용되지 않았다',
+          'VM의 방화벽이 켜져 있다',
+          'DNS 설정이 잘못됐다',
+          '하이퍼바이저 라이선스가 만료됐다'],
+      a: 0,
+      e: '가상 쪽 설정만 보면 절대 안 보이는 문제입니다. <b>스위치 포트 → 하이퍼바이저 포트그룹 → VM</b> 세 곳을 항상 함께 확인하세요. 게이트웨이 ARP가 풀리는지 보면 즉시 판별됩니다.'
+    },
+    {
+      q: '쿠버네티스에서 default-deny egress 정책을 적용했더니 모든 것이 동시에 멈췄습니다. 가장 먼저 열어야 할 것은?',
+      o: ['외부 API로 가는 443',
+          'CoreDNS로 가는 53 (UDP·TCP)',
+          'API 서버로 가는 6443',
+          '노드 간 10250'],
+      a: 1,
+      e: 'DNS가 막히면 <b>이름 해석이 전부 실패</b>해 모든 통신이 동시에 죽은 것처럼 보입니다. 차단 정책을 설계할 때 DNS 허용을 가장 먼저 넣는 것이 정석입니다.'
+    },
+    {
+      q: '작은 API 요청은 정상인데 큰 파일 전송만 중간에 멈춥니다. 가장 유력한 원인은?',
+      o: ['DNS 캐시 문제',
+          '로드밸런서 헬스체크 실패',
+          '경로상의 MTU 불일치 또는 ICMP 차단',
+          '보안 그룹의 인바운드 규칙 누락'],
+      a: 2,
+      e: '매우 특징적인 MTU 증상입니다. 근본 원인은 대개 <b>ICMP를 전부 차단</b>해서 경로 MTU 탐색이 깨진 것입니다. <code>ping -M do -s 1472</code>로 확인하고, ICMP Type 3 Code 4는 반드시 허용하세요.'
+    },
+    {
+      q: 'Azure에서 스토리지용 Private Endpoint를 만들었는데, VM에서 조회하면 여전히 공인 IP가 나옵니다. 원인은?',
+      o: ['Private Endpoint 생성이 실패했다',
+          '사설 DNS 영역을 만들지 않았거나 VNet 링크를 걸지 않았다',
+          'NSG가 막고 있다',
+          '스토리지 계정의 방화벽 설정이 잘못됐다'],
+      a: 1,
+      e: 'Private Endpoint는 <b>DNS까지 고쳐야 완성</b>됩니다. <code>privatelink.blob.core.windows.net</code> 사설 영역을 만들고 VNet 링크를 연결하세요. <code>nslookup</code> 결과가 <code>10.x.x.x</code>여야 정상입니다.'
+    },
+    {
+      q: '평소엔 괜찮은데 트래픽이 몰리는 시간대에만 외부 API 호출이 간헐적으로 실패합니다. 의심할 것은?',
+      o: ['NAT 게이트웨이의 SNAT 포트 고갈',
+          'DNS 서버 다운',
+          '라우트 테이블 오류',
+          '인증서 만료'],
+      a: 0,
+      e: '공인 IP 하나당 목적지별로 약 64,000개의 포트만 쓸 수 있습니다. 해결책은 공인 IP 추가, 커넥션 풀 재사용, 또는 VPC 엔드포인트로 NAT 우회입니다. <b>“가끔 안 돼요”의 단골 원인</b>입니다.'
+    },
+    {
+      q: 'Azure에서 2025년 9월 30일 이후에 만든 VM이 인터넷에 못 나갑니다. 이유는?',
+      o: ['Azure 전역 장애다',
+          '기본 아웃바운드 액세스가 폐지되어 명시적 수단이 필요하다',
+          'NSG 기본 규칙이 바뀌었다',
+          '공용 IP SKU가 변경됐다'],
+      a: 1,
+      e: '예전에는 아무 설정 없이도 인터넷에 나갈 수 있었지만, 이 기본 동작이 폐지됐습니다. <b>NAT 게이트웨이</b>(권장), 표준 LB의 아웃바운드 규칙, 또는 직접 붙인 공용 IP 중 하나가 필요합니다. 기존 VNet의 기존 VM은 계속 동작합니다.'
+    }
+  ];
+
+  var quizWrap = document.getElementById('quizWrap');
+  var scoreBox = document.getElementById('scoreBox');
+  var scoreNum = document.getElementById('scoreNum');
+  var scoreMsg = document.getElementById('scoreMsg');
+  var answered = 0, correct = 0;
+  var MARKS = ['A','B','C','D'];
+
+  function buildQuiz(){
+    answered = 0; correct = 0;
+    scoreBox.hidden = true;
+    quizWrap.innerHTML = '';
+    QUESTIONS.forEach(function(item, qi){
+      var box = document.createElement('div');
+      box.className = 'quiz';
+      var opts = item.o.map(function(text, oi){
+        return '<li><button class="opt" data-o="' + oi + '">' +
+               '<span class="mk">' + MARKS[oi] + '</span><span>' + text + '</span></button></li>';
+      }).join('');
+      box.innerHTML =
+        '<div class="qh"><span class="qn">Q' + (qi + 1) + '</span>' +
+        '<p class="qt">' + item.q + '</p></div>' +
+        '<ul class="opts">' + opts + '</ul>' +
+        '<div class="expl"></div>';
+
+      var expl = box.querySelector('.expl');
+      box.querySelectorAll('.opt').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          if (box.getAttribute('data-done')) return;
+          box.setAttribute('data-done','1');
+          var pick = parseInt(btn.getAttribute('data-o'), 10);
+          var ok = pick === item.a;
+          answered++; if (ok) correct++;
+          box.querySelectorAll('.opt').forEach(function(b){
+            b.disabled = true;
+            var bi = parseInt(b.getAttribute('data-o'), 10);
+            if (bi === item.a) b.classList.add('right');
+            else if (bi === pick) b.classList.add('wrong');
+          });
+          expl.classList.add('on');
+          if (!ok) expl.classList.add('no');
+          expl.innerHTML = '<b>' + (ok ? '정답입니다.' : '정답은 ' + MARKS[item.a] + '입니다.') + '</b> ' + item.e;
+          updateScore();
+        });
+      });
+      quizWrap.appendChild(box);
+    });
+  }
+
+  function updateScore(){
+    scoreBox.hidden = false;
+    scoreNum.textContent = correct + ' / ' + QUESTIONS.length;
+    if (answered < QUESTIONS.length){
+      scoreMsg.textContent = (QUESTIONS.length - answered) + '문항 남았습니다.';
+    } else {
+      var r = correct / QUESTIONS.length;
+      scoreMsg.textContent = r === 1 ? '전부 맞혔습니다. 현장에 바로 투입 가능한 수준입니다.'
+        : r >= 0.75 ? '탄탄합니다. 틀린 문항의 해설만 다시 보세요.'
+        : r >= 0.5 ? '절반 이상 맞혔습니다. 틀린 주제의 절로 돌아가 한 번 더 읽어 보세요.'
+        : '아직 구멍이 많습니다. 2부의 플랫폼별 장을 차근차근 다시 읽어 보세요.';
+    }
+  }
+
+  document.getElementById('quizReset').addEventListener('click', function(){
+    buildQuiz();
+    document.getElementById('quiz').scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  buildQuiz();
+})();
+</script>
+</body>
+</html>
