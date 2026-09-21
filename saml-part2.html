@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAML 2편 — 동작 흐름과 바인딩</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF1F9; --paper-2:#FFFFFF; --paper-3:#E3E8F5;
+  --ink:#151C42; --ink-soft:#4A5480; --line:#C9D0E6;
+  --violet:#6B3FA0; --teal:#0C8375; --crimson:#C0334F; --gold:#C99A2E; --blue:#2A4FBF;
+  --shadow:rgba(21,28,66,.14); --stamp-bg:rgba(107,63,160,.07);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1226; --paper-2:#171C36; --paper-3:#1F2647;
+    --ink:#E8ECFB; --ink-soft:#A6B0D6; --line:#2F3762;
+    --violet:#B08BDE; --teal:#35BCA8; --crimson:#F58099; --gold:#E7BC5E; --blue:#7C99FF;
+    --shadow:rgba(0,0,0,.5); --stamp-bg:rgba(176,139,222,.10);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1226; --paper-2:#171C36; --paper-3:#1F2647;
+  --ink:#E8ECFB; --ink-soft:#A6B0D6; --line:#2F3762;
+  --violet:#B08BDE; --teal:#35BCA8; --crimson:#F58099; --gold:#E7BC5E; --blue:#7C99FF;
+  --shadow:rgba(0,0,0,.5); --stamp-bg:rgba(176,139,222,.10);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Noto Sans KR","Malgun Gothic",sans-serif;
+  font-size:16.5px;line-height:1.85;-webkit-text-size-adjust:100%;
+}
+h1,h2,h3{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-weight:700;line-height:1.3}
+code,pre,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+a{color:var(--blue)}
+:focus-visible{outline:3px solid var(--gold);outline-offset:3px;border-radius:4px}
+p{max-width:72ch}
+
+/* 상단바 */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb, var(--paper) 88%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.progress{height:4px}
+.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--teal),var(--violet),var(--gold));transition:width .12s linear}
+.topbar nav{max-width:1120px;margin:0 auto;padding:.45rem 1rem;display:flex;gap:.3rem;align-items:center;overflow-x:auto;scrollbar-width:thin}
+.topbar nav b{font-family:"Gowun Batang",serif;font-size:.92rem;white-space:nowrap;margin-right:.5rem;color:var(--violet)}
+.topbar nav a{font-size:.82rem;text-decoration:none;color:var(--ink-soft);padding:.28rem .62rem;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+.topbar nav a:hover{background:var(--paper-3);color:var(--ink)}
+.topbar nav a.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.themebtn{margin-left:auto;flex:none;background:var(--paper-2);border:1px solid var(--line);color:var(--ink-soft);border-radius:999px;padding:.28rem .7rem;font-size:.78rem;cursor:pointer;font-family:inherit}
+.themebtn:hover{color:var(--ink)}
+
+.wrap{max-width:880px;margin:0 auto;padding:0 1.15rem}
+.wide{max-width:1000px}
+section{padding:4.2rem 0 1rem}
+
+/* 히어로 */
+.hero{
+  position:relative;overflow:hidden;
+  background:
+    repeating-linear-gradient(115deg, transparent 0 7px, var(--stamp-bg) 7px 8px),
+    repeating-linear-gradient(65deg, transparent 0 7px, var(--stamp-bg) 7px 8px),
+    var(--paper-2);
+  border-bottom:1px solid var(--line);padding:3rem 0 3.4rem;
+}
+.kicker{display:inline-block;font-size:.78rem;color:var(--teal);border:1px solid var(--teal);border-radius:999px;padding:.12rem .7rem;margin-bottom:1rem}
+.hero h1{font-size:clamp(2rem,6vw,3.1rem);margin:.1rem 0 .6rem;letter-spacing:-.01em}
+.hero h1 .sub{display:block;font-size:clamp(1rem,2.6vw,1.25rem);color:var(--ink-soft);font-weight:400;margin-top:.6rem;font-family:"Noto Sans KR",sans-serif;line-height:1.7}
+.hero p.lede{max-width:56ch;color:var(--ink-soft);margin:.9rem 0 0}
+
+/* 왕복 애니메이션 */
+.pingpong{margin-top:2rem;position:relative;height:74px;border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);display:grid;grid-template-columns:repeat(3,1fr);align-items:center}
+.pingpong .node{text-align:center;font-size:.76rem;color:var(--ink-soft);font-family:"JetBrains Mono",monospace}
+.pingpong .node i{display:block;font-size:1.4rem;font-style:normal}
+.puck{
+  position:absolute;top:8px;left:16.6%;transform:translateX(-50%);
+  background:var(--violet);color:#fff;font-size:.66rem;padding:.1rem .5rem;border-radius:999px;
+  font-family:"JetBrains Mono",monospace;white-space:nowrap;
+}
+.puck.run{animation:travel 7s ease-in-out infinite}
+@keyframes travel{
+  0%,6%{left:16.6%;background:var(--violet)}
+  22%,30%{left:50%;background:var(--violet)}
+  46%,54%{left:83.3%;background:var(--teal)}
+  70%,78%{left:16.6%;background:var(--teal)}
+  94%,100%{left:50%;background:var(--gold)}
+}
+
+/* 로드맵 */
+.roadmap{display:grid;grid-template-columns:repeat(4,1fr);gap:.7rem;margin-top:2.2rem}
+.rm{background:var(--paper-2);border:1px solid var(--line);border-radius:10px;padding:.85rem .9rem;position:relative}
+.rm .n{font-family:"JetBrains Mono",monospace;font-size:.72rem;color:var(--ink-soft)}
+.rm .t{font-family:"Gowun Batang",serif;font-weight:700;font-size:.98rem;margin:.15rem 0 .2rem}
+.rm .d{font-size:.76rem;color:var(--ink-soft);line-height:1.6}
+.rm.done{opacity:.72}
+.rm.done .t::after{content:" ✓";color:var(--teal)}
+.rm.now{border-color:var(--violet);border-width:2px;background:var(--stamp-bg)}
+.rm.now .t{color:var(--violet)}
+.rm.now::after{content:"지금 보는 편";position:absolute;top:-.62rem;right:.6rem;background:var(--violet);color:#fff;font-size:.64rem;padding:.06rem .5rem;border-radius:999px}
+
+/* 섹션 헤더 */
+.shead{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.3rem}
+.snum{flex:none;width:52px;height:52px;border-radius:50%;border:2px solid var(--violet);color:var(--violet);display:grid;place-items:center;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:1.05rem;transform:rotate(-8deg);background:var(--paper-2)}
+.shead h2{font-size:clamp(1.45rem,3.6vw,1.95rem);margin:.15rem 0 .25rem}
+.shead .sdesc{color:var(--ink-soft);font-size:.92rem;margin:0}
+
+.card{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.2rem 1.3rem}
+.note{border-left:3px solid var(--gold);background:var(--paper-2);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.4rem 0;font-size:.94rem}
+.note b{color:var(--gold)}
+.warn{border-left-color:var(--crimson)}
+.warn b{color:var(--crimson)}
+.good{border-left-color:var(--teal)}
+.good b{color:var(--teal)}
+
+.btn{font-family:inherit;font-size:.9rem;cursor:pointer;background:var(--violet);color:#fff;border:0;border-radius:8px;padding:.6rem 1.15rem}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--violet);border:1px solid var(--violet)}
+.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+
+/* ── 시퀀스 다이어그램 ── */
+.seqwrap{background:var(--paper-2);border:1px solid var(--line);border-radius:14px;padding:1.1rem 1rem 1.3rem;margin-top:1.3rem}
+.lanes{display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;margin-bottom:.5rem;position:sticky;top:44px;background:var(--paper-2);z-index:5;padding:.35rem 0}
+.lane{text-align:center;font-size:.8rem;font-weight:700;padding:.45rem .3rem;border-radius:8px;background:var(--paper-3);color:var(--ink-soft)}
+.lane i{font-style:normal;display:block;font-size:1.15rem;margin-bottom:.1rem}
+.lane.l0{box-shadow:inset 0 -3px 0 var(--blue)}
+.lane.l1{box-shadow:inset 0 -3px 0 var(--teal)}
+.lane.l2{box-shadow:inset 0 -3px 0 var(--violet)}
+
+.seq{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:.42rem .3rem;padding:.4rem 0}
+.seq::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(var(--line),var(--line)) calc(16.666% - .5px) 0/1px 100% no-repeat,
+    linear-gradient(var(--line),var(--line)) calc(50% - .5px) 0/1px 100% no-repeat,
+    linear-gradient(var(--line),var(--line)) calc(83.333% - .5px) 0/1px 100% no-repeat;
+  opacity:.6;
+}
+.msg{
+  position:relative;z-index:1;cursor:pointer;text-align:left;font-family:inherit;color:inherit;
+  background:var(--paper-3);border:1px solid var(--line);border-radius:8px;
+  padding:.42rem .6rem;font-size:.78rem;line-height:1.45;
+  opacity:.35;transition:opacity .25s, border-color .25s, background .25s;
+}
+.msg .arrow{font-family:"JetBrains Mono",monospace;font-size:.68rem;color:var(--ink-soft);display:block}
+.msg .ttl{font-weight:700;display:block}
+.msg.lit{opacity:1}
+.msg.cur{border-color:var(--violet);border-width:2px;background:var(--stamp-bg);padding:calc(.42rem - 1px) calc(.6rem - 1px)}
+.msg.self{background:var(--paper-2);border-style:dashed}
+.msg .no{font-family:"JetBrains Mono",monospace;font-size:.66rem;color:var(--violet);margin-right:.3rem}
+
+.seqctl{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;margin-top:1rem}
+.seqctl .count{font-family:"JetBrains Mono",monospace;font-size:.8rem;color:var(--ink-soft);margin-left:auto}
+.seqdetail{margin-top:.9rem;background:var(--paper-3);border:1px solid var(--line);border-radius:10px;padding:1rem 1.15rem;min-height:150px}
+.seqdetail h4{margin:0 0 .35rem;font-size:1.05rem;font-family:"Gowun Batang",serif}
+.seqdetail p{margin:0;font-size:.92rem;max-width:none}
+.seqdetail pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:.7rem .8rem;overflow-x:auto;font-size:.73rem;line-height:1.7;margin:.7rem 0 0;white-space:pre}
+.seqdetail .tip{margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line);font-size:.85rem;color:var(--ink-soft)}
+.seqdetail .tip b{color:var(--crimson)}
+
+/* 탭 */
+.tabs{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:-1px}
+.tabs button{font-family:inherit;font-size:.87rem;cursor:pointer;background:var(--paper-3);border:1px solid var(--line);border-bottom:none;color:var(--ink-soft);padding:.55rem 1rem;border-radius:9px 9px 0 0}
+.tabs button[aria-selected="true"]{background:var(--paper-2);color:var(--violet);font-weight:700;box-shadow:inset 0 3px 0 var(--violet)}
+.tabpanes{background:var(--paper-2);border:1px solid var(--line);border-radius:0 12px 12px 12px;padding:1.3rem}
+.tabpanes > div{display:none}
+.tabpanes > div.show{display:block}
+.tabpanes h4{margin:0 0 .4rem;font-size:1.15rem}
+.tabpanes pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:.8rem;overflow-x:auto;font-size:.74rem;line-height:1.75;margin:.9rem 0 0;white-space:pre}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.3rem .9rem;font-size:.87rem;margin:.9rem 0 0}
+.kv dt{color:var(--ink-soft);white-space:nowrap}
+.kv dd{margin:0}
+
+/* 파이프라인 실습 */
+.pipe{display:grid;gap:.5rem;margin-top:1.1rem}
+.pstage{background:var(--paper-2);border:1px solid var(--line);border-radius:10px;padding:.85rem 1rem;opacity:.4;transition:opacity .3s,border-color .3s}
+.pstage.lit{opacity:1;border-color:var(--teal)}
+.pstage .ph{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:.35rem}
+.pstage .pn{font-weight:700;font-size:.92rem}
+.pstage .plen{font-family:"JetBrains Mono",monospace;font-size:.74rem;color:var(--teal)}
+.pstage .pv{font-family:"JetBrains Mono",monospace;font-size:.72rem;word-break:break-all;color:var(--ink-soft);max-height:5.6em;overflow:auto;line-height:1.6}
+.labmsg{font-size:.84rem;color:var(--crimson);min-height:1.2em;margin:.5rem 0 0}
+
+/* RelayState 데모 */
+.demo{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.2rem}
+.urlbar{display:flex;align-items:center;gap:.5rem;background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:.45rem .9rem;font-family:"JetBrains Mono",monospace;font-size:.76rem;overflow:hidden}
+.urlbar .dot{width:9px;height:9px;border-radius:50%;background:var(--teal);flex:none}
+.urlbar .dot.off{background:var(--crimson)}
+.urlbar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.demolog{list-style:none;padding:0;margin:.9rem 0 0;display:grid;gap:.35rem;font-size:.85rem}
+.demolog li{padding:.45rem .75rem;background:var(--paper-3);border-radius:7px;border-left:3px solid var(--line)}
+.demolog li.hi{border-left-color:var(--violet)}
+
+/* 표 */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--paper-2);margin-top:1.2rem}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:.87rem}
+th,td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--paper-3);font-weight:700;font-size:.82rem;color:var(--ink-soft)}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--violet)}
+
+/* 디버깅 아코디언 */
+.dbg{display:grid;gap:.45rem;margin-top:1.2rem}
+.dbgitem{background:var(--paper-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.dbgitem summary{cursor:pointer;padding:.75rem 1rem;font-size:.92rem;list-style:none;display:flex;gap:.7rem;align-items:center}
+.dbgitem summary::-webkit-details-marker{display:none}
+.dbgitem summary .sym{flex:1;font-weight:500}
+.dbgitem summary .chip{flex:none;font-family:"JetBrains Mono",monospace;font-size:.68rem;padding:.08rem .5rem;border-radius:4px;background:rgba(192,51,79,.13);color:var(--crimson)}
+.dbgitem[open] summary{border-bottom:1px solid var(--line);background:var(--paper-3)}
+.dbgbody{padding:.9rem 1rem;font-size:.9rem}
+.dbgbody p{margin:0 0 .5rem;max-width:none}
+.dbgbody p:last-child{margin-bottom:0}
+.dbgbody b{color:var(--teal)}
+
+/* 퀴즈 */
+.q{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.1rem 1.25rem;margin-bottom:.75rem}
+.q .qt{font-weight:700;margin:0 0 .75rem;font-size:.98rem;max-width:none}
+.opts{display:grid;gap:.4rem}
+.opt{text-align:left;font-family:inherit;font-size:.9rem;cursor:pointer;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:.6rem .85rem}
+.opt:hover{border-color:var(--violet)}
+.opt.ok{background:rgba(12,131,117,.14);border-color:var(--teal);color:var(--teal);font-weight:700}
+.opt.no{background:rgba(192,51,79,.12);border-color:var(--crimson);color:var(--crimson)}
+.qfb{margin-top:.7rem;font-size:.87rem;color:var(--ink-soft);display:none}
+.qfb.show{display:block}
+.score{text-align:center;background:var(--paper-2);border:2px solid var(--violet);border-radius:12px;padding:1.2rem;font-family:"Gowun Batang",serif;font-size:1.2rem}
+
+.outro{background:var(--paper-2);border-top:1px solid var(--line);margin-top:3.5rem;padding:3rem 0 4rem}
+.keylist{list-style:none;padding:0;margin:1.2rem 0 0;display:grid;gap:.55rem}
+.keylist li{padding-left:1.6rem;position:relative;font-size:.95rem}
+.keylist li::before{content:"✓";position:absolute;left:0;top:0;color:var(--teal);font-weight:700}
+footer{padding:2rem 0 3rem;text-align:center;color:var(--ink-soft);font-size:.82rem}
+
+@media (max-width:820px){
+  .roadmap{grid-template-columns:1fr 1fr}
+  .msg{font-size:.7rem;padding:.35rem .45rem}
+  .lane{font-size:.72rem}
+}
+@media (max-width:480px){
+  body{font-size:15.5px}
+  .roadmap{grid-template-columns:1fr}
+  .snum{width:42px;height:42px;font-size:.9rem}
+  .seqwrap{padding:.8rem .6rem 1rem}
+  .msg{font-size:.65rem}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="progress"><i id="bar"></i></div>
+  <nav>
+    <b>SAML 2편</b>
+    <a href="#ch1">전체 흐름</a>
+    <a href="#ch2">두 가지 시작점</a>
+    <a href="#ch3">메시지 해부</a>
+    <a href="#ch4">바인딩 3종</a>
+    <a href="#ch5">인코딩 실습</a>
+    <a href="#ch6">RelayState</a>
+    <a href="#ch7">로그아웃</a>
+    <a href="#ch8">장애 대응</a>
+    <a href="#ch9">퀴즈</a>
+    <button class="themebtn" id="themebtn">화면 밝기 바꾸기</button>
+  </nav>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">클라우드 엔지니어를 위한 인증 시리즈 · 2편</span>
+    <h1>로그인 버튼을 누른 1.2초 동안
+      <span class="sub">브라우저와 두 서버 사이에서 실제로 벌어지는 일</span>
+    </h1>
+    <p class="lede">1편에서 증명서의 생김새를 봤다면, 2편은 그 증명서가 어떤 경로로 이동하는지를 봅니다. 놀랍게도 SP와 IdP는 서로 직접 통신하지 않습니다. 모든 메시지는 사용자의 브라우저가 실어 나릅니다.</p>
+
+    <div class="pingpong">
+      <div class="node"><i>🌐</i>브라우저</div>
+      <div class="node"><i>📦</i>SP</div>
+      <div class="node"><i>🛂</i>IdP</div>
+      <div class="puck" id="puck">SAMLRequest</div>
+    </div>
+
+    <div class="roadmap">
+      <div class="rm done"><div class="n">1편</div><div class="t">개념과 구조</div><div class="d">등장인물, 신뢰 관계, Assertion 해부, 명세 4계층</div></div>
+      <div class="rm now"><div class="n">2편</div><div class="t">동작 흐름</div><div class="d">SP/IdP-initiated, 바인딩 3종, RelayState, SLO</div></div>
+      <div class="rm"><div class="n">3편</div><div class="t">보안과 검증</div><div class="d">서명 래핑, Golden SAML, 검증 체크리스트</div></div>
+      <div class="rm"><div class="n">4편</div><div class="t">클라우드 실전</div><div class="d">AWS·Entra ID·Keycloak 연동, OIDC 전환</div></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ══════ 1 ══════ -->
+<section id="ch1">
+  <div class="wrap wide">
+    <div class="shead">
+      <div class="snum">1</div>
+      <div>
+        <h2>전체 흐름 따라가기</h2>
+        <p class="sdesc">다음 단계 버튼으로 한 칸씩 넘기세요. 각 단계의 실제 메시지와 주의점이 아래에 나타납니다.</p>
+      </div>
+    </div>
+
+    <p>가장 흔한 시나리오부터 봅니다. 사용자가 사내 위키 주소를 직접 입력해서 들어왔고, 아직 로그인 세션이 없는 상황입니다. 서비스 쪽에서 흐름이 시작되기 때문에 이를 <b>SP-initiated SSO</b>라고 부릅니다.</p>
+
+    <div class="note">
+      <b>먼저 기억할 한 가지</b> — SP와 IdP는 서로 네트워크로 직접 연결되지 않아도 됩니다. 모든 메시지는 브라우저의 리다이렉트와 폼 전송으로 전달됩니다. 이걸 <b>프론트 채널(front-channel) 통신</b>이라고 하며, 사내망의 IdP와 인터넷의 SaaS가 연동될 수 있는 이유이기도 합니다.
+    </div>
+
+    <div class="seqwrap">
+      <div class="lanes">
+        <div class="lane l0"><i>🌐</i>브라우저 (사용자)</div>
+        <div class="lane l1"><i>📦</i>SP · 사내 위키</div>
+        <div class="lane l2"><i>🛂</i>IdP · 회사 인증 서버</div>
+      </div>
+      <div class="seq" id="seq"></div>
+
+      <div class="seqctl">
+        <button class="btn ghost" id="seqPrev">이전 단계</button>
+        <button class="btn" id="seqNext">다음 단계</button>
+        <button class="btn ghost" id="seqReset">처음부터</button>
+        <span class="count" id="seqCount">0 / 9</span>
+      </div>
+
+      <div class="seqdetail" id="seqDetail" aria-live="polite">
+        <h4>다음 단계 버튼을 눌러 시작하세요</h4>
+        <p style="color:var(--ink-soft)">각 단계를 눌러 직접 이동할 수도 있습니다. 단계마다 실제로 오가는 메시지 형태와, 그 지점에서 자주 나는 오류를 함께 정리했습니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 2 ══════ -->
+<section id="ch2">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">2</div>
+      <div>
+        <h2>시작점이 둘이다</h2>
+        <p class="sdesc">어디서 흐름이 시작되느냐에 따라 보안 성질이 달라집니다.</p>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" id="initTabs">
+      <button role="tab" aria-selected="true" data-t="sp">SP-initiated</button>
+      <button role="tab" aria-selected="false" data-t="idp">IdP-initiated</button>
+    </div>
+    <div class="tabpanes" id="initPanes">
+      <div data-t="sp" class="show">
+        <h4>서비스에서 시작하는 방식</h4>
+        <p style="margin:0">사용자가 서비스 주소로 먼저 들어옵니다. SP가 <code>AuthnRequest</code>를 만들어 IdP로 보내고, 그 요청 ID를 자기 세션에 기억해 둡니다. 나중에 돌아온 응답의 <code>InResponseTo</code>가 그 ID와 맞는지 대조할 수 있습니다.</p>
+        <dl class="kv">
+          <dt>시작 지점</dt><dd>서비스 URL 접속</dd>
+          <dt>AuthnRequest</dt><dd>있음 — SP가 생성</dd>
+          <dt>요청 대조</dt><dd>가능 (InResponseTo 검증)</dd>
+          <dt>원래 페이지 복귀</dt><dd>RelayState로 처리</dd>
+          <dt>권장도</dt><dd style="color:var(--teal);font-weight:700">기본으로 권장</dd>
+        </dl>
+      </div>
+      <div data-t="idp">
+        <h4>인증 서버에서 시작하는 방식</h4>
+        <p style="margin:0">사용자가 IdP의 앱 목록 화면(Okta 대시보드, Entra ID의 My Apps 등)에서 아이콘을 클릭합니다. IdP는 <b>요청받은 적 없이</b> Assertion을 만들어 SP의 ACS URL로 바로 POST합니다.</p>
+        <dl class="kv">
+          <dt>시작 지점</dt><dd>IdP의 앱 포털</dd>
+          <dt>AuthnRequest</dt><dd>없음 — 요청 없이 응답만 도착</dd>
+          <dt>요청 대조</dt><dd>불가능 (InResponseTo 자체가 없음)</dd>
+          <dt>원래 페이지 복귀</dt><dd>고정된 진입 페이지로만</dd>
+          <dt>권장도</dt><dd style="color:var(--crimson);font-weight:700">필요할 때만, 주의해서</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <b>IdP-initiated가 위험한 이유</b> — SP 입장에서는 “내가 요청하지도 않은 로그인 응답”이 날아든 것이라, 정상 응답인지 공격자가 밀어 넣은 것인지 구분할 근거가 부족합니다. 공격자가 자기 계정의 유효한 Assertion을 캡처해 피해자 브라우저에서 강제로 제출시키면, 피해자가 공격자 계정으로 로그인된 상태가 됩니다. 이 상태에서 피해자가 문서를 올리면 그 문서는 공격자 손에 들어갑니다. 그래서 가능하면 SP-initiated를 쓰고, IdP-initiated는 꼭 필요한 곳만 켜두는 것이 원칙입니다.
+    </div>
+
+    <p>실무에서는 두 방식이 섞여 있는 경우가 많습니다. 사용자는 보통 북마크로 서비스에 직접 들어가지만(SP-initiated), 신규 입사자 온보딩에서는 IdP 포털의 앱 목록을 안내하기 때문입니다(IdP-initiated). 연동을 설계할 때 “이 앱은 어느 쪽을 쓰게 할 것인가”를 먼저 정해두면 나중에 디버깅이 훨씬 쉬워집니다.</p>
+  </div>
+</section>
+
+<!-- ══════ 3 ══════ -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">3</div>
+      <div>
+        <h2>오가는 메시지 두 통</h2>
+        <p class="sdesc">요청과 응답, 그리고 응답 안의 상태 코드.</p>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" id="msgTabs">
+      <button role="tab" aria-selected="true" data-t="req">AuthnRequest (요청)</button>
+      <button role="tab" aria-selected="false" data-t="res">Response (응답)</button>
+      <button role="tab" aria-selected="false" data-t="status">Status 코드</button>
+    </div>
+    <div class="tabpanes" id="msgPanes">
+      <div data-t="req" class="show">
+        <h4>SP가 IdP에게 보내는 로그인 요청</h4>
+        <p style="margin:0">생각보다 단출합니다. 사용자가 누구인지는 적지 않습니다. “누군가 우리 서비스에 오려고 하니 확인해 달라”는 내용이 전부입니다.</p>
+<pre>&lt;samlp:AuthnRequest
+    ID="_req_88b1"
+    IssueInstant="2026-09-18T01:22:05Z"
+    Destination="https://sso.mycompany.com/idp/SSO"
+    AssertionConsumerServiceURL="https://app.example.com/saml/acs"
+    ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"&gt;
+  &lt;saml:Issuer&gt;https://app.example.com/sp&lt;/saml:Issuer&gt;
+  &lt;samlp:NameIDPolicy Format="...:emailAddress" AllowCreate="true"/&gt;
+&lt;/samlp:AuthnRequest&gt;</pre>
+        <dl class="kv">
+          <dt>ID</dt><dd>SP가 기억해 두는 요청 번호. 응답의 InResponseTo와 대조합니다</dd>
+          <dt>Destination</dt><dd>이 요청을 받아야 할 IdP 주소. 다른 IdP로 전달되는 것을 막습니다</dd>
+          <dt>ACS URL</dt><dd>응답을 돌려받을 주소. IdP는 메타데이터에 등록된 값과 같은지 확인해야 합니다</dd>
+          <dt>ProtocolBinding</dt><dd>응답을 어떤 방식으로 보낼지 지정. 대개 HTTP-POST입니다</dd>
+        </dl>
+        <div class="note warn" style="margin-bottom:0">
+          <b>여기서 IdP가 반드시 해야 할 일</b> — 요청에 적힌 ACS URL을 그대로 믿으면 안 됩니다. 등록된 주소 목록에 없는 URL이 들어왔는데도 그리로 Assertion을 보내면, 공격자가 자기 서버로 증명서를 받아 갈 수 있습니다. 화이트리스트 검증이 필수입니다.
+        </div>
+      </div>
+
+      <div data-t="res">
+        <h4>IdP가 돌려주는 응답</h4>
+        <p style="margin:0">바깥 껍데기가 <code>Response</code>이고, 그 안에 1편에서 뜯어본 <code>Assertion</code>이 들어 있습니다. 서명은 Response 전체에 걸 수도, Assertion에만 걸 수도, 둘 다에 걸 수도 있습니다.</p>
+<pre>&lt;samlp:Response ID="_resp_92f1" InResponseTo="_req_88b1"
+                Destination="https://app.example.com/saml/acs"&gt;
+  &lt;saml:Issuer&gt;https://sso.mycompany.com/idp&lt;/saml:Issuer&gt;
+  &lt;ds:Signature&gt; ... &lt;/ds:Signature&gt;
+  &lt;samlp:Status&gt;
+    &lt;samlp:StatusCode Value="...:status:Success"/&gt;
+  &lt;/samlp:Status&gt;
+  &lt;saml:Assertion&gt; ... 1편에서 본 그 내용 ... &lt;/saml:Assertion&gt;
+&lt;/samlp:Response&gt;</pre>
+        <div class="note" style="margin-bottom:0">
+          <b>서명 위치는 3편의 핵심 주제입니다.</b> “Response에 서명이 있으니 통과”라고 판단했다가 안쪽 Assertion이 바꿔치기된 것을 놓치는 공격이 존재합니다. 지금은 “서명이 어디에 걸렸는지를 따지는 게 중요하다”는 감각만 가져가시면 됩니다.
+        </div>
+      </div>
+
+      <div data-t="status">
+        <h4>로그인이 실패했을 때 오는 코드</h4>
+        <p style="margin:0">인증 실패도 정상적인 SAML 응답으로 돌아옵니다. HTTP 401이 아니라 <code>Status</code> 안의 코드로 이유를 알려줍니다. 장애 대응할 때 가장 먼저 봐야 할 값입니다.</p>
+        <div class="tablewrap" style="margin-top:1rem">
+          <table>
+            <thead><tr><th>StatusCode</th><th>의미</th><th>주로 이럴 때</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Success</strong></td><td>인증 성공</td><td>정상</td></tr>
+              <tr><td><strong>Requester</strong></td><td>요청한 쪽(SP) 잘못</td><td>Issuer 불일치, 등록 안 된 ACS URL, 잘못된 요청 형식</td></tr>
+              <tr><td><strong>Responder</strong></td><td>응답하는 쪽(IdP) 문제</td><td>IdP 내부 오류, 사용자 계정 비활성</td></tr>
+              <tr><td><strong>AuthnFailed</strong></td><td>인증 실패</td><td>비밀번호 틀림, MFA 실패</td></tr>
+              <tr><td><strong>NoPassive</strong></td><td>조용한 인증 불가</td><td>IsPassive 요청인데 로그인 화면이 필요한 상황</td></tr>
+              <tr><td><strong>InvalidNameIDPolicy</strong></td><td>식별자 형식 불일치</td><td>SP는 이메일을 요구했는데 IdP 설정이 다른 형식일 때</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 4 ══════ -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">4</div>
+      <div>
+        <h2>바인딩 세 가지</h2>
+        <p class="sdesc">같은 메시지를 무엇에 실어 보낼 것인가의 선택.</p>
+      </div>
+    </div>
+
+    <p>1편에서 바인딩은 “전송 수단”이라고 했습니다. 이제 왜 요청과 응답이 서로 다른 수단을 쓰는지 보겠습니다. 이유는 의외로 단순합니다. <b>길이</b> 때문입니다.</p>
+
+    <div class="tabs" role="tablist" id="bindTabs">
+      <button role="tab" aria-selected="true" data-t="redirect">HTTP-Redirect</button>
+      <button role="tab" aria-selected="false" data-t="post">HTTP-POST</button>
+      <button role="tab" aria-selected="false" data-t="artifact">Artifact</button>
+    </div>
+    <div class="tabpanes" id="bindPanes">
+      <div data-t="redirect" class="show">
+        <h4>URL 뒤에 붙여 보내기</h4>
+        <p style="margin:0">메시지를 압축해서 URL 쿼리스트링에 담고, 302 리다이렉트로 브라우저를 보냅니다. 브라우저 주소창에 그대로 보이는 방식입니다.</p>
+<pre>HTTP/1.1 302 Found
+Location: https://sso.mycompany.com/idp/SSO
+   ?SAMLRequest=fZJPb8IwDMW%2FSpV7m6R%2FKERQiSFNQtq0aew...
+   &RelayState=%2Fwiki%2Fops-runbook
+   &SigAlg=http%3A%2F%2Fwww.w3.org%2F2001%2F04%2Fxmldsig-more%23rsa-sha256
+   &Signature=Qm9iIHdhcyBoZXJl...</pre>
+        <dl class="kv">
+          <dt>주로 쓰는 곳</dt><dd>AuthnRequest (SP → IdP)</dd>
+          <dt>인코딩</dt><dd>Deflate 압축 → Base64 → URL 인코딩</dd>
+          <dt>서명 방식</dt><dd>XML 안이 아니라 쿼리 파라미터로 따로 붙음</dd>
+          <dt>한계</dt><dd>URL 길이 제한. Assertion처럼 큰 문서는 담기 어렵습니다</dd>
+        </dl>
+      </div>
+
+      <div data-t="post">
+        <h4>자동 제출되는 HTML 폼으로 보내기</h4>
+        <p style="margin:0">IdP가 <code>hidden</code> 필드에 값을 넣은 HTML 폼을 내려주고, 자바스크립트가 즉시 제출합니다. 사용자 눈에는 흰 화면이 잠깐 깜빡이는 것으로만 보입니다.</p>
+<pre>&lt;body onload="document.forms[0].submit()"&gt;
+  &lt;form method="POST" action="https://app.example.com/saml/acs"&gt;
+    &lt;input type="hidden" name="SAMLResponse" value="PHNhbWxwOl..."/&gt;
+    &lt;input type="hidden" name="RelayState" value="/wiki/ops-runbook"/&gt;
+  &lt;/form&gt;
+&lt;/body&gt;</pre>
+        <dl class="kv">
+          <dt>주로 쓰는 곳</dt><dd>Response / Assertion (IdP → SP)</dd>
+          <dt>인코딩</dt><dd>Base64만. 압축하지 않습니다</dd>
+          <dt>서명 방식</dt><dd>XML 문서 안에 ds:Signature로 포함</dd>
+          <dt>장점</dt><dd>길이 제한이 사실상 없고, 주소창 기록·리퍼러에 남지 않습니다</dd>
+        </dl>
+        <div class="note good" style="margin-bottom:0">
+          <b>그래서 조합이 이렇게 굳어졌습니다</b> — 요청은 짧으니 Redirect로, 응답은 크고 민감하니 POST로. 연동 가이드 대부분이 이 조합을 전제로 쓰여 있습니다.
+        </div>
+      </div>
+
+      <div data-t="artifact">
+        <h4>내용 대신 보관함 번호표만 보내기</h4>
+        <p style="margin:0">IdP가 Assertion 자체를 브라우저에 주지 않고, 짧은 참조값(Artifact)만 건넵니다. SP는 그 번호표를 들고 <b>IdP에 직접 서버 대 서버로 접속</b>해서 실물을 받아옵니다.</p>
+<pre>1) IdP → 브라우저 → SP :  SAMLart=AAQAAM9w7Rz...  (짧은 참조값)
+2) SP  →  IdP  (직접 통신, SOAP)  :  "이 번호표의 실물을 주세요"
+3) IdP →  SP   (직접 통신)        :  &lt;saml:Assertion&gt; ... &lt;/saml:Assertion&gt;</pre>
+        <dl class="kv">
+          <dt>장점</dt><dd>Assertion이 브라우저를 거치지 않아 노출 위험이 낮습니다</dd>
+          <dt>단점</dt><dd>SP와 IdP 사이에 직접 통신 경로(백 채널)가 필요합니다</dd>
+          <dt>현실</dt><dd>방화벽·네트워크 제약 때문에 SaaS 연동에서는 거의 쓰이지 않습니다</dd>
+          <dt>쓰이는 곳</dt><dd>금융·공공처럼 보안 요구가 높고 양쪽 망이 연결된 환경</dd>
+        </dl>
+        <div class="note" style="margin-bottom:0">
+          <b>면접 포인트</b> — “세 가지 바인딩을 아느냐”보다 “왜 Artifact는 실무에서 잘 안 쓰이느냐”를 설명할 수 있는 쪽이 훨씬 인상적입니다. 답은 프론트 채널만으로 동작한다는 SAML의 장점을 Artifact가 포기하기 때문입니다.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 5 ══════ -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">5</div>
+      <div>
+        <h2>실습: Redirect 바인딩 인코딩 파이프라인</h2>
+        <p class="sdesc">1편의 Base64 디코더가 통하지 않던 이유를 직접 확인합니다.</p>
+      </div>
+    </div>
+
+    <p>HTTP-Redirect 바인딩은 URL에 담아야 하므로 크기를 줄여야 합니다. 그래서 세 단계를 거칩니다. 아래에서 실제로 변환을 실행하고, 각 단계에서 길이가 어떻게 변하는지 보세요.</p>
+
+    <div class="demo">
+      <div class="row">
+        <button class="btn" id="pipeRun">변환 실행</button>
+        <button class="btn ghost" id="pipeReset">초기화</button>
+      </div>
+      <p class="labmsg" id="pipeMsg"></p>
+      <div class="pipe" id="pipe">
+        <div class="pstage" data-s="0">
+          <div class="ph"><span class="pn">① 원본 XML</span><span class="plen" data-len>—</span></div>
+          <div class="pv" data-val>변환 실행을 누르면 표시됩니다</div>
+        </div>
+        <div class="pstage" data-s="1">
+          <div class="ph"><span class="pn">② Deflate 압축 (raw)</span><span class="plen" data-len>—</span></div>
+          <div class="pv" data-val>—</div>
+        </div>
+        <div class="pstage" data-s="2">
+          <div class="ph"><span class="pn">③ Base64 인코딩</span><span class="plen" data-len>—</span></div>
+          <div class="pv" data-val>—</div>
+        </div>
+        <div class="pstage" data-s="3">
+          <div class="ph"><span class="pn">④ URL 인코딩 → 최종 쿼리값</span><span class="plen" data-len>—</span></div>
+          <div class="pv" data-val>—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>왜 압축을 먼저 하나</b> — XML은 태그가 반복되는 구조라 압축률이 아주 좋습니다. 보통 원본의 3분의 1 이하로 줄어듭니다. 압축 없이 Base64만 하면 오히려 길이가 33% 늘어나서 URL 제한에 걸립니다. 순서가 바뀌면 안 되는 이유입니다.
+    </div>
+
+    <div class="note warn">
+      <b>디코딩할 때의 함정</b> — Redirect로 온 <code>SAMLRequest</code>를 Base64만 풀면 알아볼 수 없는 바이트가 나옵니다. URL 디코딩 → Base64 디코딩 → <b>Deflate 해제</b> 순으로 되돌려야 XML이 보입니다. 표준 zlib이 아니라 헤더 없는 raw deflate라는 점도 도구를 고를 때 주의할 부분입니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 6 ══════ -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">6</div>
+      <div>
+        <h2>RelayState — 원래 가려던 곳 기억하기</h2>
+        <p class="sdesc">작지만 사용자 경험을 좌우하는 값입니다.</p>
+      </div>
+    </div>
+
+    <p>사용자가 운영 런북 페이지 링크를 받아 클릭했는데 로그인이 필요합니다. 로그인을 마친 뒤 홈 화면으로 떨어진다면 링크를 다시 찾아 눌러야 합니다. 이 불편을 없애는 값이 <b>RelayState</b>입니다. SAML 메시지 바깥에 붙어 다니는, 단순한 문자열 하나입니다.</p>
+
+    <div class="demo">
+      <div class="row" style="margin-bottom:.9rem">
+        <button class="btn" id="rsRun">로그인 흐름 재현</button>
+        <button class="btn ghost" id="rsReset">초기화</button>
+      </div>
+      <div class="urlbar"><span class="dot off" id="rsDot"></span><span id="rsUrl">https://wiki.example.com/ops-runbook</span></div>
+      <ul class="demolog" id="rsLog"></ul>
+    </div>
+
+    <div class="note warn">
+      <b>보안 주의</b> — RelayState는 서명 대상이 아니거나, 서명되더라도 내용 검증은 SP의 몫입니다. 여기에 외부 주소가 들어오면 로그인 직후 사용자를 공격자 사이트로 보내는 <b>오픈 리다이렉트</b>가 됩니다. 반드시 자기 도메인 내부 경로인지 검사하거나, 값 자체를 서버 세션에 저장해 두고 키만 주고받는 방식을 쓰세요.
+    </div>
+
+    <div class="note">
+      <b>IdP-initiated에서는</b> 사용자가 어디로 가려 했는지 알 수 없으므로 RelayState가 비어 있거나, IdP 설정에 적어 둔 고정 페이지 값이 들어갑니다. 2장에서 “원래 페이지 복귀가 고정된다”고 했던 이유가 이것입니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 7 ══════ -->
+<section id="ch7">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">7</div>
+      <div>
+        <h2>로그아웃은 왜 이렇게 어려운가</h2>
+        <p class="sdesc">SAML 운영에서 가장 자주 포기하게 되는 기능.</p>
+      </div>
+    </div>
+
+    <p>로그인은 한 번으로 여러 서비스를 열었는데, 로그아웃은 그렇게 되지 않습니다. 이유는 세션이 <b>여러 곳에 흩어져 있기</b> 때문입니다. IdP에 하나, 그리고 로그인한 SP마다 하나씩. SLO(Single Logout)는 이 세션들을 한꺼번에 끊으려는 시도입니다.</p>
+
+    <div class="tabs" role="tablist" id="sloTabs">
+      <button role="tab" aria-selected="true" data-t="front">프론트 채널 SLO</button>
+      <button role="tab" aria-selected="false" data-t="back">백 채널 SLO</button>
+    </div>
+    <div class="tabpanes" id="sloPanes">
+      <div data-t="front" class="show">
+        <h4>브라우저를 순회시키는 방식</h4>
+        <p style="margin:0">IdP가 로그인된 SP들을 하나씩 리다이렉트로 돌면서 로그아웃 요청을 전달합니다. 사용자 화면이 여러 사이트를 빠르게 거쳐 갑니다.</p>
+<pre>IdP → SP1 (로그아웃) → IdP → SP2 (로그아웃) → IdP → SP3 ... → 완료 화면</pre>
+        <dl class="kv">
+          <dt>장점</dt><dd>별도 네트워크 경로가 필요 없습니다</dd>
+          <dt>깨지는 지점</dt><dd>중간의 한 SP가 응답하지 않으면 그 뒤 SP들은 로그아웃되지 않고 흐름이 멈춥니다</dd>
+          <dt>또 깨지는 지점</dt><dd>사용자가 순회 도중 탭을 닫으면 나머지는 그대로 로그인 상태로 남습니다</dd>
+        </dl>
+      </div>
+      <div data-t="back">
+        <h4>서버끼리 직접 알리는 방식</h4>
+        <p style="margin:0">IdP가 각 SP의 로그아웃 엔드포인트를 서버에서 직접 호출합니다. 사용자 브라우저는 관여하지 않습니다.</p>
+        <dl class="kv">
+          <dt>장점</dt><dd>사용자 행동과 무관하게 동작하고, 실패를 IdP가 인지할 수 있습니다</dd>
+          <dt>전제 조건</dt><dd>IdP에서 모든 SP로 직접 접속 가능한 네트워크 경로</dd>
+          <dt>현실</dt><dd>사내 IdP가 인터넷 SaaS를 호출해야 하므로 방화벽 정책이 필요하고, 지원하지 않는 SP도 많습니다</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <b>MSP 실무에서의 현실적인 답</b> — SLO를 완벽하게 만들려고 시간을 쓰기보다, <b>세션 수명을 짧게 가져가는 쪽</b>이 대체로 효과적입니다. 퇴사자·사고 대응처럼 즉시 차단이 필요한 상황에서는 SLO에 기대지 말고 IdP에서 계정을 비활성화하고 세션을 무효화하세요. 다만 SP에 이미 발급된 세션 쿠키는 그 SP의 만료 정책을 따르므로, 중요한 서비스일수록 세션 유효시간을 짧게 잡아두는 설계가 필요합니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 8 ══════ -->
+<section id="ch8">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">8</div>
+      <div>
+        <h2>장애 났을 때 어디를 보는가</h2>
+        <p class="sdesc">증상을 눌러 원인과 확인 순서를 펼쳐 보세요.</p>
+      </div>
+    </div>
+
+    <p>SAML 장애는 대부분 같은 몇 가지 원인에서 반복됩니다. 증상만 보고 어느 단계가 깨졌는지 짚을 수 있으면 대응 시간이 크게 줄어듭니다. 아래는 현장에서 가장 자주 마주치는 것들입니다.</p>
+
+    <div class="dbg" id="dbg"></div>
+
+    <div class="note good">
+      <b>가장 먼저 할 일은 언제나 같습니다</b> — 브라우저 개발자 도구에서 Network 탭을 열고 “Preserve log”를 켠 다음 로그인을 다시 시도하세요. 리다이렉트가 여러 번 일어나기 때문에 이 옵션을 켜지 않으면 기록이 지워집니다. 그다음 <code>SAMLRequest</code>와 <code>SAMLResponse</code> 값을 꺼내 디코딩하면, 문제가 요청 쪽인지 응답 쪽인지가 거의 바로 드러납니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 9 ══════ -->
+<section id="ch9">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">9</div>
+      <div>
+        <h2>이해도 점검</h2>
+        <p class="sdesc">7문항입니다. 답을 고르면 바로 해설이 나옵니다.</p>
+      </div>
+    </div>
+    <div id="quiz"></div>
+    <div class="score" id="score" style="margin-top:1rem">아직 푼 문제가 없습니다</div>
+  </div>
+</section>
+
+</main>
+
+<div class="outro">
+  <div class="wrap">
+    <h2 style="font-size:1.6rem;margin-top:0">2편에서 챙겨 갈 것</h2>
+    <ul class="keylist">
+      <li>SP와 IdP는 직접 통신하지 않는다. 모든 메시지는 브라우저가 실어 나르는 프론트 채널 방식이다.</li>
+      <li>SP-initiated는 요청 ID를 대조할 수 있어 안전하고, IdP-initiated는 그 대조가 원천적으로 불가능하다.</li>
+      <li>AuthnRequest에 적힌 ACS URL을 IdP가 무조건 믿으면 안 된다. 등록된 주소인지 확인해야 한다.</li>
+      <li>요청은 Redirect(압축+URL), 응답은 POST(폼) — 길이와 민감도 때문에 굳어진 조합이다.</li>
+      <li>Redirect 바인딩은 Deflate → Base64 → URL 인코딩 순서이고, 되돌릴 때는 역순이다.</li>
+      <li>RelayState는 검증되지 않은 외부 입력으로 다뤄야 한다. 오픈 리다이렉트의 흔한 통로다.</li>
+      <li>SLO는 자주 깨진다. 즉시 차단이 필요하면 IdP 계정 비활성화와 짧은 세션 수명으로 대응하는 편이 현실적이다.</li>
+      <li>장애 대응의 출발점은 Preserve log를 켜고 SAMLRequest·SAMLResponse를 디코딩해 보는 것이다.</li>
+    </ul>
+
+    <h3 style="margin-top:2.2rem;font-size:1.25rem">3편에서는</h3>
+    <p style="color:var(--ink-soft)">지금까지 “검증해야 한다”고 여러 번 미뤄 둔 이야기를 정면으로 다룹니다. 서명이 걸린 위치를 속이는 XML Signature Wrapping, IdP의 개인키가 유출됐을 때 벌어지는 Golden SAML, 그리고 SP가 반드시 확인해야 할 검증 항목 체크리스트를 순서대로 정리합니다. 인증서 만료와 롤오버 절차도 여기서 다룹니다.</p>
+  </div>
+</div>
+
+<footer>
+  클라우드 엔지니어를 위한 인증 시리즈 · 2편 동작 흐름과 바인딩 · SAML 2.0 (OASIS) 기준
+</footer>
+
+<script>
+(function(){
+"use strict";
+
+/* 테마 */
+document.getElementById("themebtn").addEventListener("click", function(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  if(!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+});
+
+/* 진행바 */
+var bar = document.getElementById("bar");
+var navLinks = Array.prototype.slice.call(document.querySelectorAll(".topbar nav a"));
+var secs = navLinks.map(function(a){ return document.querySelector(a.getAttribute("href")); });
+function onScroll(){
+  var h = document.documentElement, max = h.scrollHeight - h.clientHeight;
+  bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + "%";
+  var idx = -1;
+  for(var i=0;i<secs.length;i++){ if(secs[i] && secs[i].getBoundingClientRect().top <= 140) idx = i; }
+  navLinks.forEach(function(a,i){ a.classList.toggle("on", i === idx); });
+}
+window.addEventListener("scroll", onScroll, {passive:true});
+onScroll();
+
+/* 히어로 왕복 */
+if(!window.matchMedia("(prefers-reduced-motion: reduce)").matches){
+  document.getElementById("puck").classList.add("run");
+}
+
+/* 탭 공통 */
+function wireTabs(tabsId, panesId){
+  var tabs = document.getElementById(tabsId), panes = document.getElementById(panesId);
+  tabs.querySelectorAll("button").forEach(function(b){
+    b.addEventListener("click", function(){
+      tabs.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-selected","false"); });
+      b.setAttribute("aria-selected","true");
+      panes.querySelectorAll(":scope > div").forEach(function(p){
+        p.classList.toggle("show", p.getAttribute("data-t") === b.getAttribute("data-t"));
+      });
+    });
+  });
+}
+wireTabs("initTabs","initPanes");
+wireTabs("msgTabs","msgPanes");
+wireTabs("bindTabs","bindPanes");
+wireTabs("sloTabs","sloPanes");
+
+/* ── 시퀀스 다이어그램 ── */
+var STEPS = [
+  { from:0, to:1, label:"보호된 페이지 요청",
+    title:"사용자가 서비스에 접속한다",
+    body:"사용자가 사내 위키의 런북 페이지 주소로 들어옵니다. SP는 세션 쿠키를 확인하고, 로그인되지 않은 상태임을 알게 됩니다.",
+    code:"GET https://wiki.example.com/ops-runbook\nCookie: (SP 세션 없음)",
+    tip:"이 시점에 SP는 사용자가 누구인지 전혀 모릅니다. 아는 것은 '로그인이 필요하다'는 사실뿐입니다." },
+
+  { from:1, to:0, label:"302 리다이렉트 + SAMLRequest",
+    title:"SP가 인증 요청을 만들어 돌려보낸다",
+    body:"SP가 AuthnRequest XML을 만들고, 압축·인코딩해서 IdP 주소의 쿼리스트링에 붙입니다. 그리고 브라우저에게 그리로 가라고 응답합니다. 이때 원래 가려던 경로는 RelayState에 담깁니다.",
+    code:"HTTP/1.1 302 Found\nLocation: https://sso.mycompany.com/idp/SSO\n  ?SAMLRequest=fZJPb8IwDMW...\n  &RelayState=%2Fops-runbook",
+    tip:"SP는 방금 만든 요청의 ID(_req_88b1)를 자기 세션에 저장해 둡니다. 나중에 돌아온 응답과 대조하기 위해서입니다." },
+
+  { from:0, to:2, label:"GET /idp/SSO?SAMLRequest=...",
+    title:"브라우저가 요청을 IdP에 전달한다",
+    body:"브라우저가 리다이렉트를 따라 IdP로 이동합니다. SP는 이 과정에 전혀 관여하지 않습니다. 메시지를 옮긴 것은 순전히 브라우저입니다.",
+    code:"GET /idp/SSO?SAMLRequest=fZJPb8IwDMW...&RelayState=%2Fops-runbook\nHost: sso.mycompany.com",
+    tip:"IdP는 여기서 요청 안의 Issuer와 ACS URL이 등록된 SP의 것인지 반드시 확인해야 합니다. 이 검증을 빠뜨리면 증명서를 엉뚱한 곳으로 보내게 됩니다." },
+
+  { from:2, to:0, label:"로그인 화면",
+    title:"IdP가 사용자에게 신원을 묻는다",
+    body:"IdP에 유효한 세션 쿠키가 이미 있다면 이 단계와 다음 단계는 통째로 생략됩니다. 사용자가 '클릭 한 번에 로그인됐다'고 느끼는 순간이 바로 이 경우입니다.",
+    code:"HTTP/1.1 200 OK\n(회사 로그인 페이지 HTML)",
+    tip:"이미 로그인된 상태에서 이 화면이 다시 뜬다면, ForceAuthn 옵션이 켜져 있거나 IdP 세션이 만료된 것입니다." },
+
+  { from:0, to:2, label:"비밀번호 + MFA 제출",
+    title:"사용자가 인증한다",
+    body:"비밀번호와 2차 인증을 입력합니다. SAML 전체 흐름에서 사용자의 비밀번호가 등장하는 유일한 지점이며, 그 상대는 IdP뿐입니다.",
+    code:"POST /idp/login\nusername=kim.engineer&password=********&otp=498213",
+    tip:"SP는 이 값을 영원히 보지 못합니다. 서비스가 해킹돼도 회사 비밀번호는 유출되지 않는다는 뜻입니다." },
+
+  { from:2, to:0, label:"자동 제출 폼 (SAMLResponse)",
+    title:"IdP가 서명된 증명서를 발급한다",
+    body:"IdP가 Assertion을 만들어 개인키로 서명하고, Response에 담아 Base64로 인코딩합니다. 그리고 자동 제출되는 HTML 폼으로 브라우저에 내려줍니다. 사용자 눈에는 흰 화면이 잠깐 깜빡일 뿐입니다.",
+    code:"&lt;body onload=\"document.forms[0].submit()\"&gt;\n &lt;form method=\"POST\" action=\"https://wiki.example.com/saml/acs\"&gt;\n  &lt;input type=\"hidden\" name=\"SAMLResponse\" value=\"PHNhbWxwOl...\"/&gt;\n  &lt;input type=\"hidden\" name=\"RelayState\" value=\"/ops-runbook\"/&gt;\n &lt;/form&gt;",
+    tip:"이 화면에서 멈춰 있다면 자바스크립트가 차단됐거나 action 주소가 잘못된 경우입니다. 폼 소스를 열어보면 바로 확인됩니다." },
+
+  { from:0, to:1, label:"POST /saml/acs",
+    title:"브라우저가 증명서를 SP에 제출한다",
+    body:"폼이 자동 제출되어 SP의 ACS URL로 POST됩니다. 드디어 SP가 증명서를 손에 넣습니다. 여기까지 SP와 IdP는 서로 한 번도 직접 연결되지 않았습니다.",
+    code:"POST /saml/acs HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\n\nSAMLResponse=PHNhbWxwOlJlc3BvbnNlIC4uLg%3D%3D&RelayState=%2Fops-runbook",
+    tip:"이 요청이 개발자 도구에 보이면 흐름 자체는 정상입니다. 이후 실패한다면 원인은 네트워크가 아니라 검증 로직에 있습니다." },
+
+  { from:1, to:1, self:true, label:"서명·조건 검증 후 세션 발급",
+    title:"SP가 증명서를 검증한다",
+    body:"SP가 확인하는 항목은 정해져 있습니다. 서명이 등록된 인증서와 맞는지, Issuer가 아는 IdP인지, Audience가 자기 자신인지, 유효시간 안인지, InResponseTo가 자기가 보낸 요청 ID인지. 전부 통과하면 자체 세션 쿠키를 발급합니다.",
+    code:"[검증] 서명        ✓ 등록된 IdP 인증서와 일치\n[검증] Issuer      ✓ https://sso.mycompany.com/idp\n[검증] Audience    ✓ https://wiki.example.com/sp\n[검증] 유효시간     ✓ NotOnOrAfter 이내\n[검증] InResponseTo ✓ _req_88b1\n→ Set-Cookie: session=...",
+    tip:"이 다섯 가지 중 하나라도 빠지면 취약점이 됩니다. 3편에서 각각을 건너뛰었을 때 가능한 공격을 다룹니다." },
+
+  { from:1, to:0, label:"302 → RelayState 경로로",
+    title:"원래 가려던 페이지로 돌려보낸다",
+    body:"SP가 RelayState에 담겨 돌아온 경로로 리다이렉트합니다. 사용자는 처음 클릭했던 런북 페이지를 보게 됩니다. 전체 과정이 보통 1초 남짓입니다.",
+    code:"HTTP/1.1 302 Found\nLocation: /ops-runbook\nSet-Cookie: session=a3f9...; HttpOnly; Secure",
+    tip:"RelayState 값을 그대로 Location에 넣기 전에 반드시 내부 경로인지 검사하세요. 외부 URL이 들어오면 오픈 리다이렉트가 됩니다." }
+];
+
+var seqEl = document.getElementById("seq");
+var seqDetail = document.getElementById("seqDetail");
+var seqCount = document.getElementById("seqCount");
+var cur = -1;
+
+STEPS.forEach(function(s, i){
+  var b = document.createElement("button");
+  b.className = "msg" + (s.self ? " self" : "");
+  var a, b2;
+  if(s.self){ a = s.from + 1; b2 = a + 1; }
+  else { a = Math.min(s.from, s.to) + 1; b2 = Math.max(s.from, s.to) + 2; }
+  b.style.gridColumn = a + " / " + b2;
+  var dir = s.self ? "↻ 내부 처리" : (s.to > s.from ? "──────▶" : "◀──────");
+  b.innerHTML = "<span class='arrow'>" + dir + "</span><span class='ttl'><span class='no'>" + (i+1) + "</span>" + s.label + "</span>";
+  b.addEventListener("click", function(){ go(i); });
+  seqEl.appendChild(b);
+});
+var msgEls = seqEl.querySelectorAll(".msg");
+
+function go(i){
+  cur = i;
+  msgEls.forEach(function(m, k){
+    m.classList.toggle("lit", k <= i);
+    m.classList.toggle("cur", k === i);
+  });
+  seqCount.textContent = (i+1) + " / " + STEPS.length;
+  var s = STEPS[i];
+  seqDetail.innerHTML = "<h4>" + (i+1) + ". " + s.title + "</h4><p>" + s.body + "</p><pre>" + s.code + "</pre>" +
+    "<div class='tip'><b>짚고 갈 점 · </b>" + s.tip + "</div>";
+  document.getElementById("seqPrev").disabled = (i <= 0);
+  document.getElementById("seqNext").disabled = (i >= STEPS.length - 1);
+}
+document.getElementById("seqNext").addEventListener("click", function(){ if(cur < STEPS.length-1) go(cur+1); });
+document.getElementById("seqPrev").addEventListener("click", function(){ if(cur > 0) go(cur-1); });
+document.getElementById("seqReset").addEventListener("click", function(){
+  cur = -1;
+  msgEls.forEach(function(m){ m.classList.remove("lit","cur"); });
+  seqCount.textContent = "0 / " + STEPS.length;
+  document.getElementById("seqPrev").disabled = true;
+  document.getElementById("seqNext").disabled = false;
+  seqDetail.innerHTML = "<h4>다음 단계 버튼을 눌러 시작하세요</h4><p style='color:var(--ink-soft)'>각 단계를 눌러 직접 이동할 수도 있습니다.</p>";
+});
+document.getElementById("seqPrev").disabled = true;
+
+/* ── 인코딩 파이프라인 ── */
+var AUTHN_XML =
+'<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"\n' +
+'    ID="_req_88b1" Version="2.0" IssueInstant="2026-09-18T01:22:05Z"\n' +
+'    Destination="https://sso.mycompany.com/idp/SSO"\n' +
+'    AssertionConsumerServiceURL="https://wiki.example.com/saml/acs"\n' +
+'    ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST">\n' +
+'  <saml:Issuer>https://wiki.example.com/sp</saml:Issuer>\n' +
+'  <samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"/>\n' +
+'</samlp:AuthnRequest>';
+
+var stages = document.querySelectorAll("#pipe .pstage");
+var pipeMsg = document.getElementById("pipeMsg");
+
+function setStage(i, len, val){
+  var st = stages[i];
+  st.classList.add("lit");
+  st.querySelector("[data-len]").textContent = len + " 바이트";
+  st.querySelector("[data-val]").textContent = val;
+}
+function bytesToB64(bytes){
+  var s = "";
+  for(var i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+document.getElementById("pipeRun").addEventListener("click", async function(){
+  pipeMsg.style.color = "var(--crimson)";
+  pipeMsg.textContent = "";
+  var enc = new TextEncoder().encode(AUTHN_XML);
+  setStage(0, enc.length, AUTHN_XML);
+
+  if(typeof CompressionStream === "undefined"){
+    pipeMsg.textContent = "이 브라우저는 압축 API를 지원하지 않아 2단계부터는 실행할 수 없습니다. 최신 Chrome, Edge, Safari에서 다시 시도해 보세요.";
+    return;
+  }
+  try{
+    var cs = new CompressionStream("deflate-raw");
+    var writer = cs.writable.getWriter();
+    writer.write(enc); writer.close();
+    var buf = await new Response(cs.readable).arrayBuffer();
+    var deflated = new Uint8Array(buf);
+    var preview = Array.prototype.slice.call(deflated.slice(0, 64)).map(function(b){
+      return b.toString(16).padStart(2,"0");
+    }).join(" ");
+    setStage(1, deflated.length, preview + " ...  (사람이 읽을 수 없는 바이너리)");
+
+    var b64 = bytesToB64(deflated);
+    setStage(2, b64.length, b64);
+
+    var urlenc = encodeURIComponent(b64);
+    setStage(3, urlenc.length, "?SAMLRequest=" + urlenc);
+
+    pipeMsg.style.color = "var(--teal)";
+    pipeMsg.textContent = "원본 " + enc.length + "바이트가 최종 " + urlenc.length + "바이트가 됐습니다. 압축 없이 Base64만 했다면 약 " + Math.round(enc.length * 4 / 3) + "바이트였을 것입니다.";
+  }catch(err){
+    pipeMsg.textContent = "압축 처리 중 문제가 발생했습니다. 페이지를 새로고침한 뒤 다시 시도해 보세요.";
+  }
+});
+document.getElementById("pipeReset").addEventListener("click", function(){
+  pipeMsg.textContent = "";
+  stages.forEach(function(st, i){
+    st.classList.remove("lit");
+    st.querySelector("[data-len]").textContent = "—";
+    st.querySelector("[data-val]").textContent = i === 0 ? "변환 실행을 누르면 표시됩니다" : "—";
+  });
+});
+
+/* ── RelayState 데모 ── */
+var RS_SEQ = [
+  { url:"https://wiki.example.com/ops-runbook", ok:false, log:"사용자가 런북 링크를 클릭. SP에 세션이 없어 로그인이 필요합니다." },
+  { url:"https://sso.mycompany.com/idp/SSO?SAMLRequest=fZJPb8...&RelayState=%2Fops-runbook", ok:false, log:"SP가 원래 경로 /ops-runbook 을 RelayState에 담아 IdP로 보냈습니다." },
+  { url:"https://sso.mycompany.com/idp/login", ok:false, log:"IdP 로그인 화면. RelayState는 IdP가 그대로 들고 있습니다. 내용을 해석하지 않습니다." },
+  { url:"https://wiki.example.com/saml/acs", ok:false, log:"인증 완료. SAMLResponse와 함께 RelayState가 SP로 되돌아왔습니다." },
+  { url:"https://wiki.example.com/ops-runbook", ok:true, log:"SP가 RelayState 값이 내부 경로인지 확인한 뒤 그리로 이동. 처음 클릭한 페이지에 도착했습니다." }
+];
+var rsIdx = 0, rsTimer = null;
+var rsUrl = document.getElementById("rsUrl"), rsDot = document.getElementById("rsDot"), rsLog = document.getElementById("rsLog");
+
+function rsStep(){
+  if(rsIdx >= RS_SEQ.length){ clearInterval(rsTimer); rsTimer = null; return; }
+  var s = RS_SEQ[rsIdx];
+  rsUrl.textContent = s.url;
+  rsDot.classList.toggle("off", !s.ok);
+  var li = document.createElement("li");
+  li.textContent = (rsIdx+1) + ". " + s.log;
+  if(rsIdx === RS_SEQ.length-1) li.className = "hi";
+  rsLog.appendChild(li);
+  rsIdx++;
+}
+document.getElementById("rsRun").addEventListener("click", function(){
+  if(rsTimer) return;
+  if(rsIdx >= RS_SEQ.length) return;
+  rsStep();
+  rsTimer = setInterval(rsStep, 1100);
+});
+document.getElementById("rsReset").addEventListener("click", function(){
+  clearInterval(rsTimer); rsTimer = null; rsIdx = 0;
+  rsLog.innerHTML = "";
+  rsUrl.textContent = "https://wiki.example.com/ops-runbook";
+  rsDot.classList.add("off");
+});
+
+/* ── 장애 대응 ── */
+var DBG = [
+  ["로그인 후 다시 로그인 화면으로 돌아온다 (무한 루프)", "루프",
+   "<p>SP가 세션 쿠키를 심지 못하고 있습니다. 가장 흔한 원인은 <b>쿠키의 SameSite 설정</b>입니다. IdP에서 SP로 넘어오는 것은 외부 사이트에서 오는 POST라, <code>SameSite=Lax</code>면 쿠키가 전송되지 않습니다.</p><p>확인 순서: ① ACS 응답의 Set-Cookie에 <b>SameSite=None; Secure</b>가 붙어 있는지 ② HTTPS로 서비스 중인지 ③ SP가 검증에 실패하고도 조용히 로그인 화면으로 보내는 것은 아닌지 서버 로그 확인.</p>"],
+
+  ["Invalid Audience / Audience 불일치 오류", "설정",
+   "<p>Assertion의 Audience 값과 SP에 설정된 Entity ID가 글자 단위로 다릅니다. <b>끝의 슬래시 하나, http와 https 차이</b>로도 실패합니다.</p><p>확인 순서: ① SAMLResponse를 디코딩해 실제 Audience 값 확인 ② SP 설정의 Entity ID와 문자열 비교 ③ IdP 쪽 연동 설정에 등록된 값까지 세 곳을 일치시킵니다.</p>"],
+
+  ["Signature validation failed / 서명 검증 실패", "인증서",
+   "<p>대부분 <b>인증서 불일치 또는 만료</b>입니다. IdP가 서명 인증서를 교체했는데 SP에 새 인증서가 등록되지 않은 상황이 가장 흔합니다.</p><p>확인 순서: ① IdP 메타데이터를 새로 받아 인증서 지문(fingerprint) 비교 ② SP에 등록된 인증서 만료일 확인 ③ 서명 알고리즘 확인 — SHA-1을 거부하도록 강화된 SP에 구형 IdP가 SHA-1로 서명해 보내는 경우가 있습니다.</p>"],
+
+  ["Assertion is not yet valid / 유효하지 않은 시간", "시계",
+   "<p>서버 간 <b>시계 오차</b>입니다. IdP가 발급한 NotBefore 시각이 SP 기준으로는 아직 미래인 상태입니다.</p><p>확인 순서: ① 양쪽 서버에서 <code>date -u</code>로 UTC 시각 비교 ② NTP 동기화 상태 확인 ③ 임시 조치로 SP의 clock skew 허용치를 1~3분으로 설정. 근본 해결은 항상 NTP입니다.</p>"],
+
+  ["로그인은 되는데 권한이 없다고 나온다", "매핑",
+   "<p>인증은 성공했지만 <b>속성 매핑</b>이 어긋난 경우입니다. SAML 흐름 자체는 정상이므로 Network 탭에는 이상이 없습니다.</p><p>확인 순서: ① SAMLResponse를 디코딩해 AttributeStatement에 그룹·역할 값이 실제로 들어 있는지 ② 속성 이름이 SP가 기대하는 것과 같은지(대소문자 포함) ③ AWS 연동이라면 Role ARN 형식과 신뢰 정책 확인.</p>"],
+
+  ["특정 사용자만 로그인이 안 된다", "계정",
+   "<p>전체가 아니라 일부만 실패하면 프로토콜 문제가 아니라 <b>데이터 문제</b>일 가능성이 큽니다.</p><p>확인 순서: ① 해당 계정의 NameID 값이 비어 있거나 형식이 다른지 ② 이메일 변경 이력이 있는지 — SP는 예전 NameID로 계정을 찾기 때문에 매칭에 실패합니다 ③ IdP에서 그 앱에 대한 할당이 되어 있는지.</p>"],
+
+  ["IdP 화면에서 흰 페이지에 멈춰 있다", "폼",
+   "<p>자동 제출 폼이 전송되지 않은 상태입니다. <b>자바스크립트 차단</b>이거나 폼의 action 주소가 잘못됐습니다.</p><p>확인 순서: ① 페이지 소스를 열어 form action이 올바른 ACS URL인지 ② 브라우저 확장이나 정책으로 스크립트가 막혀 있는지 ③ 폼 안에 SAMLResponse 값이 실제로 채워져 있는지.</p>"]
+];
+var dbgEl = document.getElementById("dbg");
+DBG.forEach(function(d){
+  var el = document.createElement("details");
+  el.className = "dbgitem";
+  el.innerHTML = "<summary><span class='sym'>" + d[0] + "</span><span class='chip'>" + d[1] + "</span></summary><div class='dbgbody'>" + d[2] + "</div>";
+  dbgEl.appendChild(el);
+});
+
+/* ── 퀴즈 ── */
+var QUIZ = [
+  { q:"SAML 흐름에서 SP와 IdP 사이의 메시지를 실제로 전달하는 주체는?",
+    o:["SP가 IdP에 직접 API 호출","사용자의 브라우저","별도의 중계 서버","DNS 서버"], a:1,
+    e:"프론트 채널 방식이라 모든 메시지는 리다이렉트와 폼 전송으로 브라우저가 옮깁니다. 덕분에 사내망 IdP와 인터넷 SaaS가 직접 연결 없이도 연동됩니다." },
+
+  { q:"IdP-initiated SSO가 SP-initiated보다 위험한 근본적인 이유는?",
+    o:["암호화를 하지 않아서","AuthnRequest가 없어 InResponseTo 대조가 불가능해서","Base64를 쓰지 않아서","IdP가 서명하지 않아서"], a:1,
+    e:"요청한 적 없는 응답이 도착하므로 SP는 그것이 정상 흐름인지 밀어 넣어진 것인지 판단할 근거가 부족합니다." },
+
+  { q:"AuthnRequest는 HTTP-Redirect로, Response는 HTTP-POST로 보내는 주된 이유는?",
+    o:["보안 등급이 달라서","메시지 길이 차이 때문에","서로 다른 회사가 만들어서","브라우저 호환성 때문에"], a:1,
+    e:"요청은 짧아 URL에 담기지만, Assertion이 포함된 응답은 커서 URL 길이 제한을 넘습니다. 게다가 POST는 주소창 기록에도 남지 않습니다." },
+
+  { q:"Redirect 바인딩의 SAMLRequest를 원래 XML로 되돌리는 올바른 순서는?",
+    o:["Base64 디코딩만","URL 디코딩 → Base64 디코딩 → Deflate 해제","Deflate 해제 → URL 디코딩","복호화 키가 필요하다"], a:1,
+    e:"인코딩이 Deflate → Base64 → URL 순이었으므로 역순으로 풉니다. 표준 zlib이 아니라 헤더 없는 raw deflate라는 점에 주의하세요." },
+
+  { q:"RelayState를 다룰 때 반드시 해야 할 검증은?",
+    o:["Base64로 인코딩되었는지","자기 도메인 내부 경로인지","길이가 256자 이하인지","서명이 포함되었는지"], a:1,
+    e:"검증 없이 리다이렉트하면 로그인 직후 사용자를 외부 사이트로 보내는 오픈 리다이렉트가 됩니다. 내부 경로 검사 또는 세션 저장 방식을 쓰세요." },
+
+  { q:"로그인 후 다시 로그인 화면으로 돌아오는 무한 루프의 가장 흔한 원인은?",
+    o:["IdP 인증서 만료","SP 세션 쿠키의 SameSite 설정","서버 시계 오차","속성 매핑 오류"], a:1,
+    e:"IdP에서 넘어오는 것은 외부 사이트발 POST라, SameSite=Lax면 쿠키가 전송되지 않습니다. SameSite=None; Secure와 HTTPS가 필요합니다." },
+
+  { q:"퇴사자의 접근을 즉시 차단해야 할 때 가장 현실적인 방법은?",
+    o:["SLO를 호출해 모든 세션을 끊는다","IdP에서 계정을 비활성화하고 세션을 무효화한다","각 SP에 메일로 요청한다","인증서를 교체한다"], a:1,
+    e:"SLO는 SP 미지원·중단 등으로 자주 실패합니다. IdP 차단이 확실하며, SP에 이미 발급된 세션은 수명 설정으로 관리하는 것이 실무적 접근입니다." }
+];
+var quizEl = document.getElementById("quiz"), scoreEl = document.getElementById("score");
+var answered = 0, correct = 0;
+
+QUIZ.forEach(function(item, qi){
+  var box = document.createElement("div");
+  box.className = "q";
+  var opts = item.o.map(function(t, oi){
+    return "<button class='opt' data-q='" + qi + "' data-o='" + oi + "'>" + t + "</button>";
+  }).join("");
+  box.innerHTML = "<p class='qt'>" + (qi+1) + ". " + item.q + "</p><div class='opts'>" + opts + "</div><div class='qfb'></div>";
+  quizEl.appendChild(box);
+});
+quizEl.addEventListener("click", function(e){
+  var btn = e.target.closest(".opt");
+  if(!btn) return;
+  var qi = +btn.getAttribute("data-q"), oi = +btn.getAttribute("data-o");
+  var box = btn.closest(".q");
+  if(box.getAttribute("data-done")) return;
+  box.setAttribute("data-done","1");
+  var item = QUIZ[qi];
+  box.querySelectorAll(".opt").forEach(function(b){
+    var i = +b.getAttribute("data-o");
+    if(i === item.a) b.classList.add("ok");
+    else if(i === oi) b.classList.add("no");
+    b.disabled = true;
+  });
+  var fb = box.querySelector(".qfb");
+  fb.classList.add("show");
+  fb.innerHTML = (oi === item.a ? "<b style='color:var(--teal)'>정답입니다. </b>" : "<b style='color:var(--crimson)'>다시 볼까요. </b>") + item.e;
+  answered++;
+  if(oi === item.a) correct++;
+  scoreEl.textContent = QUIZ.length + "문항 중 " + answered + "문항 풀이 · 정답 " + correct + "개";
+  if(answered === QUIZ.length){
+    var msg = correct === QUIZ.length ? "흐름을 완전히 잡으셨습니다. 3편으로 가셔도 좋습니다."
+            : correct >= 5 ? "핵심은 잡혔습니다. 틀린 문항의 해설만 다시 확인해 보세요."
+            : "1장 시퀀스를 한 번 더 돌려보고 오시면 나머지가 쉽게 붙습니다.";
+    scoreEl.innerHTML = QUIZ.length + "문항 중 정답 " + correct + "개<br><span style='font-size:.9rem;font-family:\"Noto Sans KR\",sans-serif;color:var(--ink-soft)'>" + msg + "</span>";
+  }
+});
+
+})();
+</script>
+</body>
+</html>

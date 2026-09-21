@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAML 3편 — 보안 취약점과 검증</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF1F9; --paper-2:#FFFFFF; --paper-3:#E3E8F5;
+  --ink:#151C42; --ink-soft:#4A5480; --line:#C9D0E6;
+  --violet:#6B3FA0; --teal:#0C8375; --crimson:#C0334F; --gold:#C99A2E; --blue:#2A4FBF;
+  --shadow:rgba(21,28,66,.14); --stamp-bg:rgba(107,63,160,.07);
+  --danger-bg:rgba(192,51,79,.10); --safe-bg:rgba(12,131,117,.11);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1226; --paper-2:#171C36; --paper-3:#1F2647;
+    --ink:#E8ECFB; --ink-soft:#A6B0D6; --line:#2F3762;
+    --violet:#B08BDE; --teal:#35BCA8; --crimson:#F58099; --gold:#E7BC5E; --blue:#7C99FF;
+    --shadow:rgba(0,0,0,.5); --stamp-bg:rgba(176,139,222,.10);
+    --danger-bg:rgba(245,128,153,.13); --safe-bg:rgba(53,188,168,.13);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1226; --paper-2:#171C36; --paper-3:#1F2647;
+  --ink:#E8ECFB; --ink-soft:#A6B0D6; --line:#2F3762;
+  --violet:#B08BDE; --teal:#35BCA8; --crimson:#F58099; --gold:#E7BC5E; --blue:#7C99FF;
+  --shadow:rgba(0,0,0,.5); --stamp-bg:rgba(176,139,222,.10);
+  --danger-bg:rgba(245,128,153,.13); --safe-bg:rgba(53,188,168,.13);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Noto Sans KR","Malgun Gothic",sans-serif;font-size:16.5px;line-height:1.85;-webkit-text-size-adjust:100%}
+h1,h2,h3{font-family:"Gowun Batang","Nanum Myeongjo",serif;font-weight:700;line-height:1.3}
+code,pre,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+a{color:var(--blue)}
+:focus-visible{outline:3px solid var(--gold);outline-offset:3px;border-radius:4px}
+p{max-width:72ch}
+
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb, var(--paper) 88%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.progress{height:4px}
+.progress > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--crimson),var(--gold),var(--teal));transition:width .12s linear}
+.topbar nav{max-width:1120px;margin:0 auto;padding:.45rem 1rem;display:flex;gap:.3rem;align-items:center;overflow-x:auto;scrollbar-width:thin}
+.topbar nav b{font-family:"Gowun Batang",serif;font-size:.92rem;white-space:nowrap;margin-right:.5rem;color:var(--violet)}
+.topbar nav a{font-size:.82rem;text-decoration:none;color:var(--ink-soft);padding:.28rem .62rem;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+.topbar nav a:hover{background:var(--paper-3);color:var(--ink)}
+.topbar nav a.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.themebtn{margin-left:auto;flex:none;background:var(--paper-2);border:1px solid var(--line);color:var(--ink-soft);border-radius:999px;padding:.28rem .7rem;font-size:.78rem;cursor:pointer;font-family:inherit}
+
+.wrap{max-width:880px;margin:0 auto;padding:0 1.15rem}
+.wide{max-width:1000px}
+section{padding:4.2rem 0 1rem}
+
+/* 히어로 */
+.hero{position:relative;overflow:hidden;background:repeating-linear-gradient(115deg, transparent 0 7px, var(--stamp-bg) 7px 8px),repeating-linear-gradient(65deg, transparent 0 7px, var(--stamp-bg) 7px 8px),var(--paper-2);border-bottom:1px solid var(--line);padding:3rem 0 3.4rem}
+.kicker{display:inline-block;font-size:.78rem;color:var(--crimson);border:1px solid var(--crimson);border-radius:999px;padding:.12rem .7rem;margin-bottom:1rem}
+.hero h1{font-size:clamp(2rem,6vw,3.1rem);margin:.1rem 0 .6rem;letter-spacing:-.01em}
+.hero h1 .sub{display:block;font-size:clamp(1rem,2.6vw,1.25rem);color:var(--ink-soft);font-weight:400;margin-top:.6rem;font-family:"Noto Sans KR",sans-serif;line-height:1.7}
+.hero p.lede{max-width:56ch;color:var(--ink-soft);margin:.9rem 0 0}
+
+/* 위조 도장 */
+.forged{display:grid;grid-template-columns:1fr 1fr;gap:1rem;max-width:420px;margin:2.2rem 0 0}
+.fstamp{border:2px double var(--line);border-radius:50%;aspect-ratio:1;display:grid;place-items:center;text-align:center;font-size:.7rem;color:var(--ink-soft);position:relative;padding:1rem}
+.fstamp.real{border-color:var(--teal);color:var(--teal)}
+.fstamp.fake{border-color:var(--crimson);color:var(--crimson);transform:rotate(6deg)}
+.fstamp b{display:block;font-family:"Gowun Batang",serif;font-size:1.05rem;margin-bottom:.15rem}
+.fstamp small{display:block;font-family:"JetBrains Mono",monospace;font-size:.58rem;opacity:.8;margin-top:.3rem}
+
+.roadmap{display:grid;grid-template-columns:repeat(4,1fr);gap:.7rem;margin-top:2.2rem}
+.rm{background:var(--paper-2);border:1px solid var(--line);border-radius:10px;padding:.85rem .9rem;position:relative}
+.rm .n{font-family:"JetBrains Mono",monospace;font-size:.72rem;color:var(--ink-soft)}
+.rm .t{font-family:"Gowun Batang",serif;font-weight:700;font-size:.98rem;margin:.15rem 0 .2rem}
+.rm .d{font-size:.76rem;color:var(--ink-soft);line-height:1.6}
+.rm.done{opacity:.72}
+.rm.done .t::after{content:" ✓";color:var(--teal)}
+.rm.now{border-color:var(--violet);border-width:2px;background:var(--stamp-bg)}
+.rm.now .t{color:var(--violet)}
+.rm.now::after{content:"지금 보는 편";position:absolute;top:-.62rem;right:.6rem;background:var(--violet);color:#fff;font-size:.64rem;padding:.06rem .5rem;border-radius:999px}
+
+.shead{display:flex;gap:1rem;align-items:flex-start;margin-bottom:1.3rem}
+.snum{flex:none;width:52px;height:52px;border-radius:50%;border:2px solid var(--violet);color:var(--violet);display:grid;place-items:center;font-family:"JetBrains Mono",monospace;font-weight:700;font-size:1.05rem;transform:rotate(-8deg);background:var(--paper-2)}
+.shead h2{font-size:clamp(1.45rem,3.6vw,1.95rem);margin:.15rem 0 .25rem}
+.shead .sdesc{color:var(--ink-soft);font-size:.92rem;margin:0}
+
+.card{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.2rem 1.3rem}
+.note{border-left:3px solid var(--gold);background:var(--paper-2);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.4rem 0;font-size:.94rem}
+.note b{color:var(--gold)}
+.warn{border-left-color:var(--crimson)}
+.warn b{color:var(--crimson)}
+.good{border-left-color:var(--teal)}
+.good b{color:var(--teal)}
+.btn{font-family:inherit;font-size:.9rem;cursor:pointer;background:var(--violet);color:#fff;border:0;border-radius:8px;padding:.6rem 1.15rem}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--violet);border:1px solid var(--violet)}
+.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+
+/* 신뢰 경계 */
+.trustmap{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-top:1.3rem}
+.tzone{border-radius:12px;padding:1.05rem 1.15rem;border:1px solid var(--line)}
+.tzone.trusted{background:var(--safe-bg);border-color:var(--teal)}
+.tzone.untrusted{background:var(--danger-bg);border-color:var(--crimson)}
+.tzone h4{margin:0 0 .5rem;font-size:1.02rem;font-family:"Noto Sans KR",sans-serif}
+.tzone.trusted h4{color:var(--teal)}
+.tzone.untrusted h4{color:var(--crimson)}
+.tzone ul{margin:0;padding-left:1.1rem;font-size:.87rem;line-height:1.75}
+
+/* XSW 시각화 */
+.xsw{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.2rem}
+.xswview{display:grid;grid-template-columns:1fr 1fr;gap:.9rem;margin-top:1rem}
+.xswcol{border:1px solid var(--line);border-radius:10px;padding:.9rem;background:var(--paper)}
+.xswcol h5{margin:0 0 .6rem;font-size:.86rem;font-family:"Noto Sans KR",sans-serif;font-weight:700}
+.xswcol.sig h5{color:var(--teal)}
+.xswcol.app h5{color:var(--crimson)}
+.tree{font-family:"JetBrains Mono",monospace;font-size:.72rem;line-height:1.95}
+.tnode{padding:.05rem .3rem;border-radius:3px;display:inline-block}
+.tnode.hl-sig{background:var(--safe-bg);color:var(--teal);font-weight:700}
+.tnode.hl-app{background:var(--danger-bg);color:var(--crimson);font-weight:700}
+.tnode.dim{opacity:.5}
+.xswtoggle{display:flex;gap:.4rem;flex-wrap:wrap}
+.xswtoggle button{font-family:inherit;font-size:.85rem;cursor:pointer;background:var(--paper-3);border:1px solid var(--line);color:var(--ink-soft);padding:.45rem .9rem;border-radius:999px}
+.xswtoggle button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.verdict{margin-top:.9rem;padding:.8rem 1rem;border-radius:9px;font-size:.9rem;border:1px solid var(--line);background:var(--paper-3)}
+.verdict.bad{background:var(--danger-bg);border-color:var(--crimson)}
+.verdict.ok{background:var(--safe-bg);border-color:var(--teal)}
+
+/* 검증 실험실 */
+.lab{background:var(--paper-2);border:1px solid var(--line);border-radius:14px;padding:1.2rem}
+.checks{display:grid;gap:.45rem}
+.chk{display:flex;gap:.75rem;align-items:flex-start;padding:.7rem .9rem;border:1px solid var(--line);border-radius:10px;background:var(--paper);cursor:pointer}
+.chk input{margin-top:.35rem;width:17px;height:17px;accent-color:var(--teal);flex:none}
+.chk .ct{font-size:.9rem;font-weight:700;display:block}
+.chk .cd{font-size:.8rem;color:var(--ink-soft);display:block;line-height:1.6}
+.chk.on{border-color:var(--teal);background:var(--safe-bg)}
+.attacks{margin-top:1.1rem}
+.attacks h4{margin:0 0 .6rem;font-size:1rem;font-family:"Noto Sans KR",sans-serif}
+.acard{border-radius:10px;padding:.8rem 1rem;margin-bottom:.45rem;font-size:.88rem;background:var(--danger-bg);border:1px solid var(--crimson)}
+.acard b{color:var(--crimson);display:block;margin-bottom:.15rem}
+.acard span{color:var(--ink-soft);font-size:.83rem}
+.allsafe{background:var(--safe-bg);border:1px solid var(--teal);border-radius:10px;padding:1rem;font-size:.9rem}
+.allsafe b{color:var(--teal)}
+.meter{height:8px;border-radius:999px;background:var(--paper-3);overflow:hidden;margin:1rem 0 .4rem}
+.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--crimson),var(--gold),var(--teal));transition:width .3s}
+.meterlbl{font-size:.82rem;color:var(--ink-soft);font-family:"JetBrains Mono",monospace}
+
+/* 탭 */
+.tabs{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:-1px}
+.tabs button{font-family:inherit;font-size:.87rem;cursor:pointer;background:var(--paper-3);border:1px solid var(--line);border-bottom:none;color:var(--ink-soft);padding:.55rem 1rem;border-radius:9px 9px 0 0}
+.tabs button[aria-selected="true"]{background:var(--paper-2);color:var(--violet);font-weight:700;box-shadow:inset 0 3px 0 var(--violet)}
+.tabpanes{background:var(--paper-2);border:1px solid var(--line);border-radius:0 12px 12px 12px;padding:1.3rem}
+.tabpanes > div{display:none}
+.tabpanes > div.show{display:block}
+.tabpanes h4{margin:0 0 .4rem;font-size:1.15rem}
+.tabpanes pre{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:.8rem;overflow-x:auto;font-size:.74rem;line-height:1.75;margin:.9rem 0 0;white-space:pre}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.3rem .9rem;font-size:.87rem;margin:.9rem 0 0}
+.kv dt{color:var(--ink-soft);white-space:nowrap}
+.kv dd{margin:0}
+
+/* 롤오버 타임라인 */
+.roll{display:grid;gap:.5rem;margin-top:1.2rem}
+.rstep{display:grid;grid-template-columns:96px 1fr;gap:.9rem;align-items:start;background:var(--paper-2);border:1px solid var(--line);border-radius:10px;padding:.8rem 1rem}
+.rstep .when{font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--violet);font-weight:700;padding-top:.15rem}
+.rstep h4{margin:0 0 .15rem;font-size:.97rem;font-family:"Noto Sans KR",sans-serif;font-weight:700}
+.rstep p{margin:0;font-size:.86rem;color:var(--ink-soft);max-width:none}
+
+/* 만료 계산기 */
+.calc{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.2rem}
+.calc input[type="date"]{font-family:"JetBrains Mono",monospace;font-size:.9rem;padding:.55rem .8rem;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink)}
+.calcout{margin-top:1rem;display:none}
+.calcout.show{display:block}
+.dday{font-family:"Gowun Batang",serif;font-size:1.5rem;margin-bottom:.6rem}
+.dday.soon{color:var(--crimson)}
+.dday.ok{color:var(--teal)}
+
+/* 표 */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--paper-2);margin-top:1.2rem}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:.87rem}
+th,td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--paper-3);font-weight:700;font-size:.82rem;color:var(--ink-soft)}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--violet)}
+td.bad{color:var(--crimson);font-weight:700}
+td.okc{color:var(--teal);font-weight:700}
+
+/* 아코디언 */
+.acc{display:grid;gap:.45rem;margin-top:1.2rem}
+.accitem{background:var(--paper-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.accitem summary{cursor:pointer;padding:.75rem 1rem;font-size:.93rem;list-style:none;display:flex;gap:.7rem;align-items:center}
+.accitem summary::-webkit-details-marker{display:none}
+.accitem summary .sym{flex:1;font-weight:500}
+.accitem summary .chip{flex:none;font-family:"JetBrains Mono",monospace;font-size:.68rem;padding:.08rem .5rem;border-radius:4px}
+.chip.high{background:rgba(192,51,79,.14);color:var(--crimson)}
+.chip.mid{background:rgba(201,154,46,.16);color:var(--gold)}
+.accitem[open] summary{border-bottom:1px solid var(--line);background:var(--paper-3)}
+.accbody{padding:.9rem 1rem;font-size:.9rem}
+.accbody p{margin:0 0 .5rem;max-width:none}
+.accbody p:last-child{margin-bottom:0}
+.accbody b{color:var(--teal)}
+
+/* 자가진단 */
+.audit{display:grid;gap:.4rem;margin-top:1.2rem}
+.aq{display:flex;gap:.75rem;align-items:flex-start;padding:.65rem .9rem;border:1px solid var(--line);border-radius:9px;background:var(--paper-2);cursor:pointer;font-size:.89rem}
+.aq input{margin-top:.3rem;width:16px;height:16px;accent-color:var(--violet);flex:none}
+.aq.on{border-color:var(--violet);background:var(--stamp-bg)}
+.auditout{margin-top:1rem;text-align:center;background:var(--paper-2);border:2px solid var(--violet);border-radius:12px;padding:1.2rem;font-family:"Gowun Batang",serif;font-size:1.15rem}
+
+/* 퀴즈 */
+.q{background:var(--paper-2);border:1px solid var(--line);border-radius:12px;padding:1.1rem 1.25rem;margin-bottom:.75rem}
+.q .qt{font-weight:700;margin:0 0 .75rem;font-size:.98rem;max-width:none}
+.opts{display:grid;gap:.4rem}
+.opt{text-align:left;font-family:inherit;font-size:.9rem;cursor:pointer;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:.6rem .85rem}
+.opt:hover{border-color:var(--violet)}
+.opt.ok{background:var(--safe-bg);border-color:var(--teal);color:var(--teal);font-weight:700}
+.opt.no{background:var(--danger-bg);border-color:var(--crimson);color:var(--crimson)}
+.qfb{margin-top:.7rem;font-size:.87rem;color:var(--ink-soft);display:none}
+.qfb.show{display:block}
+.score{text-align:center;background:var(--paper-2);border:2px solid var(--violet);border-radius:12px;padding:1.2rem;font-family:"Gowun Batang",serif;font-size:1.2rem}
+
+.outro{background:var(--paper-2);border-top:1px solid var(--line);margin-top:3.5rem;padding:3rem 0 4rem}
+.keylist{list-style:none;padding:0;margin:1.2rem 0 0;display:grid;gap:.55rem}
+.keylist li{padding-left:1.6rem;position:relative;font-size:.95rem}
+.keylist li::before{content:"✓";position:absolute;left:0;top:0;color:var(--teal);font-weight:700}
+footer{padding:2rem 0 3rem;text-align:center;color:var(--ink-soft);font-size:.82rem}
+
+@media (max-width:820px){
+  .roadmap{grid-template-columns:1fr 1fr}
+  .trustmap,.xswview{grid-template-columns:1fr}
+  .forged{max-width:none}
+}
+@media (max-width:480px){
+  body{font-size:15.5px}
+  .roadmap{grid-template-columns:1fr}
+  .snum{width:42px;height:42px;font-size:.9rem}
+  .rstep{grid-template-columns:1fr;gap:.2rem}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="progress"><i id="bar"></i></div>
+  <nav>
+    <b>SAML 3편</b>
+    <a href="#ch1">신뢰 경계</a>
+    <a href="#ch2">검증 실험실</a>
+    <a href="#ch3">서명 래핑</a>
+    <a href="#ch4">Golden SAML</a>
+    <a href="#ch5">그 외 공격</a>
+    <a href="#ch6">인증서 운영</a>
+    <a href="#ch7">탐지와 로깅</a>
+    <a href="#ch8">자가진단</a>
+    <a href="#ch9">퀴즈</a>
+    <button class="themebtn" id="themebtn">화면 밝기 바꾸기</button>
+  </nav>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">클라우드 엔지니어를 위한 인증 시리즈 · 3편</span>
+    <h1>서명이 있다고 안전한 것은 아니다
+      <span class="sub">SAML에서 실제로 뚫리는 지점과, 그것을 막는 검증 항목들</span>
+    </h1>
+    <p class="lede">2편에서 여러 번 미뤄 둔 이야기입니다. SAML 사고의 대부분은 암호 알고리즘이 깨져서가 아니라, <b>검증을 한 단계 빠뜨려서</b> 일어납니다. 이 편은 그 빠진 단계들을 하나씩 채워 넣는 과정입니다.</p>
+
+    <div class="forged">
+      <div class="fstamp real">
+        <div><b>검증 통과</b>서명 · 대상 · 시간<br>모두 확인함<small>5 / 5 CHECKED</small></div>
+      </div>
+      <div class="fstamp fake">
+        <div><b>검증 통과</b>서명만 확인함<br>나머지 생략<small>1 / 5 CHECKED</small></div>
+      </div>
+    </div>
+    <p style="font-size:.84rem;color:var(--ink-soft);margin-top:.6rem">두 요청 모두 SP 입장에서는 “로그인 성공”입니다. 차이는 무엇을 확인했는가에만 있습니다.</p>
+
+    <div class="roadmap">
+      <div class="rm done"><div class="n">1편</div><div class="t">개념과 구조</div><div class="d">등장인물, 신뢰 관계, Assertion 해부, 명세 4계층</div></div>
+      <div class="rm done"><div class="n">2편</div><div class="t">동작 흐름</div><div class="d">SP/IdP-initiated, 바인딩 3종, RelayState, SLO</div></div>
+      <div class="rm now"><div class="n">3편</div><div class="t">보안과 검증</div><div class="d">서명 래핑, Golden SAML, 검증 체크리스트, 인증서 운영</div></div>
+      <div class="rm"><div class="n">4편</div><div class="t">클라우드 실전</div><div class="d">AWS·Entra ID·Keycloak 연동, OIDC 전환</div></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ══════ 1 ══════ -->
+<section id="ch1">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">1</div>
+      <div>
+        <h2>무엇을 믿고 무엇을 의심할 것인가</h2>
+        <p class="sdesc">모든 검증 규칙은 이 경계선 하나에서 나옵니다.</p>
+      </div>
+    </div>
+
+    <p>2편에서 확인한 사실 하나가 보안의 출발점입니다. <b>SAML 메시지는 전부 사용자의 브라우저를 거쳐 옵니다.</b> 브라우저는 사용자의 통제 아래 있고, 그 사용자가 악의를 가진 사람일 수도 있습니다. 그러니 SP에 도착한 모든 값은 일단 “조작 가능한 입력”으로 취급해야 합니다.</p>
+
+    <div class="trustmap">
+      <div class="tzone trusted">
+        <h4>믿을 수 있는 것</h4>
+        <ul>
+          <li>연동 설정 시 등록해 둔 IdP의 공개키(인증서)</li>
+          <li>SP 서버가 자기 세션에 저장해 둔 요청 ID</li>
+          <li>서명 검증을 통과한 <b>바로 그 노드</b>의 내용</li>
+          <li>SP 자신의 설정값 (Entity ID, ACS URL)</li>
+        </ul>
+      </div>
+      <div class="tzone untrusted">
+        <h4>의심해야 하는 것</h4>
+        <ul>
+          <li>SAMLResponse 안의 모든 값 — 검증 전까지는 전부</li>
+          <li>RelayState 문자열</li>
+          <li>메시지에 적힌 Issuer, Destination, ACS URL</li>
+          <li>서명이 걸리지 않은 영역의 모든 내용</li>
+          <li>요청받지 않았는데 도착한 응답</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>핵심 원칙 한 문장</b> — 서명 검증은 “이 문서가 진짜인가”를 알려줄 뿐, “이 문서가 나에게, 지금, 내가 요청해서 온 것인가”는 알려주지 않습니다. 뒤의 세 가지는 각각 Audience, 유효시간, InResponseTo가 담당합니다. 서명 하나만 보고 통과시키는 구현이 가장 흔한 사고 원인입니다.
+    </div>
+
+    <p>그래서 SP가 해야 할 검증은 딱 다섯 갈래로 정리됩니다. 다음 장에서 이 다섯 개를 하나씩 켜고 끄면서, 각각이 없을 때 어떤 공격이 열리는지 직접 확인해 보겠습니다.</p>
+  </div>
+</section>
+
+<!-- ══════ 2 ══════ -->
+<section id="ch2">
+  <div class="wrap wide">
+    <div class="shead">
+      <div class="snum">2</div>
+      <div>
+        <h2>검증 실험실</h2>
+        <p class="sdesc">체크를 해제해 보세요. 그 상태에서 가능해지는 공격이 아래에 나타납니다.</p>
+      </div>
+    </div>
+
+    <p>SP가 Assertion을 받았을 때 확인해야 할 항목입니다. 실무에서 연동을 검수할 때 이 목록 그대로 물어보면 됩니다. 처음에는 전부 켜져 있습니다. 하나씩 꺼 보세요.</p>
+
+    <div class="lab">
+      <div class="checks" id="checks">
+        <label class="chk on"><input type="checkbox" checked data-c="sig">
+          <span><span class="ct">① 서명 검증</span><span class="cd">등록된 IdP 인증서로 서명을 검증하고, 서명이 걸린 범위가 실제로 사용할 데이터를 포함하는지 확인한다.</span></span></label>
+
+        <label class="chk on"><input type="checkbox" checked data-c="aud">
+          <span><span class="ct">② Audience 확인</span><span class="cd">Assertion의 Audience가 우리 SP의 Entity ID와 정확히 일치하는지 확인한다.</span></span></label>
+
+        <label class="chk on"><input type="checkbox" checked data-c="time">
+          <span><span class="ct">③ 유효시간 확인</span><span class="cd">NotBefore와 NotOnOrAfter 범위 안인지 확인한다. 허용 오차는 1~3분 이내로 제한한다.</span></span></label>
+
+        <label class="chk on"><input type="checkbox" checked data-c="resp">
+          <span><span class="ct">④ InResponseTo 대조</span><span class="cd">응답의 InResponseTo가 우리가 보낸 AuthnRequest의 ID와 일치하는지 세션에서 확인한다.</span></span></label>
+
+        <label class="chk on"><input type="checkbox" checked data-c="dest">
+          <span><span class="ct">⑤ Recipient / Destination 확인</span><span class="cd">응답에 적힌 수신 주소가 우리 ACS URL과 같은지 확인한다.</span></span></label>
+
+        <label class="chk on"><input type="checkbox" checked data-c="replay">
+          <span><span class="ct">⑥ 재사용 방지</span><span class="cd">이미 처리한 Assertion ID를 유효시간 동안 기록해 두고, 같은 것이 다시 오면 거부한다.</span></span></label>
+      </div>
+
+      <div class="meter"><i id="meterFill" style="width:100%"></i></div>
+      <div class="meterlbl" id="meterLbl">방어 수준 6 / 6</div>
+
+      <div class="attacks" id="attacks"></div>
+    </div>
+
+    <div class="note good">
+      <b>연동 검수 질문지로 쓰는 법</b> — 고객사 SP를 검수할 때 “서명 검증하시나요?”만 묻지 말고, 위 여섯 개를 그대로 물어보세요. 특히 ④와 ⑥은 상용 제품에서도 구현이 빠져 있는 경우가 있습니다. 직접 만든 SP라면 라이브러리의 기본 설정이 무엇인지까지 확인해야 합니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 3 ══════ -->
+<section id="ch3">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">3</div>
+      <div>
+        <h2>XML 서명 래핑 (XSW)</h2>
+        <p class="sdesc">SAML 고유의, 그리고 가장 유명한 취약점 유형.</p>
+      </div>
+    </div>
+
+    <p>서명은 제대로 검증했는데도 뚫리는 경우가 있습니다. <b>서명을 검증한 부분과, 애플리케이션이 실제로 읽은 부분이 서로 다른 노드일 때</b>입니다. 이것이 XML Signature Wrapping의 본질입니다.</p>
+
+    <p>왜 이런 일이 가능할까요. XML 서명은 “이 문서 전체”가 아니라 <b>ID로 지목한 특정 노드</b>에 걸립니다. 그런데 문서를 파싱해서 사용자 정보를 꺼내는 코드는 대개 “문서 안의 첫 번째 Assertion을 찾아라” 같은 방식으로 동작합니다. 이 둘이 서로 다른 노드를 가리키게 만들 수 있으면 검증은 통과하고 내용은 공격자의 것이 됩니다.</p>
+
+    <div class="xsw">
+      <div class="xswtoggle" role="group" aria-label="문서 상태 선택">
+        <button data-x="normal" aria-pressed="true">정상 문서</button>
+        <button data-x="wrapped" aria-pressed="false">노드가 추가된 문서</button>
+      </div>
+
+      <div class="xswview">
+        <div class="xswcol sig">
+          <h5>서명 검증기가 보는 노드</h5>
+          <div class="tree" id="treeSig"></div>
+        </div>
+        <div class="xswcol app">
+          <h5>애플리케이션이 실제로 읽는 노드</h5>
+          <div class="tree" id="treeApp"></div>
+        </div>
+      </div>
+
+      <div class="verdict" id="xswVerdict">두 관점이 같은 노드를 가리키면 안전합니다. 위 버튼으로 상태를 바꿔 보세요.</div>
+    </div>
+
+    <div class="note warn">
+      <b>무엇이 문제인가</b> — 서명 자체는 조작되지 않았습니다. 유효한 서명이 유효한 노드에 그대로 걸려 있습니다. 문제는 <b>검증한 노드와 사용한 노드가 다르다</b>는 데 있습니다. 그래서 “서명 검증 통과”라는 로그만 보고는 사고를 알아채기 어렵습니다.
+    </div>
+
+    <h3 style="margin-top:2.2rem;font-size:1.2rem">막는 방법</h3>
+    <div class="acc" id="xswFix"></div>
+
+    <div class="note">
+      <b>직접 구현하지 마세요</b> — XSW는 변형이 매우 다양해서, XML 파싱과 서명 검증을 직접 조합하는 방식으로는 막기 어렵습니다. 검증된 SAML 라이브러리를 쓰고 <b>최신 버전을 유지하는 것</b>이 가장 현실적인 방어입니다. 이 계열 취약점은 주요 라이브러리에서 지금도 주기적으로 발견되고 패치됩니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 4 ══════ -->
+<section id="ch4">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">4</div>
+      <div>
+        <h2>Golden SAML</h2>
+        <p class="sdesc">IdP의 서명 키가 유출되면 무슨 일이 벌어지는가.</p>
+      </div>
+    </div>
+
+    <p>지금까지는 SP의 검증이 부실한 경우를 봤습니다. 이번에는 반대쪽입니다. 검증은 완벽한데, <b>IdP의 서명용 개인키 자체가 공격자 손에 들어간</b> 상황입니다. 이 경우 공격자는 어떤 사용자로든, 어떤 권한이든 담은 Assertion을 마음대로 발급할 수 있습니다. 그리고 그것은 <b>진짜 서명이 걸린 진짜 문서</b>입니다.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>평소의 대응</th><th>Golden SAML 상황에서</th></tr></thead>
+        <tbody>
+          <tr><td>비밀번호 강제 변경</td><td class="bad">무의미 — 비밀번호를 거치지 않습니다</td></tr>
+          <tr><td>MFA 요구</td><td class="bad">무의미 — 인증 단계 자체를 건너뜁니다</td></tr>
+          <tr><td>IdP 로그인 로그 분석</td><td class="bad">흔적 없음 — IdP에 로그인 기록이 남지 않습니다</td></tr>
+          <tr><td>계정 잠금</td><td class="bad">우회 가능 — 존재하는 다른 계정으로 발급하면 됩니다</td></tr>
+          <tr><td>서명 인증서 교체</td><td class="okc">유효 — 유출된 키로 만든 서명이 전부 무효가 됩니다</td></tr>
+          <tr><td>SP 측 세션 전면 무효화</td><td class="okc">유효 — 이미 발급된 세션까지 끊어야 합니다</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warn">
+      <b>탐지가 어려운 이유를 정확히 이해하세요</b> — IdP에는 아무 기록이 남지 않습니다. 공격자가 IdP를 거치지 않고 직접 문서를 만들어 SP에 제출하기 때문입니다. 흔적은 오직 <b>SP 쪽</b>에 남습니다. 그래서 SP의 인증 로그를 IdP 로그와 대조하는 것이 사실상 유일한 탐지 수단입니다. 7장에서 구체적인 방법을 다룹니다.</div>
+
+    <h3 style="margin-top:2.2rem;font-size:1.2rem">키를 지키는 일이 전부입니다</h3>
+    <div class="acc" id="goldenFix"></div>
+
+    <div class="note">
+      <b>MSP 관점</b> — 고객사 IdP 서버는 도메인 컨트롤러나 관리자 워크스테이션과 같은 등급으로 다뤄야 합니다. 이 서버에 대한 관리자 접근이 곧 전체 클라우드 환경에 대한 접근이기 때문입니다. 키를 파일로 보관하는 구성이라면, 그 파일에 접근 가능한 계정 목록이 곧 “전 직원으로 위장할 수 있는 사람 목록”입니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 5 ══════ -->
+<section id="ch5">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">5</div>
+      <div>
+        <h2>그 밖에 알아둘 공격들</h2>
+        <p class="sdesc">덜 유명하지만 실제로 사고가 났던 유형들입니다.</p>
+      </div>
+    </div>
+
+    <div class="acc" id="otherAttacks"></div>
+
+    <div class="note good">
+      <b>공통점 하나</b> — 위 사례 대부분은 <b>파서와 검증기가 같은 문자열을 다르게 해석</b>하거나, <b>설정 기본값이 느슨</b>해서 발생했습니다. 그래서 대응도 비슷합니다. 라이브러리를 최신으로 유지하고, 기본값에 의존하지 말고 명시적으로 강제 설정을 걸고, 연동 후에는 실제 응답을 뜯어서 기대대로 동작하는지 확인하는 것입니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 6 ══════ -->
+<section id="ch6">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">6</div>
+      <div>
+        <h2>인증서와 알고리즘 운영</h2>
+        <p class="sdesc">공격보다 훨씬 자주 겪게 될, 실무의 절반.</p>
+      </div>
+    </div>
+
+    <p>1편에서 예고했던 인증서 만료 이야기입니다. SAML 운영에서 가장 자주 발생하는 장애이고, 동시에 <b>가장 예측 가능한 장애</b>이기도 합니다. 날짜가 정해져 있으니까요.</p>
+
+    <h3 style="font-size:1.15rem;margin-top:1.8rem">무중단 롤오버 절차</h3>
+    <div class="roll">
+      <div class="rstep"><div class="when">D-90</div><div>
+        <h4>만료 예정 확인과 일정 잡기</h4>
+        <p>연동된 SP 목록을 뽑고, 각각의 담당자와 변경 창구를 정리합니다. SaaS는 콘솔에서 직접 바꾸지만, 고객사 자체 개발 앱은 배포가 필요할 수 있습니다.</p>
+      </div></div>
+      <div class="rstep"><div class="when">D-30</div><div>
+        <h4>새 인증서 생성 후 병행 등록</h4>
+        <p>IdP 메타데이터에 신규 인증서를 <b>기존 것과 함께</b> 게시합니다. 이 시점에는 여전히 기존 키로 서명합니다. SP들은 두 인증서를 모두 신뢰하는 상태가 됩니다.</p>
+      </div></div>
+      <div class="rstep"><div class="when">D-21</div><div>
+        <h4>SP 측 반영 확인</h4>
+        <p>메타데이터 URL을 자동으로 갱신하는 SP는 저절로 반영되지만, 수동 등록 방식은 하나씩 확인해야 합니다. 여기서 누락된 SP가 나중에 장애가 됩니다.</p>
+      </div></div>
+      <div class="rstep"><div class="when">D-14</div><div>
+        <h4>서명 키 전환</h4>
+        <p>IdP가 새 키로 서명하도록 전환합니다. 반영이 확인된 SP부터 순차적으로 진행할 수 있으면 더 안전합니다. 전환 직후 실제 로그인 테스트는 필수입니다.</p>
+      </div></div>
+      <div class="rstep"><div class="when">D-7</div><div>
+        <h4>구 인증서 제거</h4>
+        <p>모든 SP가 정상 동작하는 것을 확인한 뒤 기존 인증서를 메타데이터에서 내립니다. 만료일까지 여유를 두는 이유는 문제 발생 시 되돌릴 시간을 확보하기 위해서입니다.</p>
+      </div></div>
+    </div>
+
+    <div class="calc" style="margin-top:1.5rem">
+      <h4 style="margin:0 0 .7rem;font-size:1rem;font-family:'Noto Sans KR',sans-serif">만료일을 넣고 일정을 계산해 보세요</h4>
+      <div class="row">
+        <input type="date" id="expDate" aria-label="인증서 만료일">
+        <button class="btn" id="calcBtn">일정 계산</button>
+      </div>
+      <div class="calcout" id="calcOut"></div>
+    </div>
+
+    <h3 style="font-size:1.15rem;margin-top:2.2rem">알고리즘 설정</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>항목</th><th>피해야 할 설정</th><th>권장 설정</th></tr></thead>
+        <tbody>
+          <tr><td><strong>서명 알고리즘</strong></td><td class="bad">RSA-SHA1</td><td class="okc">RSA-SHA256 이상</td></tr>
+          <tr><td><strong>다이제스트</strong></td><td class="bad">SHA-1</td><td class="okc">SHA-256 이상</td></tr>
+          <tr><td><strong>키 길이</strong></td><td class="bad">RSA 1024비트</td><td class="okc">RSA 2048비트 이상</td></tr>
+          <tr><td><strong>서명 범위</strong></td><td class="bad">Response에만</td><td class="okc">Assertion에 서명 (또는 둘 다)</td></tr>
+          <tr><td><strong>Assertion 암호화</strong></td><td>선택 사항</td><td class="okc">민감 속성이 있으면 적용</td></tr>
+          <tr><td><strong>인증서 유효기간</strong></td><td class="bad">10년짜리 방치</td><td class="okc">1~2년 + 롤오버 절차 문서화</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <b>자체 서명 인증서여도 괜찮습니다</b> — SAML의 신뢰는 공인 CA 체인이 아니라 “메타데이터로 미리 교환한 그 인증서인가”로 성립합니다. 그래서 IdP 서명 인증서는 자체 서명이 일반적입니다. 다만 그만큼 <b>지문 확인과 교체 절차</b>를 사람이 책임져야 한다는 뜻이기도 합니다.
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 7 ══════ -->
+<section id="ch7">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">7</div>
+      <div>
+        <h2>무엇을 로그로 남기고, 무엇을 탐지할 것인가</h2>
+        <p class="sdesc">사고는 막는 것만큼 알아채는 것이 중요합니다.</p>
+      </div>
+    </div>
+
+    <p>4장에서 Golden SAML의 흔적이 SP 쪽에만 남는다고 했습니다. 그렇다면 남겨야 할 로그와 비교해 볼 대상이 분명해집니다.</p>
+
+    <div class="tabs" role="tablist" id="logTabs">
+      <button role="tab" aria-selected="true" data-t="what">남겨야 할 항목</button>
+      <button role="tab" aria-selected="false" data-t="detect">탐지 규칙</button>
+    </div>
+    <div class="tabpanes" id="logPanes">
+      <div data-t="what" class="show">
+        <h4>SP 인증 로그에 반드시 포함할 것</h4>
+        <dl class="kv">
+          <dt>Assertion ID</dt><dd>재사용 탐지와 사고 추적의 기준값입니다</dd>
+          <dt>Issuer</dt><dd>어느 IdP가 발급했다고 주장하는지</dd>
+          <dt>NameID</dt><dd>로그인된 주체</dd>
+          <dt>IssueInstant / 처리 시각</dt><dd>둘의 차이가 크면 지연 또는 재사용 신호입니다</dd>
+          <dt>InResponseTo 유무</dt><dd>비어 있으면 IdP-initiated 흐름이라는 뜻입니다</dd>
+          <dt>서명 검증 결과</dt><dd>성공만이 아니라 실패도 반드시 기록합니다</dd>
+          <dt>사용된 인증서 지문</dt><dd>어떤 키로 서명된 것을 받아들였는지</dd>
+          <dt>출발지 IP / User-Agent</dt><dd>IdP 로그와 대조할 때의 연결 고리입니다</dd>
+        </dl>
+        <div class="note warn" style="margin-bottom:0">
+          <b>로그에 넣으면 안 되는 것</b> — SAMLResponse 원문 전체를 그대로 저장하는 구성은 피하세요. 유효기간이 남은 Assertion이 로그 저장소에 평문으로 쌓이면, 로그 접근 권한이 곧 로그인 수단이 됩니다. 필요하면 해시나 ID만 남기세요.
+        </div>
+      </div>
+      <div data-t="detect">
+        <h4>이상 징후로 볼 만한 패턴</h4>
+        <dl class="kv">
+          <dt>IdP 로그 불일치</dt><dd>SP에는 로그인 성공 기록이 있는데 같은 시각 IdP에 인증 기록이 없는 경우. Golden SAML의 대표 신호입니다</dd>
+          <dt>InResponseTo 없는 로그인 급증</dt><dd>IdP-initiated를 쓰지 않는 서비스에서 이런 요청이 늘어나면 의심합니다</dd>
+          <dt>서명 검증 실패 반복</dt><dd>인증서 교체 시점이 아닌데 실패가 쌓이면 조작 시도이거나 설정 불일치입니다</dd>
+          <dt>비정상적으로 긴 유효시간</dt><dd>정책보다 긴 NotOnOrAfter를 가진 Assertion이 들어오는 경우</dd>
+          <dt>같은 Assertion ID 재등장</dt><dd>재사용 시도. ⑥번 검증이 켜져 있다면 차단되지만 기록은 남겨야 합니다</dd>
+          <dt>권한 속성의 급격한 변화</dt><dd>평소와 다른 그룹·역할 값이 담겨 오는 경우</dd>
+          <dt>지리적으로 불가능한 이동</dt><dd>짧은 시간 안에 멀리 떨어진 곳에서의 로그인</dd>
+        </dl>
+        <div class="note" style="margin-bottom:0">
+          <b>가장 가성비 좋은 규칙 하나만 꼽자면</b> — SP 로그인 성공 이벤트와 IdP 인증 이벤트를 조인해서, 짝이 맞지 않는 건을 알림으로 보내는 것입니다. 구현 비용 대비 탐지 효과가 가장 큽니다.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 8 ══════ -->
+<section id="ch8">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">8</div>
+      <div>
+        <h2>운영 자가진단</h2>
+        <p class="sdesc">담당 중인 환경에 해당하는 항목을 체크해 보세요.</p>
+      </div>
+    </div>
+
+    <p>지금까지 다룬 내용을 점검 항목으로 정리했습니다. 고객사 환경을 인수인계받았을 때 처음 확인할 목록으로 써도 좋습니다.</p>
+
+    <div class="audit" id="audit"></div>
+    <div class="auditout" id="auditOut">항목을 체크하면 결과가 표시됩니다</div>
+  </div>
+</section>
+
+<!-- ══════ 9 ══════ -->
+<section id="ch9">
+  <div class="wrap">
+    <div class="shead">
+      <div class="snum">9</div>
+      <div>
+        <h2>이해도 점검</h2>
+        <p class="sdesc">7문항입니다. 답을 고르면 바로 해설이 나옵니다.</p>
+      </div>
+    </div>
+    <div id="quiz"></div>
+    <div class="score" id="score" style="margin-top:1rem">아직 푼 문제가 없습니다</div>
+  </div>
+</section>
+
+</main>
+
+<div class="outro">
+  <div class="wrap">
+    <h2 style="font-size:1.6rem;margin-top:0">3편에서 챙겨 갈 것</h2>
+    <ul class="keylist">
+      <li>서명 검증은 “진짜인가”만 답한다. “나에게, 지금, 내가 요청해서 왔는가”는 별도 항목이 담당한다.</li>
+      <li>SP의 검증 항목은 여섯 개다 — 서명, Audience, 유효시간, InResponseTo, Recipient, 재사용 방지.</li>
+      <li>XSW는 서명을 검증한 노드와 실제로 읽은 노드가 다를 때 성립한다. 직접 구현하지 말고 검증된 라이브러리를 최신으로 유지한다.</li>
+      <li>Golden SAML은 비밀번호 변경·MFA·계정 잠금이 모두 무력하다. 대응은 인증서 교체와 세션 전면 무효화다.</li>
+      <li>IdP 서명 키는 도메인 컨트롤러급으로 보호한다. 가능하면 HSM에 두고 파일로 꺼내지 않는다.</li>
+      <li>인증서 롤오버는 신·구 병행 등록 → SP 반영 확인 → 서명 전환 → 구 인증서 제거 순서로 한다.</li>
+      <li>SHA-1과 1024비트 키는 정리 대상이다. 서명은 Assertion에 거는 것을 기본으로 한다.</li>
+      <li>SP 로그인 성공과 IdP 인증 기록을 대조하는 규칙 하나가 가장 가성비 높은 탐지 수단이다.</li>
+    </ul>
+
+    <h3 style="margin-top:2.2rem;font-size:1.25rem">4편에서는</h3>
+    <p style="color:var(--ink-soft)">드디어 손으로 만듭니다. Keycloak을 IdP로 세우고, AWS IAM Identity Center와 Microsoft Entra ID를 실제로 연동합니다. 속성 매핑으로 IAM Role을 제어하는 방법, 고객사 환경에 SAML 연동을 인수인계받았을 때의 점검 순서, 그리고 SAML에서 OIDC로 넘어갈지 판단하는 기준까지 다루며 시리즈를 마무리합니다.</p>
+  </div>
+</div>
+
+<footer>
+  클라우드 엔지니어를 위한 인증 시리즈 · 3편 보안 취약점과 검증 · SAML 2.0 (OASIS) 기준
+</footer>
+
+<script>
+(function(){
+"use strict";
+
+document.getElementById("themebtn").addEventListener("click", function(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  if(!cur) cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+});
+
+var bar = document.getElementById("bar");
+var navLinks = Array.prototype.slice.call(document.querySelectorAll(".topbar nav a"));
+var secs = navLinks.map(function(a){ return document.querySelector(a.getAttribute("href")); });
+function onScroll(){
+  var h = document.documentElement, max = h.scrollHeight - h.clientHeight;
+  bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + "%";
+  var idx = -1;
+  for(var i=0;i<secs.length;i++){ if(secs[i] && secs[i].getBoundingClientRect().top <= 140) idx = i; }
+  navLinks.forEach(function(a,i){ a.classList.toggle("on", i === idx); });
+}
+window.addEventListener("scroll", onScroll, {passive:true});
+onScroll();
+
+function wireTabs(tabsId, panesId){
+  var tabs = document.getElementById(tabsId), panes = document.getElementById(panesId);
+  tabs.querySelectorAll("button").forEach(function(b){
+    b.addEventListener("click", function(){
+      tabs.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-selected","false"); });
+      b.setAttribute("aria-selected","true");
+      panes.querySelectorAll(":scope > div").forEach(function(p){
+        p.classList.toggle("show", p.getAttribute("data-t") === b.getAttribute("data-t"));
+      });
+    });
+  });
+}
+wireTabs("logTabs","logPanes");
+
+/* ── 검증 실험실 ── */
+var ATTACKS = {
+  sig: ["서명 검증 없음 — 누구나 위조 가능",
+        "Assertion을 통째로 직접 만들어 제출하면 그대로 로그인됩니다. 관리자 계정 이름만 알면 됩니다. 다른 모든 검증이 완벽해도 이 하나가 빠지면 의미가 없습니다."],
+  aud: ["다른 서비스용 증명서 재사용",
+        "공격자가 자기 계정으로 A 서비스에 로그인해 받은 유효한 Assertion을, 같은 IdP를 쓰는 B 서비스에 제출합니다. 서명은 진짜이므로 통과합니다."],
+  time: ["만료된 증명서 사용",
+         "과거에 캡처해 둔 Assertion을 며칠 뒤에 제출해도 받아들여집니다. 유효시간이 무의미해져, 한 번 유출된 증명서가 영구 통행증이 됩니다."],
+  resp: ["원치 않은 로그인 강제 (로그인 CSRF)",
+         "공격자가 자기 Assertion을 피해자 브라우저에서 제출시켜, 피해자를 공격자 계정으로 로그인시킵니다. 이후 피해자가 올린 자료는 공격자 계정에 쌓입니다."],
+  dest: ["증명서 가로채 다른 곳에서 사용",
+         "다른 SP로 향하던 Assertion을 우리 SP에 제출해도 통과합니다. Audience 검증이 있으면 상당 부분 막히지만, 두 검증은 서로 다른 필드를 보므로 함께 켜야 합니다."],
+  replay: ["동일 증명서 반복 사용",
+           "유효시간 안에 같은 Assertion을 여러 번 제출해 세션을 계속 새로 만들 수 있습니다. 네트워크 로그나 브라우저 기록에서 값을 얻은 공격자가 그대로 재사용합니다."]
+};
+var checksEl = document.getElementById("checks");
+var attacksEl = document.getElementById("attacks");
+var meterFill = document.getElementById("meterFill");
+var meterLbl = document.getElementById("meterLbl");
+
+function renderAttacks(){
+  var boxes = checksEl.querySelectorAll("input[type=checkbox]");
+  var off = [], on = 0;
+  boxes.forEach(function(b){
+    b.closest(".chk").classList.toggle("on", b.checked);
+    if(b.checked) on++; else off.push(b.getAttribute("data-c"));
+  });
+  var total = boxes.length;
+  meterFill.style.width = (on / total * 100) + "%";
+  meterLbl.textContent = "방어 수준 " + on + " / " + total;
+
+  if(off.length === 0){
+    attacksEl.innerHTML = "<div class='allsafe'><b>여섯 항목이 모두 켜져 있습니다.</b> 이 구성이 SAML SP 검증의 기본선입니다. 여기에 더해 XSW 대응(3장)과 인증서 관리(6장)가 갖춰지면 실무 수준에 도달합니다.</div>";
+    return;
+  }
+  var html = "<h4>지금 상태에서 가능해지는 공격 " + off.length + "가지</h4>";
+  off.forEach(function(k){
+    html += "<div class='acard'><b>" + ATTACKS[k][0] + "</b><span>" + ATTACKS[k][1] + "</span></div>";
+  });
+  attacksEl.innerHTML = html;
+}
+checksEl.addEventListener("change", renderAttacks);
+renderAttacks();
+
+/* ── XSW 시각화 ── */
+var TREES = {
+  normal: {
+    sig: [
+      ["Response", 0, ""],
+      ["Assertion  id=\"A1\"", 1, "hl-sig"],
+      ["Signature → 참조: #A1", 2, "hl-sig"],
+      ["NameID: kim.engineer", 2, "hl-sig"],
+      ["groups: sre-oncall", 2, "hl-sig"]
+    ],
+    app: [
+      ["Response", 0, ""],
+      ["Assertion  id=\"A1\"", 1, "hl-app"],
+      ["Signature → 참조: #A1", 2, "hl-app"],
+      ["NameID: kim.engineer", 2, "hl-app"],
+      ["groups: sre-oncall", 2, "hl-app"]
+    ],
+    verdict: ["ok", "서명을 검증한 노드(A1)와 애플리케이션이 읽은 노드(A1)가 같습니다. 정상 상태입니다. 로그인되는 주체는 서명으로 보증된 바로 그 사용자입니다."]
+  },
+  wrapped: {
+    sig: [
+      ["Response", 0, ""],
+      ["Assertion  id=\"A2\"  (먼저 위치)", 1, "dim"],
+      ["NameID: admin", 2, "dim"],
+      ["groups: cloud-admin", 2, "dim"],
+      ["Assertion  id=\"A1\"  (원본)", 1, "hl-sig"],
+      ["Signature → 참조: #A1", 2, "hl-sig"],
+      ["NameID: kim.engineer", 2, "hl-sig"],
+      ["groups: sre-oncall", 2, "hl-sig"]
+    ],
+    app: [
+      ["Response", 0, ""],
+      ["Assertion  id=\"A2\"  (먼저 위치)", 1, "hl-app"],
+      ["NameID: admin", 2, "hl-app"],
+      ["groups: cloud-admin", 2, "hl-app"],
+      ["Assertion  id=\"A1\"  (원본)", 1, "dim"],
+      ["Signature → 참조: #A1", 2, "dim"],
+      ["NameID: kim.engineer", 2, "dim"],
+      ["groups: sre-oncall", 2, "dim"]
+    ],
+    verdict: ["bad", "검증기는 서명이 참조하는 A1을 확인하고 “서명 유효”를 반환합니다. 그런데 사용자 정보를 꺼내는 코드가 “첫 번째 Assertion”을 집으면 A2를 읽습니다. 결과는 서명 검증 통과 + admin 권한 로그인입니다. 서명은 조작되지 않았고, 로그에는 정상으로 남습니다."]
+  }
+};
+function renderTree(el, rows){
+  el.innerHTML = rows.map(function(r){
+    var indent = "&nbsp;&nbsp;".repeat(r[1] * 2);
+    var mark = r[1] === 0 ? "" : "└ ";
+    return "<div>" + indent + mark + "<span class='tnode " + r[2] + "'>" + r[0] + "</span></div>";
+  }).join("");
+}
+function showXsw(k){
+  var t = TREES[k];
+  renderTree(document.getElementById("treeSig"), t.sig);
+  renderTree(document.getElementById("treeApp"), t.app);
+  var v = document.getElementById("xswVerdict");
+  v.className = "verdict " + t.verdict[0];
+  v.innerHTML = t.verdict[1];
+}
+document.querySelectorAll(".xswtoggle button").forEach(function(b){
+  b.addEventListener("click", function(){
+    document.querySelectorAll(".xswtoggle button").forEach(function(x){ x.setAttribute("aria-pressed","false"); });
+    b.setAttribute("aria-pressed","true");
+    showXsw(b.getAttribute("data-x"));
+  });
+});
+showXsw("normal");
+
+/* ── 아코디언 렌더러 ── */
+function renderAcc(id, items){
+  var el = document.getElementById(id);
+  items.forEach(function(d){
+    var x = document.createElement("details");
+    x.className = "accitem";
+    x.innerHTML = "<summary><span class='sym'>" + d[0] + "</span><span class='chip " + d[1] + "'>" + d[2] + "</span></summary><div class='accbody'>" + d[3] + "</div>";
+    el.appendChild(x);
+  });
+}
+
+renderAcc("xswFix", [
+  ["검증된 노드에서만 데이터를 꺼낸다", "high", "핵심",
+   "<p>서명 검증 함수가 “검증에 성공한 그 노드 객체”를 반환하도록 하고, 사용자 정보는 <b>반드시 그 객체에서만</b> 읽습니다. 원본 문서를 다시 파싱해서 값을 찾는 코드가 있다면 그게 바로 취약 지점입니다.</p>"],
+  ["스키마 검증을 켠다", "mid", "보조",
+   "<p>SAML 스키마에 맞지 않는 위치에 노드가 추가된 문서는 스키마 검증 단계에서 걸러집니다. 다만 모든 변형을 막지는 못하므로 단독 방어로 보면 안 됩니다.</p>"],
+  ["Assertion 개수를 제한한다", "mid", "보조",
+   "<p>정상 흐름에서 Assertion은 보통 하나입니다. 둘 이상이면 거부하도록 설정하면 흔한 변형 상당수가 차단됩니다.</p>"],
+  ["Response가 아니라 Assertion에 서명을 요구한다", "high", "설정",
+   "<p>바깥 껍데기에만 서명하면 안쪽 내용이 교체될 여지가 생깁니다. <b>Assertion 자체에 서명</b>하도록 IdP를 설정하고, SP는 그것을 강제하도록 구성합니다.</p>"],
+  ["라이브러리를 최신으로 유지한다", "high", "운영",
+   "<p>XSW 변형은 계속 발견됩니다. 사용 중인 SAML 라이브러리의 보안 공지를 구독하고, 패치 적용을 정기 작업으로 관리하세요.</p>"]
+]);
+
+renderAcc("goldenFix", [
+  ["개인키를 HSM 또는 키 관리 서비스에 둔다", "high", "예방",
+   "<p>키가 파일로 존재하지 않으면 복사해 갈 수도 없습니다. 서명 연산을 하드웨어나 관리형 서비스에 맡기고, 키 자체는 밖으로 나오지 않게 합니다. 이것이 가장 확실한 대응입니다.</p>"],
+  ["IdP 서버를 최상위 등급으로 보호한다", "high", "예방",
+   "<p>관리자 접근 경로를 최소화하고, 전용 관리 단말에서만 접속하도록 제한합니다. 이 서버의 관리자 권한은 <b>전 직원으로 위장할 수 있는 권한</b>과 같습니다.</p>"],
+  ["키 접근을 감사 로그로 남긴다", "high", "탐지",
+   "<p>키 파일 읽기, 인증서 내보내기, 백업 생성 같은 행위에 알림을 겁니다. Golden SAML은 발급 시점에 흔적이 없으므로, <b>키를 꺼내 가는 순간</b>이 사실상 유일한 탐지 기회입니다.</p>"],
+  ["정기적으로 인증서를 교체한다", "mid", "완화",
+   "<p>키가 언제 유출됐는지 모르는 상황을 전제로, 주기적 교체로 유효 기간을 끊습니다. 6장의 롤오버 절차를 정기 작업으로 만들어 두세요.</p>"],
+  ["SP 세션 수명을 짧게 가져간다", "mid", "완화",
+   "<p>위조된 Assertion으로 만들어진 세션도 결국 만료됩니다. 세션이 길면 사고 이후 대응 시간이 그만큼 늘어납니다.</p>"],
+  ["SP와 IdP 로그를 대조한다", "high", "탐지",
+   "<p>SP에는 로그인 성공이 있는데 IdP에는 해당 인증 기록이 없는 건을 찾습니다. 7장에서 다루는 가장 실효성 높은 탐지 규칙입니다.</p>"]
+]);
+
+renderAcc("otherAttacks", [
+  ["주석 삽입으로 다른 사용자로 로그인", "high", "파싱",
+   "<p>XML 텍스트 노드 안에 주석이 들어가면, 서명 검증기와 값을 읽는 파서가 그 문자열을 다르게 조립하는 경우가 있습니다. 결과적으로 서명은 유효한데 SP가 읽는 사용자 이름이 달라집니다.</p><p><b>대응</b> — 2018년 전후 주요 라이브러리에 패치가 배포된 사안입니다. 오래된 버전을 쓰고 있다면 우선순위 높게 올리세요. NameID 값에 예상치 못한 문자가 들어오는지 검사하는 것도 도움이 됩니다.</p>"],
+  ["서명 알고리즘 혼동", "high", "설정",
+   "<p>메시지에 적힌 알고리즘 정보를 SP가 그대로 받아들이면, 공격자가 약한 알고리즘이나 “서명 없음”에 해당하는 값을 지정해 검증을 우회하려 시도할 수 있습니다.</p><p><b>대응</b> — 허용할 알고리즘을 <b>SP 설정에 화이트리스트로 못박습니다.</b> 메시지가 주장하는 값을 신뢰하지 않습니다.</p>"],
+  ["XXE — 외부 엔티티 참조", "high", "파서",
+   "<p>XML 파서가 외부 엔티티를 처리하도록 설정돼 있으면, 악의적인 문서로 서버 내부 파일을 읽거나 내부망에 요청을 보낼 수 있습니다. SAML은 XML을 다루므로 이 위험을 그대로 물려받습니다.</p><p><b>대응</b> — 파서에서 <b>DTD와 외부 엔티티 처리를 명시적으로 비활성화</b>합니다. 대부분의 언어에서 한 줄 설정입니다.</p>"],
+  ["XML 폭탄으로 인한 서비스 거부", "mid", "파서",
+   "<p>중첩된 엔티티 정의로 파싱 시 메모리를 폭발시키는 고전적 기법입니다. 인증 엔드포인트는 로그인 전이라 대개 인증 없이 열려 있어 표적이 되기 쉽습니다.</p><p><b>대응</b> — 요청 본문 크기 제한, 엔티티 확장 제한, ACS 엔드포인트에 레이트 리밋을 겁니다.</p>"],
+  ["ACS URL 조작으로 증명서 탈취", "high", "IdP측",
+   "<p>AuthnRequest에 적힌 ACS URL을 IdP가 검증 없이 신뢰하면, 공격자가 자기 서버 주소를 넣어 Assertion을 그리로 받아 갈 수 있습니다. 2편 3장에서 짚었던 지점입니다.</p><p><b>대응</b> — IdP에서 <b>등록된 ACS URL 화이트리스트</b>와만 대조합니다. 와일드카드 등록은 피하세요.</p>"],
+  ["오픈 리다이렉트 (RelayState)", "mid", "SP측",
+   "<p>RelayState 값을 검증 없이 리다이렉트에 사용하면 로그인 직후 사용자를 외부 사이트로 보낼 수 있습니다. 피싱과 결합되면 효과가 큽니다.</p><p><b>대응</b> — 내부 경로인지 검사하거나, 실제 URL은 서버 세션에 저장하고 <b>불투명한 키만</b> RelayState로 주고받습니다.</p>"]
+]);
+
+/* ── 만료 계산기 ── */
+document.getElementById("calcBtn").addEventListener("click", function(){
+  var v = document.getElementById("expDate").value;
+  var out = document.getElementById("calcOut");
+  if(!v){ out.className = "calcout show"; out.innerHTML = "<p style='margin:0;color:var(--crimson);font-size:.9rem'>만료일을 먼저 선택해 주세요.</p>"; return; }
+  var exp = new Date(v + "T00:00:00");
+  var today = new Date(); today.setHours(0,0,0,0);
+  var days = Math.round((exp - today) / 86400000);
+
+  function fmt(offset){
+    var d = new Date(exp.getTime() - offset * 86400000);
+    return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  }
+  var cls = days < 30 ? "soon" : "ok";
+  var head = days < 0 ? "이미 " + Math.abs(days) + "일 지났습니다"
+           : days === 0 ? "오늘 만료됩니다"
+           : "만료까지 " + days + "일 남았습니다";
+  var urgent = days < 30
+    ? "<div class='note warn' style='margin:.6rem 0 0'><b>일정이 촉박합니다.</b> D-90 절차를 그대로 적용하기 어렵습니다. 신·구 인증서 병행 등록을 즉시 시작하고, 수동 등록 방식의 SP부터 먼저 처리하세요.</div>"
+    : "";
+  out.className = "calcout show";
+  out.innerHTML = "<div class='dday " + cls + "'>" + head + "</div>" +
+    "<div class='tablewrap' style='margin-top:.3rem'><table style='min-width:420px'><thead><tr><th>시점</th><th>날짜</th><th>할 일</th></tr></thead><tbody>" +
+    "<tr><td><strong>D-90</strong></td><td>" + fmt(90) + "</td><td>연동 SP 목록·담당자 정리</td></tr>" +
+    "<tr><td><strong>D-30</strong></td><td>" + fmt(30) + "</td><td>신규 인증서 생성, 메타데이터에 병행 등록</td></tr>" +
+    "<tr><td><strong>D-21</strong></td><td>" + fmt(21) + "</td><td>SP별 반영 확인 (수동 등록분 집중)</td></tr>" +
+    "<tr><td><strong>D-14</strong></td><td>" + fmt(14) + "</td><td>서명 키 전환 + 로그인 테스트</td></tr>" +
+    "<tr><td><strong>D-7</strong></td><td>" + fmt(7) + "</td><td>구 인증서 제거</td></tr>" +
+    "</tbody></table></div>" + urgent;
+});
+
+/* ── 자가진단 ── */
+var AUDIT = [
+  "SP 여섯 가지 검증 항목이 모두 켜져 있는 것을 응답 로그나 설정으로 확인했다",
+  "서명이 Response가 아니라 Assertion에 걸려 있다",
+  "사용 중인 SAML 라이브러리 버전과 보안 공지 구독 여부를 알고 있다",
+  "XML 파서에서 외부 엔티티(DTD) 처리가 비활성화되어 있다",
+  "IdP 서명 인증서의 만료일을 알고 있고 캘린더에 등록돼 있다",
+  "서명 알고리즘이 SHA-256 이상이고 키 길이가 2048비트 이상이다",
+  "IdP 개인키가 HSM 또는 키 관리 서비스에 보관되어 있다",
+  "IdP에서 ACS URL 화이트리스트 검증이 켜져 있다",
+  "RelayState 값을 내부 경로로 검증하거나 세션 저장 방식으로 처리한다",
+  "SP 인증 로그에 Assertion ID, 서명 검증 결과, 인증서 지문이 남는다",
+  "SP 로그인 성공과 IdP 인증 기록을 대조하는 탐지 규칙이 있다",
+  "인증서 롤오버 절차가 문서로 존재하고 담당자가 지정돼 있다"
+];
+var auditEl = document.getElementById("audit"), auditOut = document.getElementById("auditOut");
+AUDIT.forEach(function(t, i){
+  var l = document.createElement("label");
+  l.className = "aq";
+  l.innerHTML = "<input type='checkbox' data-i='" + i + "'><span>" + t + "</span>";
+  auditEl.appendChild(l);
+});
+auditEl.addEventListener("change", function(){
+  var boxes = auditEl.querySelectorAll("input");
+  var n = 0;
+  boxes.forEach(function(b){ b.closest(".aq").classList.toggle("on", b.checked); if(b.checked) n++; });
+  var total = AUDIT.length;
+  var msg;
+  if(n === total) msg = "전 항목 충족. 이 정도면 감사 대응까지 무리 없는 수준입니다.";
+  else if(n >= 9) msg = "양호합니다. 남은 항목은 우선순위를 정해 분기 과제로 잡으세요.";
+  else if(n >= 5) msg = "기본은 갖췄지만 빈 곳이 있습니다. 미체크 항목 중 키 보관과 검증 설정을 먼저 채우세요.";
+  else if(n > 0) msg = "점검이 시급합니다. 2장의 검증 여섯 항목부터 확인하시길 권합니다.";
+  else msg = "항목을 체크하면 결과가 표시됩니다";
+  auditOut.innerHTML = n === 0 ? msg : total + "개 중 " + n + "개 충족<br><span style='font-size:.88rem;font-family:\"Noto Sans KR\",sans-serif;color:var(--ink-soft)'>" + msg + "</span>";
+});
+
+/* ── 퀴즈 ── */
+var QUIZ = [
+  { q:"서명 검증만 통과시키고 Audience를 확인하지 않으면 어떤 일이 가능해지는가?",
+    o:["서명 위조가 가능해진다","다른 서비스용으로 발급된 유효한 증명서를 우리 서비스에 재사용할 수 있다","비밀번호가 유출된다","IdP가 다운된다"], a:1,
+    e:"서명은 진짜이므로 통과합니다. Audience는 '이 증명서가 누구를 위한 것인가'를 담당하는 별도 항목입니다." },
+
+  { q:"XML Signature Wrapping이 성립하는 조건은?",
+    o:["서명 알고리즘이 약할 때","서명을 검증한 노드와 애플리케이션이 읽은 노드가 다를 때","인증서가 만료됐을 때","HTTPS를 쓰지 않을 때"], a:1,
+    e:"서명 자체는 조작되지 않습니다. 검증 대상과 사용 대상이 어긋나는 것이 본질이라, 로그에는 정상으로 남습니다." },
+
+  { q:"Golden SAML 상황에서 효과가 없는 대응은?",
+    o:["IdP 서명 인증서 교체","SP 세션 전면 무효화","전 직원 비밀번호 강제 변경","키 접근 감사 로그 확인"], a:2,
+    e:"공격자가 비밀번호를 거치지 않고 증명서를 직접 발급하므로 비밀번호 변경은 무의미합니다. MFA와 계정 잠금도 마찬가지입니다." },
+
+  { q:"IdP가 AuthnRequest에 적힌 ACS URL을 검증하지 않으면?",
+    o:["로그인 속도가 느려진다","공격자가 지정한 서버로 Assertion이 전달될 수 있다","서명이 깨진다","세션이 길어진다"], a:1,
+    e:"등록된 ACS URL 화이트리스트와 대조하는 것이 필수입니다. 와일드카드 등록도 같은 위험을 만듭니다." },
+
+  { q:"인증서 무중단 롤오버의 올바른 순서는?",
+    o:["구 인증서 제거 → 신규 등록 → 서명 전환","신·구 병행 등록 → SP 반영 확인 → 서명 전환 → 구 인증서 제거","서명 전환 → 신규 등록 → 반영 확인","신규 등록과 서명 전환을 동시에"], a:1,
+    e:"병행 등록 기간을 두어야 SP들이 두 인증서를 모두 신뢰하는 구간이 생기고, 그 안에서 순차 전환과 롤백이 가능합니다." },
+
+  { q:"Golden SAML을 탐지하는 가장 실효성 있는 방법은?",
+    o:["IdP 로그인 실패 횟수 모니터링","SP 로그인 성공 기록과 IdP 인증 기록을 대조","방화벽 로그 분석","비밀번호 복잡도 강화"], a:1,
+    e:"IdP를 거치지 않고 발급되므로 IdP에는 기록이 없습니다. 짝이 맞지 않는 SP 로그인 건을 찾는 것이 핵심입니다." },
+
+  { q:"SAML을 다루는 서버에서 XML 파서에 반드시 적용해야 할 설정은?",
+    o:["압축 해제 비활성화","외부 엔티티(DTD) 처리 비활성화","캐시 비활성화","쿠키 비활성화"], a:1,
+    e:"XXE를 막기 위한 기본 설정입니다. SAML은 XML 기반이라 XML 파서의 위험을 그대로 상속받습니다." }
+];
+var quizEl = document.getElementById("quiz"), scoreEl = document.getElementById("score");
+var answered = 0, correct = 0;
+QUIZ.forEach(function(item, qi){
+  var box = document.createElement("div");
+  box.className = "q";
+  var opts = item.o.map(function(t, oi){
+    return "<button class='opt' data-q='" + qi + "' data-o='" + oi + "'>" + t + "</button>";
+  }).join("");
+  box.innerHTML = "<p class='qt'>" + (qi+1) + ". " + item.q + "</p><div class='opts'>" + opts + "</div><div class='qfb'></div>";
+  quizEl.appendChild(box);
+});
+quizEl.addEventListener("click", function(e){
+  var btn = e.target.closest(".opt");
+  if(!btn) return;
+  var qi = +btn.getAttribute("data-q"), oi = +btn.getAttribute("data-o");
+  var box = btn.closest(".q");
+  if(box.getAttribute("data-done")) return;
+  box.setAttribute("data-done","1");
+  var item = QUIZ[qi];
+  box.querySelectorAll(".opt").forEach(function(b){
+    var i = +b.getAttribute("data-o");
+    if(i === item.a) b.classList.add("ok");
+    else if(i === oi) b.classList.add("no");
+    b.disabled = true;
+  });
+  var fb = box.querySelector(".qfb");
+  fb.classList.add("show");
+  fb.innerHTML = (oi === item.a ? "<b style='color:var(--teal)'>정답입니다. </b>" : "<b style='color:var(--crimson)'>다시 볼까요. </b>") + item.e;
+  answered++;
+  if(oi === item.a) correct++;
+  scoreEl.textContent = QUIZ.length + "문항 중 " + answered + "문항 풀이 · 정답 " + correct + "개";
+  if(answered === QUIZ.length){
+    var msg = correct === QUIZ.length ? "검증 관점이 확실히 잡히셨습니다. 4편 실습으로 가시죠."
+            : correct >= 5 ? "핵심은 잡혔습니다. 틀린 문항의 해설을 확인해 보세요."
+            : "2장 검증 실험실을 한 번 더 돌려보시면 나머지가 정리됩니다.";
+    scoreEl.innerHTML = QUIZ.length + "문항 중 정답 " + correct + "개<br><span style='font-size:.9rem;font-family:\"Noto Sans KR\",sans-serif;color:var(--ink-soft)'>" + msg + "</span>";
+  }
+});
+
+})();
+</script>
+</body>
+</html>
