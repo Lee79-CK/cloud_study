@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>하이퍼바이저 2편 — 리소스는 어떻게 쪼개지는가</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --hw:#F2A93B; --hv:#35D6C0; --guest:#9B8CFF; --app:#FF7BB0;
+  --warn:#FF6B6B; --ok:#5BD97C; --mid:#FFC94D;
+  --bg:#100E1C; --bg2:#161331; --surface:#1B1832; --surface2:#221E3D;
+  --line:#322C57; --ink:#ECEAF7; --ink2:#B4AED2; --ink3:#7E7799;
+  --shadow:0 18px 40px -24px rgba(0,0,0,.9);
+  --sans:'Pretendard Variable',Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --maxw:1220px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+[data-theme="light"]{
+  --hw:#C97A00; --hv:#0E8D7C; --guest:#5F49D6; --app:#C63A76;
+  --warn:#C63535; --ok:#1F8C43; --mid:#B07A00;
+  --bg:#F6F4FB; --bg2:#EDEAF6; --surface:#FFFFFF; --surface2:#F3F0FA;
+  --line:#DCD6EC; --ink:#191534; --ink2:#4B4470; --ink3:#7A729B;
+  --shadow:0 14px 32px -22px rgba(40,25,90,.45);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:calc(76px + env(safe-area-inset-top,0px))}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+img{max-width:100%}
+code,kbd{font-family:var(--mono);font-size:.86em}
+a{color:var(--hv)}
+
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:60;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:16px}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.brand-mark{width:30px;height:30px;border-radius:8px;flex:none;background:linear-gradient(160deg,var(--hw) 0 33%,var(--hv) 33% 66%,var(--guest) 66% 100%)}
+.brand-txt{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-txt span{color:var(--ink3);font-weight:500}
+.spacer{flex:1}
+.tbtn{font:inherit;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 13px;cursor:pointer;transition:color .15s,border-color .15s;white-space:nowrap}
+.tbtn:hover{color:var(--ink);border-color:var(--hv)}
+.tbtn:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--hv);outline-offset:2px}
+.progress{height:2px}
+.progress>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--hw),var(--hv),var(--guest))}
+
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);gap:46px;align-items:start}
+@media (max-width:1000px){.shell{grid-template-columns:1fr;gap:0}}
+.toc{position:sticky;top:110px;padding:34px 0 60px}
+@media (max-width:1000px){.toc{display:none}}
+.toc-h{font-size:11px;font-weight:700;color:var(--ink3);margin:0 0 14px;letter-spacing:.06em}
+.toc a{display:block;text-decoration:none;color:var(--ink3);font-size:13.5px;line-height:1.45;padding:7px 0 7px 16px;border-left:2px solid var(--line);transition:color .15s,border-color .15s}
+.toc a:hover{color:var(--ink2)}
+.toc a.on{color:var(--ink);border-left-color:var(--hv);font-weight:600}
+
+.hero{padding:64px 0 30px}
+.eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:100px;padding:6px 15px;margin-bottom:26px}
+.eyebrow b{color:var(--hv)}
+h1{font-size:clamp(34px,6.4vw,62px);line-height:1.08;margin:0 0 20px;font-weight:800;letter-spacing:-.035em;max-width:17ch}
+.lede{font-size:clamp(17px,2.3vw,20px);color:var(--ink2);max-width:60ch;margin:0 0 30px;line-height:1.7}
+.meta{display:flex;flex-wrap:wrap;gap:10px}
+.pill{font-size:12.5px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 11px}
+
+section{padding:58px 0;border-top:1px solid var(--line)}
+.sec-no{font-family:var(--mono);font-size:12px;color:var(--hv);font-weight:600;display:block;margin-bottom:10px}
+h2{font-size:clamp(25px,3.6vw,36px);line-height:1.22;margin:0 0 16px;font-weight:800;letter-spacing:-.028em;max-width:22ch}
+h3{font-size:20px;margin:40px 0 12px;font-weight:700;letter-spacing:-.02em}
+h4{font-size:16.5px;margin:26px 0 8px;font-weight:700}
+p{margin:0 0 17px;max-width:74ch}
+ul,ol{max-width:74ch;padding-left:22px;margin:0 0 18px}
+li{margin-bottom:9px}
+strong{font-weight:700;color:var(--ink)}
+
+.term{border-bottom:1.5px dotted var(--hv);cursor:help;position:relative;font-weight:600}
+.term::after{content:attr(data-def);position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%) translateY(4px);width:min(300px,78vw);background:var(--surface2);border:1px solid var(--hv);border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.6;color:var(--ink2);font-weight:400;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:50;box-shadow:var(--shadow);letter-spacing:0;text-align:left}
+.term:hover::after,.term:focus::after{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.note{border-left:3px solid var(--hv);background:var(--surface);padding:16px 20px;border-radius:0 11px 11px 0;margin:24px 0;max-width:76ch}
+.note.warn{border-left-color:var(--warn)}
+.note.hw{border-left-color:var(--hw)}
+.note-h{font-weight:700;font-size:14.5px;margin-bottom:6px;color:var(--hv)}
+.note.warn .note-h{color:var(--warn)}
+.note.hw .note-h{color:var(--hw)}
+.note p{font-size:15.5px;color:var(--ink2)}
+.note p:last-child{margin-bottom:0}
+
+.grid{display:grid;gap:16px;margin:26px 0}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:760px){.g2,.g3{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 21px}
+.card h4{margin:0 0 8px;font-size:16px}
+.card p{font-size:15px;color:var(--ink2);margin:0}
+.card p+p{margin-top:10px}
+
+pre{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:20px 0;font-family:var(--mono);font-size:13.5px;line-height:1.72;color:var(--ink2)}
+pre .c{color:var(--ink3)}
+pre .k{color:var(--hv)}
+pre .v{color:var(--hw)}
+pre .s{color:var(--app)}
+
+.tablewrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:13px}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:14.5px}
+th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--surface2);font-weight:700;font-size:13px;color:var(--ink2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td{color:var(--ink2)}
+td strong{color:var(--ink)}
+
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:17px;padding:22px;margin:30px 0;box-shadow:var(--shadow)}
+.demo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;margin-bottom:6px}
+.demo-title{font-weight:700;font-size:16.5px;margin:0}
+.demo-hint{font-size:13px;color:var(--ink3);margin:0 0 18px}
+.seg{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px;flex-wrap:wrap}
+.seg button{font:inherit;font-size:13.5px;font-weight:600;color:var(--ink3);background:transparent;border:none;border-radius:7px;padding:7px 14px;cursor:pointer;transition:background .15s,color .15s}
+.seg button[aria-pressed="true"]{background:var(--surface2);color:var(--ink)}
+
+.btn{font:inherit;font-size:14px;font-weight:600;padding:9px 18px;border-radius:10px;cursor:pointer;background:var(--hv);color:#0A1A18;border:1px solid transparent;transition:filter .15s}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--ink2);border-color:var(--line)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--ink3)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+.field{margin-bottom:18px}
+.field label{display:flex;justify-content:space-between;font-size:13.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;gap:10px}
+.field label b{color:var(--hv);font-family:var(--mono);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--hv);height:22px}
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;margin-top:18px}
+@media (max-width:760px){.calc{grid-template-columns:1fr}}
+.out{background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:20px}
+.bignum{font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-.04em;color:var(--hv);font-variant-numeric:tabular-nums}
+.bignum small{font-size:15px;color:var(--ink3);font-weight:600;margin-left:5px;letter-spacing:0}
+.outrow{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:9px 0;border-bottom:1px solid var(--line)}
+.outrow:last-child{border-bottom:none}
+.outrow span{color:var(--ink3)}
+.outrow b{font-variant-numeric:tabular-nums}
+.verdict{margin-top:14px;border-radius:10px;padding:12px 14px;font-size:14px;font-weight:600;line-height:1.55}
+.verdict.ok{background:color-mix(in srgb,var(--ok) 13%,transparent);color:var(--ok)}
+.verdict.mid{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
+.verdict.bad{background:color-mix(in srgb,var(--warn) 13%,transparent);color:var(--warn)}
+
+/* 주소 변환 스텝 */
+.walk{display:flex;flex-direction:column;gap:7px;margin-top:16px}
+.wstep{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--bg2);font-size:14px;color:var(--ink3);display:flex;gap:12px;align-items:center;transition:border-color .2s,color .2s,background .2s}
+.wstep.on{border-color:var(--hv);color:var(--ink);background:var(--surface2)}
+.wstep.exit{border-color:var(--warn);color:var(--ink)}
+.wstep .n{font-family:var(--mono);font-size:11px;color:var(--ink3);flex:none;width:26px}
+.wstep.on .n{color:var(--hv)}
+.wstep.exit .n{color:var(--warn)}
+.counter{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.counter div{font-size:13px;color:var(--ink3)}
+.counter b{display:block;font-size:26px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.counter div.hot b{color:var(--warn)}
+
+/* I/O 경로 */
+.path{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:18px 0}
+.pbox{border:1px solid var(--line);border-radius:10px;padding:9px 13px;background:var(--bg2);font-size:13.5px;font-weight:600}
+.pbox.g{border-color:var(--guest);color:var(--guest)}
+.pbox.u{border-color:var(--app);color:var(--app)}
+.pbox.k{border-color:var(--hv);color:var(--hv)}
+.pbox.h{border-color:var(--hw);color:var(--hw)}
+.parrow{color:var(--ink3);font-size:15px}
+.pmeter{height:9px;border-radius:5px;background:var(--line);overflow:hidden;margin:6px 0 4px;max-width:420px}
+.pmeter i{display:block;height:100%;background:linear-gradient(90deg,var(--hv),var(--hw))}
+
+/* NUMA */
+.numa{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+@media (max-width:620px){.numa{grid-template-columns:1fr}}
+.node{border:1px solid var(--line);border-radius:13px;padding:14px;background:var(--bg2)}
+.node h5{margin:0 0 4px;font-size:14px;font-family:var(--mono);color:var(--ink3);font-weight:600}
+.node .cap{font-size:12.5px;color:var(--ink3);margin-bottom:10px}
+.cores{display:flex;flex-wrap:wrap;gap:4px}
+.cores i{width:15px;height:15px;border-radius:3px;background:var(--line);display:block}
+.cores i.used{background:var(--hv)}
+.cores i.spill{background:var(--warn)}
+
+/* 용어집·퀴즈 */
+.search{width:100%;max-width:420px;font:inherit;font-size:15px;padding:11px 15px;border-radius:11px;background:var(--bg2);border:1px solid var(--line);color:var(--ink);margin-bottom:18px}
+.search::placeholder{color:var(--ink3)}
+.gl{border-top:1px solid var(--line)}
+.gl.hide{display:none}
+.gl dt,dt.gl{font-weight:700;font-size:15.5px;padding-top:15px}
+dt.gl em{font-style:normal;font-family:var(--mono);font-size:12.5px;color:var(--ink3);font-weight:400;margin-left:8px}
+dd.gl{margin:5px 0 15px;font-size:14.5px;color:var(--ink2);line-height:1.65;border-top:none}
+.noresult{color:var(--ink3);font-size:15px;padding:18px 0}
+
+.quiz{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:20px 22px;margin-bottom:14px}
+.quiz .qn{font-family:var(--mono);font-size:11.5px;color:var(--hv);margin-bottom:7px}
+.quiz .qt{font-weight:700;font-size:16.5px;margin:0 0 14px;line-height:1.5;max-width:none}
+.opt{display:block;width:100%;text-align:left;font:inherit;font-size:14.5px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:11px 15px;margin-bottom:8px;cursor:pointer;color:var(--ink2);transition:border-color .15s,color .15s}
+.opt:hover:not(:disabled){border-color:var(--ink3);color:var(--ink)}
+.opt:disabled{cursor:default}
+.opt.right{border-color:var(--ok);color:var(--ink);background:color-mix(in srgb,var(--ok) 11%,var(--bg2))}
+.opt.wrong{border-color:var(--warn);color:var(--ink);background:color-mix(in srgb,var(--warn) 11%,var(--bg2))}
+.expl{font-size:14.5px;color:var(--ink2);background:var(--surface2);border-radius:10px;padding:13px 15px;margin-top:10px;display:none;line-height:1.65}
+.expl.show{display:block}
+.expl b{color:var(--ink)}
+
+footer{border-top:1px solid var(--line);padding:44px 0 70px;color:var(--ink3);font-size:14px}
+.nextup{background:linear-gradient(135deg,color-mix(in srgb,var(--hv) 13%,var(--surface)),var(--surface));border:1px solid var(--line);border-radius:17px;padding:26px 28px;margin:34px 0}
+.nextup h3{margin:0 0 10px;font-size:20px}
+.nextup p{color:var(--ink2);font-size:15.5px;margin:0 0 14px}
+.nextup ul{font-size:15px;color:var(--ink2);margin:0}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="brand-txt">하이퍼바이저 <span>· 2편</span></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="tbtn" id="themeBtn" aria-label="테마 바꾸기">라이트 모드</button>
+  </div>
+  <div class="progress"><i id="prog"></i></div>
+</header>
+
+<div class="wrap">
+<div class="shell">
+
+  <nav class="toc" aria-label="목차">
+    <p class="toc-h">목차</p>
+    <a href="#s1">1. 이번 편의 한 문장</a>
+    <a href="#s2">2. CPU — 시간을 쪼갠다</a>
+    <a href="#s3">3. 메모리 — 주소를 두 번 번역한다</a>
+    <a href="#s4">4. 메모리 오버커밋의 네 단계</a>
+    <a href="#s5">5. NUMA — 거리를 의식하기</a>
+    <a href="#s6">6. 스토리지 — 파일을 디스크처럼</a>
+    <a href="#s7">7. 네트워크 — 경로를 짧게</a>
+    <a href="#s8">8. GPU — 나눌 수 없는 것 나누기</a>
+    <a href="#s9">9. 사이징 체크리스트</a>
+    <a href="#s10">10. 자주 하는 실수</a>
+    <a href="#s11">11. 용어 사전</a>
+    <a href="#s12">12. 이해도 체크</a>
+  </nav>
+
+  <main>
+
+  <div class="hero">
+    <div class="eyebrow"><b>시리즈</b> 하이퍼바이저 완전 정복 · 2편 / 전 3편</div>
+    <h1>CPU·메모리·디스크·네트워크는 실제로 어떻게 나뉘는가</h1>
+    <p class="lede">
+      1편이 "왜 하이퍼바이저가 필요하고 어떤 원리로 가능한가"였다면,
+      2편은 그 아래에서 자원이 실제로 쪼개지는 방식입니다.
+      vCPU 하나에 무엇이 보장되는지, 게스트의 메모리 주소가 물리 주소가 되기까지 몇 번의 번역을 거치는지,
+      디스크 I/O 한 번이 몇 개의 계층을 통과하는지를 다룹니다.
+    </p>
+    <div class="meta">
+      <span class="pill">대상 · 1~2년차 클라우드 엔지니어</span>
+      <span class="pill">선행 · 1편 (특히 VM Exit)</span>
+      <span class="pill">읽는 시간 · 약 45분</span>
+    </div>
+  </div>
+
+  <!-- ==================== 1 ==================== -->
+  <section id="s1" style="border-top:none">
+    <span class="sec-no">01</span>
+    <h2>이번 편은 전부 한 문장으로 요약된다</h2>
+    <p>
+      1편 마지막에서 이렇게 정리했습니다. <strong>가상화 성능 튜닝의 본질은 VM Exit을 얼마나 줄이느냐다.</strong>
+      이번 편에 나오는 EPT, 대용량 페이지, virtio, vhost, SR-IOV, APICv는 전부 이 한 문장의 변주입니다.
+      기술 이름을 외우는 대신 매번 이렇게 물으면 됩니다.
+      <strong>"이 기술은 어떤 계층 전환을 없앴는가?"</strong>
+    </p>
+    <p>
+      자원마다 없애야 할 전환의 종류가 다릅니다. 정리하면 이렇습니다.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>자원</th><th>없애야 할 전환</th><th>대표 기술</th></tr></thead>
+        <tbody>
+          <tr><td><strong>CPU</strong></td><td>vCPU 간 컨텍스트 스위치, 스케줄링 대기</td><td>피닝, 적정 오버커밋, 코어 수 축소</td></tr>
+          <tr><td><strong>메모리</strong></td><td>주소 변환마다 발생하던 VM Exit</td><td>EPT / NPT, 대용량 페이지, VPID</td></tr>
+          <tr><td><strong>스토리지</strong></td><td>장치 에뮬레이션을 위한 유저 공간 왕복</td><td>virtio-blk/scsi, 멀티큐, NVMe 패스스루</td></tr>
+          <tr><td><strong>네트워크</strong></td><td>패킷마다 발생하는 유저↔커널 전환</td><td>virtio-net → vhost-net → SR-IOV</td></tr>
+          <tr><td><strong>인터럽트</strong></td><td>인터럽트 컨트롤러 접근마다의 exit</td><td>APICv(인텔) / AVIC(AMD)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>이 표를 머리에 넣고 아래로 내려가면, 각 장이 같은 이야기의 다른 사례라는 게 보입니다.</p>
+  </section>
+
+  <!-- ==================== 2 ==================== -->
+  <section id="s2">
+    <span class="sec-no">02</span>
+    <h2>CPU — 시간을 쪼갠다</h2>
+    <p>
+      메모리와 디스크는 <em>공간</em>을 나누지만 CPU는 <em>시간</em>을 나눕니다.
+      물리 코어 하나가 짧은 구간씩 번갈아 여러 vCPU를 실행하고, 그 전환이 충분히 빠르면
+      각 VM은 자기 전용 CPU가 있다고 느낍니다.
+    </p>
+    <p>
+      하이퍼바이저의 스케줄러는 OS 스케줄러와 구조가 비슷하지만 대상이 다릅니다.
+      OS는 프로세스를 스케줄링하고, 하이퍼바이저는 <strong>vCPU를 스케줄링</strong>합니다.
+      그래서 VM 안에서는 스케줄링이 두 번 일어납니다. 게스트 OS가 프로세스를 vCPU에 배치하고,
+      하이퍼바이저가 그 vCPU를 물리 코어에 배치합니다. <strong>이 이중 구조가 가상화 CPU 문제의 대부분을 설명합니다.</strong>
+    </p>
+
+    <h3>vCPU는 예약이 아니라 대기표다</h3>
+    <p>
+      vCPU 8개를 줬다고 물리 코어 8개가 예약되는 게 아닙니다.
+      "동시에 최대 8개의 실행 흐름을 돌릴 수 있는 권리"일 뿐이고,
+      실제 코어를 얻으려면 다른 VM들과 경쟁해야 합니다.
+      이 경쟁에서 밀려 기다린 시간이 <span class="term" data-def="VM이 실행 준비를 마치고도 물리 CPU를 배정받지 못해 대기한 시간. VMware의 %RDY, 리눅스의 steal time이 같은 개념이다.">CPU Ready</span>입니다.
+    </p>
+    <p>
+      중요한 건 이 지표가 <strong>게스트 안에서는 거의 보이지 않는다</strong>는 점입니다.
+      게스트의 <code>top</code>은 CPU 사용률 30%에 부하도 낮다고 말하는데 응답은 느립니다.
+      대기 시간은 게스트의 시계에 잡히지 않으니까요. 호스트 쪽 지표를 봐야 원인이 드러납니다.
+      신입 엔지니어가 "VM이 느린데 이유를 모르겠다"고 할 때 가장 먼저 확인할 곳입니다.
+    </p>
+
+<pre><span class="c"># 게스트(리눅스) 안에서 — st 컬럼이 steal time</span>
+$ vmstat 1
+procs -----------memory---------- ---swap-- -system-- ------cpu-----
+ r  b   swpd   free   buff  cache   si   so  in   cs us sy id wa <span class="v">st</span>
+ 2  0      0 812344  24112 391220    0    0 1520 2840 22  6 58  1 <span class="v">13</span>   <span class="c">← 13% 강탈당함</span>
+
+<span class="c"># 호스트(KVM) 쪽에서 — VM별 CPU 시간</span>
+$ virsh domstats --vcpu web-01
+
+<span class="c"># ESXi — esxtop 에서 c(CPU) 화면의 %RDY 컬럼</span>
+$ esxtop</pre>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">오버커밋 비율 판정기</p></div>
+      <p class="demo-hint">호스트 사양과 배치할 VM 구성을 넣으면 오버커밋 비율과 위험도를 계산합니다.</p>
+      <div class="calc">
+        <div>
+          <div class="field">
+            <label for="pCore">호스트 물리 코어 수 <b><span id="pCoreV">32</span>개</b></label>
+            <input type="range" id="pCore" min="8" max="128" value="32" step="4">
+          </div>
+          <div class="field">
+            <label for="vmCnt">배치할 VM 대수 <b><span id="vmCntV">20</span>대</b></label>
+            <input type="range" id="vmCnt" min="2" max="80" value="20" step="1">
+          </div>
+          <div class="field">
+            <label for="vcpuEa">VM당 vCPU 수 <b><span id="vcpuEaV">4</span>개</b></label>
+            <input type="range" id="vcpuEa" min="1" max="16" value="4" step="1">
+          </div>
+          <div class="field">
+            <label for="wl">워크로드 성격 <b><span id="wlV">일반 업무</span></b></label>
+            <input type="range" id="wl" min="0" max="3" value="1" step="1">
+          </div>
+        </div>
+        <div class="out">
+          <div class="bignum"><span id="oRatio2">2.5</span><small>: 1 오버커밋</small></div>
+          <div class="outrow"><span>총 vCPU</span><b id="oTotal">80개</b></div>
+          <div class="outrow"><span>권장 상한 (이 워크로드)</span><b id="oLimit">4 : 1</b></div>
+          <div class="outrow"><span>추가 배치 여력</span><b id="oRoom">+18대</b></div>
+          <div class="verdict ok" id="oVerdict">여유 있습니다.</div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--ink3);margin:16px 0 0">
+        하이퍼스레딩을 켜도 논리 프로세서 수를 물리 코어로 계산하지 마세요. 논리 프로세서 2개가 물리 코어 1개의 성능을 주지 않습니다.
+        사이징은 물리 코어 기준으로 하고, 하이퍼스레딩은 여유분으로 보는 편이 안전합니다.
+      </p>
+    </div>
+
+    <h3>vCPU를 많이 주면 오히려 느려지는 역설</h3>
+    <p>
+      "성능이 안 나오니 vCPU를 8개에서 16개로 올리자"는 판단은 자주 틀립니다.
+      멀티코어 VM의 vCPU들은 게스트 OS 입장에서 <em>동시에 존재해야 하는</em> CPU들입니다.
+      게스트 커널이 스핀락을 걸거나 TLB 셧다운을 하면 다른 vCPU들이 즉시 응답해야 하는데,
+      그 vCPU가 스케줄링을 못 받고 있으면 <strong>전체가 멈춰서 기다립니다.</strong>
+    </p>
+    <p>
+      그래서 하이퍼바이저들은 vCPU들을 어느 정도 함께 진행시키는
+      <span class="term" data-def="멀티 vCPU VM의 vCPU들이 시간적으로 크게 벌어지지 않게 함께 스케줄링하는 기법. 엄격한 방식은 유휴 코어를 낭비하므로 완화된 형태가 쓰인다.">코스케줄링</span>을 합니다.
+      vCPU가 많을수록 "동시에 비어 있는 물리 코어 묶음"을 찾기 어려워지고, 대기가 길어집니다.
+    </p>
+    <div class="note warn">
+      <div class="note-h">실무 원칙</div>
+      <p>
+        <strong>vCPU는 실제로 쓰는 만큼만 주고, 부족할 때 늘리세요.</strong>
+        4 vCPU로 충분한 VM에 16 vCPU를 주면 대부분의 경우 더 느려집니다.
+        특히 단일 스레드 위주 애플리케이션이라면 vCPU를 늘려도 얻는 게 없고 스케줄링 비용만 붙습니다.
+      </p>
+    </div>
+
+    <h3>CPU 피닝과 토폴로지</h3>
+    <p>
+      지연에 극도로 민감한 워크로드는 vCPU를 특정 물리 코어에 고정하는 <strong>CPU 피닝</strong>을 씁니다.
+      스케줄링 지연과 캐시 무효화가 줄어들지만, 유연성을 포기하는 선택입니다.
+      피닝된 VM은 라이브 마이그레이션이 까다로워지고, 해당 코어는 다른 VM이 쓸 수 없게 됩니다.
+    </p>
+<pre><span class="c"># KVM — vCPU 0,1을 물리 코어 4,5에 고정</span>
+virsh vcpupin web-01 <span class="v">0</span> <span class="v">4</span>
+virsh vcpupin web-01 <span class="v">1</span> <span class="v">5</span>
+
+<span class="c"># 현재 매핑 확인</span>
+virsh vcpuinfo web-01</pre>
+    <p>
+      또 하나 놓치기 쉬운 게 <strong>CPU 토폴로지 표현</strong>입니다.
+      vCPU 8개를 "소켓 8개 × 코어 1개"로 보여줄지 "소켓 1개 × 코어 8개"로 보여줄지에 따라
+      게스트 OS의 스케줄링 판단이 달라지고, <strong>소켓 단위로 과금되는 소프트웨어의 라이선스 비용이 8배가 될 수 있습니다.</strong>
+      특별한 이유가 없으면 소켓 수는 최소로, 코어 수를 늘리는 쪽으로 설정합니다.
+    </p>
+  </section>
+
+  <!-- ==================== 3 ==================== -->
+  <section id="s3">
+    <span class="sec-no">03</span>
+    <h2>메모리 — 주소를 두 번 번역한다</h2>
+    <p>
+      가상화가 없을 때도 이미 주소 변환은 있었습니다. 프로세스의 가상 주소를 물리 주소로 바꾸는
+      <span class="term" data-def="가상 주소를 물리 주소로 변환하는 계층적 자료구조. x86-64에서는 보통 4단계(최근 5단계까지)다.">페이지 테이블</span> 변환입니다.
+      가상화를 하면 여기에 한 겹이 더 얹힙니다.
+    </p>
+    <ul>
+      <li><strong>게스트 가상 주소(GVA)</strong> → 게스트가 관리하는 페이지 테이블</li>
+      <li><strong>게스트 물리 주소(GPA)</strong> → 게스트는 이게 진짜 RAM 주소라고 믿는다</li>
+      <li><strong>호스트 물리 주소(HPA)</strong> → 실제 메모리 칩 위의 위치</li>
+    </ul>
+    <p>
+      문제는 게스트가 믿는 "물리 주소"가 사실은 가짜라는 것입니다. 누군가는 GPA를 HPA로 한 번 더 바꿔야 합니다.
+      이 일을 누가 하느냐로 세대가 갈립니다.
+    </p>
+
+    <h3>1세대: 섀도 페이지 테이블</h3>
+    <p>
+      하드웨어 지원이 없던 시절, 하이퍼바이저는 GVA를 HPA로 직접 매핑하는 별도의 페이지 테이블을 만들어
+      CPU에 그것을 물렸습니다. 이게 <strong>섀도 페이지 테이블</strong>입니다.
+      변환 자체는 한 번에 끝나니 빠릅니다. 문제는 <strong>동기화</strong>입니다.
+    </p>
+    <p>
+      게스트가 자기 페이지 테이블을 수정할 때마다 하이퍼바이저가 섀도 테이블을 갱신해야 합니다.
+      그러려면 게스트 페이지 테이블을 읽기 전용으로 만들어 두고, 게스트가 쓰기를 시도할 때마다
+      <strong>VM Exit을 일으켜 가로채야 합니다.</strong> 프로세스를 자주 생성하는 워크로드에서는
+      이 exit이 폭발적으로 늘어납니다.
+    </p>
+
+    <h3>2세대: EPT / NPT</h3>
+    <p>
+      인텔의 <strong>EPT(Extended Page Table)</strong>, AMD의 <strong>NPT(Nested Page Table)</strong>는
+      GPA→HPA 변환 테이블을 CPU가 직접 이해하게 만들었습니다.
+      하이퍼바이저는 이 테이블을 한 번 세팅해 두고 물러나면 되고,
+      게스트가 자기 페이지 테이블을 아무리 고쳐도 <strong>exit이 발생하지 않습니다.</strong>
+    </p>
+    <p>
+      대가는 변환 비용입니다. TLB에 없는 주소는 이제 2차원 페이지 워크를 해야 합니다.
+      게스트 테이블을 한 단계 내려갈 때마다, 그 단계의 주소 자체가 GPA이므로 또 호스트 테이블을 타야 합니다.
+      4단계 × 4단계 구조에서 <strong>최악의 경우 메모리를 24번 읽습니다.</strong>
+    </p>
+
+    <div class="demo">
+      <div class="demo-head">
+        <p class="demo-title">주소 변환 경로 비교</p>
+        <div class="seg" role="group" aria-label="변환 방식">
+          <button class="mm" data-m="sh" aria-pressed="true">섀도 페이지 테이블</button>
+          <button class="mm" data-m="ept" aria-pressed="false">EPT / NPT</button>
+        </div>
+      </div>
+      <p class="demo-hint">게스트가 메모리에 접근할 때 벌어지는 일을 단계별로 따라갑니다.</p>
+      <div class="walk" id="walk"></div>
+      <div class="counter" id="walkCount"></div>
+      <div style="display:flex;gap:9px;margin-top:16px;flex-wrap:wrap">
+        <button class="btn" id="mmNext">다음 단계</button>
+        <button class="btn ghost" id="mmReset">처음부터</button>
+      </div>
+      <div class="note" style="margin-bottom:0" id="mmNote"></div>
+    </div>
+
+    <h3>대용량 페이지와 TLB</h3>
+    <p>
+      2차원 페이지 워크가 비싸다면 답은 두 가지입니다. <strong>워크를 줄이거나, TLB 적중률을 높이거나.</strong>
+      대용량 페이지가 둘 다 해결합니다. 기본 페이지는 4KB인데,
+      2MB나 1GB 단위로 매핑하면 페이지 테이블 단계가 줄어들고 TLB 엔트리 하나가 훨씬 넓은 영역을 커버합니다.
+    </p>
+    <p>
+      대용량 메모리를 쓰는 DB나 인메모리 캐시에서 체감 효과가 큽니다.
+      다만 메모리 단편화가 생기면 대용량 페이지 확보가 어려워지고, 페이지 공유 기법과는 상성이 나쁩니다
+      (2MB 덩어리가 통째로 같아야 공유가 되니까요).
+    </p>
+    <p>
+      여기에 <strong>VPID(인텔) / ASID(AMD)</strong>가 더해집니다.
+      원래는 VM 전환 때마다 TLB를 통째로 비워야 했는데, 이 기능이 TLB 엔트리에 VM 식별자를 붙여
+      <strong>비우지 않고도 섞이지 않게</strong> 만들었습니다. VM Exit 직후의 성능 저하가 크게 줄었습니다.
+    </p>
+<pre><span class="c"># 리눅스 호스트에서 대용량 페이지 상태 확인</span>
+$ cat /proc/meminfo | grep -i huge
+AnonHugePages:   4194304 kB
+HugePages_Total:       0
+Hugepagesize:       2048 kB
+
+<span class="c"># THP(투명 대용량 페이지) 설정 확인</span>
+$ cat /sys/kernel/mm/transparent_hugepage/enabled
+[always] madvise never</pre>
+  </section>
+
+  <!-- ==================== 4 ==================== -->
+  <section id="s4">
+    <span class="sec-no">04</span>
+    <h2>메모리 오버커밋의 네 단계</h2>
+    <p>
+      CPU 오버커밋은 최악의 경우 느려질 뿐입니다. <strong>메모리 오버커밋은 최악의 경우 멈춥니다.</strong>
+      CPU는 기다리면 언젠가 차례가 오지만, 메모리는 없으면 없는 것이기 때문입니다.
+      그래서 하이퍼바이저는 메모리가 부족해질 때 네 가지 기법을 순서대로 꺼냅니다.
+      뒤로 갈수록 효과는 크고 대가도 큽니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">메모리 압박 시뮬레이터</p></div>
+      <p class="demo-hint">VM들에 할당한 총 메모리를 늘리면서 호스트가 어떤 회수 기법을 꺼내는지 확인해 보세요.</p>
+      <div class="calc">
+        <div>
+          <div class="field">
+            <label for="mHost">호스트 물리 메모리 <b><span id="mHostV">256</span>GB</b></label>
+            <input type="range" id="mHost" min="64" max="1024" value="256" step="32">
+          </div>
+          <div class="field">
+            <label for="mAlloc">VM들에 할당한 총 메모리 <b><span id="mAllocV">220</span>GB</b></label>
+            <input type="range" id="mAlloc" min="32" max="1600" value="220" step="16">
+          </div>
+          <div class="field">
+            <label for="mActive">실제 활성 사용률 <b><span id="mActiveV">70</span>%</b></label>
+            <input type="range" id="mActive" min="20" max="100" value="70" step="5">
+          </div>
+        </div>
+        <div class="out">
+          <div class="bignum"><span id="mRatio">0.86</span><small>: 1 오버커밋</small></div>
+          <div class="outrow"><span>실제 요구량</span><b id="mNeed">154GB</b></div>
+          <div class="outrow"><span>호스트 여유</span><b id="mFree">102GB</b></div>
+          <div class="outrow"><span>현재 발동 단계</span><b id="mStage">없음</b></div>
+          <div class="verdict ok" id="mVerdict">안전 구간입니다.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="color:var(--ok)">1단계 · 페이지 공유</h4>
+        <p>
+          내용이 완전히 같은 메모리 페이지를 하나만 남기고 나머지는 같은 곳을 가리키게 합니다.
+          리눅스의 <strong>KSM</strong>, VMware의 <strong>TPS</strong>가 이것입니다.
+          같은 OS 이미지를 쓰는 VM이 많은 VDI 환경에서 효과가 큽니다.
+        </p>
+        <p><strong>대가</strong> — 페이지를 스캔하는 CPU 비용. 대용량 페이지를 쓰면 효과가 급감합니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--hv)">2단계 · 벌루닝</h4>
+        <p>
+          게스트 안에 설치된 벌룬 드라이버가 게스트 OS에게 메모리를 요청해 "풍선처럼 부풀립니다".
+          게스트 OS는 정상적인 메모리 압박으로 인식해 자기 판단으로 캐시를 비우고 덜 중요한 것부터 정리합니다.
+          하이퍼바이저는 그렇게 확보된 영역을 회수합니다.
+        </p>
+        <p><strong>대가</strong> — 게스트 도구 설치가 전제. 반응이 느려 급격한 압박에는 못 따라갑니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--mid)">3단계 · 압축</h4>
+        <p>
+          디스크로 내보내기 직전에, 페이지를 압축해서 메모리 안에 더 작게 보관합니다.
+          디스크 접근보다는 훨씬 빠르므로 스와핑을 늦추는 완충재 역할입니다.
+        </p>
+        <p><strong>대가</strong> — 압축·해제에 드는 CPU. 이미 압축된 데이터에는 효과가 없습니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">4단계 · 스와핑</h4>
+        <p>
+          게스트 메모리 페이지를 디스크로 강제로 내보냅니다. 확실하게 메모리를 회수하지만
+          <strong>여기까지 왔다는 건 이미 설계가 실패했다는 뜻</strong>입니다.
+        </p>
+        <p><strong>대가</strong> — 치명적. 하이퍼바이저는 어떤 페이지가 중요한지 모르므로 하필 가장 뜨거운 페이지를 내보낼 수 있습니다. 응답 시간이 수십 배로 튑니다.</p>
+      </div>
+    </div>
+
+    <div class="note warn">
+      <div class="note-h">이중 스와핑이라는 최악의 시나리오</div>
+      <p>
+        게스트 OS도 자기 안에서 스왑을 합니다. 그 상태에서 하이퍼바이저까지 스왑을 하면,
+        <strong>게스트가 스왑아웃한 페이지를 호스트가 디스크에서 읽어와 다시 스왑아웃하는</strong> 일이 벌어집니다.
+        디스크 I/O가 폭증하고 시스템 전체가 사실상 멈춥니다.
+        메모리 오버커밋을 공격적으로 잡으면 안 되는 이유가 이것입니다.
+      </p>
+    </div>
+    <p>
+      실무 기준은 단순합니다. <strong>운영 워크로드는 메모리를 오버커밋하지 않는 것을 기본값으로 두세요.</strong>
+      CPU는 3:1도 흔하지만 메모리는 1:1이 출발점입니다.
+      오버커밋을 한다면 VDI나 개발 환경처럼 "동시에 다 쓰지 않는다"가 통계적으로 확실한 경우에 한정하고,
+      반드시 벌룬 드라이버가 전 VM에 설치된 상태여야 합니다.
+    </p>
+  </section>
+
+  <!-- ==================== 5 ==================== -->
+  <section id="s5">
+    <span class="sec-no">05</span>
+    <h2>NUMA — 메모리에도 거리가 있다</h2>
+    <p>
+      현대 서버는 CPU 소켓마다 자기 메모리 컨트롤러와 메모리 슬롯을 가집니다.
+      소켓 0의 CPU가 소켓 0에 붙은 메모리를 읽는 건 빠르지만,
+      소켓 1에 붙은 메모리를 읽으려면 소켓 간 링크를 건너가야 합니다.
+      이 구조가 <strong>NUMA(Non-Uniform Memory Access)</strong>이고,
+      원격 접근은 보통 <strong>로컬의 1.5~2배 지연</strong>이 걸립니다.
+    </p>
+    <p>
+      VM 하나가 한 NUMA 노드 안에 들어가면 문제가 없습니다.
+      문제는 <strong>노드 하나보다 큰 VM</strong>입니다. vCPU와 메모리가 두 노드에 걸치면
+      상당량의 메모리 접근이 원격이 되고, 같은 사양인데 성능이 눈에 띄게 떨어집니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">NUMA 배치 시뮬레이터</p></div>
+      <p class="demo-hint">VM 크기를 키우면 노드 경계를 넘는 순간이 보입니다.</p>
+      <div class="calc" style="grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr)">
+        <div>
+          <div class="field">
+            <label for="nCore">노드당 물리 코어 <b><span id="nCoreV">16</span>개</b></label>
+            <input type="range" id="nCore" min="4" max="32" value="16" step="2">
+          </div>
+          <div class="field">
+            <label for="nMem">노드당 메모리 <b><span id="nMemV">128</span>GB</b></label>
+            <input type="range" id="nMem" min="32" max="512" value="128" step="32">
+          </div>
+          <div class="field">
+            <label for="nVcpu">VM의 vCPU 수 <b><span id="nVcpuV">12</span>개</b></label>
+            <input type="range" id="nVcpu" min="2" max="48" value="12" step="2">
+          </div>
+          <div class="field">
+            <label for="nVram">VM의 메모리 <b><span id="nVramV">96</span>GB</b></label>
+            <input type="range" id="nVram" min="8" max="768" value="96" step="8">
+          </div>
+        </div>
+        <div>
+          <div class="numa">
+            <div class="node">
+              <h5>NUMA Node 0</h5>
+              <div class="cap" id="n0cap">—</div>
+              <div class="cores" id="n0"></div>
+            </div>
+            <div class="node">
+              <h5>NUMA Node 1</h5>
+              <div class="cap" id="n1cap">—</div>
+              <div class="cores" id="n1"></div>
+            </div>
+          </div>
+          <div class="verdict ok" id="nVerdict" style="margin-top:14px">—</div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      노드를 넘길 수밖에 없는 큰 VM이라면 <strong>vNUMA</strong>를 씁니다.
+      호스트의 NUMA 구조를 게스트에게 그대로 노출해서, 게스트 OS와 그 위의 DB가
+      스스로 NUMA를 인지하고 지역성을 최적화하도록 맡기는 방식입니다.
+      대부분의 하이퍼바이저가 일정 크기 이상의 VM에는 자동으로 vNUMA를 켭니다.
+    </p>
+<pre><span class="c"># 호스트의 NUMA 구조 확인</span>
+$ numactl --hardware
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 ... 15
+node 0 size: <span class="v">128000 MB</span>
+node 1 cpus: 16 17 18 ... 31
+node 1 size: <span class="v">128000 MB</span>
+node distances:
+node   0   1
+  0:  10  <span class="v">21</span>     <span class="c">← 원격이 약 2.1배</span>
+  1:  21  10
+
+<span class="c"># VM의 NUMA 메모리 분포 확인 (KVM)</span>
+$ virsh numatune web-01</pre>
+
+    <div class="note">
+      <div class="note-h">실무 규칙 세 가지</div>
+      <p>
+        <strong>하나.</strong> 가능하면 VM 하나가 노드 하나 안에 들어가게 사이징합니다.<br>
+        <strong>둘.</strong> 노드를 넘길 수밖에 없다면 노드 수의 배수로 맞춰 균등하게 나뉘도록 합니다. 16코어 노드에서 20 vCPU보다 16 또는 32가 낫습니다.<br>
+        <strong>셋.</strong> 메모리도 함께 봐야 합니다. vCPU는 노드 안에 들어가는데 메모리가 노드 용량을 넘으면 결국 원격 접근이 발생합니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 6 ==================== -->
+  <section id="s6">
+    <span class="sec-no">06</span>
+    <h2>스토리지 — 파일을 디스크처럼 보이게</h2>
+    <p>
+      1편에서 VM은 결국 파일이라고 했습니다. 게스트는 그 파일을 SATA나 SCSI 디스크로 인식합니다.
+      이 착각을 만드는 방식에 따라 성능이 몇 배씩 차이 납니다.
+    </p>
+
+    <h3>가상 디스크 컨트롤러의 세대</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>방식</th><th>동작</th><th>성능</th><th>쓰임</th></tr></thead>
+        <tbody>
+          <tr><td><strong>IDE / SATA 에뮬레이션</strong></td><td>실제 칩셋의 레지스터 동작을 소프트웨어로 흉내. 접근마다 VM Exit</td><td>매우 낮음</td><td>드라이버 없는 OS 설치 초기, 구형 게스트</td></tr>
+          <tr><td><strong>virtio-blk</strong></td><td>게스트가 가상화를 인지하고 공유 링 버퍼로 요청을 전달. 반가상화</td><td>높음</td><td>KVM 환경의 일반적 선택</td></tr>
+          <tr><td><strong>virtio-scsi</strong></td><td>virtio 기반이면서 SCSI 명령을 지원. 디스크 다수 연결, TRIM/UNMAP 가능</td><td>높음</td><td>디스크가 많거나 SCSI 기능이 필요할 때</td></tr>
+          <tr><td><strong>NVMe 가상화 / 패스스루</strong></td><td>NVMe 큐 구조를 그대로 노출하거나 물리 NVMe를 직접 할당</td><td>매우 높음</td><td>고성능 DB, 지연 민감 워크로드</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      핵심은 <strong>virtio에서 무엇이 사라졌는가</strong>입니다.
+      에뮬레이션은 게스트가 디스크 레지스터를 건드릴 때마다 exit이 나고,
+      하이퍼바이저가 "이건 섹터 읽기 명령이구나" 하고 해석해야 합니다.
+      virtio는 그 과정을 없앴습니다. 게스트가 공유 메모리 링에 요청을 여러 개 쌓아두고
+      한 번만 알리면, 하이퍼바이저가 일괄 처리합니다. <strong>요청 수백 개에 exit 한 번</strong>으로 줄어듭니다.
+    </p>
+
+    <h3>qcow2와 raw, 그리고 씬 프로비저닝</h3>
+    <div class="grid g2">
+      <div class="card">
+        <h4>raw</h4>
+        <p>가상 디스크 내용이 파일에 그대로 1:1로 들어갑니다. 구조가 없으니 오버헤드도 없습니다. 가장 빠르고 단순하며, 문제가 생겼을 때 복구도 쉽습니다.</p>
+        <p>대신 스냅샷·압축·암호화 같은 기능은 파일 포맷이 아니라 아래 계층(LVM, 스토리지 장비)에 의존해야 합니다.</p>
+      </div>
+      <div class="card">
+        <h4>qcow2</h4>
+        <p>QEMU Copy-On-Write 포맷. 실제로 쓴 블록만 파일에 할당하고, 어디에 무엇이 있는지를 <strong>참조 테이블</strong>로 관리합니다. 스냅샷·백킹 파일·압축·암호화를 포맷 자체가 지원합니다.</p>
+        <p>대신 테이블을 한 번 더 타므로 raw보다 약간 느리고, 파일이 커질수록 메타데이터 관리 부담이 늘어납니다.</p>
+      </div>
+    </div>
+    <p>
+      <strong>씬 프로비저닝</strong>은 "100GB 디스크"라고 선언하되 실제로는 쓴 만큼만 차지하는 방식입니다.
+      공간 효율은 좋지만 두 가지 위험이 따라옵니다.
+      첫째, 블록을 새로 할당할 때마다 약간의 지연이 생겨 성능이 들쭉날쭉해집니다.
+      둘째, <strong>과다 할당된 데이터스토어가 실제로 가득 차면 그 위의 모든 VM이 동시에 멈춥니다.</strong>
+    </p>
+    <div class="note warn">
+      <div class="note-h">스냅샷은 백업이 아니다</div>
+      <p>
+        스냅샷을 뜨면 원본 디스크는 동결되고, 이후의 모든 쓰기는 별도의 델타 파일에 쌓입니다.
+        스냅샷이 오래 유지될수록 델타가 커지고, 여러 개를 쌓으면 읽기 한 번에 <strong>체인을 거슬러 올라가야</strong> 해서 성능이 떨어집니다.
+        더 위험한 건 삭제(통합) 시점입니다. 커진 델타를 원본에 합치는 작업 자체가 대량 I/O를 일으키고,
+        중간에 실패하면 디스크가 깨질 수 있습니다.
+      </p>
+      <p>
+        원본이 손상되면 스냅샷도 함께 무용지물이 됩니다. <strong>스냅샷은 되돌리기 장치이고, 백업은 별도로 존재해야 합니다.</strong>
+        작업 전 스냅샷은 작업이 끝나면 지우는 것까지가 한 세트입니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 7 ==================== -->
+  <section id="s7">
+    <span class="sec-no">07</span>
+    <h2>네트워크 — 경로를 짧게 만드는 역사</h2>
+    <p>
+      네트워크는 이 편에서 <strong>"계층 하나씩 걷어내기"가 가장 선명하게 보이는 영역</strong>입니다.
+      패킷 하나가 게스트에서 물리 NIC까지 가는 경로를 세대별로 비교해 보겠습니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head">
+        <p class="demo-title">패킷 경로 비교</p>
+        <div class="seg" role="group" aria-label="네트워크 방식">
+          <button class="nw" data-n="emu" aria-pressed="true">e1000 에뮬레이션</button>
+          <button class="nw" data-n="virtio" aria-pressed="false">virtio-net</button>
+          <button class="nw" data-n="vhost" aria-pressed="false">vhost-net</button>
+          <button class="nw" data-n="sriov" aria-pressed="false">SR-IOV</button>
+        </div>
+      </div>
+      <div id="nwBody"></div>
+    </div>
+
+    <h3>가상 스위치</h3>
+    <p>
+      물리 NIC 하나에 VM 여럿이 붙으려면 그 사이에 스위치가 필요합니다.
+      하이퍼바이저는 소프트웨어로 L2 스위치를 구현해 VM들의 가상 NIC을 포트처럼 다룹니다.
+      리눅스 브리지, Open vSwitch, VMware의 표준/분산 스위치가 그것입니다.
+    </p>
+    <p>
+      여기서 중요한 성질이 하나 있습니다. <strong>같은 호스트에 있는 VM끼리의 통신은 물리 NIC을 거치지 않습니다.</strong>
+      메모리 안에서 끝나므로 물리 네트워크보다 훨씬 빠릅니다.
+      반대로 말하면 <strong>물리 네트워크의 모니터링 장비나 방화벽이 이 트래픽을 전혀 못 봅니다.</strong>
+      VM 간 통신 제어가 필요하면 마이크로세그멘테이션처럼 가상 스위치 계층에서 정책을 걸어야 합니다.
+      침해 사고에서 같은 호스트 내 횡적 이동이 탐지되지 않는 이유이기도 합니다.
+    </p>
+
+    <h3>SR-IOV의 대가</h3>
+    <p>
+      <strong>SR-IOV</strong>는 물리 NIC 하나를 여러 개의 가상 기능(VF)으로 쪼개서 VM에 직접 할당합니다.
+      하이퍼바이저를 완전히 우회하므로 베어메탈에 근접한 성능이 나옵니다. 하지만 공짜가 아닙니다.
+    </p>
+    <ul>
+      <li><strong>라이브 마이그레이션이 어렵습니다.</strong> VM이 특정 물리 NIC의 VF에 묶여 있기 때문입니다.</li>
+      <li><strong>가상 스위치를 우회합니다.</strong> 가상 스위치에 걸어둔 정책·모니터링이 적용되지 않습니다.</li>
+      <li><strong>VF 개수에 상한</strong>이 있고, NIC과 BIOS·드라이버가 모두 지원해야 합니다.</li>
+    </ul>
+    <p>
+      그래서 SR-IOV는 "성능이 가장 좋으니 기본으로 쓰자"가 아니라,
+      <strong>유연성을 포기해도 좋을 만큼 지연이 중요한 워크로드에만 선택적으로</strong> 적용합니다.
+      NFV, 고성능 패킷 처리, 일부 금융 시스템이 대표적입니다.
+    </p>
+  </section>
+
+  <!-- ==================== 8 ==================== -->
+  <section id="s8">
+    <span class="sec-no">08</span>
+    <h2>GPU — 나눌 수 없던 것을 나누기</h2>
+    <p>
+      CPU와 메모리는 오래전부터 나눠 쓸 수 있었지만 GPU는 그렇지 않았습니다.
+      AI 워크로드가 늘면서 "GPU 한 장을 여러 VM이 나눠 쓸 수 있는가"가 실무 질문이 됐고,
+      현재 세 가지 방식이 있습니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>방식</th><th>나누는 단위</th><th>격리 수준</th><th>적합한 경우</th><th>제약</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>패스스루</strong></td>
+            <td>나누지 않음 (1 GPU = 1 VM)</td><td>완전</td>
+            <td>대규모 학습, GPU를 풀로 쓰는 작업</td>
+            <td>다른 VM이 전혀 못 씀. 라이브 마이그레이션 불가</td>
+          </tr>
+          <tr>
+            <td><strong>vGPU</strong></td>
+            <td>시간 분할 (여러 VM이 번갈아 사용)</td><td>중간 — 연산 유닛 공유</td>
+            <td>VDI, 그래픽 워크스테이션, 경량 추론</td>
+            <td>별도 라이선스 필요. 이웃 VM 부하에 성능이 영향받음</td>
+          </tr>
+          <tr>
+            <td><strong>MIG</strong></td>
+            <td>물리 분할 (연산·메모리·캐시를 하드웨어로 나눔)</td><td>강함 — 자원이 실제로 분리됨</td>
+            <td>멀티테넌트 추론, 성능 예측이 중요한 서비스</td>
+            <td>지원 GPU 한정. 분할 조합이 정해져 있고 변경 시 작업 중단</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      셋의 차이를 한 문장으로 하면 이렇습니다.
+      <strong>패스스루는 안 나누고, vGPU는 시간으로 나누고, MIG는 공간으로 나눕니다.</strong>
+      그래서 "다른 테넌트의 부하와 무관하게 일정한 성능을 보장해야 한다"가 요구사항이면 MIG가 답이고,
+      "여러 사용자에게 적당한 그래픽 성능을 싸게 주고 싶다"면 vGPU가 답입니다.
+    </p>
+
+    <div class="note hw">
+      <div class="note-h">GPU를 VM에 붙일 때 실제로 막히는 지점</div>
+      <p>
+        패스스루를 하려면 <strong>IOMMU</strong>(인텔 VT-d / AMD-Vi)가 필요합니다.
+        장치가 DMA로 아무 메모리나 읽지 못하게 주소를 변환·차단하는 하드웨어이고,
+        이게 없으면 장치 직접 할당은 보안상 성립하지 않습니다.
+      </p>
+      <p>
+        현장에서 자주 막히는 건 <strong>IOMMU 그룹</strong>입니다.
+        메인보드 배선 구조상 GPU와 다른 장치가 같은 그룹에 묶여 있으면,
+        그 그룹 전체를 함께 할당해야 해서 원하는 장치만 떼어낼 수 없습니다.
+        메인보드를 바꾸거나 슬롯을 옮겨야 풀리는 경우가 많습니다.
+      </p>
+    </div>
+<pre><span class="c"># IOMMU 활성화 확인 (커널 파라미터)</span>
+$ cat /proc/cmdline | grep -o <span class="s">'intel_iommu=on'</span>
+
+<span class="c"># IOMMU 그룹 구성 확인 — 같은 그룹의 장치는 함께 할당해야 한다</span>
+$ for d in /sys/kernel/iommu_groups/*/devices/*; do
+    echo <span class="s">"Group $(basename $(dirname $(dirname $d))): $(basename $d)"</span>
+  done | sort -V</pre>
+  </section>
+
+  <!-- ==================== 9 ==================== -->
+  <section id="s9">
+    <span class="sec-no">09</span>
+    <h2>사이징과 진단 체크리스트</h2>
+    <p>이 편의 내용을 실무 판단으로 압축하면 다음 표가 됩니다. 값은 출발점이며, 환경에 맞게 조정해야 합니다.</p>
+
+    <h3>사이징 기본값</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>항목</th><th>보수적 (운영)</th><th>일반</th><th>공격적 (개발·VDI)</th></tr></thead>
+        <tbody>
+          <tr><td>CPU 오버커밋 (vCPU : 물리 코어)</td><td>1~2 : 1</td><td>3~4 : 1</td><td>6~8 : 1</td></tr>
+          <tr><td>메모리 오버커밋</td><td><strong>1 : 1 (하지 않음)</strong></td><td>1 : 1</td><td>1.2~1.5 : 1</td></tr>
+          <tr><td>호스트 여유율 (장애 대비)</td><td>N+2</td><td>N+1</td><td>N+1</td></tr>
+          <tr><td>VM당 vCPU</td><td colspan="3">실제 사용량 기준으로 최소 할당 후 증설. 노드 코어 수를 넘기지 않기</td></tr>
+          <tr><td>데이터스토어 사용률</td><td colspan="3">씬 프로비저닝 시 실사용 75~80% 이하 유지, 초과 할당분 별도 추적</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>"VM이 느려요" 진단 순서</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>순서</th><th>확인할 것</th><th>이상 신호</th><th>대응</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>호스트의 CPU Ready / steal time</td><td>vCPU당 5% 초과, 10% 이상이면 심각</td><td>VM 분산, vCPU 수 축소, 오버커밋 완화</td></tr>
+          <tr><td>2</td><td>호스트 메모리 회수 활동</td><td>벌루닝 이상 단계가 동작 중</td><td>즉시 메모리 확보. 스와핑까지 갔다면 긴급</td></tr>
+          <tr><td>3</td><td>스토리지 지연</td><td>일반 업무 VM 기준 20ms 초과가 지속</td><td>데이터스토어 분산, 스냅샷 잔존 확인, 씬 과할당 점검</td></tr>
+          <tr><td>4</td><td>NUMA 배치</td><td>VM이 여러 노드에 걸쳐 있음</td><td>사이징 조정 또는 vNUMA 설정</td></tr>
+          <tr><td>5</td><td>게스트 드라이버</td><td>virtio/게스트 도구 미설치, 구버전</td><td>드라이버 설치·갱신 후 재측정</td></tr>
+          <tr><td>6</td><td>게스트 내부</td><td>여기까지 정상이면 앱·DB 문제</td><td>게스트 안에서 프로파일링</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      순서가 중요합니다. 대부분의 사람은 게스트 안부터 들여다보지만,
+      <strong>가상화 환경에서 게스트의 지표는 거짓말을 할 수 있습니다.</strong>
+      호스트 쪽에서 아래에서 위로 올라오는 순서가 원인을 훨씬 빨리 찾습니다.
+    </p>
+  </section>
+
+  <!-- ==================== 10 ==================== -->
+  <section id="s10">
+    <span class="sec-no">10</span>
+    <h2>현장에서 반복되는 실수</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="color:var(--warn)">느리다고 vCPU를 늘린다</h4>
+        <p>가장 흔하고 가장 역효과가 큰 조치입니다. 원인이 CPU Ready라면 vCPU를 늘리는 건 불을 끄려고 기름을 붓는 격입니다. <strong>줄이는 게 답인 경우가 많습니다.</strong></p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">게스트 도구를 설치하지 않는다</h4>
+        <p>virtio 드라이버나 VMware Tools 없이 돌아가는 VM은 에뮬레이션 경로로 I/O를 합니다. 성능이 몇 배 차이 나고, 벌루닝도 동작하지 않습니다. <strong>가장 적은 노력으로 가장 큰 효과를 보는 조치입니다.</strong></p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">스냅샷을 지우지 않는다</h4>
+        <p>"혹시 몰라서" 남긴 스냅샷이 몇 달째 쌓여 델타가 원본보다 커진 상태를 자주 봅니다. 성능도 문제지만 통합 작업 자체가 위험해집니다. 작업용 스냅샷은 <strong>수명을 정해두고</strong> 관리하세요.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">하이퍼스레딩을 물리 코어로 센다</h4>
+        <p>논리 프로세서 64개를 코어 64개로 계산하면 실제 오버커밋 비율이 두 배가 됩니다. 사이징 문서에서 이 혼동이 있으면 운영 단계에서 반드시 문제가 터집니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">메모리를 CPU처럼 오버커밋한다</h4>
+        <p>"CPU도 3:1로 하는데 메모리도 되겠지"가 통하지 않습니다. CPU는 느려지고 말지만 메모리는 스와핑으로 넘어가는 순간 서비스가 사실상 정지합니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">모니터링을 게스트 안에서만 한다</h4>
+        <p>게스트 에이전트만 보면 CPU Ready, 호스트 메모리 압박, 데이터스토어 경합이 전부 보이지 않습니다. <strong>호스트·클러스터 지표와 게스트 지표를 함께 봐야</strong> 그림이 완성됩니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 11 ==================== -->
+  <section id="s11">
+    <span class="sec-no">11</span>
+    <h2>용어 사전</h2>
+    <p>2편에 나온 용어입니다. 1편 용어는 이전 문서를 참고하세요.</p>
+    <input type="search" class="search" id="glSearch" placeholder="용어 검색 (예: EPT, 벌루닝, SR-IOV)" aria-label="용어 검색">
+    <dl id="glossary"></dl>
+    <p class="noresult" id="glNone" style="display:none">일치하는 용어가 없습니다.</p>
+  </section>
+
+  <!-- ==================== 12 ==================== -->
+  <section id="s12">
+    <span class="sec-no">12</span>
+    <h2>이해도 체크</h2>
+    <p>답을 고르면 바로 해설이 나옵니다.</p>
+    <div id="quiz"></div>
+    <div class="note" id="quizScore" style="display:none">
+      <div class="note-h">결과</div>
+      <p id="quizScoreText"></p>
+    </div>
+  </section>
+
+  <div class="nextup">
+    <h3>3편 — 실전 운영과 클라우드 내부</h3>
+    <p>1편이 원리, 2편이 자원 분할이었다면 3편은 "이걸로 서비스를 어떻게 안 죽게 운영하는가"입니다.</p>
+    <ul>
+      <li>라이브 마이그레이션의 내부 동작 — 프리카피, 더티 페이지 추적, 스톱앤카피 구간</li>
+      <li>HA·FT·클러스터 — 호스트 장애 시 실제로 벌어지는 일과 스플릿 브레인</li>
+      <li>백업·복제·재해복구 설계, RPO/RTO에서 역산하는 방법</li>
+      <li>퍼블릭 클라우드 내부 — AWS Nitro, Azure, GCP가 하이퍼바이저를 다루는 방식</li>
+      <li>컨테이너와의 경계 — KubeVirt, Kata Containers, 그리고 언제 무엇을 쓰는가</li>
+      <li>가상화 보안 — VM 탈출, 사이드채널, 테넌트 격리 설계</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>하이퍼바이저 완전 정복 · 2편 — 리소스는 어떻게 쪼개지는가</p>
+    <p>표의 임계값과 권장 비율은 일반적인 출발점입니다. 실제 사이징은 워크로드 특성과 측정값을 바탕으로 조정하세요.</p>
+  </footer>
+
+  </main>
+</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* 테마 */
+var root=document.documentElement,tBtn=document.getElementById('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tBtn.textContent=(t==='dark')?'라이트 모드':'다크 모드';try{localStorage.setItem('hv-theme',t);}catch(e){}}
+try{var sv=localStorage.getItem('hv-theme');if(sv)setTheme(sv);}catch(e){}
+tBtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+
+/* 진행바 + TOC */
+var prog=document.getElementById('prog');
+var tocLinks=[].slice.call(document.querySelectorAll('.toc a'));
+var secs=[].slice.call(document.querySelectorAll('section[id]'));
+function onScroll(){
+  var h=document.documentElement,max=h.scrollHeight-h.clientHeight;
+  prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+  var cur=null;
+  for(var i=0;i<secs.length;i++){if(secs[i].getBoundingClientRect().top<=140)cur=secs[i].id;}
+  tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+cur);});
+}
+window.addEventListener('scroll',onScroll,{passive:true});
+window.addEventListener('resize',onScroll);onScroll();
+
+/* ---------- CPU 오버커밋 판정기 ---------- */
+var WL=[
+  {nm:'지연 민감 (DB·실시간)',limit:1.5},
+  {nm:'일반 업무',limit:4},
+  {nm:'웹·앱 서버',limit:5},
+  {nm:'개발·VDI',limit:8}
+];
+function ci(id){return parseInt(document.getElementById(id).value,10);}
+function cpuCalc(){
+  var pc=ci('pCore'),vm=ci('vmCnt'),ve=ci('vcpuEa'),w=ci('wl');
+  document.getElementById('pCoreV').textContent=pc;
+  document.getElementById('vmCntV').textContent=vm;
+  document.getElementById('vcpuEaV').textContent=ve;
+  document.getElementById('wlV').textContent=WL[w].nm;
+  var total=vm*ve,ratio=total/pc,limit=WL[w].limit;
+  document.getElementById('oTotal').textContent=total+'개';
+  document.getElementById('oRatio2').textContent=(Math.round(ratio*100)/100).toFixed(2);
+  document.getElementById('oLimit').textContent=limit+' : 1';
+  var room=Math.floor((limit*pc-total)/ve);
+  document.getElementById('oRoom').textContent=(room>=0?'+':'')+room+'대';
+  var v=document.getElementById('oVerdict');
+  if(ve>pc){
+    v.className='verdict bad';
+    v.textContent='VM 하나의 vCPU가 호스트 물리 코어 수를 넘습니다. 이 구성은 배치 자체가 불가능하거나 심각한 성능 저하를 부릅니다.';
+  }else if(ratio<=limit*0.7){
+    v.className='verdict ok';
+    v.textContent='여유 있습니다. 호스트 장애 시 이 VM들을 남은 호스트가 흡수할 수 있는지도 함께 확인하세요.';
+  }else if(ratio<=limit){
+    v.className='verdict mid';
+    v.textContent='권장 상한에 근접했습니다. CPU Ready를 주기적으로 관측하면서 추가 배치를 판단하세요.';
+  }else{
+    v.className='verdict bad';
+    v.textContent='권장 상한을 넘었습니다. CPU Ready 상승과 응답 지연이 예상됩니다. VM을 분산하거나 vCPU 할당을 줄이세요.';
+  }
+}
+['pCore','vmCnt','vcpuEa','wl'].forEach(function(id){document.getElementById(id).addEventListener('input',cpuCalc);});
+cpuCalc();
+
+/* ---------- 주소 변환 시뮬레이터 ---------- */
+var MM={
+  sh:{
+    note:'<div class="note-h">섀도 페이지 테이블</div><p>변환 자체는 한 번에 끝나 빠릅니다. 대가는 <strong>동기화 비용</strong>입니다. 게스트가 페이지 테이블을 건드릴 때마다 VM Exit이 발생하므로, 프로세스를 자주 만들고 없애는 워크로드에서 exit이 폭증합니다.</p>',
+    steps:[
+      {t:'게스트 프로세스가 가상 주소(GVA)에 접근',x:false},
+      {t:'CPU가 섀도 페이지 테이블을 조회 — GVA를 HPA로 한 번에 변환',x:false},
+      {t:'TLB 적중 시 여기서 즉시 종료 (빠름)',x:false},
+      {t:'게스트 OS가 자기 페이지 테이블을 수정하려 시도',x:false},
+      {t:'페이지 테이블이 읽기 전용이라 VM Exit 발생',x:true},
+      {t:'하이퍼바이저가 게스트 변경분을 읽어 섀도 테이블에 반영',x:false},
+      {t:'VM Entry로 게스트 재개 — 게스트는 아무것도 모름',x:false}
+    ],
+    exits:1,walks:1
+  },
+  ept:{
+    note:'<div class="note-h">EPT / NPT</div><p>게스트가 페이지 테이블을 아무리 고쳐도 <strong>VM Exit이 발생하지 않습니다.</strong> 대신 TLB 미스 시 2차원 페이지 워크를 해야 하고, 4단계 × 4단계 구조에서 최악의 경우 메모리를 24번 읽습니다. 그래서 대용량 페이지와 VPID가 함께 따라옵니다.</p>',
+    steps:[
+      {t:'게스트 프로세스가 가상 주소(GVA)에 접근',x:false},
+      {t:'TLB 조회 — 적중하면 즉시 종료 (대부분의 경우)',x:false},
+      {t:'미스: 게스트 페이지 테이블을 1단계씩 내려감 (4단계)',x:false},
+      {t:'각 단계의 주소는 GPA이므로 EPT로 HPA 변환 필요 (단계마다 최대 4회)',x:false},
+      {t:'최종 GPA를 다시 EPT로 변환해 HPA 확보',x:false},
+      {t:'결과를 TLB에 적재 — VPID 덕분에 VM 전환 시에도 유지',x:false},
+      {t:'게스트 페이지 테이블 수정은 exit 없이 자유롭게 수행',x:false}
+    ],
+    exits:0,walks:24
+  }
+};
+var mmMode='sh',mmStep=-1;
+var walkEl=document.getElementById('walk'),wcEl=document.getElementById('walkCount'),mmNote=document.getElementById('mmNote');
+function drawWalk(){
+  var d=MM[mmMode];
+  walkEl.innerHTML='';
+  d.steps.forEach(function(s,i){
+    var el=document.createElement('div');
+    el.className='wstep'+(i<=mmStep?(s.x?' exit':' on'):'');
+    el.innerHTML='<span class="n">'+(i+1)+'</span><span>'+s.t+'</span>';
+    walkEl.appendChild(el);
+  });
+  wcEl.innerHTML=
+    '<div class="'+(d.exits>0?'hot':'')+'"><b>'+d.exits+'</b>페이지 테이블 수정당 VM Exit</div>'+
+    '<div><b>'+d.walks+'</b>TLB 미스 시 최대 메모리 접근</div>';
+  mmNote.innerHTML=d.note;
+  document.getElementById('mmNext').disabled=(mmStep>=d.steps.length-1);
+}
+document.getElementById('mmNext').addEventListener('click',function(){
+  if(mmStep<MM[mmMode].steps.length-1){mmStep++;drawWalk();}
+});
+document.getElementById('mmReset').addEventListener('click',function(){mmStep=-1;drawWalk();});
+[].forEach.call(document.querySelectorAll('.mm'),function(b){
+  b.addEventListener('click',function(){
+    [].forEach.call(document.querySelectorAll('.mm'),function(x){x.setAttribute('aria-pressed','false');});
+    b.setAttribute('aria-pressed','true');
+    mmMode=b.dataset.m;mmStep=-1;drawWalk();
+  });
+});
+drawWalk();
+
+/* ---------- 메모리 압박 시뮬레이터 ---------- */
+function mi(id){return parseInt(document.getElementById(id).value,10);}
+function memCalc(){
+  var host=mi('mHost'),alloc=mi('mAlloc'),act=mi('mActive');
+  document.getElementById('mHostV').textContent=host;
+  document.getElementById('mAllocV').textContent=alloc;
+  document.getElementById('mActiveV').textContent=act;
+  var need=Math.round(alloc*act/100);
+  var usable=Math.round(host*0.9); // 호스트 자체 사용분 10% 가정
+  var free=usable-need;
+  var ratio=alloc/host;
+  document.getElementById('mRatio').textContent=(Math.round(ratio*100)/100).toFixed(2);
+  document.getElementById('mNeed').textContent=need+'GB';
+  document.getElementById('mFree').textContent=free+'GB';
+  var stage,cls,msg;
+  var p=need/usable;
+  if(p<=0.8){stage='없음';cls='ok';msg='안전 구간입니다. 호스트가 회수 기법을 꺼낼 필요가 없습니다.';}
+  else if(p<=0.94){stage='1단계 · 페이지 공유';cls='ok';msg='페이지 공유로 흡수 가능한 수준입니다. 여전히 정상 범위로 봅니다.';}
+  else if(p<=1.0){stage='2단계 · 벌루닝';cls='mid';msg='벌룬 드라이버가 게스트에서 메모리를 회수하기 시작합니다. 게스트 도구가 전 VM에 설치돼 있는지 확인하세요.';}
+  else if(p<=1.12){stage='3단계 · 압축';cls='mid';msg='메모리 압축이 동작합니다. 스와핑 직전 구간입니다. 지금 VM을 분산하거나 메모리를 증설해야 합니다.';}
+  else {stage='4단계 · 스와핑';cls='bad';msg='호스트 스와핑 구간입니다. 응답 시간이 수십 배로 튀고 이중 스와핑 위험이 있습니다. 설계를 다시 해야 하는 상태입니다.';}
+  document.getElementById('mStage').textContent=stage;
+  var v=document.getElementById('mVerdict');
+  v.className='verdict '+cls;v.textContent=msg;
+}
+['mHost','mAlloc','mActive'].forEach(function(id){document.getElementById(id).addEventListener('input',memCalc);});
+memCalc();
+
+/* ---------- NUMA 시뮬레이터 ---------- */
+function ni(id){return parseInt(document.getElementById(id).value,10);}
+function numaCalc(){
+  var nc=ni('nCore'),nm=ni('nMem'),vc=ni('nVcpu'),vr=ni('nVram');
+  document.getElementById('nCoreV').textContent=nc;
+  document.getElementById('nMemV').textContent=nm;
+  document.getElementById('nVcpuV').textContent=vc;
+  document.getElementById('nVramV').textContent=vr;
+
+  var n0=document.getElementById('n0'),n1=document.getElementById('n1');
+  n0.innerHTML='';n1.innerHTML='';
+  var inNode0=Math.min(vc,nc),spill=Math.max(0,vc-nc);
+  for(var i=0;i<nc;i++){
+    var a=document.createElement('i');a.className=(i<inNode0)?'used':'';n0.appendChild(a);
+    var b=document.createElement('i');b.className=(i<Math.min(spill,nc))?'spill':'';n1.appendChild(b);
+  }
+  var mem0=Math.min(vr,nm),mem1=Math.max(0,vr-nm);
+  document.getElementById('n0cap').textContent='코어 '+inNode0+'/'+nc+' · 메모리 '+mem0+'/'+nm+'GB';
+  document.getElementById('n1cap').textContent='코어 '+Math.min(spill,nc)+'/'+nc+' · 메모리 '+mem1+'/'+nm+'GB';
+
+  var v=document.getElementById('nVerdict');
+  if(vc>nc*2||vr>nm*2){
+    v.className='verdict bad';
+    v.textContent='VM이 호스트의 두 노드 용량을 초과합니다. 이 호스트에는 배치할 수 없습니다.';
+  }else if(spill>0||mem1>0){
+    var why=[];
+    if(spill>0)why.push('vCPU '+spill+'개');
+    if(mem1>0)why.push('메모리 '+mem1+'GB');
+    v.className='verdict mid';
+    v.textContent='노드 경계를 넘습니다 ('+why.join(', ')+'가 Node 1로). 원격 메모리 접근이 발생합니다. 크기를 줄이거나 vNUMA를 설정하세요.';
+  }else if(vc>nc*0.75||vr>nm*0.75){
+    v.className='verdict mid';
+    v.textContent='한 노드 안에 들어가지만 여유가 적습니다. 같은 노드에 배치될 다른 VM까지 고려하세요.';
+  }else{
+    v.className='verdict ok';
+    v.textContent='한 NUMA 노드 안에 여유 있게 들어갑니다. 모든 메모리 접근이 로컬입니다.';
+  }
+}
+['nCore','nMem','nVcpu','nVram'].forEach(function(id){document.getElementById(id).addEventListener('input',numaCalc);});
+numaCalc();
+
+/* ---------- 네트워크 경로 ---------- */
+var NW={
+  emu:{t:'e1000 / rtl8139 에뮬레이션',pct:12,
+    path:[['g','게스트 NIC 드라이버'],['g','가상 NIC 레지스터 접근'],['k','VM Exit'],['u','QEMU 유저 공간에서 장치 에뮬레이션'],['k','호스트 커널 네트워크 스택'],['h','물리 NIC']],
+    d:'게스트가 실제 인텔 e1000 칩의 레지스터를 건드리는 것처럼 동작하고, 하이퍼바이저가 그 동작을 소프트웨어로 해석합니다. 패킷 하나에 여러 번의 VM Exit과 유저 공간 왕복이 발생합니다.',
+    use:'드라이버가 없는 OS 설치 초기나 아주 오래된 게스트에서만 씁니다. 운영 환경에서 이 설정으로 남아 있는 VM을 발견하면 교체 대상입니다.'},
+  virtio:{t:'virtio-net (반가상화)',pct:55,
+    path:[['g','게스트 virtio 드라이버'],['g','공유 링 버퍼에 요청 적재'],['k','한 번의 알림(kick)'],['u','QEMU가 일괄 처리'],['k','호스트 커널 네트워크 스택'],['h','물리 NIC']],
+    d:'게스트가 가상화 환경임을 인지하고 하이퍼바이저와 약속된 링 버퍼로 통신합니다. 패킷마다 exit을 내는 대신 여러 개를 모아 한 번에 알립니다.',
+    use:'KVM 환경의 기본 선택. 별도 하드웨어 요구사항이 없고 라이브 마이그레이션도 자유롭습니다.'},
+  vhost:{t:'vhost-net (커널 데이터패스)',pct:78,
+    path:[['g','게스트 virtio 드라이버'],['g','공유 링 버퍼'],['k','호스트 커널의 vhost 스레드가 직접 처리'],['k','네트워크 스택'],['h','물리 NIC']],
+    d:'virtio의 처리 주체를 QEMU 유저 공간에서 호스트 커널로 옮겼습니다. <strong>유저↔커널 전환이 통째로 사라집니다.</strong> 데이터 경로가 한 계층 짧아진 것이 성능 차이의 전부입니다.',
+    use:'현재 KVM 환경의 사실상 표준. virtio를 쓰면서 성능이 아쉬울 때 가장 먼저 확인할 설정입니다.'},
+  sriov:{t:'SR-IOV (하드웨어 직접 할당)',pct:97,
+    path:[['g','게스트 VF 드라이버'],['h','물리 NIC의 가상 기능(VF)에 직접 접근']],
+    d:'물리 NIC이 스스로를 여러 개의 가상 기능으로 쪼개고, 그중 하나를 VM에 직접 붙입니다. 하이퍼바이저가 데이터 경로에서 완전히 빠집니다. IOMMU가 DMA를 안전하게 통제합니다.',
+    use:'NFV, 고성능 패킷 처리 등 지연이 결정적인 경우에 한정. 라이브 마이그레이션 제약과 가상 스위치 정책 우회를 감수해야 합니다.'}
+};
+var nwBody=document.getElementById('nwBody');
+function showNw(k){
+  var d=NW[k],ph='';
+  d.path.forEach(function(p,i){
+    if(i)ph+='<span class="parrow">→</span>';
+    ph+='<span class="pbox '+p[0]+'">'+p[1]+'</span>';
+  });
+  nwBody.innerHTML=
+    '<h4 style="margin-top:18px">'+d.t+'</h4>'+
+    '<div class="path">'+ph+'</div>'+
+    '<div class="pmeter"><i style="width:'+d.pct+'%"></i></div>'+
+    '<p style="font-size:12.5px;color:var(--ink3);margin:0 0 16px">상대 처리량 (SR-IOV를 100으로 둔 대략적 비교)</p>'+
+    '<p style="font-size:15.5px;color:var(--ink2)">'+d.d+'</p>'+
+    '<div class="note" style="margin-bottom:0"><div class="note-h">언제 쓰나</div><p>'+d.use+'</p></div>';
+}
+[].forEach.call(document.querySelectorAll('.nw'),function(b){
+  b.addEventListener('click',function(){
+    [].forEach.call(document.querySelectorAll('.nw'),function(x){x.setAttribute('aria-pressed','false');});
+    b.setAttribute('aria-pressed','true');showNw(b.dataset.n);
+  });
+});
+showNw('emu');
+
+/* ---------- 용어집 ---------- */
+var GLOSS=[
+  ['CPU Ready','%RDY · steal time','VM이 실행 준비를 마치고도 물리 CPU를 배정받지 못해 대기한 시간. 게스트 내부 지표에는 잡히지 않아 호스트에서 봐야 한다. vCPU당 5% 초과면 조사 대상.'],
+  ['코스케줄링','Co-scheduling','멀티 vCPU VM의 vCPU들을 시간적으로 크게 벌어지지 않게 함께 스케줄링하는 기법. vCPU가 많을수록 동시 배치가 어려워 대기가 길어진다.'],
+  ['CPU 피닝','CPU Pinning · vcpupin','vCPU를 특정 물리 코어에 고정하는 설정. 스케줄링 지연과 캐시 무효화를 줄이지만 유연성과 마이그레이션 자유도를 잃는다.'],
+  ['CPU 토폴로지','Sockets × Cores','게스트에게 vCPU를 몇 소켓 몇 코어로 보여줄지에 대한 설정. 소켓 단위 과금 소프트웨어의 라이선스 비용에 직접 영향을 준다.'],
+  ['GVA / GPA / HPA','주소 계층','게스트 가상 주소 / 게스트 물리 주소 / 호스트 물리 주소. 가상화 환경에서는 GVA→GPA→HPA의 두 번 변환이 필요하다.'],
+  ['섀도 페이지 테이블','Shadow Page Table','하이퍼바이저가 GVA를 HPA로 직접 매핑해 만든 별도 페이지 테이블. 변환은 빠르나 게스트 테이블 수정마다 VM Exit이 필요하다.'],
+  ['EPT / NPT','Extended / Nested Page Table','GPA→HPA 변환을 CPU가 직접 수행하게 하는 하드웨어 기능. 페이지 테이블 관련 VM Exit을 없애는 대신 2차원 페이지 워크 비용이 생긴다.'],
+  ['2차원 페이지 워크','Two-dimensional Page Walk','TLB 미스 시 게스트 테이블과 호스트 테이블을 함께 순회하는 과정. 4단계 구조에서 최악 24회의 메모리 접근이 발생한다.'],
+  ['VPID / ASID','TLB 태그','TLB 엔트리에 VM 식별자를 붙여, VM 전환 때 TLB를 통째로 비우지 않아도 되게 만든 기능.'],
+  ['대용량 페이지','Huge Page · THP','4KB 대신 2MB·1GB 단위로 메모리를 매핑하는 방식. 페이지 테이블 단계와 TLB 미스를 줄이지만 페이지 공유와는 상성이 나쁘다.'],
+  ['페이지 공유','KSM · TPS','내용이 동일한 메모리 페이지를 하나로 합쳐 중복을 제거하는 기법. 같은 OS 이미지가 많은 환경에서 효과가 크다.'],
+  ['벌루닝','Ballooning','게스트 내 벌룬 드라이버가 메모리를 확보해 하이퍼바이저에 돌려주는 기법. 게스트 OS가 스스로 정리하게 만드는 점이 장점이다.'],
+  ['호스트 스와핑','Hypervisor Swapping','하이퍼바이저가 게스트 메모리를 디스크로 강제로 내보내는 최후 수단. 어떤 페이지가 중요한지 모르므로 성능 타격이 치명적이다.'],
+  ['이중 스와핑','Double Swapping','게스트와 호스트가 동시에 스왑을 수행해 I/O가 폭증하는 최악의 상태. 메모리 과다 오버커밋의 전형적 결과.'],
+  ['NUMA','Non-Uniform Memory Access','CPU 소켓마다 자기 메모리를 갖는 구조. 원격 노드 메모리 접근은 로컬 대비 대략 1.5~2배 느리다.'],
+  ['vNUMA','Virtual NUMA','호스트의 NUMA 구조를 게스트에게 노출해 게스트 OS가 스스로 지역성을 최적화하게 하는 기능. 큰 VM에 필요하다.'],
+  ['virtio','반가상화 장치 규격','게스트와 하이퍼바이저가 공유 링 버퍼로 통신하는 장치 인터페이스. 에뮬레이션 대비 I/O 성능이 크게 높다.'],
+  ['vhost-net','커널 데이터패스','virtio-net의 처리 주체를 QEMU 유저 공간에서 호스트 커널로 옮긴 구현. 유저↔커널 전환이 사라진다.'],
+  ['SR-IOV','Single Root I/O Virtualization','물리 장치를 여러 가상 기능(VF)으로 나눠 VM에 직접 할당하는 하드웨어 기능. 최고 성능이지만 마이그레이션과 정책 적용에 제약이 있다.'],
+  ['qcow2','QEMU Copy-On-Write 2','쓴 블록만 할당하고 스냅샷·압축·암호화를 포맷 자체가 지원하는 가상 디스크 형식. raw보다 기능이 많고 약간 느리다.'],
+  ['씬 프로비저닝','Thin Provisioning','선언한 용량이 아니라 실제 쓴 만큼만 차지하는 할당 방식. 과할당된 데이터스토어가 가득 차면 전 VM이 동시에 멈춘다.'],
+  ['스냅샷 체인','Snapshot Chain','스냅샷마다 생기는 델타 파일의 연결 구조. 길어질수록 읽기 성능이 떨어지고 통합 작업이 위험해진다.'],
+  ['가상 스위치','vSwitch · Open vSwitch','호스트 내부에서 VM들의 가상 NIC을 연결하는 소프트웨어 L2 스위치. 같은 호스트 내 통신은 물리 NIC을 거치지 않는다.'],
+  ['IOMMU','VT-d · AMD-Vi','장치의 DMA 주소를 변환·차단하는 하드웨어. 장치 패스스루와 SR-IOV의 전제 조건이다.'],
+  ['IOMMU 그룹','IOMMU Group','함께 격리할 수밖에 없는 장치 묶음. 같은 그룹의 장치는 통째로 할당해야 해서 패스스루 설계의 흔한 걸림돌이 된다.'],
+  ['vGPU','시간 분할 GPU','여러 VM이 GPU 연산 유닛을 번갈아 사용하는 방식. 별도 라이선스가 필요하고 이웃 부하에 성능이 영향받는다.'],
+  ['MIG','Multi-Instance GPU','GPU의 연산·메모리·캐시를 하드웨어로 분할해 독립 인스턴스를 만드는 기능. 성능 예측이 중요한 멀티테넌트 추론에 적합하다.'],
+  ['APICv / AVIC','인터럽트 가상화','인터럽트 컨트롤러 접근에서 발생하던 VM Exit을 하드웨어가 대신 처리하게 하는 기능.']
+];
+var glEl=document.getElementById('glossary'),glNone=document.getElementById('glNone');
+GLOSS.sort(function(a,b){return a[0].localeCompare(b[0],'ko');});
+GLOSS.forEach(function(g){
+  var dt=document.createElement('dt');dt.className='gl';
+  dt.innerHTML=g[0]+'<em>'+g[1]+'</em>';
+  var dd=document.createElement('dd');dd.className='gl';dd.textContent=g[2];
+  dt.dataset.key=dd.dataset.key=(g[0]+' '+g[1]+' '+g[2]).toLowerCase();
+  glEl.appendChild(dt);glEl.appendChild(dd);
+});
+document.getElementById('glSearch').addEventListener('input',function(e){
+  var q=e.target.value.trim().toLowerCase(),hits=0;
+  [].forEach.call(glEl.children,function(el){
+    var m=!q||el.dataset.key.indexOf(q)>-1;
+    el.classList.toggle('hide',!m);
+    if(m&&el.tagName==='DT')hits++;
+  });
+  glNone.style.display=hits?'none':'block';
+});
+
+/* ---------- 퀴즈 ---------- */
+var QUIZ=[
+  {q:'게스트 안에서 top을 보니 CPU 사용률은 낮은데 응답이 느립니다. 가장 먼저 확인할 것은?',
+   o:['게스트의 디스크 사용량','호스트의 CPU Ready / steal time','게스트의 프로세스 개수','가상 NIC의 MTU 설정'],
+   a:1,
+   e:'CPU Ready는 <b>VM이 물리 CPU를 못 얻어 기다린 시간</b>이고, 게스트의 시계에는 잡히지 않습니다. 그래서 게스트 안에서는 "한가한데 느린" 상태로 보입니다. 호스트 쪽 지표(esxtop의 %RDY, 게스트 vmstat의 st)를 봐야 원인이 드러납니다.'},
+  {q:'성능이 부족한 VM의 vCPU를 8개에서 16개로 늘렸더니 오히려 느려졌습니다. 가장 그럴듯한 이유는?',
+   o:['vCPU가 많아지면 게스트 OS가 자동으로 절전 모드에 들어가서',
+      'vCPU가 많을수록 동시에 비어 있는 물리 코어 묶음을 찾기 어려워 스케줄링 대기가 늘어서',
+      'vCPU 개수가 짝수면 NUMA가 비활성화돼서',
+      '하이퍼바이저가 16 vCPU 이상은 지원하지 않아서'],
+   a:1,
+   e:'멀티 vCPU VM은 vCPU들이 시간적으로 크게 벌어지지 않게 함께 스케줄링돼야 합니다. vCPU가 많을수록 그런 묶음을 찾기 어려워지고, 게스트 커널의 스핀락이나 TLB 동기화에서 <b>전체가 멈춰 기다리는</b> 일이 늘어납니다. 원인이 CPU Ready라면 vCPU를 <b>줄이는</b> 것이 맞습니다.'},
+  {q:'EPT/NPT가 섀도 페이지 테이블 대비 가지는 핵심 이점은?',
+   o:['메모리 접근 횟수 자체가 줄어든다',
+      '게스트 페이지 테이블 수정 시 VM Exit이 발생하지 않는다',
+      'TLB가 필요 없어진다',
+      '메모리 오버커밋이 무제한으로 가능해진다'],
+   a:1,
+   e:'EPT는 GPA→HPA 변환을 CPU가 직접 하므로, 하이퍼바이저가 게스트 페이지 테이블 변경을 <b>추적할 필요가 없어집니다.</b> 그 결과 관련 VM Exit이 사라집니다. 다만 메모리 접근 횟수는 오히려 늘어서(2차원 워크, 최악 24회) 대용량 페이지와 VPID가 함께 쓰입니다.'},
+  {q:'메모리 오버커밋에서 호스트 스와핑이 특히 위험한 이유는?',
+   o:['디스크 용량을 많이 차지해서',
+      '하이퍼바이저는 어떤 페이지가 중요한지 모르므로 가장 뜨거운 페이지를 내보낼 수 있어서',
+      '스와핑 중에는 VM을 삭제할 수 없어서',
+      '게스트 OS가 스와핑을 감지하면 자동 재부팅해서'],
+   a:1,
+   e:'게스트 OS는 자기 페이지의 용도와 접근 빈도를 알지만, 하이퍼바이저는 그냥 메모리 덩어리로만 봅니다. 그래서 <b>하필 가장 자주 쓰는 페이지를 디스크로 내보낼 수 있습니다.</b> 여기에 게스트도 스왑 중이면 이중 스와핑으로 I/O가 폭증합니다. 그래서 운영 워크로드는 메모리 오버커밋 1:1이 기본입니다.'},
+  {q:'노드당 16코어·128GB인 2소켓 호스트에서 성능 관점으로 가장 좋은 VM 사이징은?',
+   o:['20 vCPU · 160GB','16 vCPU · 96GB','18 vCPU · 140GB','24 vCPU · 200GB'],
+   a:1,
+   e:'2번만 <b>한 NUMA 노드 안에 온전히 들어갑니다.</b> 나머지는 vCPU나 메모리가 노드 경계를 넘어 원격 메모리 접근이 발생합니다. 노드를 넘길 수밖에 없다면 노드 수의 배수로 맞추고 vNUMA를 설정하는 것이 차선입니다.'},
+  {q:'vhost-net이 virtio-net보다 빠른 이유는?',
+   o:['패킷을 하드웨어로 압축해서',
+      '데이터 처리 주체가 QEMU 유저 공간에서 호스트 커널로 옮겨가 유저↔커널 전환이 사라져서',
+      '가상 스위치를 거치지 않아서',
+      'MTU가 자동으로 커져서'],
+   a:1,
+   e:'virtio 규격은 그대로 두고 <b>처리 주체만 커널로 옮긴 것</b>이 vhost-net입니다. 경로에서 계층 하나가 통째로 빠집니다. 참고로 3번(가상 스위치 우회)은 SR-IOV의 특징이며, 그 대가로 마이그레이션과 정책 적용에 제약이 생깁니다.'},
+  {q:'멀티테넌트 추론 서비스에서 테넌트마다 일정한 GPU 성능을 보장해야 합니다. 적합한 방식은?',
+   o:['패스스루','vGPU','MIG','가상 스위치 QoS'],
+   a:2,
+   e:'MIG는 연산 유닛·메모리·캐시를 <b>하드웨어 수준에서 물리적으로 분할</b>하므로 이웃 테넌트의 부하가 내 성능에 영향을 주지 않습니다. vGPU는 시간 분할이라 이웃 부하의 영향을 받고, 패스스루는 아예 나눠 쓸 수 없습니다.'}
+];
+var quizEl=document.getElementById('quiz'),answered=0,correct=0;
+QUIZ.forEach(function(q,i){
+  var d=document.createElement('div');d.className='quiz';
+  var html='<div class="qn">문제 '+(i+1)+' / '+QUIZ.length+'</div><p class="qt">'+q.q+'</p>';
+  q.o.forEach(function(o,j){html+='<button class="opt" data-i="'+j+'">'+o+'</button>';});
+  html+='<div class="expl"></div>';
+  d.innerHTML=html;
+  var expl=d.querySelector('.expl');
+  [].forEach.call(d.querySelectorAll('.opt'),function(b){
+    b.addEventListener('click',function(){
+      var picked=parseInt(b.dataset.i,10);
+      [].forEach.call(d.querySelectorAll('.opt'),function(x){
+        x.disabled=true;
+        var xi=parseInt(x.dataset.i,10);
+        if(xi===q.a)x.classList.add('right');
+        else if(xi===picked)x.classList.add('wrong');
+      });
+      expl.innerHTML=(picked===q.a?'<b>정답입니다.</b> ':'<b>정답은 '+(q.a+1)+'번입니다.</b> ')+q.e;
+      expl.classList.add('show');
+      answered++;if(picked===q.a)correct++;
+      if(answered===QUIZ.length){
+        var box=document.getElementById('quizScore'),msg;
+        if(correct===QUIZ.length)msg='전부 맞혔습니다. 3편으로 넘어가도 좋습니다.';
+        else if(correct>=QUIZ.length-2)msg='핵심은 잡으셨습니다. 틀린 문항의 해당 섹션만 다시 보면 충분합니다.';
+        else msg='2장(CPU)과 4장(메모리 오버커밋)을 다시 읽어 보시길 권합니다. 실무 장애의 대부분이 이 두 곳에서 나옵니다.';
+        document.getElementById('quizScoreText').textContent=QUIZ.length+'문제 중 '+correct+'문제 정답. '+msg;
+        box.style.display='block';
+      }
+    });
+  });
+  quizEl.appendChild(d);
+});
+
+})();
+</script>
+</body>
+</html>

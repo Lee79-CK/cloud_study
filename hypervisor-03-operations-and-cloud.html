@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>하이퍼바이저 3편 — 실전 운영과 클라우드 내부</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --hw:#F2A93B; --hv:#35D6C0; --guest:#9B8CFF; --app:#FF7BB0;
+  --warn:#FF6B6B; --ok:#5BD97C; --mid:#FFC94D;
+  --bg:#100E1C; --bg2:#161331; --surface:#1B1832; --surface2:#221E3D;
+  --line:#322C57; --ink:#ECEAF7; --ink2:#B4AED2; --ink3:#7E7799;
+  --shadow:0 18px 40px -24px rgba(0,0,0,.9);
+  --sans:'Pretendard Variable',Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --maxw:1220px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+[data-theme="light"]{
+  --hw:#C97A00; --hv:#0E8D7C; --guest:#5F49D6; --app:#C63A76;
+  --warn:#C63535; --ok:#1F8C43; --mid:#B07A00;
+  --bg:#F6F4FB; --bg2:#EDEAF6; --surface:#FFFFFF; --surface2:#F3F0FA;
+  --line:#DCD6EC; --ink:#191534; --ink2:#4B4470; --ink3:#7A729B;
+  --shadow:0 14px 32px -22px rgba(40,25,90,.45);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:calc(76px + env(safe-area-inset-top,0px))}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
+code,kbd{font-family:var(--mono);font-size:.86em}
+a{color:var(--hv)}
+
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:60;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:var(--maxw);margin:0 auto;padding:12px 22px;display:flex;align-items:center;gap:16px}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.brand-mark{width:30px;height:30px;border-radius:8px;flex:none;background:linear-gradient(160deg,var(--hw) 0 33%,var(--hv) 33% 66%,var(--guest) 66% 100%)}
+.brand-txt{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-txt span{color:var(--ink3);font-weight:500}
+.spacer{flex:1}
+.tbtn{font:inherit;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 13px;cursor:pointer;transition:color .15s,border-color .15s;white-space:nowrap}
+.tbtn:hover{color:var(--ink);border-color:var(--hv)}
+.tbtn:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--hv);outline-offset:2px}
+.progress{height:2px}
+.progress>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--hw),var(--hv),var(--guest))}
+
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);gap:46px;align-items:start}
+@media (max-width:1000px){.shell{grid-template-columns:1fr;gap:0}}
+.toc{position:sticky;top:110px;padding:34px 0 60px}
+@media (max-width:1000px){.toc{display:none}}
+.toc-h{font-size:11px;font-weight:700;color:var(--ink3);margin:0 0 14px;letter-spacing:.06em}
+.toc a{display:block;text-decoration:none;color:var(--ink3);font-size:13.5px;line-height:1.45;padding:7px 0 7px 16px;border-left:2px solid var(--line);transition:color .15s,border-color .15s}
+.toc a:hover{color:var(--ink2)}
+.toc a.on{color:var(--ink);border-left-color:var(--hv);font-weight:600}
+
+.hero{padding:64px 0 30px}
+.eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:100px;padding:6px 15px;margin-bottom:26px}
+.eyebrow b{color:var(--hv)}
+h1{font-size:clamp(34px,6.4vw,62px);line-height:1.08;margin:0 0 20px;font-weight:800;letter-spacing:-.035em;max-width:17ch}
+.lede{font-size:clamp(17px,2.3vw,20px);color:var(--ink2);max-width:60ch;margin:0 0 30px;line-height:1.7}
+.meta{display:flex;flex-wrap:wrap;gap:10px}
+.pill{font-size:12.5px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 11px}
+
+section{padding:58px 0;border-top:1px solid var(--line)}
+.sec-no{font-family:var(--mono);font-size:12px;color:var(--hv);font-weight:600;display:block;margin-bottom:10px}
+h2{font-size:clamp(25px,3.6vw,36px);line-height:1.22;margin:0 0 16px;font-weight:800;letter-spacing:-.028em;max-width:22ch}
+h3{font-size:20px;margin:40px 0 12px;font-weight:700;letter-spacing:-.02em}
+h4{font-size:16.5px;margin:26px 0 8px;font-weight:700}
+p{margin:0 0 17px;max-width:74ch}
+ul,ol{max-width:74ch;padding-left:22px;margin:0 0 18px}
+li{margin-bottom:9px}
+strong{font-weight:700;color:var(--ink)}
+
+.term{border-bottom:1.5px dotted var(--hv);cursor:help;position:relative;font-weight:600}
+.term::after{content:attr(data-def);position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%) translateY(4px);width:min(300px,78vw);background:var(--surface2);border:1px solid var(--hv);border-radius:10px;padding:11px 13px;font-size:13.5px;line-height:1.6;color:var(--ink2);font-weight:400;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:50;box-shadow:var(--shadow);letter-spacing:0;text-align:left}
+.term:hover::after,.term:focus::after{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.note{border-left:3px solid var(--hv);background:var(--surface);padding:16px 20px;border-radius:0 11px 11px 0;margin:24px 0;max-width:76ch}
+.note.warn{border-left-color:var(--warn)}
+.note.hw{border-left-color:var(--hw)}
+.note-h{font-weight:700;font-size:14.5px;margin-bottom:6px;color:var(--hv)}
+.note.warn .note-h{color:var(--warn)}
+.note.hw .note-h{color:var(--hw)}
+.note p{font-size:15.5px;color:var(--ink2)}
+.note p:last-child{margin-bottom:0}
+
+.grid{display:grid;gap:16px;margin:26px 0}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:760px){.g2,.g3{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 21px}
+.card h4{margin:0 0 8px;font-size:16px}
+.card p{font-size:15px;color:var(--ink2);margin:0}
+.card p+p{margin-top:10px}
+
+pre{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:20px 0;font-family:var(--mono);font-size:13.5px;line-height:1.72;color:var(--ink2)}
+pre .c{color:var(--ink3)}
+pre .v{color:var(--hw)}
+pre .s{color:var(--app)}
+
+.tablewrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:13px}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:14.5px}
+th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--surface2);font-weight:700;font-size:13px;color:var(--ink2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td{color:var(--ink2)}
+td strong{color:var(--ink)}
+
+.demo{background:var(--surface);border:1px solid var(--line);border-radius:17px;padding:22px;margin:30px 0;box-shadow:var(--shadow)}
+.demo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;margin-bottom:6px}
+.demo-title{font-weight:700;font-size:16.5px;margin:0}
+.demo-hint{font-size:13px;color:var(--ink3);margin:0 0 18px}
+.seg{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px;flex-wrap:wrap}
+.seg button{font:inherit;font-size:13.5px;font-weight:600;color:var(--ink3);background:transparent;border:none;border-radius:7px;padding:7px 14px;cursor:pointer;transition:background .15s,color .15s}
+.seg button[aria-pressed="true"]{background:var(--surface2);color:var(--ink)}
+
+.field{margin-bottom:18px}
+.field label{display:flex;justify-content:space-between;font-size:13.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;gap:10px}
+.field label b{color:var(--hv);font-family:var(--mono);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--hv);height:22px}
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;margin-top:18px}
+@media (max-width:760px){.calc{grid-template-columns:1fr}}
+.out{background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:20px}
+.bignum{font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-.04em;color:var(--hv);font-variant-numeric:tabular-nums}
+.bignum small{font-size:15px;color:var(--ink3);font-weight:600;margin-left:5px;letter-spacing:0}
+.bignum.bad{color:var(--warn)}
+.outrow{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:9px 0;border-bottom:1px solid var(--line)}
+.outrow:last-child{border-bottom:none}
+.outrow span{color:var(--ink3)}
+.outrow b{font-variant-numeric:tabular-nums}
+.verdict{margin-top:14px;border-radius:10px;padding:12px 14px;font-size:14px;font-weight:600;line-height:1.55}
+.verdict.ok{background:color-mix(in srgb,var(--ok) 13%,transparent);color:var(--ok)}
+.verdict.mid{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
+.verdict.bad{background:color-mix(in srgb,var(--warn) 13%,transparent);color:var(--warn)}
+
+/* 프리카피 라운드 */
+.rounds{margin-top:8px}
+.rnd{display:flex;align-items:center;gap:10px;margin-bottom:5px;font-size:12.5px}
+.rnd .lb{font-family:var(--mono);color:var(--ink3);width:56px;flex:none}
+.rnd .bar{flex:1;height:14px;background:var(--line);border-radius:4px;overflow:hidden;min-width:40px}
+.rnd .bar i{display:block;height:100%;background:var(--hv)}
+.rnd .bar i.last{background:var(--hw)}
+.rnd .vl{width:72px;text-align:right;color:var(--ink2);font-variant-numeric:tabular-nums;flex:none}
+
+/* 노드 격자 */
+.nodes{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.nd{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg2);min-width:92px;text-align:center}
+.nd.dead{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--bg2));opacity:.75}
+.nd .t{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+.nd .u{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+.nd.dead .u{color:var(--warn)}
+.nd.hot .u{color:var(--mid)}
+
+/* 플레이북 */
+select{font:inherit;font-size:15px;padding:10px 14px;border-radius:11px;background:var(--bg2);border:1px solid var(--line);color:var(--ink);width:100%;max-width:440px}
+.pb{counter-reset:pb;margin-top:18px;padding:0;list-style:none}
+.pb li{counter-increment:pb;position:relative;padding:12px 14px 12px 48px;border:1px solid var(--line);border-radius:11px;background:var(--bg2);margin-bottom:8px;font-size:14.5px;color:var(--ink2)}
+.pb li::before{content:counter(pb);position:absolute;left:14px;top:12px;width:22px;height:22px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);color:var(--hv);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;justify-content:center;font-weight:600}
+.pb li b{color:var(--ink)}
+.pbwarn{margin-top:14px}
+
+.search{width:100%;max-width:420px;font:inherit;font-size:15px;padding:11px 15px;border-radius:11px;background:var(--bg2);border:1px solid var(--line);color:var(--ink);margin-bottom:18px}
+.search::placeholder{color:var(--ink3)}
+dt.gl{font-weight:700;font-size:15.5px;padding-top:15px;border-top:1px solid var(--line)}
+dt.gl em{font-style:normal;font-family:var(--mono);font-size:12.5px;color:var(--ink3);font-weight:400;margin-left:8px}
+dd.gl{margin:5px 0 15px;font-size:14.5px;color:var(--ink2);line-height:1.65}
+.hide{display:none}
+.noresult{color:var(--ink3);font-size:15px;padding:18px 0}
+
+.quiz{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:20px 22px;margin-bottom:14px}
+.quiz .qn{font-family:var(--mono);font-size:11.5px;color:var(--hv);margin-bottom:7px}
+.quiz .qt{font-weight:700;font-size:16.5px;margin:0 0 14px;line-height:1.5;max-width:none}
+.opt{display:block;width:100%;text-align:left;font:inherit;font-size:14.5px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:11px 15px;margin-bottom:8px;cursor:pointer;color:var(--ink2);transition:border-color .15s,color .15s}
+.opt:hover:not(:disabled){border-color:var(--ink3);color:var(--ink)}
+.opt:disabled{cursor:default}
+.opt.right{border-color:var(--ok);color:var(--ink);background:color-mix(in srgb,var(--ok) 11%,var(--bg2))}
+.opt.wrong{border-color:var(--warn);color:var(--ink);background:color-mix(in srgb,var(--warn) 11%,var(--bg2))}
+.expl{font-size:14.5px;color:var(--ink2);background:var(--surface2);border-radius:10px;padding:13px 15px;margin-top:10px;display:none;line-height:1.65}
+.expl.show{display:block}
+.expl b{color:var(--ink)}
+
+footer{border-top:1px solid var(--line);padding:44px 0 70px;color:var(--ink3);font-size:14px}
+.finale{background:linear-gradient(135deg,color-mix(in srgb,var(--hv) 13%,var(--surface)),var(--surface));border:1px solid var(--line);border-radius:17px;padding:26px 28px;margin:34px 0}
+.finale h3{margin:0 0 10px;font-size:20px}
+.finale p{color:var(--ink2);font-size:15.5px}
+.finale ol{font-size:15px;color:var(--ink2);margin:0}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="brand-txt">하이퍼바이저 <span>· 3편</span></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="tbtn" id="themeBtn" aria-label="테마 바꾸기">라이트 모드</button>
+  </div>
+  <div class="progress"><i id="prog"></i></div>
+</header>
+
+<div class="wrap">
+<div class="shell">
+
+  <nav class="toc" aria-label="목차">
+    <p class="toc-h">목차</p>
+    <a href="#s1">1. 이번 편의 전제</a>
+    <a href="#s2">2. 라이브 마이그레이션의 내부</a>
+    <a href="#s3">3. HA와 클러스터</a>
+    <a href="#s4">4. 백업·복제·재해복구</a>
+    <a href="#s5">5. 퍼블릭 클라우드의 내부</a>
+    <a href="#s6">6. 컨테이너와의 경계</a>
+    <a href="#s7">7. 가상화 보안</a>
+    <a href="#s8">8. 운영 루틴</a>
+    <a href="#s9">9. 장애 플레이북</a>
+    <a href="#s10">10. 자주 하는 실수</a>
+    <a href="#s11">11. 용어 사전</a>
+    <a href="#s12">12. 이해도 체크</a>
+  </nav>
+
+  <main>
+
+  <div class="hero">
+    <div class="eyebrow"><b>시리즈</b> 하이퍼바이저 완전 정복 · 3편 / 전 3편</div>
+    <h1>안 죽게 만드는 기술, 죽었을 때 살리는 기술</h1>
+    <p class="lede">
+      1편은 원리, 2편은 자원 분할이었습니다. 3편은 운영입니다.
+      실행 중인 VM을 어떻게 멈추지 않고 옮기는지, 호스트가 갑자기 죽으면 무슨 일이 벌어지는지,
+      퍼블릭 클라우드는 이 문제들을 어떻게 풀었는지, 그리고 이 모든 편의가 열어놓은 보안 구멍은 무엇인지를 다룹니다.
+    </p>
+    <div class="meta">
+      <span class="pill">대상 · 1~2년차 클라우드 엔지니어</span>
+      <span class="pill">선행 · 1편, 2편</span>
+      <span class="pill">읽는 시간 · 약 50분</span>
+    </div>
+  </div>
+
+  <!-- ==================== 1 ==================== -->
+  <section id="s1" style="border-top:none">
+    <span class="sec-no">01</span>
+    <h2>운영의 전제: 하드웨어는 반드시 고장 난다</h2>
+    <p>
+      가상화가 바꾼 것은 "서버가 안 죽게 만들었다"가 아닙니다. 물리 서버는 여전히 죽습니다.
+      전원이 나가고, 메모리가 ECC 정정 불가 오류를 내고, 디스크 컨트롤러가 멈춥니다.
+      가상화가 바꾼 건 <strong>서비스의 수명을 하드웨어의 수명에서 떼어냈다</strong>는 점입니다.
+    </p>
+    <p>
+      그래서 이번 편의 모든 기술은 두 질문 중 하나에 답합니다.
+    </p>
+    <ul>
+      <li><strong>계획된 중단을 없앨 수 있는가</strong> — 라이브 마이그레이션, 유지보수 모드, 무중단 패치</li>
+      <li><strong>계획되지 않은 중단을 얼마나 빨리 회복하는가</strong> — HA, 백업, 복제, 재해복구</li>
+    </ul>
+    <p>
+      이 둘은 성격이 다릅니다. 앞의 것은 <em>예방</em>이고 뒤의 것은 <em>복구</em>입니다.
+      현장에서 자주 벌어지는 실수가 앞의 것만 갖춰놓고 뒤의 것을 갖췄다고 믿는 것입니다.
+      <strong>라이브 마이그레이션이 되는 클러스터라고 해서 호스트가 갑자기 죽었을 때 무사한 건 아닙니다.</strong>
+      마이그레이션은 예고가 있어야 동작하니까요.
+    </p>
+  </section>
+
+  <!-- ==================== 2 ==================== -->
+  <section id="s2">
+    <span class="sec-no">02</span>
+    <h2>라이브 마이그레이션 — 달리는 차의 바퀴 갈아 끼우기</h2>
+    <p>
+      실행 중인 VM을 멈추지 않고 다른 물리 호스트로 옮기는 기능입니다.
+      VMware는 vMotion, KVM은 <code>virsh migrate --live</code>, Hyper-V는 Live Migration이라고 부릅니다.
+      호스트 펌웨어 업데이트, 하드웨어 교체, 부하 재분산을 <strong>업무 시간에 할 수 있게 만든</strong> 기술이고,
+      운영자 삶의 질을 가장 크게 바꿔놓은 기능입니다.
+    </p>
+
+    <h3>프리카피: 따라잡기 경주</h3>
+    <p>
+      원리는 단순하지만 우아합니다. VM의 메모리를 <strong>실행 중인 상태로</strong> 복사합니다.
+      복사하는 동안에도 게스트는 계속 돌면서 메모리를 바꾸므로, 복사가 끝나면 이미 일부는 낡은 값입니다.
+      그래서 <strong>바뀐 부분만 다시 보냅니다.</strong> 이걸 반복합니다.
+    </p>
+    <ol>
+      <li><strong>1라운드</strong> — 전체 메모리를 전송. 그동안 게스트가 더럽힌(dirty) 페이지를 추적</li>
+      <li><strong>2라운드</strong> — 1라운드 중 더럽혀진 페이지만 전송. 그동안 또 더럽혀진 페이지 추적</li>
+      <li><strong>n라운드</strong> — 남은 양이 충분히 작아질 때까지 반복</li>
+      <li><strong>스톱 앤 카피</strong> — VM을 아주 잠깐 정지시키고 마지막 잔량 + CPU 레지스터 상태를 전송</li>
+      <li><strong>재개</strong> — 대상 호스트에서 실행 재개, 네트워크 경로 전환(ARP/RARP 광고)</li>
+    </ol>
+    <p>
+      여기서 결정적인 조건이 하나 있습니다.
+      <strong>게스트가 메모리를 더럽히는 속도가 네트워크 전송 속도보다 느려야 합니다.</strong>
+      그래야 매 라운드마다 남은 양이 줄어들어 언젠가 수렴합니다.
+      반대라면 아무리 반복해도 잔량이 줄지 않고, 마이그레이션은 영원히 끝나지 않습니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">프리카피 수렴 시뮬레이터</p></div>
+      <p class="demo-hint">VM 크기·메모리 변경 속도·전송 대역폭을 바꿔 보면, 언제 수렴하고 언제 실패하는지 보입니다.</p>
+      <div class="calc">
+        <div>
+          <div class="field">
+            <label for="vRam">VM 메모리 <b><span id="vRamV">32</span>GB</b></label>
+            <input type="range" id="vRam" min="4" max="512" value="32" step="4">
+          </div>
+          <div class="field">
+            <label for="dRate">메모리 더티 속도 <b><span id="dRateV">200</span>MB/s</b></label>
+            <input type="range" id="dRate" min="10" max="3000" value="200" step="10">
+          </div>
+          <div class="field">
+            <label for="bw">마이그레이션 대역폭 <b><span id="bwV">10</span>Gbps</b></label>
+            <input type="range" id="bw" min="1" max="100" value="10" step="1">
+          </div>
+          <div class="field">
+            <label for="dtTarget">허용 정지 시간 목표 <b><span id="dtTargetV">500</span>ms</b></label>
+            <input type="range" id="dtTarget" min="100" max="2000" value="500" step="50">
+          </div>
+        </div>
+        <div class="out">
+          <div class="bignum" id="mgBig"><span id="mgDown">—</span><small>ms 예상 정지</small></div>
+          <div class="outrow"><span>수렴 비율 (더티 ÷ 대역폭)</span><b id="mgR">—</b></div>
+          <div class="outrow"><span>프리카피 라운드 수</span><b id="mgRounds">—</b></div>
+          <div class="outrow"><span>총 전송량</span><b id="mgBytes">—</b></div>
+          <div class="outrow"><span>총 소요 시간</span><b id="mgTime">—</b></div>
+          <div class="verdict ok" id="mgVerdict">—</div>
+        </div>
+      </div>
+      <div class="rounds" id="mgRoundList" style="margin-top:18px"></div>
+      <p style="font-size:12.5px;color:var(--ink3);margin:12px 0 0">
+        실제 대역폭의 80%만 유효하다고 가정한 단순 모형입니다. 실무에서는 압축, 중복 제거, 동시 마이그레이션 수에 따라 달라집니다.
+      </p>
+    </div>
+
+    <h3>수렴하지 않을 때 쓰는 카드</h3>
+    <div class="grid g3">
+      <div class="card">
+        <h4 style="color:var(--hv)">대역폭 늘리기</h4>
+        <p>마이그레이션 전용 네트워크를 분리하고 10GbE 이상을 씁니다. 가장 정직한 해법이고, 클러스터 설계 단계에서 확보해야 합니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--mid)">게스트 속도 늦추기</h4>
+        <p>더티 속도를 줄이려고 게스트 vCPU를 의도적으로 스로틀링합니다. QEMU의 auto-converge, VMware의 SDPS가 이것입니다. <strong>성능을 잠깐 희생해 마이그레이션을 끝냅니다.</strong></p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--guest)">포스트카피로 전환</h4>
+        <p>순서를 뒤집습니다. 최소 상태만 보내고 대상에서 먼저 실행한 뒤, 없는 페이지는 요청이 올 때 가져옵니다. 정지 시간은 확실히 짧지만 <strong>전송 중 네트워크가 끊기면 VM이 복구 불가</strong>가 됩니다.</p>
+      </div>
+    </div>
+
+    <h3>메모리 말고도 맞아야 하는 것들</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>조건</th><th>왜 필요한가</th><th>맞지 않으면</th></tr></thead>
+        <tbody>
+          <tr><td><strong>CPU 명령어 집합 호환</strong></td><td>게스트는 마이그레이션 중에도 실행을 이어가므로, 쓰고 있던 명령어가 대상 CPU에 없으면 즉시 크래시</td><td>마이그레이션 차단. VMware는 EVC, KVM은 CPU 모델을 공통 수준으로 맞춰 해결</td></tr>
+          <tr><td><strong>스토리지 접근성</strong></td><td>디스크까지 옮기지 않으려면 양쪽 호스트가 같은 데이터스토어를 볼 수 있어야 함</td><td>스토리지까지 함께 옮기는 방식으로 전환 — 훨씬 오래 걸림</td></tr>
+          <tr><td><strong>네트워크 동일성</strong></td><td>같은 VLAN·포트그룹에 붙어야 IP를 유지한 채 재개 가능</td><td>재개 후 통신 단절</td></tr>
+          <tr><td><strong>직접 할당 장치 없음</strong></td><td>물리 장치에 묶여 있으면 그 장치를 가져갈 수 없음</td><td>SR-IOV·GPU 패스스루 VM은 라이브 마이그레이션 불가</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note hw">
+      <div class="note-h">CPU 호환성이 실무에서 터지는 방식</div>
+      <p>
+        클러스터에 노드를 증설하는데 기존 노드보다 CPU 세대가 높습니다.
+        그대로 넣으면 신규 노드에서 구 노드로의 마이그레이션이 막히고,
+        결국 <strong>클러스터가 두 개로 쪼개진 것처럼 동작합니다.</strong>
+        EVC나 CPU 모델 설정으로 공통 기능 집합에 맞추면 해결되지만,
+        이 설정은 보통 <strong>VM을 껐다 켜야 적용</strong>되므로 나중에 하면 계획 중단이 필요합니다.
+        <strong>클러스터를 처음 만들 때 설정하는 것이 정답입니다.</strong>
+      </p>
+    </div>
+<pre><span class="c"># KVM — 공유 스토리지 있는 경우</span>
+virsh migrate --live --verbose web-01 qemu+ssh://<span class="v">host-02</span>/system
+
+<span class="c"># 공유 스토리지 없이 디스크까지 함께 전송</span>
+virsh migrate --live --copy-storage-all web-01 qemu+ssh://<span class="v">host-02</span>/system
+
+<span class="c"># 수렴이 안 될 때 — 자동 스로틀링 활성화</span>
+virsh migrate-setmaxdowntime web-01 <span class="v">500</span>   <span class="c"># 목표 정지시간 500ms</span>
+virsh migrate --live --auto-converge web-01 qemu+ssh://host-02/system
+
+<span class="c"># 진행 상황 확인</span>
+virsh domjobinfo web-01</pre>
+  </section>
+
+  <!-- ==================== 3 ==================== -->
+  <section id="s3">
+    <span class="sec-no">03</span>
+    <h2>HA — 호스트가 예고 없이 죽었을 때</h2>
+    <p>
+      라이브 마이그레이션은 예고가 있을 때의 기술입니다.
+      전원이 툭 끊기면 메모리 내용은 그냥 사라집니다. 이때 동작하는 게 <strong>HA(High Availability)</strong>인데,
+      이름과 달리 <strong>무중단이 아닙니다.</strong> HA가 하는 일은
+      "죽은 호스트에 있던 VM들을 살아 있는 호스트에서 <em>다시 부팅</em>"하는 것입니다.
+    </p>
+    <p>
+      그래서 게스트 OS는 비정상 종료를 겪습니다. 파일시스템 복구가 돌고,
+      DB는 트랜잭션 롤백을 합니다. 복구까지 보통 수 분이 걸립니다.
+      <strong>HA는 다운타임을 0으로 만드는 게 아니라, 수 시간을 수 분으로 줄이는 기술입니다.</strong>
+      이 차이를 고객에게 정확히 전달하지 않으면 반드시 분쟁이 납니다.
+    </p>
+
+    <h3>진짜 죽은 건가, 안 보이는 건가</h3>
+    <p>
+      HA의 가장 어려운 문제는 판정입니다. 호스트가 하트비트에 응답하지 않을 때,
+      정말 죽은 것일 수도 있고 <strong>관리 네트워크만 끊긴 채 멀쩡히 돌고 있을 수도</strong> 있습니다.
+      후자인데 죽었다고 판단해서 다른 호스트에서 같은 VM을 켜면,
+      같은 디스크에 두 개의 VM이 동시에 쓰는 <span class="term" data-def="클러스터가 둘로 갈라져 각자 자기가 정상이라 믿고 같은 자원에 접근하는 상태. 데이터 손상으로 직결된다.">스플릿 브레인</span>이 발생하고
+      데이터가 손상됩니다. 장애보다 나쁜 결과입니다.
+    </p>
+    <p>그래서 클러스터는 여러 경로로 교차 확인합니다.</p>
+    <ul>
+      <li><strong>관리 네트워크 하트비트</strong> — 기본 경로</li>
+      <li><strong>데이터스토어 하트비트</strong> — 네트워크가 끊겨도 스토리지로 생사 확인</li>
+      <li><strong>격리 주소 핑</strong> — 게이트웨이 등에 핑을 쏴서 "나만 고립된 건지" 자가 판단</li>
+      <li><strong>펜싱</strong> — 의심스러운 노드의 전원을 관리 인터페이스로 강제 차단해 확실히 죽임</li>
+    </ul>
+    <p>
+      마지막 펜싱이 핵심입니다. "죽었을 것"이라고 추정하는 대신 <strong>확실히 죽여서 불확실성을 없앱니다.</strong>
+      난폭해 보이지만 데이터 정합성을 지키는 가장 확실한 방법입니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">어드미션 컨트롤 시뮬레이터</p></div>
+      <p class="demo-hint">노드가 몇 대까지 죽어도 모든 VM을 수용할 수 있는지 계산합니다. 노드를 클릭하면 장애 상태로 전환됩니다.</p>
+      <div class="calc" style="grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)">
+        <div>
+          <div class="field">
+            <label for="hNode">클러스터 노드 수 <b><span id="hNodeV">5</span>대</b></label>
+            <input type="range" id="hNode" min="2" max="12" value="5" step="1">
+          </div>
+          <div class="field">
+            <label for="hCap">노드당 가용 메모리 <b><span id="hCapV">256</span>GB</b></label>
+            <input type="range" id="hCap" min="64" max="1024" value="256" step="32">
+          </div>
+          <div class="field">
+            <label for="hLoad">전체 VM 메모리 합계 <b><span id="hLoadV">700</span>GB</b></label>
+            <input type="range" id="hLoad" min="64" max="4000" value="700" step="32">
+          </div>
+        </div>
+        <div>
+          <div class="nodes" id="hNodes"></div>
+          <div class="outrow"><span>클러스터 총 용량</span><b id="hTotal">—</b></div>
+          <div class="outrow"><span>현재 평균 사용률</span><b id="hUse">—</b></div>
+          <div class="outrow"><span>감당 가능한 동시 노드 장애</span><b id="hTol">—</b></div>
+          <div class="verdict ok" id="hVerdict" style="margin-top:12px">—</div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      위 계산이 <strong>어드미션 컨트롤</strong>입니다.
+      "호스트 한 대가 죽어도 모든 VM이 재기동될 수 있는 만큼의 여유를 항상 남겨둔다"는 정책이고,
+      그 여유를 침범하는 신규 VM 생성은 거부합니다.
+    </p>
+    <div class="note warn">
+      <div class="note-h">HA를 무력화하는 가장 흔한 습관</div>
+      <p>
+        "지금 당장 VM 하나만 더 올려야 한다"며 어드미션 컨트롤을 끄는 일이 반복되면,
+        클러스터는 <strong>장애를 흡수할 여유가 없는 상태</strong>가 됩니다.
+        평소엔 아무 문제가 없다가 호스트 한 대가 죽는 순간
+        남은 호스트들이 과부하로 연쇄 장애를 일으킵니다.
+        여유 용량은 낭비가 아니라 <strong>이미 지불한 보험료</strong>입니다.
+      </p>
+    </div>
+
+    <h3>HA 위에 있는 것들</h3>
+    <div class="grid g2">
+      <div class="card">
+        <h4>FT (Fault Tolerance)</h4>
+        <p>같은 VM을 두 호스트에서 완전히 동기화해 실행합니다. 한쪽이 죽어도 <strong>다운타임이 실제로 0</strong>입니다. 대신 자원을 두 배로 쓰고, vCPU 수 제한 등 제약이 많습니다. 정말 멈추면 안 되는 소수의 VM에만 씁니다.</p>
+      </div>
+      <div class="card">
+        <h4>부하 분산 (DRS 등)</h4>
+        <p>노드 간 부하 불균형을 감지해 라이브 마이그레이션으로 자동 재배치합니다. 유지보수 모드로 전환하면 해당 노드의 VM을 전부 자동으로 비워주기도 합니다. <strong>패치 작업이 클릭 몇 번으로 끝나는 이유입니다.</strong></p>
+      </div>
+      <div class="card">
+        <h4>친화성 규칙</h4>
+        <p>"이 두 VM은 반드시 다른 호스트에" 같은 배치 규칙입니다. 이중화 구성한 두 대가 <strong>같은 호스트에 올라가 있으면 이중화가 아닙니다.</strong> 반친화성 규칙은 꼭 설정하세요.</p>
+      </div>
+      <div class="card">
+        <h4>게스트 수준 감시</h4>
+        <p>호스트는 멀쩡한데 게스트 OS가 멈춘 경우를 잡습니다. 게스트 도구의 하트비트가 끊기면 해당 VM만 재시작합니다. 커널 패닉으로 멈춘 VM을 자동 복구합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 4 ==================== -->
+  <section id="s4">
+    <span class="sec-no">04</span>
+    <h2>백업·복제·재해복구</h2>
+    <p>
+      HA는 <strong>호스트</strong> 장애를 다룹니다. 데이터센터 전체가 나가거나,
+      랜섬웨어가 돌거나, 누군가 VM을 잘못 지운 경우는 다른 도구가 필요합니다.
+    </p>
+
+    <h3>가상화 환경의 백업이 쉬워진 이유</h3>
+    <p>
+      2편에서 다룬 성질이 여기서 힘을 발휘합니다. VM은 파일이므로 통째로 복사할 수 있고,
+      스냅샷으로 정지된 시점을 만들 수 있습니다. 여기에 두 가지가 더해집니다.
+    </p>
+    <ul>
+      <li><strong>변경 블록 추적</strong> — 마지막 백업 이후 바뀐 블록만 하이퍼바이저가 알려줍니다. 전체 스캔 없이 증분 백업이 되니 백업 창이 극적으로 짧아집니다.</li>
+      <li><strong>에이전트리스 백업</strong> — 게스트마다 백업 에이전트를 설치하는 대신, 하이퍼바이저 API로 밖에서 디스크를 읽습니다. 관리 대상이 VM 수에서 클러스터 수로 줄어듭니다.</li>
+    </ul>
+
+    <div class="note warn">
+      <div class="note-h">"파일은 복구됐는데 DB가 안 열려요"</div>
+      <p>
+        디스크 이미지를 그대로 뜨면 <strong>크래시 정합성</strong>만 확보됩니다.
+        전원을 뽑은 순간의 상태와 같아서, 메모리에만 있던 트랜잭션은 사라집니다.
+        DB나 메일 서버라면 복구 후 정합성 검사가 필요하고 최악의 경우 열리지 않습니다.
+      </p>
+      <p>
+        제대로 하려면 <strong>애플리케이션 정합성</strong>이 필요합니다.
+        백업 직전 게스트 안에서 애플리케이션에게 "지금 디스크에 다 내려써라"라고 알리는 절차인데,
+        Windows는 VSS, 리눅스는 파일시스템 freeze 훅으로 처리합니다.
+        <strong>게스트 도구가 설치돼 있어야 동작합니다.</strong>
+        DB VM 백업 설정에서 이 옵션이 꺼져 있는 경우를 현장에서 자주 봅니다.
+      </p>
+    </div>
+
+    <h3>백업과 복제는 다른 것이다</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th></th><th>백업</th><th>복제</th></tr></thead>
+        <tbody>
+          <tr><td><strong>목적</strong></td><td>과거 시점으로 되돌리기</td><td>즉시 이어받기</td></tr>
+          <tr><td><strong>보관</strong></td><td>여러 시점을 장기 보관</td><td>보통 최신 몇 개 시점</td></tr>
+          <tr><td><strong>복구 속도</strong></td><td>느림 (복원 작업 필요)</td><td>빠름 (복제본을 켜면 끝)</td></tr>
+          <tr><td><strong>랜섬웨어 대응</strong></td><td><strong>가능</strong> — 감염 전 시점으로 복구</td><td><strong>취약</strong> — 감염 상태가 그대로 복제됨</td></tr>
+          <tr><td><strong>실수 삭제 대응</strong></td><td>가능</td><td>삭제도 함께 복제되면 불가</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      둘은 대체재가 아니라 보완재입니다. 복제만 있으면 랜섬웨어가 양쪽을 동시에 먹고,
+      백업만 있으면 재해 시 복구에 몇 시간이 걸립니다. <strong>둘 다 필요합니다.</strong>
+      특히 백업본 중 일부는 <strong>수정·삭제가 불가능한 형태(불변 저장소)</strong>로 보관해야
+      관리자 계정이 탈취돼도 최후의 복구 수단이 남습니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">RPO / RTO에서 역산하는 DR 방식</p></div>
+      <p class="demo-hint">"얼마나 최근까지 살릴 것인가"와 "몇 분 안에 살릴 것인가"를 정하면 방식이 정해집니다.</p>
+      <div class="calc">
+        <div>
+          <div class="field">
+            <label for="rpo">RPO — 허용 데이터 손실 <b><span id="rpoV">1시간</span></b></label>
+            <input type="range" id="rpo" min="0" max="5" value="3" step="1">
+          </div>
+          <div class="field">
+            <label for="rto">RTO — 허용 중단 시간 <b><span id="rtoV">4시간</span></b></label>
+            <input type="range" id="rto" min="0" max="5" value="3" step="1">
+          </div>
+          <p style="font-size:13px;color:var(--ink3);margin:0">
+            RPO는 "장애 직전 몇 분/시간의 데이터까지 잃어도 되는가", RTO는 "서비스가 몇 분/시간 안에 살아나야 하는가"입니다.
+            이 두 숫자는 기술이 아니라 <strong>업무가 결정</strong>합니다. 먼저 합의하고 그다음에 설계하세요.
+          </p>
+        </div>
+        <div class="out">
+          <div class="bignum" style="font-size:26px" id="drName">—</div>
+          <div class="outrow" style="margin-top:10px"><span>구성 방식</span><b id="drHow">—</b></div>
+          <div class="outrow"><span>상대 비용</span><b id="drCost">—</b></div>
+          <div class="outrow"><span>DR 사이트 상태</span><b id="drSite">—</b></div>
+          <div class="verdict ok" id="drNote" style="margin-top:12px">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <div class="note-h">3-2-1과 복구 훈련</div>
+      <p>
+        백업 원칙의 고전은 <strong>3-2-1</strong>입니다. 사본 3개, 서로 다른 매체 2종, 그중 1개는 다른 장소에.
+        여기에 요즘은 "1개는 불변 또는 오프라인"이 추가됩니다.
+      </p>
+      <p>
+        그리고 가장 중요한 것. <strong>복구해 보지 않은 백업은 백업이 아닙니다.</strong>
+        백업 작업이 성공으로 표시됐는데 정작 복원하면 부팅이 안 되는 경우가 실제로 일어납니다.
+        분기에 한 번은 격리된 환경에서 실제 복구를 해보고, 걸린 시간을 기록해
+        <strong>합의한 RTO와 비교</strong>하세요. 이 기록이 다음 예산의 근거가 됩니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 5 ==================== -->
+  <section id="s5">
+    <span class="sec-no">05</span>
+    <h2>퍼블릭 클라우드는 이걸 어떻게 풀었나</h2>
+    <p>
+      지금까지 다룬 문제를 가장 큰 규모로 푼 곳이 퍼블릭 클라우드입니다.
+      EC2 인스턴스를 띄우는 건 결국 누군가의 하이퍼바이저 위에 VM을 만드는 일이고,
+      <strong>그 하이퍼바이저의 성질이 여러분이 겪는 제약으로 그대로 드러납니다.</strong>
+    </p>
+
+    <div class="demo">
+      <div class="demo-head">
+        <p class="demo-title">3사 내부 비교</p>
+        <div class="seg" role="group" aria-label="클라우드 선택">
+          <button class="cl" data-c="aws" aria-pressed="true">AWS</button>
+          <button class="cl" data-c="azure" aria-pressed="false">Azure</button>
+          <button class="cl" data-c="gcp" aria-pressed="false">GCP</button>
+        </div>
+      </div>
+      <div id="clBody"></div>
+    </div>
+
+    <h3>오프로드라는 발상</h3>
+    <p>
+      2편에서 "VM Exit을 줄이는 싸움"이라고 했습니다. 클라우드 사업자들은 여기서 한 발 더 나갔습니다.
+      <strong>가상화 작업 자체를 호스트 CPU에서 전용 하드웨어로 옮겼습니다.</strong>
+    </p>
+    <p>
+      네트워크 처리, 스토리지 처리, 암호화, 모니터링을 별도의 카드(DPU/SmartNIC)가 담당하면,
+      호스트 CPU는 거의 전부 고객 워크로드에 쓰입니다.
+      하이퍼바이저는 아주 얇은 계층만 남고, 관리 기능은 카드로 내려갑니다.
+      <strong>"판매 가능한 CPU"를 늘리는 동시에 성능과 격리를 함께 개선하는</strong> 구조라
+      업계 전체가 이 방향으로 움직였습니다.
+    </p>
+
+    <h3>클라우드 사용자가 실제로 마주치는 것</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>현상</th><th>하이퍼바이저 관점의 이유</th></tr></thead>
+        <tbody>
+          <tr><td><strong>인스턴스 재시작 예정 알림이 온다</strong></td><td>호스트 유지보수. 라이브 마이그레이션이 적용되지 않는 인스턴스는 재시작·이전이 필요하다</td></tr>
+          <tr><td><strong>인스턴스를 stop 하면 로컬 NVMe 데이터가 사라진다</strong></td><td>로컬 스토리지는 물리 호스트에 붙어 있고, stop 후 start는 다른 호스트에서 뜰 수 있다</td></tr>
+          <tr><td><strong>같은 타입인데 성능 편차가 있다</strong></td><td>세대가 다른 호스트에 배치될 수 있고, 소형 인스턴스는 이웃 부하의 영향을 더 받는다</td></tr>
+          <tr><td><strong>전용 호스트·베어메탈 옵션이 비싸다</strong></td><td>공유로 얻던 밀도를 포기하는 대가. 라이선스 준수나 하드웨어 직접 제어가 필요할 때 선택한다</td></tr>
+          <tr><td><strong>특정 타입만 GPU·고성능 네트워크를 지원한다</strong></td><td>패스스루·SR-IOV는 물리 장치에 묶이므로 호스트 구성 자체가 달라야 한다</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      정리하면 이렇습니다. <strong>클라우드의 제약은 대부분 임의로 정해진 게 아니라 하이퍼바이저의 물리적 성질에서 나옵니다.</strong>
+      이 연결을 이해하면 아키텍처 설계에서 "왜 이렇게 해야 하는지"를 설명할 수 있게 됩니다.
+      고객사에 설계 근거를 대야 하는 자리에서 특히 그렇습니다.
+    </p>
+  </section>
+
+  <!-- ==================== 6 ==================== -->
+  <section id="s6">
+    <span class="sec-no">06</span>
+    <h2>컨테이너와의 경계는 어디인가</h2>
+    <p>
+      "이제 다 컨테이너로 가는 거 아닌가요"는 이 분야에서 가장 흔한 질문입니다.
+      답은 <strong>경계가 사라진 게 아니라 흐려졌다</strong>입니다.
+      둘 사이를 메우는 기술들이 생겼기 때문입니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>기술</th><th>정체</th><th>격리</th><th>기동</th><th>쓰는 이유</th></tr></thead>
+        <tbody>
+          <tr><td><strong>일반 컨테이너</strong></td><td>호스트 커널 공유 + 네임스페이스·cgroup</td><td>약함 (커널 하나)</td><td>밀리초</td><td>밀도와 속도</td></tr>
+          <tr><td><strong>gVisor 계열</strong></td><td>사용자 공간에서 시스템 콜을 가로채는 중간 커널</td><td>중간</td><td>빠름</td><td>커널 공격 표면 축소</td></tr>
+          <tr><td><strong>Kata Containers</strong></td><td>컨테이너마다 경량 VM을 띄움</td><td>강함 (커널 분리)</td><td>수백 ms</td><td>멀티테넌트에서 컨테이너 인터페이스를 유지하면서 VM 격리 확보</td></tr>
+          <tr><td><strong>Firecracker 등 마이크로VM</strong></td><td>장치를 최소로 줄인 초경량 VMM</td><td>강함</td><td>100ms 내외</td><td>서버리스·함수 실행의 테넌트 격리</td></tr>
+          <tr><td><strong>KubeVirt</strong></td><td>쿠버네티스가 VM을 파드처럼 관리</td><td>VM과 동일</td><td>VM과 동일</td><td>컨테이너로 옮기지 못한 레거시를 같은 플랫폼에서 운영</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      가운데 세 가지가 흥미롭습니다. <strong>컨테이너의 사용 경험은 유지하면서 격리는 VM 수준으로 올리는</strong> 시도입니다.
+      서버리스 플랫폼이 남의 코드를 초 단위로 수만 개씩 돌리면서도 테넌트를 분리할 수 있는 이유가 여기 있습니다.
+    </p>
+    <p>
+      반대 방향이 KubeVirt입니다. 컨테이너로 전환하지 못한 레거시 VM을
+      쿠버네티스 안으로 끌어와 <strong>하나의 플랫폼과 하나의 운영 체계로 통합</strong>합니다.
+      VMware 라이선스 부담으로 대안을 찾는 조직에서 검토가 늘고 있는 경로이기도 합니다.
+    </p>
+    <div class="note">
+      <div class="note-h">선택 기준 한 줄</div>
+      <p>
+        <strong>신뢰할 수 있는 코드만 돌린다면 컨테이너로 충분합니다.</strong>
+        남의 코드나 서로 못 믿는 테넌트를 같은 하드웨어에서 돌려야 한다면 커널을 분리하세요.
+        격리 수준은 기술 취향이 아니라 <strong>"누구의 코드를 돌리는가"</strong>로 결정됩니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 7 ==================== -->
+  <section id="s7">
+    <span class="sec-no">07</span>
+    <h2>가상화 보안 — 격리는 어디서 깨지는가</h2>
+
+    <h3>VM 탈출</h3>
+    <p>
+      게스트 안에서 코드를 실행해 하이퍼바이저나 호스트를 장악하는 공격입니다.
+      가상화 보안의 최악 시나리오이고, 성공하면 <strong>그 호스트의 모든 VM이 함께 무너집니다.</strong>
+    </p>
+    <p>
+      역사적으로 취약점이 가장 많이 발견된 곳은 CPU 가상화 코어가 아니라
+      <strong>장치 에뮬레이션 계층</strong>입니다. 가상 그래픽 카드, 가상 플로피, 가상 USB 컨트롤러처럼
+      복잡하고 오래된 코드가 대상입니다. 방어는 단순합니다.
+      <strong>쓰지 않는 가상 장치를 제거하세요.</strong> 존재하지 않는 장치는 공격당하지 않습니다.
+    </p>
+
+    <h3>사이드채널 — 훔치지 않고 추론하기</h3>
+    <p>
+      Spectre, Meltdown 이후 드러난 부류입니다. 메모리를 직접 읽는 게 아니라,
+      캐시 접근 시간 같은 <strong>물리적 부작용을 측정해 내용을 추론</strong>합니다.
+      논리적 격리는 멀쩡한데 하드웨어를 공유한다는 사실 자체가 통로가 됩니다.
+    </p>
+    <p>
+      멀티테넌트 환경에서 특히 문제가 되는 것은 <strong>하이퍼스레딩</strong>입니다.
+      한 물리 코어의 두 논리 프로세서는 캐시 등을 공유하므로,
+      서로 다른 테넌트의 VM이 짝을 이루면 관측 가능성이 생깁니다. 대응은 셋 중 하나입니다.
+    </p>
+    <ul>
+      <li><strong>하이퍼스레딩 비활성화</strong> — 가장 확실하지만 처리량을 크게 잃습니다</li>
+      <li><strong>사이드채널 인지 스케줄링</strong> — 같은 코어에는 같은 VM의 vCPU만 배치</li>
+      <li><strong>테넌트별 호스트 분리</strong> — 민감한 테넌트는 물리적으로 격리</li>
+    </ul>
+    <p>
+      어느 쪽이든 <strong>성능이나 비용을 지불합니다.</strong> 공짜 대응은 없고,
+      위험 수준에 따라 무엇을 얼마나 지불할지 결정하는 문제입니다.
+    </p>
+
+    <h3>가장 값진 표적은 관리 평면이다</h3>
+    <div class="note warn">
+      <div class="note-h">여기가 뚫리면 나머지는 의미가 없다</div>
+      <p>
+        VM 탈출은 어렵지만, <strong>관리 콘솔 계정을 탈취하는 건 훨씬 쉽습니다.</strong>
+        vCenter나 클러스터 관리자 권한 하나면 모든 VM을 복제하고 디스크를 마운트하고 삭제할 수 있습니다.
+        정교한 공격 기법이 필요 없습니다. 실제 랜섬웨어 사고에서 반복적으로 관찰되는 경로입니다.
+      </p>
+      <p>
+        <strong>관리 네트워크를 업무 네트워크에서 분리하고, 관리자 계정에 다중 인증을 걸고,
+        관리 인터페이스를 인터넷에 절대 노출하지 마세요.</strong>
+        이 세 가지가 어떤 고급 보안 솔루션보다 효과가 큽니다.
+      </p>
+    </div>
+
+    <h3>패치가 어려운 이유와 푸는 법</h3>
+    <p>
+      하이퍼바이저 패치는 모든 VM에 영향을 주니 두려운 작업입니다.
+      하지만 미루면 알려진 취약점이 그대로 남습니다. 해법은 앞에서 다룬 기술들의 조합입니다.
+    </p>
+    <ol>
+      <li>노드를 <strong>유지보수 모드</strong>로 전환 → VM이 자동으로 다른 노드로 라이브 마이그레이션</li>
+      <li>비워진 노드를 패치하고 재부팅</li>
+      <li>정상 확인 후 클러스터에 복귀, VM 재배치</li>
+      <li>다음 노드로 이동해 반복 (롤링 업데이트)</li>
+    </ol>
+    <p>
+      <strong>여유 용량과 라이브 마이그레이션이 갖춰져 있으면 무중단 패치가 정례 업무가 됩니다.</strong>
+      반대로 어드미션 컨트롤을 꺼서 여유를 다 써버린 클러스터는 패치조차 할 수 없습니다.
+      보안과 용량 설계가 여기서 만납니다.
+    </p>
+  </section>
+
+  <!-- ==================== 8 ==================== -->
+  <section id="s8">
+    <span class="sec-no">08</span>
+    <h2>운영 루틴</h2>
+    <p>가상화 인프라 운영에서 주기별로 봐야 할 것들입니다. 고객사 인수인계 문서의 뼈대로 써도 됩니다.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>주기</th><th>확인 항목</th><th>임계 신호</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>매일</strong></td>
+            <td>클러스터 경보, 백업 작업 성공 여부, 데이터스토어 사용률, 호스트 생사</td>
+            <td>백업 실패 알림, 데이터스토어 85% 초과</td>
+          </tr>
+          <tr>
+            <td><strong>매주</strong></td>
+            <td>CPU Ready·메모리 회수 활동 추이, 스냅샷 잔존 목록, 고아 파일</td>
+            <td>7일 넘은 스냅샷, 벌루닝 이상 단계 동작 이력</td>
+          </tr>
+          <tr>
+            <td><strong>매월</strong></td>
+            <td>용량 추세와 증설 시점 예측, 펌웨어·드라이버 호환성 목록, 게스트 도구 버전</td>
+            <td>3개월 내 용량 소진 예상, 지원 목록에서 벗어난 펌웨어 조합</td>
+          </tr>
+          <tr>
+            <td><strong>분기</strong></td>
+            <td><strong>실제 복구 훈련</strong>, HA 페일오버 테스트, 보안 패치 롤링 적용, 어드미션 컨트롤 설정 점검</td>
+            <td>복구 소요 시간이 합의한 RTO 초과</td>
+          </tr>
+          <tr>
+            <td><strong>연간</strong></td>
+            <td>라이선스 갱신 조건과 코어 수 재산정, 하드웨어 수명 계획, DR 시나리오 전면 검증</td>
+            <td>지원 종료 임박 버전, 갱신 비용 급등</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      이 표에서 가장 자주 건너뛰는 항목이 <strong>분기의 실제 복구 훈련</strong>입니다.
+      그리고 사고가 났을 때 가장 후회하는 항목도 정확히 그것입니다.
+    </p>
+  </section>
+
+  <!-- ==================== 9 ==================== -->
+  <section id="s9">
+    <span class="sec-no">09</span>
+    <h2>장애 플레이북</h2>
+    <p>상황을 고르면 대응 순서가 나옵니다. 실제 대응은 환경에 따라 다르므로 뼈대로만 쓰세요.</p>
+    <div class="demo">
+      <label for="pbSel" style="display:block;font-size:13.5px;font-weight:600;color:var(--ink2);margin-bottom:9px">상황 선택</label>
+      <select id="pbSel">
+        <option value="host">호스트 한 대가 응답하지 않는다</option>
+        <option value="ds">데이터스토어가 가득 차 VM들이 멈췄다</option>
+        <option value="slow">특정 VM만 갑자기 느려졌다</option>
+        <option value="mig">라이브 마이그레이션이 끝나지 않는다</option>
+        <option value="split">두 호스트에서 같은 VM이 동시에 떠 있다</option>
+        <option value="ransom">랜섬웨어 감염이 의심된다</option>
+      </select>
+      <ol class="pb" id="pbList"></ol>
+      <div class="note warn pbwarn" id="pbNote"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 10 ==================== -->
+  <section id="s10">
+    <span class="sec-no">10</span>
+    <h2>현장에서 반복되는 실수</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="color:var(--warn)">HA를 무중단이라고 설명한다</h4>
+        <p>HA는 VM을 <strong>재부팅</strong>합니다. 다운타임이 0이 아닙니다. 고객에게 "이중화했으니 안 멈춥니다"라고 말하면 첫 장애에서 신뢰를 잃습니다. "수 시간을 수 분으로 줄입니다"가 정확한 표현입니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">어드미션 컨트롤을 꺼둔다</h4>
+        <p>당장의 배치 요구를 맞추려 여유를 없애면, 호스트 한 대가 죽는 순간 남은 노드들이 연쇄 과부하에 빠집니다. 패치조차 못 하는 클러스터가 됩니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">이중화 VM이 같은 호스트에 있다</h4>
+        <p>웹 서버 2대로 이중화했는데 둘 다 같은 물리 호스트에 있으면 이중화가 아닙니다. 반친화성 규칙을 설정하고, 설정됐는지 주기적으로 확인하세요.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">백업을 복구해 본 적이 없다</h4>
+        <p>백업 작업 성공 로그는 "파일을 만들었다"는 뜻이지 "복구된다"는 뜻이 아닙니다. 부팅 안 되는 백업, 애플리케이션이 안 열리는 백업이 실제로 존재합니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">복제를 백업이라고 부른다</h4>
+        <p>복제는 랜섬웨어와 실수 삭제를 그대로 따라갑니다. 되돌릴 시점이 없는 사본은 백업이 아닙니다. 불변 보관본이 최후의 보루입니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--warn)">관리 인터페이스가 업무망에 열려 있다</h4>
+        <p>가장 흔하고 가장 치명적입니다. 관리 평면이 뚫리면 VM 탈출 같은 고급 기법이 전혀 필요 없습니다. 분리·다중 인증·비노출 세 가지부터 점검하세요.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 11 ==================== -->
+  <section id="s11">
+    <span class="sec-no">11</span>
+    <h2>용어 사전</h2>
+    <input type="search" class="search" id="glSearch" placeholder="용어 검색 (예: 펜싱, RPO, 포스트카피)" aria-label="용어 검색">
+    <dl id="glossary"></dl>
+    <p class="noresult" id="glNone" style="display:none">일치하는 용어가 없습니다.</p>
+  </section>
+
+  <!-- ==================== 12 ==================== -->
+  <section id="s12">
+    <span class="sec-no">12</span>
+    <h2>이해도 체크</h2>
+    <div id="quiz"></div>
+    <div class="note" id="quizScore" style="display:none">
+      <div class="note-h">결과</div>
+      <p id="quizScoreText"></p>
+    </div>
+  </section>
+
+  <div class="finale">
+    <h3>시리즈를 마치며</h3>
+    <p>세 편을 한 줄씩으로 요약하면 이렇습니다.</p>
+    <ol>
+      <li><strong>1편</strong> — 하이퍼바이저는 게스트를 속여 하드웨어를 공유시킨다. x86에서는 그게 어려웠고, CPU가 바뀌어서 가능해졌다.</li>
+      <li><strong>2편</strong> — 자원을 쪼개는 모든 기술은 "계층 전환을 없애는 일"이다. 그리고 각 자원마다 먼저 바닥나는 지점이 다르다.</li>
+      <li><strong>3편</strong> — VM이 파일이자 옮길 수 있는 상태라는 성질이 무중단 운영과 재해복구를 가능하게 했다. 같은 성질이 새로운 공격면도 열었다.</li>
+    </ol>
+    <p style="margin:14px 0 0">
+      다음 걸음으로는 직접 만들어 보는 걸 권합니다. Proxmox VE나 KVM으로 2노드를 구성하고,
+      VM을 라이브 마이그레이션해 보고, 한쪽 전원을 뽑아 HA가 어떻게 동작하는지 관찰하고,
+      백업을 떠서 실제로 복구해 보세요. <strong>여기까지 해보면 이 세 편의 내용이 전부 손에 남습니다.</strong>
+    </p>
+  </div>
+
+  <footer>
+    <p>하이퍼바이저 완전 정복 · 3편 — 실전 운영과 클라우드 내부</p>
+    <p>클라우드 사업자의 유지보수 정책과 제품 기능은 변경됩니다. 설계 판단 전에는 해당 사업자의 최신 공식 문서를 확인하세요.</p>
+  </footer>
+
+  </main>
+</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* 테마 */
+var root=document.documentElement,tBtn=document.getElementById('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tBtn.textContent=(t==='dark')?'라이트 모드':'다크 모드';try{localStorage.setItem('hv-theme',t);}catch(e){}}
+try{var sv=localStorage.getItem('hv-theme');if(sv)setTheme(sv);}catch(e){}
+tBtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+
+/* 진행바 + TOC */
+var prog=document.getElementById('prog');
+var tocLinks=[].slice.call(document.querySelectorAll('.toc a'));
+var secs=[].slice.call(document.querySelectorAll('section[id]'));
+function onScroll(){
+  var h=document.documentElement,max=h.scrollHeight-h.clientHeight;
+  prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+  var cur=null;
+  for(var i=0;i<secs.length;i++){if(secs[i].getBoundingClientRect().top<=140)cur=secs[i].id;}
+  tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+cur);});
+}
+window.addEventListener('scroll',onScroll,{passive:true});
+window.addEventListener('resize',onScroll);onScroll();
+
+function gi(id){return parseInt(document.getElementById(id).value,10);}
+function fmtMB(mb){return mb>=1024?(Math.round(mb/1024*10)/10)+'GB':Math.round(mb)+'MB';}
+function fmtSec(s){
+  if(s<60)return (Math.round(s*10)/10)+'초';
+  if(s<3600)return Math.floor(s/60)+'분 '+Math.round(s%60)+'초';
+  return (Math.round(s/360)/10)+'시간';
+}
+
+/* ---------- 프리카피 시뮬레이터 ---------- */
+function migCalc(){
+  var ram=gi('vRam'),dirty=gi('dRate'),bwG=gi('bw'),target=gi('dtTarget');
+  document.getElementById('vRamV').textContent=ram;
+  document.getElementById('dRateV').textContent=dirty;
+  document.getElementById('bwV').textContent=bwG;
+  document.getElementById('dtTargetV').textContent=target;
+
+  var eff=bwG*125*0.8;            // Gbps → MB/s, 유효율 80%
+  var M=ram*1024;                 // MB
+  var r=dirty/eff;
+  document.getElementById('mgR').textContent=(Math.round(r*1000)/1000).toFixed(3);
+
+  var big=document.getElementById('mgBig'),v=document.getElementById('mgVerdict');
+  var listEl=document.getElementById('mgRoundList');
+  listEl.innerHTML='';
+
+  if(r>=1){
+    document.getElementById('mgDown').textContent='∞';
+    big.className='bignum bad';
+    document.getElementById('mgRounds').textContent='수렴 안 함';
+    document.getElementById('mgBytes').textContent='—';
+    document.getElementById('mgTime').textContent='—';
+    v.className='verdict bad';
+    v.textContent='더티 속도가 유효 대역폭 이상입니다. 프리카피가 수렴하지 않아 마이그레이션이 끝나지 않습니다. 대역폭을 늘리거나 auto-converge로 게스트를 스로틀링하거나, 포스트카피로 전환해야 합니다.';
+    return;
+  }
+
+  var remain=M,rounds=[],total=0,time=0,n=0;
+  var stopAt=eff*(target/1000);   // 마지막 라운드 잔량 기준
+  while(n<24){
+    rounds.push(remain);
+    total+=remain;
+    time+=remain/eff;
+    if(remain<=stopAt)break;
+    remain=remain*r;
+    n++;
+  }
+  var down=(rounds[rounds.length-1]/eff)*1000+120; // 마지막 전송 + 상태 전환 오버헤드
+
+  document.getElementById('mgDown').textContent=Math.round(down);
+  big.className='bignum'+(down>target*1.6?' bad':'');
+  document.getElementById('mgRounds').textContent=rounds.length+'회';
+  document.getElementById('mgBytes').textContent=fmtMB(total);
+  document.getElementById('mgTime').textContent=fmtSec(time);
+
+  var max=rounds[0];
+  rounds.forEach(function(x,i){
+    var row=document.createElement('div');row.className='rnd';
+    var last=(i===rounds.length-1);
+    row.innerHTML='<span class="lb">'+(last?'stop':'R'+(i+1))+'</span>'+
+      '<span class="bar"><i class="'+(last?'last':'')+'" style="width:'+Math.max(1.2,x/max*100)+'%"></i></span>'+
+      '<span class="vl">'+fmtMB(x)+'</span>';
+    listEl.appendChild(row);
+  });
+
+  if(down<=target){
+    v.className='verdict ok';
+    v.textContent='목표 정지 시간 안에 수렴합니다. 대부분의 애플리케이션은 이 정도 끊김을 인지하지 못합니다.';
+  }else if(down<=target*1.6){
+    v.className='verdict mid';
+    v.textContent='수렴은 하지만 목표를 조금 넘습니다. 업무 시간대라면 대역폭 확보나 부하가 낮은 시간대 수행을 고려하세요.';
+  }else{
+    v.className='verdict bad';
+    v.textContent='수렴은 하지만 정지 시간이 목표를 크게 초과합니다. 연결 지향 세션이 끊길 수 있습니다. 대역폭을 늘리거나 auto-converge를 켜세요.';
+  }
+}
+['vRam','dRate','bw','dtTarget'].forEach(function(id){document.getElementById(id).addEventListener('input',migCalc);});
+migCalc();
+
+/* ---------- 어드미션 컨트롤 ---------- */
+var deadSet={};
+function haCalc(){
+  var n=gi('hNode'),cap=gi('hCap'),load=gi('hLoad');
+  document.getElementById('hNodeV').textContent=n;
+  document.getElementById('hCapV').textContent=cap;
+  document.getElementById('hLoadV').textContent=load;
+
+  Object.keys(deadSet).forEach(function(k){if(parseInt(k,10)>=n)delete deadSet[k];});
+
+  var alive=0;
+  for(var i=0;i<n;i++){if(!deadSet[i])alive++;}
+  if(alive===0){deadSet[0]=false;delete deadSet[0];alive=1;}
+
+  var perNode=alive>0?load/alive:0;
+  var total=n*cap;
+  var wrap=document.getElementById('hNodes');
+  wrap.innerHTML='';
+  for(var j=0;j<n;j++){
+    var el=document.createElement('button');
+    el.type='button';
+    var dead=!!deadSet[j];
+    var pct=dead?0:Math.round(perNode/cap*100);
+    el.className='nd'+(dead?' dead':(pct>100?'':(pct>85?' hot':'')));
+    el.innerHTML='<div class="t">node-'+(j+1)+'</div><div class="u">'+(dead?'DOWN':pct+'%')+'</div>';
+    el.style.cssText+='cursor:pointer;font:inherit;';
+    (function(idx){el.addEventListener('click',function(){
+      if(deadSet[idx])delete deadSet[idx];else deadSet[idx]=true;
+      haCalc();
+    });})(j);
+    wrap.appendChild(el);
+  }
+
+  document.getElementById('hTotal').textContent=total+'GB';
+  document.getElementById('hUse').textContent=Math.round(load/total*100)+'%';
+
+  var tol=0;
+  for(var k=0;k<n;k++){ if(load<=(n-k-1)*cap) tol=k+1; else break; }
+  document.getElementById('hTol').textContent=tol+'대';
+
+  var v=document.getElementById('hVerdict');
+  if(perNode>cap){
+    v.className='verdict bad';
+    v.textContent='현재 생존 노드로는 전체 VM을 수용할 수 없습니다 (노드당 '+Math.round(perNode)+'GB 필요, 용량 '+cap+'GB). 일부 VM은 기동되지 못합니다.';
+  }else if(tol===0){
+    v.className='verdict bad';
+    v.textContent='노드 한 대만 잃어도 전체 수용이 불가능합니다. 어드미션 컨트롤이 켜져 있다면 신규 VM 생성이 거부되는 상태입니다.';
+  }else if(tol===1){
+    v.className='verdict mid';
+    v.textContent='N+1을 만족합니다. 한 대 장애는 흡수하지만, 패치 중(한 대 비움)에 또 한 대가 죽으면 버티지 못합니다.';
+  }else{
+    v.className='verdict ok';
+    v.textContent='N+'+tol+' 여유가 있습니다. 롤링 패치 중에도 장애를 흡수할 수 있는 안정적인 구성입니다.';
+  }
+}
+['hNode','hCap','hLoad'].forEach(function(id){document.getElementById(id).addEventListener('input',haCalc);});
+haCalc();
+
+/* ---------- RPO/RTO ---------- */
+var RPO=['거의 0 (초 단위)','5분','15분','1시간','6시간','24시간'];
+var RTO=['거의 0 (즉시)','5분','30분','4시간','12시간','24시간 이상'];
+var DR=[
+  {n:'액티브-액티브',how:'양쪽 사이트가 동시에 서비스. 동기 복제',cost:'매우 높음 (2배 이상)',site:'상시 풀 가동',
+   note:'거리 제약이 있습니다. 동기 복제는 지연이 쓰기 성능에 직접 반영되므로 사이트 간 거리가 멀면 성립하지 않습니다.'},
+  {n:'핫 스탠바이',how:'준실시간 복제 + 대기 중인 동일 구성',cost:'높음',site:'상시 대기, 자원 확보',
+   note:'전환은 빠르지만 대기 자원 비용을 계속 지불합니다. 전환 절차의 자동화와 정기 훈련이 필수입니다.'},
+  {n:'웜 스탠바이',how:'주기적 복제 + 축소 규모로 상시 기동',cost:'중간',site:'축소 구성 가동',
+   note:'현실적으로 가장 많이 선택되는 지점입니다. 전환 후 규모를 키우는 절차를 미리 문서화해 두세요.'},
+  {n:'파일럿 라이트',how:'핵심 데이터만 복제, 나머지는 필요 시 기동',cost:'낮음',site:'최소 구성만 유지',
+   note:'DR 사이트에 데이터와 템플릿만 유지하고 컴퓨트는 필요할 때 띄웁니다. 클라우드 DR의 기본형입니다.'},
+  {n:'백업 복원',how:'정기 백업본을 재해 시 복원',cost:'가장 낮음',site:'없음 (저장소만)',
+   note:'가장 저렴하지만 복구에 시간이 걸립니다. 복원 소요 시간을 실측해 RTO와 대조해 두세요.'}
+];
+function drCalc(){
+  var a=gi('rpo'),b=gi('rto');
+  document.getElementById('rpoV').textContent=RPO[a];
+  document.getElementById('rtoV').textContent=RTO[b];
+  var idx=Math.round((a+b)/2);
+  if(a===0&&b===0)idx=0;
+  if(idx>4)idx=4;
+  var d=DR[idx];
+  document.getElementById('drName').textContent=d.n;
+  document.getElementById('drHow').textContent=d.how;
+  document.getElementById('drCost').textContent=d.cost;
+  document.getElementById('drSite').textContent=d.site;
+  var v=document.getElementById('drNote');
+  v.className='verdict '+(idx<=1?'mid':'ok');
+  v.textContent=d.note;
+}
+['rpo','rto'].forEach(function(id){document.getElementById(id).addEventListener('input',drCalc);});
+drCalc();
+
+/* ---------- 클라우드 비교 ---------- */
+var CLOUD={
+  aws:{t:'AWS — Nitro',
+    d:'Xen 기반에서 출발해 KVM 기반의 Nitro 시스템으로 전환했습니다. 핵심은 네트워크·스토리지·보안·관리 기능을 <strong>전용 Nitro 카드로 오프로드</strong>한 것입니다. 호스트에 남은 하이퍼바이저는 아주 얇고, 서버 자원의 대부분이 고객 인스턴스에 돌아갑니다. 같은 구조를 극단까지 밀면 하이퍼바이저를 아예 걷어낸 베어메탈 인스턴스가 됩니다.',
+    rows:[['하이퍼바이저','KVM 기반 Nitro 하이퍼바이저 (경량화)'],
+          ['오프로드','Nitro 카드가 VPC 네트워킹·EBS·로컬 스토리지·보안을 담당'],
+          ['유지보수','예정된 이벤트 통지가 중심. Dedicated Hosts에는 라이브 마이그레이션 기반 유지보수가 도입됨'],
+          ['드러나는 제약','인스턴스 재시작·리타이어먼트 알림, stop 시 인스턴스 스토어 데이터 소멸']]},
+  azure:{t:'Azure — Hyper-V 계열',
+    d:'Windows Server의 Hyper-V에서 출발한 하이퍼바이저를 클라우드 규모에 맞게 발전시켰습니다. 온프레미스 Hyper-V와 계열이 같아 <strong>하이브리드 구성에서 개념과 도구가 이어지는</strong> 것이 특징입니다. 네트워크·스토리지 처리를 하드웨어로 내리는 방향은 AWS와 동일합니다.',
+    rows:[['하이퍼바이저','Hyper-V 계열 (클라우드 규모로 개량)'],
+          ['오프로드','SmartNIC/FPGA 기반 네트워크 가속'],
+          ['유지보수','메모리를 보존하는 방식의 유지보수를 지원. 영향이 있는 경우 예정 이벤트로 통지'],
+          ['드러나는 제약','유지보수 알림과 재배치, 가용성 집합·영역으로 장애 도메인 분산 필요']]},
+  gcp:{t:'GCP — KVM 기반',
+    d:'KVM을 기반으로 하며, <strong>호스트 유지보수 시 고객 VM을 라이브 마이그레이션하는 방식</strong>을 일찍부터 전면에 내세웠습니다. 사용자는 유지보수 동작을 인스턴스 정책으로 선택할 수 있고, 마이그레이션이 불가능한 구성(일부 GPU 등)에서는 종료·재시작 방식이 적용됩니다.',
+    rows:[['하이퍼바이저','KVM 기반 (자체 개량)'],
+          ['오프로드','자체 네트워크 스택과 하드웨어 가속'],
+          ['유지보수','라이브 마이그레이션을 활용한 무중단 유지보수가 기본 옵션'],
+          ['드러나는 제약','마이그레이션 중 일시적 성능 저하 가능, 일부 구성은 마이그레이션 제외']]}
+};
+var clBody=document.getElementById('clBody');
+function showCloud(k){
+  var d=CLOUD[k],rows='';
+  d.rows.forEach(function(r){rows+='<tr><td><strong>'+r[0]+'</strong></td><td>'+r[1]+'</td></tr>';});
+  clBody.innerHTML='<h4 style="margin-top:18px">'+d.t+'</h4>'+
+    '<p style="font-size:15.5px;color:var(--ink2)">'+d.d+'</p>'+
+    '<div class="tablewrap" style="margin-bottom:0"><table><tbody>'+rows+'</tbody></table></div>';
+}
+[].forEach.call(document.querySelectorAll('.cl'),function(b){
+  b.addEventListener('click',function(){
+    [].forEach.call(document.querySelectorAll('.cl'),function(x){x.setAttribute('aria-pressed','false');});
+    b.setAttribute('aria-pressed','true');showCloud(b.dataset.c);
+  });
+});
+showCloud('aws');
+
+/* ---------- 플레이북 ---------- */
+var PB={
+  host:{steps:[
+    '<b>진짜 죽었는지 확인.</b> 관리 네트워크 외의 경로로 접근을 시도한다 (IPMI·iLO·iDRAC 등 대역외 관리 포트, 콘솔).',
+    '<b>클러스터의 판단을 확인.</b> HA가 이미 페일오버를 시작했는지, 아니면 격리 상태로 보고 대기 중인지 본다.',
+    '<b>해당 호스트의 VM 목록을 확보.</b> 어떤 서비스가 영향받는지 즉시 파악해 관련 팀에 공유한다.',
+    '<b>HA가 동작하지 않았다면 수동 개입.</b> 원본 호스트가 확실히 죽었음을 확인한 뒤(펜싱) 다른 호스트에서 VM을 등록·기동한다.',
+    '<b>기동 후 게스트 내부 점검.</b> 비정상 종료였으므로 파일시스템 검사와 DB 정합성 확인이 필요하다.',
+    '<b>남은 클러스터의 여유를 재계산.</b> 한 대가 빠진 상태에서 또 한 대가 죽으면 버티는지 확인하고, 필요하면 우선순위 낮은 VM을 정지한다.',
+    '<b>원인 조사는 복구 후에.</b> 하드웨어 로그, 펌웨어 버전, 전원 이력을 수집해 재발 방지로 연결한다.'
+  ],warn:'<div class="note-h">절대 하지 말 것</div><p>원본 호스트의 생사가 불확실한 상태에서 다른 호스트에 같은 VM을 강제로 등록·기동하지 마세요. 원본이 살아 있으면 같은 디스크에 동시 쓰기가 발생해 <strong>데이터가 손상됩니다.</strong> 반드시 전원 차단으로 확실히 죽인 뒤 진행하세요.</p>'},
+  ds:{steps:[
+    '<b>추가 쓰기를 멈춘다.</b> 해당 데이터스토어의 VM들은 이미 정지 상태일 가능성이 높다. 신규 배포·클론·마이그레이션 작업을 즉시 중단한다.',
+    '<b>가장 빠른 공간 확보 수단을 찾는다.</b> 오래된 스냅샷, ISO 이미지, 로그 파일, 고아 VM 디렉터리 순으로 확인한다.',
+    '<b>스냅샷 삭제는 신중하게.</b> 통합 작업 자체가 임시 공간을 요구하므로, 공간이 완전히 0이면 삭제조차 실패할 수 있다. 다른 것부터 지운다.',
+    '<b>공간이 확보되면 VM을 순차 재개한다.</b> 한꺼번에 재개하면 I/O 폭주로 다시 멈출 수 있다.',
+    '<b>씬 프로비저닝 과할당 현황을 전수 점검한다.</b> 선언 용량 합계와 실제 용량을 비교해 다음 임계 시점을 예측한다.',
+    '<b>임계치 알람을 재설정한다.</b> 75~80%에서 경고가 오도록 하고, 담당자에게 실제로 전달되는지 확인한다.'
+  ],warn:'<div class="note-h">근본 원인</div><p>대부분 <strong>씬 프로비저닝 과할당 + 오래 방치된 스냅샷</strong>의 조합입니다. 사고 후에는 반드시 스냅샷 수명 정책을 세우세요. 며칠 이상 유지되는 스냅샷은 그 자체로 장애 위험 요인입니다.</p>'},
+  slow:{steps:[
+    '<b>호스트 지표부터 본다.</b> 게스트 안이 아니라 호스트의 CPU Ready·메모리 회수 활동·데이터스토어 지연을 먼저 확인한다.',
+    '<b>이웃을 의심한다.</b> 같은 호스트나 같은 데이터스토어의 다른 VM이 자원을 독점하고 있는지 본다 (시끄러운 이웃).',
+    '<b>게스트 도구와 드라이버를 확인한다.</b> virtio·게스트 도구가 빠져 있으면 에뮬레이션 경로로 I/O를 하고 있을 수 있다.',
+    '<b>스냅샷 잔존 여부를 확인한다.</b> 체인이 길어진 VM은 읽기마다 여러 파일을 거슬러 올라간다.',
+    '<b>NUMA 배치를 확인한다.</b> 최근 마이그레이션 후 느려졌다면 노드에 걸쳐 배치됐을 가능성이 있다.',
+    '<b>여기까지 정상이면 게스트 내부.</b> 이제 애플리케이션·DB 쪽으로 넘어간다.'
+  ],warn:'<div class="note-h">순서가 중요하다</div><p>가상화 환경에서 게스트 지표는 거짓말을 할 수 있습니다. CPU Ready로 느려진 VM은 게스트 안에서 "한가한데 느린" 상태로 보입니다. <strong>반드시 호스트에서 아래로부터 올라오세요.</strong></p>'},
+  mig:{steps:[
+    '<b>진행 상황을 확인한다.</b> 남은 전송량이 라운드마다 줄고 있는지, 제자리인지를 본다. 제자리면 수렴 실패다.',
+    '<b>대역폭을 확인한다.</b> 마이그레이션 네트워크가 업무 트래픽과 공유되고 있지 않은지, 동시 마이그레이션이 여러 개 돌고 있지 않은지 본다.',
+    '<b>auto-converge를 활성화한다.</b> 게스트 vCPU를 스로틀링해 더티 속도를 강제로 낮춘다. 성능을 잠깐 희생해 작업을 끝낸다.',
+    '<b>그래도 안 되면 취소한다.</b> 마이그레이션 취소는 원본 호스트에서 계속 실행되는 것이므로 안전하다. 부하가 낮은 시간대에 재시도한다.',
+    '<b>반복된다면 설계를 본다.</b> 특정 VM이 늘 실패한다면 메모리가 지나치게 크거나 쓰기가 과도한 워크로드다. 전용 마이그레이션 망 확보나 포스트카피 검토가 필요하다.'
+  ],warn:'<div class="note-h">취소는 안전하다</div><p>프리카피 방식은 전송이 끝날 때까지 원본이 계속 실행되므로, 중간에 취소해도 VM에 영향이 없습니다. 반면 <strong>포스트카피는 전환 이후 취소가 불가능</strong>하고 네트워크가 끊기면 VM을 잃습니다. 방식의 차이를 알고 선택하세요.</p>'},
+  split:{steps:[
+    '<b>즉시 한쪽을 정지한다.</b> 어느 쪽을 살릴지 판단하기 전에, 동시 쓰기를 멈추는 것이 최우선이다.',
+    '<b>살릴 쪽을 결정한다.</b> 클라이언트 연결을 실제로 처리하고 있는 쪽, 최신 트랜잭션을 가진 쪽을 확인한다.',
+    '<b>다른 쪽은 디스크 연결을 해제한 채 격리한다.</b> 증거 보존을 위해 즉시 삭제하지 않는다.',
+    '<b>데이터 정합성을 검증한다.</b> 파일시스템 검사와 DB 정합성 검사를 수행한다. 동시 쓰기가 있었다면 손상을 전제로 접근한다.',
+    '<b>백업 시점과 대조한다.</b> 손상이 확인되면 마지막 정상 백업으로 복구하는 편이 빠르고 안전할 수 있다.',
+    '<b>원인을 제거한다.</b> 데이터스토어 하트비트, 격리 주소, 펜싱 설정을 점검한다. 설정 미비가 대부분의 원인이다.'
+  ],warn:'<div class="note-h">가장 위험한 상태</div><p>스플릿 브레인은 단순 장애보다 나쁩니다. 서비스는 돌아가는 것처럼 보이는데 <strong>데이터가 조용히 깨지고 있기 때문</strong>입니다. 발견 즉시 한쪽을 멈추는 것이 유일하게 옳은 첫 조치입니다.</p>'},
+  ransom:{steps:[
+    '<b>네트워크를 격리한다.</b> 감염이 의심되는 VM과 세그먼트를 즉시 분리한다. 전원을 끄기 전에 격리가 먼저다.',
+    '<b>백업 저장소 접근을 차단한다.</b> 공격자의 다음 목표는 백업이다. 백업 시스템의 자격 증명을 즉시 회수하고 접근 경로를 끊는다.',
+    '<b>관리 평면을 점검한다.</b> 관리 콘솔 계정의 최근 로그인과 작업 이력을 확인한다. 관리자 권한이 탈취됐다면 전체 VM이 위험하다.',
+    '<b>불변 백업본의 무결성을 확인한다.</b> 수정 불가로 보관된 사본이 있는지, 감염 이전 시점인지 확인한다.',
+    '<b>복구 시점을 정한다.</b> 최초 침해 시점을 추정해 그 이전으로 되돌린다. 감염 후 시점으로 복구하면 반복된다.',
+    '<b>격리된 환경에서 먼저 복구·검증한다.</b> 운영망에 바로 올리지 말고, 분리된 네트워크에서 정상 여부를 확인한 뒤 투입한다.',
+    '<b>내부 절차와 법적 의무를 따른다.</b> 보고·신고 의무가 있는 경우가 많다. 기술 대응과 병행해 진행한다.'
+  ],warn:'<div class="note-h">복제는 도움이 되지 않는다</div><p>복제본에는 암호화된 상태가 그대로 반영됩니다. 이 상황에서 유일하게 작동하는 것은 <strong>감염 이전 시점의, 수정 불가능하게 보관된 백업</strong>입니다. 평상시에 이걸 갖춰두는 것이 사고 당일의 모든 대응보다 중요합니다.</p>'}
+};
+var pbSel=document.getElementById('pbSel'),pbList=document.getElementById('pbList'),pbNote=document.getElementById('pbNote');
+function showPb(){
+  var d=PB[pbSel.value];
+  pbList.innerHTML='';
+  d.steps.forEach(function(s){
+    var li=document.createElement('li');li.innerHTML=s;pbList.appendChild(li);
+  });
+  pbNote.innerHTML=d.warn;
+}
+pbSel.addEventListener('change',showPb);
+showPb();
+
+/* ---------- 용어집 ---------- */
+var GLOSS=[
+  ['라이브 마이그레이션','Live Migration · vMotion','실행 중인 VM을 멈추지 않고 다른 물리 호스트로 옮기는 기능. 계획된 중단을 없애는 핵심 기술이다.'],
+  ['프리카피','Pre-copy','메모리를 먼저 반복 전송한 뒤 마지막에 잠깐 정지해 잔량을 보내는 마이그레이션 방식. 중간에 취소해도 안전하다.'],
+  ['포스트카피','Post-copy','최소 상태만 보내고 대상에서 먼저 실행한 뒤, 필요한 페이지를 요청 시 가져오는 방식. 정지 시간은 짧지만 전송 중 장애 시 복구가 불가능하다.'],
+  ['더티 페이지','Dirty Page','마이그레이션 중 게스트가 변경한 메모리 페이지. 더티 속도가 전송 대역폭을 넘으면 프리카피가 수렴하지 않는다.'],
+  ['스톱 앤 카피','Stop-and-copy','프리카피의 마지막 단계. VM을 잠깐 정지시키고 남은 메모리와 CPU 상태를 전송한다. 이 구간이 실제 다운타임이다.'],
+  ['자동 수렴','Auto-converge · SDPS','수렴하지 않는 마이그레이션을 끝내기 위해 게스트 vCPU를 의도적으로 늦춰 더티 속도를 낮추는 기법.'],
+  ['CPU 호환성 모드','EVC · CPU model','클러스터 내 CPU 세대 차이를 공통 기능 집합으로 맞춰 마이그레이션을 가능하게 하는 설정. 클러스터 구성 시점에 설정해야 한다.'],
+  ['HA','High Availability','호스트 장애 시 해당 VM들을 다른 호스트에서 재기동하는 기능. 무중단이 아니라 다운타임을 수 분으로 줄이는 기술이다.'],
+  ['FT','Fault Tolerance','두 호스트에서 VM을 완전 동기 실행해 다운타임을 0으로 만드는 기능. 자원을 두 배로 쓰고 제약이 많다.'],
+  ['스플릿 브레인','Split Brain','클러스터가 갈라져 양쪽이 각자 정상이라 믿고 같은 자원에 접근하는 상태. 데이터 손상으로 직결된다.'],
+  ['펜싱','Fencing · STONITH','상태가 불확실한 노드의 전원을 강제로 차단해 확실히 정지시키는 조치. 스플릿 브레인을 막는 가장 확실한 방법이다.'],
+  ['하트비트','Heartbeat','노드 생사를 확인하는 주기 신호. 관리 네트워크 외에 데이터스토어 등 여러 경로로 교차 확인해야 오판을 줄인다.'],
+  ['어드미션 컨트롤','Admission Control','호스트 장애 시 모든 VM을 재기동할 수 있는 여유를 항상 남겨두고, 이를 침범하는 배치를 거부하는 정책.'],
+  ['반친화성 규칙','Anti-affinity','특정 VM들을 서로 다른 호스트에 배치하도록 강제하는 규칙. 이중화 구성이 같은 호스트에 몰리는 것을 막는다.'],
+  ['유지보수 모드','Maintenance Mode','노드의 VM을 모두 다른 노드로 옮기고 신규 배치를 막는 상태. 무중단 롤링 패치의 기본 절차다.'],
+  ['변경 블록 추적','CBT · dirty bitmap','마지막 백업 이후 변경된 블록만 하이퍼바이저가 추적해 알려주는 기능. 증분 백업 시간을 크게 줄인다.'],
+  ['크래시 정합성','Crash-consistent','전원을 뽑은 순간과 동일한 상태의 백업. 메모리에만 있던 데이터는 유실된다.'],
+  ['애플리케이션 정합성','Application-consistent','백업 직전 애플리케이션이 데이터를 디스크로 내려쓴 상태의 백업. VSS나 파일시스템 freeze로 구현하며 게스트 도구가 필요하다.'],
+  ['RPO','Recovery Point Objective','허용 가능한 데이터 손실 범위. "장애 직전 몇 분까지의 데이터를 살릴 것인가"를 뜻한다.'],
+  ['RTO','Recovery Time Objective','허용 가능한 서비스 중단 시간. "몇 분 안에 다시 살아나야 하는가"를 뜻한다.'],
+  ['불변 백업','Immutable Backup','정해진 기간 동안 수정·삭제가 불가능하게 보관되는 백업. 관리자 계정이 탈취돼도 남는 최후의 복구 수단이다.'],
+  ['3-2-1 규칙','Backup Rule','사본 3개, 서로 다른 매체 2종, 그중 1개는 다른 장소에 보관하는 백업 원칙. 여기에 불변·오프라인 사본 1개가 추가되는 추세다.'],
+  ['오프로드','Offload · DPU · SmartNIC','네트워크·스토리지·보안 처리를 호스트 CPU에서 전용 카드로 옮기는 설계. 클라우드 하이퍼바이저의 현재 방향이다.'],
+  ['마이크로VM','microVM · Firecracker','장치를 최소로 줄여 기동 시간을 밀리초 단위로 낮춘 경량 VM. 서버리스의 테넌트 격리에 쓰인다.'],
+  ['KubeVirt','K8s VM 관리','쿠버네티스가 VM을 파드처럼 다루게 하는 확장. 컨테이너로 전환하지 못한 레거시를 같은 플랫폼에서 운영한다.'],
+  ['VM 탈출','VM Escape','게스트에서 하이퍼바이저·호스트를 장악하는 공격. 장치 에뮬레이션 계층에서 취약점이 많이 발견돼 왔다.'],
+  ['사이드채널','Side-channel','캐시 접근 시간 등 물리적 부작용을 측정해 데이터를 추론하는 공격. 하드웨어 공유 자체가 통로가 된다.'],
+  ['관리 평면','Management Plane','하이퍼바이저와 클러스터를 제어하는 계층. 여기가 뚫리면 VM 탈출 같은 고급 기법 없이도 전체가 장악된다.']
+];
+var glEl=document.getElementById('glossary'),glNone=document.getElementById('glNone');
+GLOSS.sort(function(a,b){return a[0].localeCompare(b[0],'ko');});
+GLOSS.forEach(function(g){
+  var dt=document.createElement('dt');dt.className='gl';
+  dt.innerHTML=g[0]+'<em>'+g[1]+'</em>';
+  var dd=document.createElement('dd');dd.className='gl';dd.textContent=g[2];
+  dt.dataset.key=dd.dataset.key=(g[0]+' '+g[1]+' '+g[2]).toLowerCase();
+  glEl.appendChild(dt);glEl.appendChild(dd);
+});
+document.getElementById('glSearch').addEventListener('input',function(e){
+  var q=e.target.value.trim().toLowerCase(),hits=0;
+  [].forEach.call(glEl.children,function(el){
+    var m=!q||el.dataset.key.indexOf(q)>-1;
+    el.classList.toggle('hide',!m);
+    if(m&&el.tagName==='DT')hits++;
+  });
+  glNone.style.display=hits?'none':'block';
+});
+
+/* ---------- 퀴즈 ---------- */
+var QUIZ=[
+  {q:'프리카피 방식의 라이브 마이그레이션이 끝나지 않는 근본 원인은?',
+   o:['VM 메모리가 32GB를 넘어서','게스트가 메모리를 더럽히는 속도가 전송 대역폭보다 빨라서','대상 호스트의 디스크 공간이 부족해서','게스트 OS가 리눅스가 아니어서'],
+   a:1,
+   e:'프리카피는 매 라운드 <b>남은 양이 줄어야</b> 수렴합니다. 더티 속도가 유효 대역폭 이상이면 잔량이 줄지 않아 영원히 끝나지 않습니다. 대역폭 확보, auto-converge로 게스트 스로틀링, 포스트카피 전환이 해법입니다.'},
+  {q:'HA에 대한 설명으로 정확한 것은?',
+   o:['VM을 멈추지 않고 다른 호스트로 옮긴다','죽은 호스트의 VM을 다른 호스트에서 재부팅한다','두 호스트에서 VM을 동기 실행해 다운타임이 0이다','디스크를 다른 사이트로 복제한다'],
+   a:1,
+   e:'HA는 <b>재부팅</b>입니다. 게스트는 비정상 종료를 겪고 파일시스템 검사와 DB 롤백이 필요합니다. 1번은 라이브 마이그레이션, 3번은 FT, 4번은 복제입니다. 고객에게 "이중화했으니 안 멈춘다"고 설명하면 첫 장애에서 문제가 됩니다.'},
+  {q:'호스트가 하트비트에 응답하지 않을 때 무조건 다른 호스트에서 VM을 켜면 안 되는 이유는?',
+   o:['라이선스 위반이라서','원본이 살아 있으면 같은 디스크에 동시 쓰기가 발생해 데이터가 손상돼서','VM 이름이 중복돼서','네트워크 대역폭이 부족해서'],
+   a:1,
+   e:'관리 네트워크만 끊긴 채 호스트가 멀쩡히 돌고 있을 수 있습니다. 이 상태에서 같은 VM을 켜면 <b>스플릿 브레인</b>이 되어 데이터가 조용히 깨집니다. 그래서 데이터스토어 하트비트로 교차 확인하고, 불확실하면 펜싱으로 확실히 정지시킨 뒤 진행합니다.'},
+  {q:'DB VM을 백업했는데 복구 후 DB가 열리지 않습니다. 가장 가능성 높은 원인은?',
+   o:['백업 파일이 손상됐다','애플리케이션 정합성 없이 크래시 정합성 백업만 떴다','디스크 용량이 부족하다','백업 주기가 너무 짧았다'],
+   a:1,
+   e:'디스크 이미지만 뜨면 <b>전원을 뽑은 순간과 같은 상태</b>가 됩니다. 메모리에만 있던 트랜잭션은 사라지고, DB는 정합성 검사가 필요하거나 열리지 않습니다. VSS나 파일시스템 freeze로 애플리케이션 정합성을 확보해야 하며, 이를 위해 게스트 도구가 설치돼 있어야 합니다.'},
+  {q:'랜섬웨어 감염 시 복제(replication)가 도움이 되지 않는 이유는?',
+   o:['복제 속도가 느려서','암호화된 상태가 그대로 복제되어 되돌릴 시점이 없어서','복제본은 읽기 전용이라서','복제는 네트워크를 통해서만 가능해서'],
+   a:1,
+   e:'복제는 최신 상태를 따라가는 것이 목적이라 <b>감염 상태도 충실히 따라갑니다.</b> 이 상황에서 작동하는 건 감염 이전 시점의, 수정 불가능하게 보관된 백업뿐입니다. 복제와 백업은 대체재가 아니라 보완재입니다.'},
+  {q:'멀티테넌트 환경에서 서로 못 믿는 고객의 코드를 같은 하드웨어에서 돌려야 합니다. 적절한 선택은?',
+   o:['일반 컨테이너로 충분하다','커널을 분리하는 방식(VM 또는 Kata·마이크로VM)을 쓴다','컨테이너에 cgroup 제한만 강하게 건다','컨테이너를 root가 아닌 사용자로 실행한다'],
+   a:1,
+   e:'일반 컨테이너는 <b>호스트 커널을 공유</b>하므로 커널 취약점 하나가 전체 테넌트의 위험이 됩니다. 신뢰할 수 없는 코드라면 커널을 분리해야 합니다. 3·4번은 의미 있는 강화 조치지만 커널 공유라는 근본 구조는 바꾸지 못합니다.'},
+  {q:'가상화 인프라에서 공격자에게 가장 가치가 높은 표적은?',
+   o:['개별 게스트 VM의 애플리케이션','vCenter 등 관리 평면의 관리자 계정','가상 스위치의 VLAN 설정','게스트의 백업 에이전트'],
+   a:1,
+   e:'관리자 권한 하나면 모든 VM을 복제·마운트·삭제할 수 있습니다. <b>VM 탈출 같은 고급 기법이 전혀 필요 없습니다.</b> 실제 랜섬웨어 사고에서 반복 관찰되는 경로이며, 관리망 분리·다중 인증·인터넷 비노출 세 가지가 어떤 보안 제품보다 효과가 큽니다.'},
+  {q:'클러스터 노드를 무중단으로 패치하려면 무엇이 전제되어야 하나?',
+   o:['모든 VM이 FT로 구성돼 있어야 한다','한 노드를 비워도 나머지가 모든 VM을 수용할 여유 용량이 있어야 한다','백업이 완료돼 있어야 한다','모든 VM이 SR-IOV를 써야 한다'],
+   a:1,
+   e:'유지보수 모드로 전환하면 해당 노드의 VM이 다른 노드로 라이브 마이그레이션되는데, <b>받아줄 여유가 없으면 이동 자체가 불가능합니다.</b> 어드미션 컨트롤을 꺼서 여유를 다 써버린 클러스터는 패치조차 할 수 없습니다. 용량 설계와 보안이 여기서 만납니다.'}
+];
+var quizEl=document.getElementById('quiz'),answered=0,correct=0;
+QUIZ.forEach(function(q,i){
+  var d=document.createElement('div');d.className='quiz';
+  var html='<div class="qn">문제 '+(i+1)+' / '+QUIZ.length+'</div><p class="qt">'+q.q+'</p>';
+  q.o.forEach(function(o,j){html+='<button class="opt" data-i="'+j+'">'+o+'</button>';});
+  html+='<div class="expl"></div>';
+  d.innerHTML=html;
+  var expl=d.querySelector('.expl');
+  [].forEach.call(d.querySelectorAll('.opt'),function(b){
+    b.addEventListener('click',function(){
+      var picked=parseInt(b.dataset.i,10);
+      [].forEach.call(d.querySelectorAll('.opt'),function(x){
+        x.disabled=true;
+        var xi=parseInt(x.dataset.i,10);
+        if(xi===q.a)x.classList.add('right');
+        else if(xi===picked)x.classList.add('wrong');
+      });
+      expl.innerHTML=(picked===q.a?'<b>정답입니다.</b> ':'<b>정답은 '+(q.a+1)+'번입니다.</b> ')+q.e;
+      expl.classList.add('show');
+      answered++;if(picked===q.a)correct++;
+      if(answered===QUIZ.length){
+        var box=document.getElementById('quizScore'),msg;
+        if(correct===QUIZ.length)msg='전부 맞혔습니다. 세 편의 내용을 충분히 소화하셨습니다. 이제 직접 구성해 볼 차례입니다.';
+        else if(correct>=QUIZ.length-2)msg='핵심은 잡으셨습니다. 틀린 문항의 해당 섹션만 다시 보면 충분합니다.';
+        else msg='3장(HA)과 4장(백업·복제)을 다시 읽어 보시길 권합니다. 실제 사고에서 가장 자주 문제가 되는 두 영역입니다.';
+        document.getElementById('quizScoreText').textContent=QUIZ.length+'문제 중 '+correct+'문제 정답. '+msg;
+        box.style.display='block';
+      }
+    });
+  });
+  quizEl.appendChild(d);
+});
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>하이퍼바이저 1편 — 가상화의 원리와 하이퍼바이저 구조</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   토큰 — 계층마다 고유한 색을 부여한다.
+   색이 장식이 아니라 "지금 어느 계층 이야기인지"를 알려주는 정보다.
+   ============================================================ */
+:root{
+  --hw:#F2A93B;      /* 물리 하드웨어 */
+  --hv:#35D6C0;      /* 하이퍼바이저 */
+  --guest:#9B8CFF;   /* 게스트 OS */
+  --app:#FF7BB0;     /* 애플리케이션 */
+  --warn:#FF6B6B;
+  --ok:#5BD97C;
+
+  --bg:#100E1C;
+  --bg2:#161331;
+  --surface:#1B1832;
+  --surface2:#221E3D;
+  --line:#322C57;
+  --ink:#ECEAF7;
+  --ink2:#B4AED2;
+  --ink3:#7E7799;
+  --shadow:0 18px 40px -24px rgba(0,0,0,.9);
+
+  --sans:'Pretendard Variable',Pretendard,-apple-system,'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --maxw:1220px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+[data-theme="light"]{
+  --hw:#C97A00;
+  --hv:#0E8D7C;
+  --guest:#5F49D6;
+  --app:#C63A76;
+  --warn:#C63535;
+  --ok:#1F8C43;
+
+  --bg:#F6F4FB;
+  --bg2:#EDEAF6;
+  --surface:#FFFFFF;
+  --surface2:#F3F0FA;
+  --line:#DCD6EC;
+  --ink:#191534;
+  --ink2:#4B4470;
+  --ink3:#7A729B;
+  --shadow:0 14px 32px -22px rgba(40,25,90,.45);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:calc(76px + env(safe-area-inset-top,0px))}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:17px;line-height:1.75;
+  -webkit-font-smoothing:antialiased;
+  letter-spacing:-.01em;
+}
+img{max-width:100%}
+code,kbd{font-family:var(--mono);font-size:.86em}
+a{color:var(--hv)}
+
+/* ---------- 상단 바 ---------- */
+.topbar{
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:60;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line);
+}
+.topbar-in{
+  max-width:var(--maxw);margin:0 auto;padding:12px 22px;
+  display:flex;align-items:center;gap:16px;
+}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.brand-mark{
+  width:30px;height:30px;border-radius:8px;flex:none;position:relative;
+  background:linear-gradient(160deg,var(--hw) 0 33%,var(--hv) 33% 66%,var(--guest) 66% 100%);
+}
+.brand-txt{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand-txt span{color:var(--ink3);font-weight:500}
+.spacer{flex:1}
+.tbtn{
+  font:inherit;font-size:13px;font-weight:600;color:var(--ink2);
+  background:var(--surface);border:1px solid var(--line);border-radius:9px;
+  padding:7px 13px;cursor:pointer;transition:color .15s,border-color .15s;white-space:nowrap;
+}
+.tbtn:hover{color:var(--ink);border-color:var(--hv)}
+.tbtn:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{
+  outline:2px solid var(--hv);outline-offset:2px
+}
+.progress{height:2px;background:transparent}
+.progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--hw),var(--hv),var(--guest))}
+
+/* ---------- 레이아웃 ---------- */
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);gap:46px;align-items:start}
+@media (max-width:1000px){.shell{grid-template-columns:1fr;gap:0}}
+
+/* ---------- 목차: 계층을 쌓아올린 모양 그대로 ---------- */
+.toc{position:sticky;top:110px;padding:34px 0 60px}
+@media (max-width:1000px){.toc{display:none}}
+.toc-h{font-size:11px;font-weight:700;color:var(--ink3);margin:0 0 14px;letter-spacing:.06em}
+.toc a{
+  display:block;text-decoration:none;color:var(--ink3);font-size:13.5px;line-height:1.45;
+  padding:7px 0 7px 16px;border-left:2px solid var(--line);transition:color .15s,border-color .15s;
+}
+.toc a:hover{color:var(--ink2)}
+.toc a.on{color:var(--ink);border-left-color:var(--hv);font-weight:600}
+
+/* ---------- 히어로 ---------- */
+.hero{padding:64px 0 30px;position:relative}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:600;color:var(--ink2);
+  background:var(--surface);border:1px solid var(--line);border-radius:100px;padding:6px 15px;margin-bottom:26px;
+}
+.eyebrow b{color:var(--hv)}
+h1{
+  font-size:clamp(34px,6.4vw,62px);line-height:1.08;margin:0 0 20px;
+  font-weight:800;letter-spacing:-.035em;max-width:16ch;
+}
+.lede{font-size:clamp(17px,2.3vw,20px);color:var(--ink2);max-width:60ch;margin:0 0 30px;line-height:1.7}
+.meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.pill{
+  font-size:12.5px;font-weight:600;color:var(--ink2);background:var(--surface);
+  border:1px solid var(--line);border-radius:7px;padding:5px 11px;
+}
+
+/* ---------- 섹션 ---------- */
+section{padding:58px 0;border-top:1px solid var(--line)}
+section:first-of-type{border-top:none}
+.sec-no{
+  font-family:var(--mono);font-size:12px;color:var(--hv);font-weight:600;
+  display:block;margin-bottom:10px;
+}
+h2{font-size:clamp(25px,3.6vw,36px);line-height:1.22;margin:0 0 16px;font-weight:800;letter-spacing:-.028em;max-width:22ch}
+h3{font-size:20px;margin:40px 0 12px;font-weight:700;letter-spacing:-.02em}
+h4{font-size:16.5px;margin:26px 0 8px;font-weight:700}
+p{margin:0 0 17px;max-width:74ch}
+ul,ol{max-width:74ch;padding-left:22px;margin:0 0 18px}
+li{margin-bottom:9px}
+strong{font-weight:700;color:var(--ink)}
+.q{color:var(--ink2)}
+
+/* ---------- 용어 툴팁 ---------- */
+.term{
+  border-bottom:1.5px dotted var(--hv);cursor:help;position:relative;font-weight:600;
+}
+.term::after{
+  content:attr(data-def);
+  position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-50%) translateY(4px);
+  width:min(300px,78vw);background:var(--surface2);border:1px solid var(--hv);border-radius:10px;
+  padding:11px 13px;font-size:13.5px;line-height:1.6;color:var(--ink2);font-weight:400;
+  opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:50;box-shadow:var(--shadow);
+  letter-spacing:0;text-align:left;
+}
+.term:hover::after,.term:focus::after{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ---------- 카드/박스 ---------- */
+.note{
+  border-left:3px solid var(--hv);background:var(--surface);
+  padding:16px 20px;border-radius:0 11px 11px 0;margin:24px 0;max-width:76ch;
+}
+.note.warn{border-left-color:var(--warn)}
+.note.hw{border-left-color:var(--hw)}
+.note-h{font-weight:700;font-size:14.5px;margin-bottom:6px;color:var(--hv)}
+.note.warn .note-h{color:var(--warn)}
+.note.hw .note-h{color:var(--hw)}
+.note p:last-child{margin-bottom:0}
+.note p{font-size:15.5px;color:var(--ink2)}
+
+.grid{display:grid;gap:16px;margin:26px 0}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:760px){.g2,.g3{grid-template-columns:1fr}}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 21px;
+}
+.card h4{margin:0 0 8px;font-size:16px}
+.card p{font-size:15px;color:var(--ink2);margin:0}
+.card p + p{margin-top:10px}
+
+/* ---------- 코드 ---------- */
+pre{
+  background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:16px 18px;overflow-x:auto;margin:20px 0;font-family:var(--mono);
+  font-size:13.5px;line-height:1.72;color:var(--ink2);
+}
+pre .c{color:var(--ink3)}
+pre .k{color:var(--hv)}
+pre .v{color:var(--hw)}
+pre .s{color:var(--app)}
+
+/* ---------- 표 ---------- */
+.tablewrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:13px}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:14.5px}
+th,td{padding:12px 15px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--surface2);font-weight:700;font-size:13px;color:var(--ink2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td{color:var(--ink2)}
+td strong{color:var(--ink)}
+
+/* ---------- 인터랙티브 공통 ---------- */
+.demo{
+  background:var(--surface);border:1px solid var(--line);border-radius:17px;
+  padding:22px;margin:30px 0;box-shadow:var(--shadow);
+}
+.demo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;margin-bottom:6px}
+.demo-title{font-weight:700;font-size:16.5px;margin:0}
+.demo-hint{font-size:13px;color:var(--ink3);margin:0 0 18px}
+.seg{display:inline-flex;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px;flex-wrap:wrap}
+.seg button{
+  font:inherit;font-size:13.5px;font-weight:600;color:var(--ink3);background:transparent;
+  border:none;border-radius:7px;padding:7px 14px;cursor:pointer;transition:background .15s,color .15s;
+}
+.seg button[aria-pressed="true"]{background:var(--surface2);color:var(--ink)}
+
+/* ---------- 스택 시각화 ---------- */
+.stackwrap{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:22px;margin-top:20px}
+@media (max-width:820px){.stackwrap{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column;gap:7px}
+.lyr{
+  font:inherit;text-align:left;width:100%;cursor:pointer;
+  background:var(--surface2);border:1px solid var(--line);border-radius:11px;
+  padding:13px 15px;color:var(--ink);transition:transform .16s,border-color .16s,background .16s;
+  display:flex;align-items:center;gap:12px;
+}
+.lyr:hover{transform:translateX(4px)}
+.lyr .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.lyr .nm{font-weight:700;font-size:14.5px}
+.lyr .sb{font-size:12.5px;color:var(--ink3);margin-left:auto;font-family:var(--mono)}
+.lyr[aria-pressed="true"]{background:var(--bg2)}
+.lyr.l-hw{border-left:4px solid var(--hw)}.lyr.l-hw .dot{background:var(--hw)}
+.lyr.l-hv{border-left:4px solid var(--hv)}.lyr.l-hv .dot{background:var(--hv)}
+.lyr.l-os{border-left:4px solid var(--guest)}.lyr.l-os .dot{background:var(--guest)}
+.lyr.l-app{border-left:4px solid var(--app)}.lyr.l-app .dot{background:var(--app)}
+.lyr[aria-pressed="true"].l-hw{border-color:var(--hw)}
+.lyr[aria-pressed="true"].l-hv{border-color:var(--hv)}
+.lyr[aria-pressed="true"].l-os{border-color:var(--guest)}
+.lyr[aria-pressed="true"].l-app{border-color:var(--app)}
+.vmrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.vmrow.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.vmbox{border:1px dashed var(--line);border-radius:11px;padding:7px;display:flex;flex-direction:column;gap:6px}
+.vmbox .tag{font-size:11px;font-family:var(--mono);color:var(--ink3);padding-left:3px}
+.vmbox .lyr{padding:9px 11px;border-radius:8px}
+.vmbox .lyr .nm{font-size:13px}
+.detail{
+  background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:18px 19px;
+  align-self:start;position:sticky;top:110px;
+}
+@media (max-width:820px){.detail{position:static}}
+.detail h5{margin:0 0 4px;font-size:15.5px;font-weight:700}
+.detail .role{font-size:12px;font-family:var(--mono);color:var(--ink3);margin:0 0 12px}
+.detail p{font-size:14.5px;color:var(--ink2);margin:0 0 12px;max-width:none}
+.detail ul{font-size:14px;color:var(--ink2);margin:0;padding-left:19px}
+.detail li{margin-bottom:6px}
+
+/* ---------- 링 다이어그램 ---------- */
+.ringwrap{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:26px;align-items:center;margin-top:20px}
+@media (max-width:760px){.ringwrap{grid-template-columns:1fr}}
+.ringsvg{width:100%;height:auto;display:block}
+.ringsvg .rg{cursor:pointer;transition:opacity .2s}
+.ringsvg .rg:hover{opacity:.82}
+.ringsvg text{font-family:var(--mono);font-size:13px;fill:var(--ink);pointer-events:none;font-weight:600}
+.ringsvg .sub{font-size:9.5px;fill:var(--ink3);font-weight:400}
+
+/* ---------- 스텝 시뮬레이터 ---------- */
+.simstage{
+  background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:18px;margin-top:18px;
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;
+}
+@media (max-width:700px){.simstage{grid-template-columns:1fr}}
+.simbox{
+  border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:var(--surface);
+  transition:border-color .2s,box-shadow .2s,transform .2s;
+}
+.simbox.hot{border-color:var(--hv);box-shadow:0 0 0 2px color-mix(in srgb,var(--hv) 26%,transparent);transform:translateY(-3px)}
+.simbox .lbl{font-family:var(--mono);font-size:11px;color:var(--ink3);margin-bottom:5px}
+.simbox .val{font-weight:700;font-size:14.5px}
+.simbox .dsc{font-size:12.5px;color:var(--ink3);margin-top:5px;line-height:1.5}
+.simnarr{
+  margin-top:16px;background:var(--surface2);border:1px solid var(--line);border-radius:11px;
+  padding:15px 17px;min-height:96px;
+}
+.simnarr .st{font-family:var(--mono);font-size:11.5px;color:var(--hv);margin-bottom:6px}
+.simnarr p{margin:0;font-size:15px;color:var(--ink2);max-width:none}
+.simctl{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;align-items:center}
+.btn{
+  font:inherit;font-size:14px;font-weight:600;padding:9px 18px;border-radius:10px;cursor:pointer;
+  background:var(--hv);color:#0A1A18;border:1px solid transparent;transition:filter .15s;
+}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--ink2);border-color:var(--line)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--ink3)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.stepdots{display:flex;gap:6px;margin-left:auto}
+.stepdots i{width:7px;height:7px;border-radius:50%;background:var(--line);display:block}
+.stepdots i.on{background:var(--hv)}
+
+/* ---------- 계산기 ---------- */
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;margin-top:18px}
+@media (max-width:760px){.calc{grid-template-columns:1fr}}
+.field{margin-bottom:18px}
+.field label{display:flex;justify-content:space-between;font-size:13.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;gap:10px}
+.field label b{color:var(--hv);font-family:var(--mono);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--hv);height:22px}
+.out{background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:20px}
+.bignum{font-size:42px;font-weight:800;line-height:1.05;letter-spacing:-.04em;color:var(--hv);font-variant-numeric:tabular-nums}
+.bignum small{font-size:16px;color:var(--ink3);font-weight:600;margin-left:5px;letter-spacing:0}
+.outrow{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:9px 0;border-bottom:1px solid var(--line)}
+.outrow:last-child{border-bottom:none}
+.outrow span{color:var(--ink3)}
+.outrow b{font-variant-numeric:tabular-nums}
+.barvis{display:flex;gap:3px;margin:16px 0 4px;flex-wrap:wrap}
+.barvis i{width:11px;height:18px;border-radius:3px;background:var(--line);display:block}
+.barvis i.used{background:var(--hv)}
+.barvis i.waste{background:color-mix(in srgb,var(--warn) 45%,transparent)}
+.barlegend{font-size:12px;color:var(--ink3);display:flex;gap:14px;flex-wrap:wrap}
+.barlegend em{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.barlegend em::before{content:'';width:9px;height:9px;border-radius:2px;background:var(--line)}
+.barlegend em.u::before{background:var(--hv)}
+.barlegend em.w::before{background:color-mix(in srgb,var(--warn) 45%,transparent)}
+
+/* ---------- 제품 필터 ---------- */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+.chip{
+  font:inherit;font-size:13px;font-weight:600;padding:6px 13px;border-radius:100px;cursor:pointer;
+  background:var(--bg2);border:1px solid var(--line);color:var(--ink3);transition:color .15s,border-color .15s;
+}
+.chip[aria-pressed="true"]{color:var(--ink);border-color:var(--hv);background:var(--surface2)}
+.prod{
+  border:1px solid var(--line);border-radius:13px;padding:17px 19px;background:var(--surface2);
+  margin-bottom:11px;
+}
+.prod.hide{display:none}
+.prod-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px;margin-bottom:7px}
+.prod-nm{font-weight:700;font-size:16px}
+.prod-tag{font-size:11.5px;font-family:var(--mono);color:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
+.prod p{font-size:14.5px;color:var(--ink2);margin:0 0 9px;max-width:none}
+.prod dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:13.5px}
+.prod dt{color:var(--ink3);white-space:nowrap}
+.prod dd{margin:0;color:var(--ink2)}
+
+/* ---------- 용어집 ---------- */
+.search{
+  width:100%;max-width:420px;font:inherit;font-size:15px;padding:11px 15px;border-radius:11px;
+  background:var(--bg2);border:1px solid var(--line);color:var(--ink);margin-bottom:18px;
+}
+.search::placeholder{color:var(--ink3)}
+.gl{border-top:1px solid var(--line)}
+.gl.hide{display:none}
+.gl dt{font-weight:700;font-size:15.5px;padding-top:15px}
+.gl dt em{font-style:normal;font-family:var(--mono);font-size:12.5px;color:var(--ink3);font-weight:400;margin-left:8px}
+.gl dd{margin:5px 0 15px;font-size:14.5px;color:var(--ink2);line-height:1.65}
+.noresult{color:var(--ink3);font-size:15px;padding:18px 0}
+
+/* ---------- 퀴즈 ---------- */
+.quiz{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:20px 22px;margin-bottom:14px}
+.quiz .qn{font-family:var(--mono);font-size:11.5px;color:var(--hv);margin-bottom:7px}
+.quiz .qt{font-weight:700;font-size:16.5px;margin:0 0 14px;line-height:1.5;max-width:none}
+.opt{
+  display:block;width:100%;text-align:left;font:inherit;font-size:14.5px;
+  background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+  padding:11px 15px;margin-bottom:8px;cursor:pointer;color:var(--ink2);
+  transition:border-color .15s,color .15s;
+}
+.opt:hover:not(:disabled){border-color:var(--ink3);color:var(--ink)}
+.opt:disabled{cursor:default}
+.opt.right{border-color:var(--ok);color:var(--ink);background:color-mix(in srgb,var(--ok) 11%,var(--bg2))}
+.opt.wrong{border-color:var(--warn);color:var(--ink);background:color-mix(in srgb,var(--warn) 11%,var(--bg2))}
+.expl{
+  font-size:14.5px;color:var(--ink2);background:var(--surface2);border-radius:10px;
+  padding:13px 15px;margin-top:10px;display:none;line-height:1.65;
+}
+.expl.show{display:block}
+.expl b{color:var(--ink)}
+
+/* ---------- 푸터 ---------- */
+footer{border-top:1px solid var(--line);padding:44px 0 70px;color:var(--ink3);font-size:14px}
+.nextup{
+  background:linear-gradient(135deg,color-mix(in srgb,var(--hv) 13%,var(--surface)),var(--surface));
+  border:1px solid var(--line);border-radius:17px;padding:26px 28px;margin:34px 0;
+}
+.nextup h3{margin:0 0 10px;font-size:20px}
+.nextup p{color:var(--ink2);font-size:15.5px;margin:0 0 14px}
+.nextup ul{font-size:15px;color:var(--ink2);margin:0}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="brand-txt">하이퍼바이저 <span>· 1편</span></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="tbtn" id="themeBtn" aria-label="테마 바꾸기">라이트 모드</button>
+  </div>
+  <div class="progress"><i id="prog"></i></div>
+</header>
+
+<div class="wrap">
+<div class="shell">
+
+  <nav class="toc" aria-label="목차">
+    <p class="toc-h">목차</p>
+    <a href="#s1">1. 서버 한 대, 앱 한 개의 시대</a>
+    <a href="#s2">2. 하이퍼바이저의 정의</a>
+    <a href="#s3">3. Type 1과 Type 2</a>
+    <a href="#s4">4. x86은 가상화가 안 되는 CPU였다</a>
+    <a href="#s5">5. 세 가지 해법</a>
+    <a href="#s6">6. VM Exit이라는 청구서</a>
+    <a href="#s7">7. 제품 지형</a>
+    <a href="#s8">8. 실무에서 만나는 장면들</a>
+    <a href="#s9">9. 자주 헷갈리는 것들</a>
+    <a href="#s10">10. 용어 사전</a>
+    <a href="#s11">11. 이해도 체크</a>
+  </nav>
+
+  <main>
+
+  <div class="hero">
+    <div class="eyebrow"><b>시리즈</b> 하이퍼바이저 완전 정복 · 1편 / 전 3편</div>
+    <h1>서버 한 대를 여럿처럼 쓰는 기술</h1>
+    <p class="lede">
+      하이퍼바이저는 물리 서버 한 대의 CPU·메모리·디스크·네트워크를 쪼개서, 각각의 가상 머신이
+      "내가 이 서버를 통째로 쓰고 있다"고 착각하게 만드는 소프트웨어입니다.
+      이 착각을 어떻게 만들어내는지, 왜 x86에서는 그게 20년 동안 어려운 문제였는지를 다룹니다.
+    </p>
+    <div class="meta">
+      <span class="pill">대상 · 1~2년차 클라우드 엔지니어</span>
+      <span class="pill">선수 지식 · 리눅스 기본, OS 개념 약간</span>
+      <span class="pill">읽는 시간 · 약 35분</span>
+    </div>
+  </div>
+
+  <!-- ============================================================ 1 -->
+  <section id="s1">
+    <span class="sec-no">01</span>
+    <h2>서버 한 대에 앱 하나를 올리던 시절</h2>
+    <p>
+      2000년대 초 데이터센터의 기본 단위는 "업무 하나 = 물리 서버 한 대"였습니다.
+      그룹웨어 서버, 메일 서버, 회계 서버가 각각 따로 있었죠. 이유는 단순했습니다.
+      한 OS 위에 여러 앱을 올리면 하나가 메모리를 다 먹거나 죽을 때 나머지도 같이 죽었고,
+      라이브러리 버전도 충돌했으니까요. <strong>격리하려면 하드웨어를 나눌 수밖에 없었습니다.</strong>
+    </p>
+    <p>
+      문제는 그렇게 산 서버들의 평균 CPU 사용률이 대체로 한 자릿수에서 10%대에 머물렀다는 점입니다.
+      피크 트래픽을 견디도록 사이징하니 평소에는 대부분 놀고, 그렇다고 줄이면 월말 결산 때 죽습니다.
+      구매비·전력·냉각·랙 공간·OS 라이선스를 전부 지불하면서 성능의 대부분을 버리는 구조였고,
+      이걸 <span class="term" data-def="쓰임새마다 서버를 계속 사들여 관리 안 되는 물리 서버가 기하급수로 늘어나는 현상.">서버 스프롤(server sprawl)</span>이라고 불렀습니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">통합 효과 계산기</p></div>
+      <p class="demo-hint">슬라이더를 움직여 보세요. 물리 서버를 가상화로 합쳤을 때 몇 대로 줄어드는지 계산합니다.</p>
+      <div class="calc">
+        <div>
+          <div class="field">
+            <label for="cSrv">물리 서버 대수 <b><span id="cSrvV">40</span>대</b></label>
+            <input type="range" id="cSrv" min="5" max="200" value="40" step="5">
+          </div>
+          <div class="field">
+            <label for="cUtil">서버당 평균 CPU 사용률 <b><span id="cUtilV">12</span>%</b></label>
+            <input type="range" id="cUtil" min="3" max="60" value="12" step="1">
+          </div>
+          <div class="field">
+            <label for="cTarget">통합 후 목표 사용률 <b><span id="cTargetV">65</span>%</b></label>
+            <input type="range" id="cTarget" min="30" max="85" value="65" step="5">
+          </div>
+          <div class="field">
+            <label for="cPower">서버 1대 연간 전력·냉각 비용 <b><span id="cPowerV">60</span>만원</b></label>
+            <input type="range" id="cPower" min="20" max="200" value="60" step="10">
+          </div>
+        </div>
+        <div class="out">
+          <div class="bignum"><span id="oHosts">8</span><small>대로 통합</small></div>
+          <div class="barvis" id="oBar" aria-hidden="true"></div>
+          <p class="barlegend">
+            <em class="u">실제 사용</em><em class="w">낭비되는 성능</em><em>통합으로 회수</em>
+          </p>
+          <div class="outrow"><span>통합 비율</span><b id="oRatio">5 : 1</b></div>
+          <div class="outrow"><span>줄어드는 물리 서버</span><b id="oSaved">32대</b></div>
+          <div class="outrow"><span>연간 전력·냉각 절감</span><b id="oCost">1,920만원</b></div>
+          <div class="outrow"><span>확보되는 랙 유닛(1U 기준)</span><b id="oRack">32U</b></div>
+        </div>
+      </div>
+      <div class="note" style="margin-bottom:0">
+        <div class="note-h">숫자를 그대로 믿으면 안 되는 이유</div>
+        <p>
+          실제 통합 설계는 CPU만 보고 하지 않습니다. 메모리 총량, 디스크 IOPS, 네트워크 대역폭 중
+          가장 먼저 꽉 차는 자원이 한계를 결정합니다. 현장에서는 <strong>CPU보다 메모리가 먼저 바닥나는 경우가 훨씬 많습니다.</strong>
+          여기에 호스트 한 대가 죽어도 버티도록 여유분(N+1)을 얹어야 합니다.
+        </p>
+      </div>
+    </div>
+
+    <p>
+      2001년 VMware가 ESX를, 2003년 케임브리지 대학 팀이 Xen을 내놓으면서 이 낭비를 걷어낼 수 있게 됐습니다.
+      "격리는 유지하되 하드웨어는 공유한다" — 이 한 문장이 하이퍼바이저의 존재 이유입니다.
+      그리고 이 발상은 지금도 유효합니다. AWS·Azure·GCP가 여러분에게 EC2 인스턴스를 파는 방식이
+      정확히 이것이니까요.
+    </p>
+  </section>
+
+  <!-- ============================================================ 2 -->
+  <section id="s2">
+    <span class="sec-no">02</span>
+    <h2>하이퍼바이저가 실제로 하는 일</h2>
+    <p>
+      <strong>하이퍼바이저(Hypervisor)</strong>는 물리 하드웨어와 운영체제 사이에 끼어들어 하드웨어를 추상화하고
+      여러 <span class="term" data-def="Virtual Machine. 하이퍼바이저가 만들어낸 가상의 컴퓨터. 자체 OS(게스트 OS)를 가진다.">가상 머신(VM)</span>에 나눠주는 소프트웨어 계층입니다.
+      학술적으로는 <strong>VMM(Virtual Machine Monitor)</strong>이라고 부릅니다. 두 용어는 사실상 같은 뜻으로 쓰입니다.
+    </p>
+    <p>이름은 OS의 별칭인 "supervisor"에서 왔습니다. 감독자(supervisor) 위에 있는 존재라는 뜻으로 <em>hyper</em>-visor입니다. 이 작명 자체가 계층 관계를 그대로 설명합니다.</p>
+
+    <h3>세 가지 핵심 역할</h3>
+    <div class="grid g3">
+      <div class="card">
+        <h4 style="color:var(--hv)">추상화</h4>
+        <p>게스트 OS에게 진짜 하드웨어가 아닌 <em>표준화된 가상 하드웨어</em>를 보여줍니다. 물리 NIC이 Intel이든 Broadcom이든, 게스트는 동일한 가상 NIC만 봅니다. 그래서 VM을 다른 서버로 옮겨도 드라이버를 다시 안 잡아도 됩니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--hw)">분할</h4>
+        <p>CPU는 시간으로 쪼개고(스케줄링), 메모리는 공간으로 쪼개고, 디스크는 파일로 쪼갭니다. 물리 코어 16개에서 vCPU 40개를 뽑아내는 <span class="term" data-def="실제 물리 자원보다 많은 양을 VM들에 할당하는 것. 모든 VM이 동시에 풀로 쓰지 않는다는 전제에 기댄다.">오버커밋</span>이 여기서 나옵니다.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--guest)">격리</h4>
+        <p>VM A가 커널 패닉으로 죽어도 VM B는 멀쩡해야 하고, VM A가 VM B의 메모리를 읽을 수 없어야 합니다. 이 격리 경계가 무너지는 게 나중에 다룰 <span class="term" data-def="게스트 VM에서 코드를 실행해 하이퍼바이저나 호스트를 장악하는 공격. 가상화 보안의 최악 시나리오.">VM 탈출(VM Escape)</span>입니다.</p>
+      </div>
+    </div>
+
+    <h3>VM은 결국 파일 몇 개다</h3>
+    <p>
+      추상적으로 느껴진다면 이렇게 보면 됩니다. 실행 중이 아닌 VM은 <strong>디스크 위의 파일 묶음</strong>입니다.
+    </p>
+<pre><span class="c"># KVM/QEMU 환경의 VM 한 대 실체</span>
+/var/lib/libvirt/images/<span class="v">web-01.qcow2</span>   <span class="c">← 가상 디스크 (실제 데이터)</span>
+/etc/libvirt/qemu/<span class="v">web-01.xml</span>          <span class="c">← 하드웨어 명세서</span>
+                                          <span class="c">  vCPU 4개, RAM 8GB, NIC 1개, 디스크 1개…</span>
+
+<span class="c"># VMware ESXi 환경</span>
+/vmfs/volumes/datastore1/web-01/<span class="v">web-01.vmdk</span>      <span class="c">← 가상 디스크</span>
+/vmfs/volumes/datastore1/web-01/<span class="v">web-01.vmx</span>       <span class="c">← 설정 파일</span>
+/vmfs/volumes/datastore1/web-01/<span class="v">web-01.nvram</span>     <span class="c">← 가상 BIOS/UEFI 상태</span>
+</pre>
+    <p>
+      이 사실 하나에서 엄청난 편의가 파생됩니다. 서버를 복제하는 게 <strong>파일 복사</strong>가 되고,
+      백업이 <strong>파일 백업</strong>이 되고, 재해복구가 <strong>파일 전송</strong>이 됩니다.
+      물리 서버 시절에는 상상도 못 하던 일입니다.
+    </p>
+    <div class="note hw">
+      <div class="note-h">현장 감각</div>
+      <p>
+        신입 엔지니어가 가장 먼저 겪는 사고 중 하나가 <code>.qcow2</code>나 <code>.vmdk</code> 파일이 있는
+        데이터스토어를 꽉 채우는 일입니다. 씬 프로비저닝으로 100GB 디스크를 10대 만들었는데
+        실제 스토리지는 500GB라면, 게스트들이 데이터를 채우는 순간 <strong>전 VM이 동시에 멈춥니다.</strong>
+        가상 디스크의 "할당 용량"과 "실제 점유 용량"은 다른 숫자입니다.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================ 3 -->
+  <section id="s3">
+    <span class="sec-no">03</span>
+    <h2>Type 1과 Type 2, 무엇이 다른가</h2>
+    <p>
+      하이퍼바이저는 <strong>어디에 설치되는가</strong>로 두 종류로 나뉩니다.
+      1974년 제럴드 팝엑과 로버트 골드버그의 논문에서 유래한 분류입니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head">
+        <p class="demo-title">계층 구조 비교</p>
+        <div class="seg" role="group" aria-label="하이퍼바이저 타입 선택">
+          <button id="btnT1" aria-pressed="true">Type 1 · 베어메탈</button>
+          <button id="btnT2" aria-pressed="false">Type 2 · 호스티드</button>
+        </div>
+      </div>
+      <p class="demo-hint">각 계층을 눌러 그 계층이 무슨 일을 하는지 확인해 보세요.</p>
+      <div class="stackwrap">
+        <div class="stack" id="stack"></div>
+        <div class="detail" id="stackDetail" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>기준</th><th>Type 1 (베어메탈)</th><th>Type 2 (호스티드)</th></tr></thead>
+        <tbody>
+          <tr><td><strong>설치 위치</strong></td><td>하드웨어 위에 직접</td><td>기존 OS 위에 애플리케이션으로</td></tr>
+          <tr><td><strong>하드웨어 접근</strong></td><td>직접</td><td>호스트 OS를 한 번 거침</td></tr>
+          <tr><td><strong>성능</strong></td><td>물리 대비 통상 수 % 손실</td><td>계층이 하나 더 있어 손실 큼</td></tr>
+          <tr><td><strong>공격 표면</strong></td><td>작음 (전용 커널만 존재)</td><td>넓음 (호스트 OS 전체가 포함)</td></tr>
+          <tr><td><strong>부팅 순서</strong></td><td>전원 → 하이퍼바이저</td><td>전원 → OS → 하이퍼바이저 실행</td></tr>
+          <tr><td><strong>대표 제품</strong></td><td>ESXi, Hyper-V, KVM, Xen, Proxmox VE, Nutanix AHV</td><td>VirtualBox, VMware Workstation/Fusion, Parallels Desktop</td></tr>
+          <tr><td><strong>주 용도</strong></td><td>데이터센터, 클라우드, 운영 워크로드</td><td>개발자 노트북, 학습, 테스트</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>KVM은 Type 1인가 Type 2인가</h3>
+    <p>
+      면접에서도 자주 나오는 논쟁거리입니다. KVM은 리눅스 <strong>커널 모듈</strong>(<code>kvm.ko</code>)입니다.
+      리눅스가 이미 떠 있는 상태에서 로드되므로 "OS 위에 올라가니 Type 2"라는 주장이 가능합니다.
+      반대로, 모듈이 로드되는 순간 <strong>리눅스 커널 자체가 하이퍼바이저가 되어</strong> 하드웨어를 직접 제어하므로
+      Type 1이라는 주장도 맞습니다.
+    </p>
+    <p>
+      실무적으로 통용되는 답은 <strong>"Type 1으로 분류한다"</strong>입니다. Red Hat, SUSE, 그리고 KVM을 쓰는
+      모든 퍼블릭 클라우드가 그렇게 씁니다. 다만 면접에서는 "분류는 Type 1이지만, 리눅스 커널에 내장된
+      형태라 Type 1/2의 경계에 있다"고 답하는 게 가장 정확합니다.
+      <strong>중요한 건 라벨이 아니라 "게스트의 명령이 하드웨어에 닿기까지 몇 개의 계층을 거치는가"입니다.</strong>
+    </p>
+  </section>
+
+  <!-- ============================================================ 4 -->
+  <section id="s4">
+    <span class="sec-no">04</span>
+    <h2>x86은 원래 가상화가 불가능한 CPU였다</h2>
+    <p>
+      여기서부터가 하이퍼바이저의 진짜 이야기입니다. 위에서 "게스트 OS를 속인다"고 했는데,
+      <strong>어떻게</strong> 속일까요? 그리고 왜 그게 x86에서는 20년 넘게 풀리지 않은 문제였을까요?
+    </p>
+
+    <h3>보호 링: CPU의 권한 계층</h3>
+    <p>
+      x86 CPU는 실행 권한을 <strong>링(Ring)</strong> 0~3으로 나눕니다. 숫자가 작을수록 권한이 큽니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">x86 보호 링</p></div>
+      <p class="demo-hint">링을 클릭하면 설명이 바뀝니다.</p>
+      <div class="ringwrap">
+        <svg class="ringsvg" viewBox="0 0 320 320" role="img" aria-label="x86 보호 링 다이어그램">
+          <g class="rg" data-ring="3" tabindex="0" role="button" aria-label="Ring 3">
+            <circle cx="160" cy="160" r="150" fill="none" stroke="#FF7BB0" stroke-width="30" opacity=".85"/>
+            <text x="160" y="24" text-anchor="middle">Ring 3</text>
+          </g>
+          <g class="rg" data-ring="2" tabindex="0" role="button" aria-label="Ring 2와 1">
+            <circle cx="160" cy="160" r="118" fill="none" stroke="#9B8CFF" stroke-width="26" opacity=".45"/>
+            <text x="160" y="52" text-anchor="middle" class="sub">Ring 2 · 1 (미사용)</text>
+          </g>
+          <g class="rg" data-ring="0" tabindex="0" role="button" aria-label="Ring 0">
+            <circle cx="160" cy="160" r="88" fill="none" stroke="#9B8CFF" stroke-width="30"/>
+            <text x="160" y="84" text-anchor="middle">Ring 0</text>
+          </g>
+          <g class="rg" data-ring="-1" tabindex="0" role="button" aria-label="Ring 마이너스 1">
+            <circle cx="160" cy="160" r="58" fill="#35D6C0" opacity=".2"/>
+            <circle cx="160" cy="160" r="58" fill="none" stroke="#35D6C0" stroke-width="2.5" stroke-dasharray="5 4"/>
+            <text x="160" y="156" text-anchor="middle">Ring -1</text>
+            <text x="160" y="174" text-anchor="middle" class="sub">VMX root</text>
+          </g>
+        </svg>
+        <div class="detail" id="ringDetail" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <p>
+      정상적인 상황에서는 앱이 Ring 3, OS 커널이 Ring 0에 있습니다. 앱이 디스크를 읽고 싶으면
+      직접 하지 못하고 <span class="term" data-def="Ring 3의 앱이 Ring 0의 커널에게 작업을 요청하는 공식 창구. 예: read(), write().">시스템 콜</span>로 커널에 부탁합니다.
+      그럼 가상화를 하면 어떻게 될까요? <strong>게스트 OS는 자기가 Ring 0에 있다고 믿지만, 실제로 Ring 0을 내주면
+      하드웨어를 마음대로 만져버립니다.</strong> 하이퍼바이저가 통제권을 잃습니다.
+    </p>
+
+    <h3>이론적 해법: 트랩 앤 에뮬레이트</h3>
+    <p>
+      팝엑과 골드버그가 1974년 논문에서 제시한 방식은 <strong>디프리빌리징(de-privileging)</strong>입니다.
+      게스트 OS를 Ring 0이 아닌 낮은 권한(Ring 1이나 3)에 두고, 하이퍼바이저만 Ring 0을 차지합니다.
+      게스트 OS가 특권 명령을 실행하려 하면 CPU가 <strong>권한 위반 예외(트랩)</strong>를 발생시키고,
+      제어권이 하이퍼바이저로 넘어옵니다. 하이퍼바이저는 그 명령을 대신 흉내 내준 뒤(에뮬레이트)
+      게스트에게 "정상 처리됐어"라고 돌려줍니다.
+    </p>
+    <p>
+      같은 논문은 <strong>가상화 가능한 CPU의 조건</strong>도 정의했습니다. 핵심은
+      "시스템 상태에 영향을 주는 민감한(sensitive) 명령은 모두 특권(privileged) 명령이어야 한다"는 것입니다.
+      민감한데 특권이 아니면, 트랩이 안 걸려서 하이퍼바이저가 개입할 기회를 놓칩니다.
+    </p>
+
+    <div class="note warn">
+      <div class="note-h">x86의 결함</div>
+      <p>
+        2000년 로빈과 어바인의 연구에서 x86에는 <strong>민감하지만 특권이 아닌 명령이 17개</strong> 있다는 것이 밝혀졌습니다.
+        <code>SGDT</code>, <code>SIDT</code>, <code>SLDT</code>, <code>SMSW</code>, <code>PUSHF</code>, <code>POPF</code>,
+        <code>LAR</code>, <code>LSL</code>, <code>STR</code> 등입니다.
+        즉 x86은 팝엑·골드버그 조건을 만족하지 않았고, <strong>이론상 가상화가 불가능한 아키텍처였습니다.</strong>
+      </p>
+    </div>
+
+    <h4>가장 유명한 사고뭉치: POPF</h4>
+    <p>
+      <code>POPF</code>는 스택에서 값을 꺼내 플래그 레지스터에 넣는 명령입니다. 그 플래그 중에
+      인터럽트 활성화 비트(IF)가 있습니다. 게스트 커널이 "인터럽트 꺼!"라고 <code>POPF</code>를 실행하면,
+      Ring 0에서는 IF가 바뀌지만 <strong>Ring 3에서는 예외도 안 나고 그냥 조용히 무시됩니다.</strong>
+    </p>
+    <p>
+      게스트 OS는 인터럽트를 껐다고 믿고 임계 구역에 들어가지만 실제로는 안 꺼졌습니다.
+      에러도 없으니 하이퍼바이저는 개입할 방법이 없습니다. <strong>조용히 틀리는 것</strong>이야말로
+      가장 고치기 어려운 종류의 버그입니다. 이 하나 때문에 x86 가상화 전체가 막혀 있었습니다.
+    </p>
+  </section>
+
+  <!-- ============================================================ 5 -->
+  <section id="s5">
+    <span class="sec-no">05</span>
+    <h2>막힌 길을 뚫은 세 가지 해법</h2>
+    <p>업계는 세 가지 서로 다른 방향으로 이 문제를 풀었습니다. 역사적 순서대로 보겠습니다.</p>
+
+    <div class="demo">
+      <div class="demo-head">
+        <p class="demo-title">해법 비교</p>
+        <div class="seg" role="group" aria-label="가상화 방식 선택">
+          <button class="tech" data-t="bt" aria-pressed="true">바이너리 변환</button>
+          <button class="tech" data-t="pv" aria-pressed="false">반가상화</button>
+          <button class="tech" data-t="hw" aria-pressed="false">하드웨어 보조</button>
+        </div>
+      </div>
+      <div id="techBody"></div>
+    </div>
+
+    <h3>지금의 표준: 하드웨어 보조 가상화</h3>
+    <p>
+      2005~2006년 인텔이 <strong>VT-x</strong>, AMD가 <strong>AMD-V(SVM)</strong>를 내놓으면서 문제가 CPU 차원에서 해결됐습니다.
+      해법은 우아합니다. <strong>링 구조를 손대는 대신, 링 체계 전체를 두 벌로 복제했습니다.</strong>
+    </p>
+    <ul>
+      <li><strong>VMX root 모드</strong> — 하이퍼바이저가 사는 세계. 흔히 "Ring -1"이라 부르는 게 여기입니다.</li>
+      <li><strong>VMX non-root 모드</strong> — 게스트가 사는 세계. 게스트 OS는 <em>진짜로</em> Ring 0에서 돕니다. 속이지 않아도 됩니다.</li>
+    </ul>
+    <p>
+      게스트는 자기 세계의 Ring 0에서 정상적으로 동작하다가, 하이퍼바이저가 가로채기로 지정한 사건
+      (I/O 접근, 특정 레지스터 쓰기, <code>CPUID</code> 실행 등)을 만나면
+      <strong>VM Exit</strong>이 발생해 제어권이 root 모드로 넘어갑니다. 처리가 끝나면 <strong>VM Entry</strong>로 돌아갑니다.
+    </p>
+    <p>
+      이때 게스트의 모든 레지스터 상태를 담아두는 메모리 구조가 인텔의 <span class="term" data-def="Virtual Machine Control Structure. 게스트 상태, 호스트 상태, 어떤 사건에서 VM Exit을 낼지를 담는 4KB 구조체.">VMCS</span>이고,
+      AMD에서는 <strong>VMCB</strong>라고 부릅니다. 이 구조체가 VM의 "저장된 의식"인 셈입니다.
+    </p>
+
+    <div class="demo">
+      <div class="demo-head"><p class="demo-title">VM Exit 한 사이클 따라가기</p></div>
+      <p class="demo-hint">게스트가 <code>CPUID</code> 명령을 실행했을 때 벌어지는 일을 단계별로 봅니다.</p>
+      <div class="simstage">
+        <div class="simbox" id="sbGuest">
+          <div class="lbl">VMX non-root</div>
+          <div class="val">게스트 OS</div>
+          <div class="dsc" id="sbGuestD">대기 중</div>
+        </div>
+        <div class="simbox" id="sbCpu">
+          <div class="lbl">하드웨어</div>
+          <div class="val">CPU · VMCS</div>
+          <div class="dsc" id="sbCpuD">대기 중</div>
+        </div>
+        <div class="simbox" id="sbHv">
+          <div class="lbl">VMX root</div>
+          <div class="val">하이퍼바이저</div>
+          <div class="dsc" id="sbHvD">대기 중</div>
+        </div>
+      </div>
+      <div class="simnarr">
+        <div class="st" id="simStep">준비</div>
+        <p id="simText">"다음 단계"를 눌러 시작하세요.</p>
+      </div>
+      <div class="simctl">
+        <button class="btn" id="simNext">다음 단계</button>
+        <button class="btn ghost" id="simReset">처음부터</button>
+        <div class="stepdots" id="simDots" aria-hidden="true"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 6 -->
+  <section id="s6">
+    <span class="sec-no">06</span>
+    <h2>VM Exit이라는 청구서</h2>
+    <p>
+      하드웨어 보조 가상화가 모든 걸 공짜로 해주는 건 아닙니다. VM Exit 한 번에는 비용이 듭니다.
+      게스트의 레지스터 전부를 VMCS에 저장하고, 하이퍼바이저 상태를 복원하고,
+      파이프라인과 분기 예측기가 무효화되고, 일부 캐시가 날아갑니다.
+    </p>
+    <p>
+      <strong>수백에서 수천 CPU 사이클</strong> 규모입니다. 일반 함수 호출이 수 사이클인 걸 생각하면 엄청난 차이입니다.
+      초기 세대 하드웨어에서는 이 비용이 워낙 커서, VMware의 잘 최적화된 바이너리 변환이
+      1세대 VT-x보다 빠른 경우도 있었습니다. 세대를 거듭하며 비용이 크게 줄어 지금의 판도가 됐습니다.
+    </p>
+    <p>
+      그래서 <strong>가상화 성능 튜닝의 본질은 "VM Exit을 얼마나 줄이느냐"</strong>입니다.
+      2편에서 다룰 EPT/NPT, virtio, SR-IOV, APICv 같은 기술은 전부 이 목표를 향합니다.
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>VM Exit 원인</th><th>언제 생기나</th><th>줄이는 기술</th></tr></thead>
+        <tbody>
+          <tr><td><strong>페이지 폴트 / 주소 변환</strong></td><td>게스트가 메모리 매핑을 바꿀 때</td><td>EPT(인텔) / NPT(AMD) — 2단계 주소 변환을 하드웨어가 처리</td></tr>
+          <tr><td><strong>I/O 포트 접근</strong></td><td>게스트가 디스크·NIC를 건드릴 때</td><td>virtio 반가상화 드라이버, SR-IOV 직접 할당</td></tr>
+          <tr><td><strong>인터럽트 처리</strong></td><td>게스트가 인터럽트 컨트롤러를 조작할 때</td><td>APICv / AVIC — 인터럽트 가상화를 하드웨어가 대행</td></tr>
+          <tr><td><strong>HLT 명령</strong></td><td>게스트가 할 일이 없어 쉴 때</td><td>HLT 폴링 — 짧은 대기는 exit 없이 넘김</td></tr>
+          <tr><td><strong>CPUID</strong></td><td>게스트가 CPU 기능을 조회할 때</td><td>가로채기 필수. 대신 라이브 마이그레이션 호환성을 확보</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <div class="note-h">직접 확인해 보기</div>
+      <p>리눅스에서 KVM을 쓰고 있다면 실제 VM Exit 통계를 볼 수 있습니다.</p>
+<pre><span class="c"># CPU가 가상화 확장을 지원하는지 (vmx=인텔, svm=AMD)</span>
+grep -c -E <span class="s">'vmx|svm'</span> /proc/cpuinfo
+
+<span class="c"># KVM 모듈이 올라와 있는지</span>
+lsmod | grep kvm
+
+<span class="c"># VM Exit 실시간 통계 (원인별 발생 횟수/초)</span>
+sudo kvm_stat
+
+<span class="c"># 정적 카운터로 확인</span>
+sudo cat /sys/kernel/debug/kvm/exits</pre>
+      <p style="margin-top:12px"><code>kvm_stat</code>을 띄워 놓고 게스트에서 디스크 I/O를 크게 일으켜 보면, 특정 exit 항목이 급증하는 게 눈에 보입니다. 이론이 숫자로 바뀌는 순간입니다.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================ 7 -->
+  <section id="s7">
+    <span class="sec-no">07</span>
+    <h2>지금 현장의 제품 지형</h2>
+    <p>필터를 눌러 조건에 맞는 제품만 볼 수 있습니다.</p>
+    <div class="chips" role="group" aria-label="제품 필터">
+      <button class="chip" data-f="all" aria-pressed="true">전체</button>
+      <button class="chip" data-f="t1" aria-pressed="false">Type 1</button>
+      <button class="chip" data-f="t2" aria-pressed="false">Type 2</button>
+      <button class="chip" data-f="oss" aria-pressed="false">오픈소스</button>
+      <button class="chip" data-f="cloud" aria-pressed="false">퍼블릭 클라우드 기반</button>
+    </div>
+    <div id="prodList"></div>
+
+    <div class="note warn">
+      <div class="note-h">MSP 실무에 직접 영향을 준 변화</div>
+      <p>
+        2023년 11월 브로드컴이 VMware 인수를 마무리한 뒤 라이선스 체계가 크게 바뀌었습니다.
+        영구 라이선스 신규 판매가 중단되고 구독제로 전환됐으며, 수십 개 SKU가
+        VCF(VMware Cloud Foundation)와 VVF(vSphere Foundation) 중심으로 통합됐습니다.
+        과금 단위는 코어 단위이고 CPU당 최소 코어 수가 적용됩니다. 무료 ESXi 배포도 중단됐습니다.
+      </p>
+      <p>
+        그 결과 국내외에서 Proxmox VE, Nutanix AHV, XCP-ng, OpenStack, KubeVirt 등으로의
+        전환 검토가 눈에 띄게 늘었습니다. 고객사 인프라를 운영한다면 <strong>갱신 시점의 코어 수 산정과
+        대안 검토는 이제 정기 업무</strong>에 가깝습니다. 정책은 계속 바뀌므로 갱신 전 최신 조건을 반드시 확인하세요.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================================================ 8 -->
+  <section id="s8">
+    <span class="sec-no">08</span>
+    <h2>실무에서 만나는 장면들</h2>
+
+    <h3>사례 1 — 고객사 노후 서버 통합</h3>
+    <p>
+      5년 지난 물리 서버 30대를 신규 3노드 클러스터로 옮기는 프로젝트. 이때 쓰는 기술이
+      <strong>P2V(Physical to Virtual)</strong>입니다. 물리 서버의 디스크를 통째로 가상 디스크 이미지로 변환합니다.
+    </p>
+    <p>
+      가장 흔한 함정은 <strong>드라이버</strong>입니다. 물리 서버용으로 잡혀 있던 RAID 컨트롤러·NIC 드라이버가
+      가상 하드웨어에서는 존재하지 않아 부팅 직후 블루스크린이 나거나 네트워크가 안 올라옵니다.
+      전환 전에 virtio·VMware Tools 드라이버를 미리 주입해 두는 게 정석입니다.
+      라이선스도 점검 대상입니다. MAC 주소나 하드웨어 시리얼에 묶인 소프트웨어는 전환 즉시 인증이 풀립니다.
+    </p>
+
+    <h3>사례 2 — 15년 된 레거시 시스템 연명</h3>
+    <p>
+      Windows Server 2003에서만 도는 업무 시스템이 아직 살아있고, 개발사는 폐업했고, 서버 하드웨어는 단종.
+      부품이 고장 나면 끝입니다. 이런 상황에서 하이퍼바이저는 <strong>시간을 사는 도구</strong>입니다.
+      물리 서버를 VM으로 떠서 현대 하드웨어 위에 올리면 하드웨어 수명 문제와는 분리됩니다.
+    </p>
+    <p>
+      다만 <strong>보안 문제는 전혀 해결되지 않는다</strong>는 점을 고객에게 분명히 전달해야 합니다.
+      패치 안 되는 OS는 VM 안에 있어도 똑같이 취약합니다. 반드시 네트워크를 분리하고
+      접근 경로를 최소화한 상태로 운영해야 합니다.
+    </p>
+
+    <h3>사례 3 — 개발·검증 환경을 몇 분 만에</h3>
+    <p>
+      "운영과 똑같은 환경에서 재현해 보고 싶다"는 요청. 운영 VM의 스냅샷을 떠서
+      격리된 네트워크에 복제하면 수십 분 안에 동일 환경이 만들어집니다.
+      물리 서버 시절엔 몇 주짜리 일이었습니다.
+    </p>
+    <p>
+      주의할 점은 <strong>스냅샷은 백업이 아니라는 것</strong>입니다. 스냅샷은 원본 디스크에 의존하는
+      변경분 기록이고, 오래 유지하면 체인이 길어져 성능이 떨어지고 삭제(통합) 작업 자체가 위험해집니다.
+      며칠 이상 유지되는 스냅샷은 그 자체가 장애 위험 요인입니다.
+    </p>
+
+    <h3>사례 4 — 재해복구 사이트 구성</h3>
+    <p>
+      VM이 파일이라는 성질을 그대로 활용합니다. 주 사이트의 VM 디스크를 DR 사이트로 복제해 두면,
+      장애 시 복제본을 부팅하는 것으로 서비스를 살립니다. 물리 서버 기반 DR과 달리
+      <strong>양쪽 하드웨어 모델이 달라도 됩니다.</strong> 하이퍼바이저가 하드웨어 차이를 흡수하기 때문입니다.
+    </p>
+    <p>
+      여기서 합의해야 할 두 숫자가 <strong>RPO</strong>(얼마나 최근까지의 데이터를 살릴 것인가)와
+      <strong>RTO</strong>(몇 분 안에 살릴 것인가)입니다. 이 숫자가 복제 주기와 DR 사이트 사양을 결정합니다.
+    </p>
+
+    <h3>사례 5 — 퍼블릭 클라우드의 정체</h3>
+    <p>
+      EC2 인스턴스를 띄우는 건 결국 누군가의 하이퍼바이저 위에 VM을 만드는 일입니다.
+      AWS는 Xen에서 시작해 KVM 기반의 <strong>Nitro</strong>로 전환했습니다. Nitro의 핵심 발상은
+      네트워크·스토리지·보안 처리를 전용 카드로 떼어내서, 호스트 CPU가 가상화 오버헤드에
+      거의 쓰이지 않게 만든 것입니다. Azure는 Hyper-V 계열, GCP는 KVM 기반을 씁니다.
+    </p>
+    <p>
+      이걸 알면 클라우드의 여러 제약이 납득됩니다. 인스턴스 타입별 성능 차이, 전용 호스트 옵션,
+      네트워크 대역폭 상한, 라이브 마이그레이션 지원 여부는 전부 아래에 깔린 하이퍼바이저의 특성에서 나옵니다.
+      <strong>클라우드를 깊게 이해하려면 하이퍼바이저를 이해해야 하는 이유입니다.</strong>
+    </p>
+  </section>
+
+  <!-- ============================================================ 9 -->
+  <section id="s9">
+    <span class="sec-no">09</span>
+    <h2>자주 헷갈리는 것들</h2>
+
+    <div class="grid g2">
+      <div class="card">
+        <h4>"컨테이너가 VM을 대체한다"</h4>
+        <p>
+          둘은 격리 수준이 다릅니다. 컨테이너는 호스트 커널을 공유하고 네임스페이스·cgroup으로 나눕니다.
+          가볍고 빠르지만 커널이 하나라 커널 취약점이 곧 전체 위험입니다.
+          VM은 커널까지 따로 가져서 무겁지만 격리가 강합니다.
+          현실에서는 <strong>VM 위에 쿠버네티스를 올려 둘 다 쓰는 구성</strong>이 가장 흔합니다.
+        </p>
+      </div>
+      <div class="card">
+        <h4>"vCPU 하나 = 물리 코어 하나"</h4>
+        <p>
+          아닙니다. vCPU는 스케줄링 단위이고, 물리 코어를 시간으로 나눠 씁니다.
+          16코어 호스트에 vCPU 64개를 배정할 수 있습니다(4:1 오버커밋).
+          다만 VM들이 동시에 바빠지면 CPU를 기다리는 시간(<span class="term" data-def="VM이 실행 준비를 마치고도 물리 CPU를 못 얻어 기다린 시간. 오버커밋 과다의 핵심 지표.">CPU Ready</span>)이 늘어 체감 성능이 급락합니다.
+        </p>
+      </div>
+      <div class="card">
+        <h4>"하이퍼바이저는 OS가 아니다"</h4>
+        <p>
+          Type 1 하이퍼바이저는 사실상 <strong>특수 목적 OS</strong>입니다.
+          ESXi의 VMkernel은 스케줄러·메모리 관리자·드라이버·파일시스템을 다 갖고 있습니다.
+          다만 사용자 앱을 돌리는 대신 VM을 돌리도록 만들어졌을 뿐입니다.
+        </p>
+      </div>
+      <div class="card">
+        <h4>"가상화하면 무조건 느려진다"</h4>
+        <p>
+          CPU·메모리 위주 워크로드는 현대 하드웨어에서 손실이 매우 작습니다.
+          체감 차이는 주로 <strong>I/O</strong>와 <strong>지연에 민감한 워크로드</strong>에서 납니다.
+          그래서 고빈도 트레이딩이나 일부 실시간 시스템은 여전히 베어메탈을 씁니다.
+        </p>
+      </div>
+      <div class="card">
+        <h4>"VM은 서로 완벽히 격리된다"</h4>
+        <p>
+          논리적으로는 그렇지만 물리 자원은 공유합니다. 한 VM이 디스크를 두들기면
+          같은 데이터스토어의 다른 VM이 느려지는 <strong>시끄러운 이웃</strong> 문제가 생깁니다.
+          Spectre·Meltdown 같은 사이드채널 취약점도 이 공유 지점을 노립니다.
+        </p>
+      </div>
+      <div class="card">
+        <h4>"중첩 가상화는 안 된다"</h4>
+        <p>
+          됩니다. VM 안에서 또 하이퍼바이저를 돌리는 <span class="term" data-def="Nested Virtualization. 게스트 VM이 다시 하이퍼바이저 역할을 하는 구성. 교육·테스트·CI에서 많이 쓴다.">중첩 가상화</span>를
+          KVM·Hyper-V·ESXi가 지원합니다. 다만 VM Exit이 이중으로 발생해 성능 손실이 큽니다.
+          운영 환경보다는 실습·CI용입니다.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 10 -->
+  <section id="s10">
+    <span class="sec-no">10</span>
+    <h2>용어 사전</h2>
+    <p>이 편에 나온 용어를 한 곳에 모았습니다. 검색으로 바로 찾을 수 있습니다.</p>
+    <input type="search" class="search" id="glSearch" placeholder="용어 검색 (예: VMCS, 오버커밋, EPT)" aria-label="용어 검색">
+    <dl id="glossary"></dl>
+    <p class="noresult" id="glNone" style="display:none">일치하는 용어가 없습니다.</p>
+  </section>
+
+  <!-- ============================================================ 11 -->
+  <section id="s11">
+    <span class="sec-no">11</span>
+    <h2>이해도 체크</h2>
+    <p>답을 고르면 바로 해설이 나옵니다. 틀려도 괜찮습니다. 해설이 본편입니다.</p>
+    <div id="quiz"></div>
+    <div class="note" id="quizScore" style="display:none">
+      <div class="note-h">결과</div>
+      <p id="quizScoreText"></p>
+    </div>
+  </section>
+
+  <div class="nextup">
+    <h3>2편 — 리소스는 어떻게 쪼개지는가</h3>
+    <p>1편이 "왜, 그리고 원리"였다면 2편은 "그래서 CPU·메모리·디스크·네트워크가 실제로 어떻게 나뉘는가"입니다.</p>
+    <ul>
+      <li>vCPU 스케줄링, 오버커밋 비율 설계, CPU Ready와 스케줄링 지연</li>
+      <li>메모리 가상화 — 섀도 페이지 테이블에서 EPT/NPT로, 벌루닝·KSM·스와핑</li>
+      <li>스토리지 — virtio-blk, qcow2 구조, 씬 프로비저닝의 함정</li>
+      <li>네트워크 — virtio-net, 가상 스위치, SR-IOV와 DPDK</li>
+      <li>GPU — 패스스루, NVIDIA vGPU, MIG 분할</li>
+      <li>NUMA 인지 배치와 CPU 피닝</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>하이퍼바이저 완전 정복 · 1편 — 가상화의 원리와 하이퍼바이저 구조</p>
+    <p>제품 라이선스·지원 정책과 버전별 지원 종료일은 변동이 잦습니다. 도입·갱신 판단 전에는 각 벤더의 공식 문서를 확인하세요.</p>
+  </footer>
+
+  </main>
+</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------------- 테마 ---------------- */
+var root=document.documentElement, tBtn=document.getElementById('themeBtn');
+function setTheme(t){
+  root.setAttribute('data-theme',t);
+  tBtn.textContent = (t==='dark') ? '라이트 모드' : '다크 모드';
+  try{ localStorage.setItem('hv-theme',t); }catch(e){}
+}
+try{ var saved=localStorage.getItem('hv-theme'); if(saved) setTheme(saved); }catch(e){}
+tBtn.addEventListener('click',function(){
+  setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');
+});
+
+/* ---------------- 진행 바 + 목차 하이라이트 ---------------- */
+var prog=document.getElementById('prog');
+var tocLinks=Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+var secs=Array.prototype.slice.call(document.querySelectorAll('section[id]'));
+function onScroll(){
+  var h=document.documentElement;
+  var max=h.scrollHeight-h.clientHeight;
+  prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+  var cur=null;
+  for(var i=0;i<secs.length;i++){
+    if(secs[i].getBoundingClientRect().top<=140) cur=secs[i].id;
+  }
+  tocLinks.forEach(function(a){
+    a.classList.toggle('on', a.getAttribute('href')==='#'+cur);
+  });
+}
+window.addEventListener('scroll',onScroll,{passive:true});
+window.addEventListener('resize',onScroll);
+onScroll();
+
+/* ---------------- 1. 통합 계산기 ---------------- */
+var cs={srv:'cSrv',util:'cUtil',target:'cTarget',power:'cPower'};
+function num(id){return parseInt(document.getElementById(id).value,10);}
+function fmt(n){return n.toLocaleString('ko-KR');}
+function calc(){
+  var srv=num('cSrv'), util=num('cUtil'), tg=num('cTarget'), pw=num('cPower');
+  document.getElementById('cSrvV').textContent=srv;
+  document.getElementById('cUtilV').textContent=util;
+  document.getElementById('cTargetV').textContent=tg;
+  document.getElementById('cPowerV').textContent=pw;
+
+  var demand=srv*util;                     // 총 필요 연산량(상대값)
+  var hosts=Math.max(1,Math.ceil(demand/tg)+1); // +1 = N+1 여유 노드
+  if(hosts>srv) hosts=srv;
+  var saved=srv-hosts;
+  var ratio=(srv/hosts);
+  document.getElementById('oHosts').textContent=hosts;
+  document.getElementById('oRatio').textContent=(Math.round(ratio*10)/10)+' : 1';
+  document.getElementById('oSaved').textContent=fmt(saved)+'대';
+  document.getElementById('oCost').textContent=fmt(saved*pw)+'만원';
+  document.getElementById('oRack').textContent=saved+'U';
+
+  // 막대: 통합 전 서버 20칸 샘플로 사용/낭비 표시
+  var bar=document.getElementById('oBar'); bar.innerHTML='';
+  var cells=20, used=Math.max(1,Math.round(cells*util/100));
+  for(var i=0;i<cells;i++){
+    var el=document.createElement('i');
+    el.className = i<used ? 'used' : (i<Math.round(cells*0.9) ? 'waste' : '');
+    bar.appendChild(el);
+  }
+}
+Object.keys(cs).forEach(function(k){
+  document.getElementById(cs[k]).addEventListener('input',calc);
+});
+calc();
+
+/* ---------------- 3. 계층 스택 ---------------- */
+var L={
+  hw:{cls:'l-hw',nm:'물리 하드웨어',sb:'CPU · RAM · NIC · Disk',
+    role:'가장 아래. 실제 연산이 일어나는 곳',
+    p:'CPU, 메모리, 스토리지, 네트워크 카드 같은 진짜 부품입니다. 하이퍼바이저는 이 자원을 잘게 나눠 VM들에 배분합니다.',
+    li:['가상화 지원 CPU 기능(VT-x / AMD-V)을 BIOS·UEFI에서 켜야 합니다','여기서 꺼져 있으면 하이퍼바이저가 아예 안 뜨거나 극단적으로 느려집니다','메모리 용량이 통합 밀도의 실질적 상한을 결정하는 경우가 많습니다']},
+  hostos:{cls:'l-os',nm:'호스트 OS',sb:'Windows · macOS · Linux',
+    role:'Type 2에서만 존재하는 계층',
+    p:'평소 쓰는 일반 운영체제입니다. 하이퍼바이저는 이 OS 위에서 하나의 프로그램으로 실행됩니다.',
+    li:['게스트의 하드웨어 요청이 호스트 OS를 한 번 더 거칩니다','호스트 OS가 업데이트로 재부팅되면 모든 VM이 함께 멈춥니다','호스트 OS의 취약점이 곧 가상화 환경의 취약점이 됩니다']},
+  hv1:{cls:'l-hv',nm:'하이퍼바이저 (Type 1)',sb:'ESXi · KVM · Hyper-V',
+    role:'하드웨어 바로 위. 이 강의의 주인공',
+    p:'하드웨어를 직접 제어하며 VM을 만들고 자원을 배분하고 격리를 유지합니다. 자체 스케줄러와 메모리 관리자를 가진 특수 목적 OS에 가깝습니다.',
+    li:['VMX root 모드(속칭 Ring -1)에서 동작합니다','게스트의 특권 동작을 VM Exit으로 가로채 처리합니다','필요 기능만 담아 공격 표면이 작습니다']},
+  hv2:{cls:'l-hv',nm:'하이퍼바이저 (Type 2)',sb:'VirtualBox · Workstation',
+    role:'호스트 OS 위의 애플리케이션',
+    p:'브라우저나 에디터처럼 호스트 OS 위에서 실행되는 프로그램입니다. 설치와 제거가 간편해 학습·개발용으로 널리 쓰입니다.',
+    li:['커널 모듈을 올려 CPU 가상화 기능을 함께 사용합니다','스냅샷·복제 같은 기능은 Type 1과 동일하게 제공됩니다','운영 워크로드에는 권장되지 않습니다']},
+  guest:{cls:'l-os',nm:'게스트 OS',sb:'VM 안의 운영체제',
+    role:'VM마다 따로 존재',
+    p:'VM 안에 설치된 운영체제입니다. 자기가 전용 물리 서버 위에서 돌고 있다고 믿습니다. 그 믿음을 유지시키는 것이 하이퍼바이저의 일입니다.',
+    li:['게스트마다 커널이 따로 있어 컨테이너보다 격리가 강합니다','서로 다른 OS(Linux + Windows)를 한 서버에서 함께 돌릴 수 있습니다','virtio·VMware Tools 같은 전용 드라이버를 넣으면 I/O가 크게 빨라집니다']},
+  app:{cls:'l-app',nm:'애플리케이션',sb:'웹 · DB · WAS',
+    role:'최종 사용자가 쓰는 것',
+    p:'실제 업무를 처리하는 프로그램입니다. 아래에 몇 개의 계층이 깔려 있든 앱 입장에서는 달라지는 게 없습니다.',
+    li:['앱은 가상화 여부를 대부분 알 필요가 없습니다','예외는 라이선스입니다. 하드웨어에 묶인 라이선스는 문제가 됩니다','지연에 극도로 민감한 앱은 베어메탈을 고려합니다']}
+};
+var stackEl=document.getElementById('stack'), detailEl=document.getElementById('stackDetail');
+function layerBtn(key,small){
+  var d=L[key];
+  var b=document.createElement('button');
+  b.className='lyr '+d.cls; b.type='button'; b.setAttribute('aria-pressed','false');
+  b.dataset.k=key;
+  b.innerHTML='<span class="dot"></span><span class="nm">'+d.nm+'</span>'+(small?'':'<span class="sb">'+d.sb+'</span>');
+  b.addEventListener('click',function(){ selectLayer(key,b); });
+  return b;
+}
+function selectLayer(key,btn){
+  Array.prototype.forEach.call(stackEl.querySelectorAll('.lyr'),function(x){x.setAttribute('aria-pressed','false');});
+  if(btn) btn.setAttribute('aria-pressed','true');
+  var d=L[key];
+  detailEl.innerHTML='<h5>'+d.nm+'</h5><p class="role">'+d.role+'</p><p>'+d.p+'</p><ul><li>'+d.li.join('</li><li>')+'</li></ul>';
+}
+function vmGroup(n,tag){
+  var wrap=document.createElement('div');
+  wrap.className='vmrow'+(n===2?' two':'');
+  for(var i=1;i<=n;i++){
+    var box=document.createElement('div'); box.className='vmbox';
+    var t=document.createElement('div'); t.className='tag'; t.textContent=tag+'-0'+i;
+    box.appendChild(t);
+    box.appendChild(layerBtn('app',true));
+    box.appendChild(layerBtn('guest',true));
+    wrap.appendChild(box);
+  }
+  return wrap;
+}
+function renderStack(type){
+  stackEl.innerHTML='';
+  if(type===1){
+    stackEl.appendChild(vmGroup(3,'VM'));
+    stackEl.appendChild(layerBtn('hv1'));
+    stackEl.appendChild(layerBtn('hw'));
+    selectLayer('hv1',stackEl.querySelector('[data-k="hv1"]'));
+  }else{
+    stackEl.appendChild(vmGroup(2,'VM'));
+    stackEl.appendChild(layerBtn('hv2'));
+    stackEl.appendChild(layerBtn('hostos'));
+    stackEl.appendChild(layerBtn('hw'));
+    selectLayer('hv2',stackEl.querySelector('[data-k="hv2"]'));
+  }
+}
+var bT1=document.getElementById('btnT1'), bT2=document.getElementById('btnT2');
+bT1.addEventListener('click',function(){bT1.setAttribute('aria-pressed','true');bT2.setAttribute('aria-pressed','false');renderStack(1);});
+bT2.addEventListener('click',function(){bT2.setAttribute('aria-pressed','true');bT1.setAttribute('aria-pressed','false');renderStack(2);});
+renderStack(1);
+
+/* ---------------- 4. 링 다이어그램 ---------------- */
+var RING={
+  '3':{h:'Ring 3 — 사용자 모드',r:'권한이 가장 낮은 계층',
+    p:'일반 애플리케이션이 실행되는 곳입니다. 하드웨어를 직접 만질 수 없고, 필요한 일은 시스템 콜로 커널에 요청합니다.',
+    li:['웹 서버, DB, 브라우저 등 거의 모든 앱','특권 명령을 실행하면 예외가 발생','메모리도 자기 영역 밖은 볼 수 없음']},
+  '2':{h:'Ring 2 · Ring 1',r:'설계는 됐지만 거의 안 쓰임',
+    p:'원래는 드라이버 등을 위한 중간 권한 계층으로 설계됐지만, 윈도우와 리눅스 모두 0과 3만 사용합니다. 이식성 때문입니다.',
+    li:['초기 Xen의 반가상화가 이 빈자리를 활용','게스트 커널을 Ring 1에 두는 기법(0/1/3 모델)','64비트 모드에서는 이 기법을 쓸 수 없게 됨']},
+  '0':{h:'Ring 0 — 커널 모드',r:'OS 커널이 있는 곳',
+    p:'모든 명령을 실행할 수 있는 최고 권한 계층입니다. 메모리 관리, 스케줄링, 하드웨어 제어가 전부 여기서 일어납니다.',
+    li:['가상화의 난제가 시작되는 지점','게스트 OS는 자기가 여기 있다고 믿음','여기에 그냥 내주면 하이퍼바이저가 통제권을 잃음']},
+  '-1':{h:'Ring -1 — VMX root 모드',r:'하이퍼바이저의 영역',
+    p:'VT-x / AMD-V가 도입한 새로운 실행 모드입니다. 공식 명칭은 VMX root 모드이고, Ring 0보다 아래라는 뜻으로 흔히 Ring -1이라 부릅니다.',
+    li:['게스트는 non-root 모드의 Ring 0에서 진짜로 동작','지정된 사건에서 VM Exit이 나며 제어권이 넘어옴','게스트 상태는 VMCS(인텔) / VMCB(AMD)에 저장']}
+};
+var ringDetail=document.getElementById('ringDetail');
+function showRing(k){
+  var d=RING[k];
+  ringDetail.innerHTML='<h5>'+d.h+'</h5><p class="role">'+d.r+'</p><p>'+d.p+'</p><ul><li>'+d.li.join('</li><li>')+'</li></ul>';
+}
+Array.prototype.forEach.call(document.querySelectorAll('.ringsvg .rg'),function(g){
+  function go(){ showRing(g.dataset.ring); }
+  g.addEventListener('click',go);
+  g.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){e.preventDefault();go();} });
+});
+showRing('-1');
+
+/* ---------------- 5. 세 가지 해법 탭 ---------------- */
+var TECH={
+  bt:{t:'바이너리 변환 (Binary Translation)',y:'1998년 VMware',
+    d:'게스트 커널의 명령어 흐름을 실행 직전에 검사해서, 문제가 되는 명령만 안전한 명령 묶음으로 바꿔치기합니다. 변환 결과는 캐시에 저장해 재사용합니다.',
+    pro:['게스트 OS를 수정할 필요가 전혀 없음','하드웨어 지원이 없는 CPU에서도 동작','Windows처럼 소스를 못 고치는 OS도 가상화 가능'],
+    con:['변환 엔진 자체가 복잡하고 구현 난이도가 극도로 높음','변환·캐시 관리에 CPU와 메모리를 소모','핵심 기술이 독점적이라 생태계가 닫힘'],
+    now:'하드웨어 보조 가상화로 대체돼 주력에서는 물러났습니다. 다만 "게스트를 건드리지 않고 가상화한다"는 접근을 최초로 상용화해 시장 자체를 열었습니다.'},
+  pv:{t:'반가상화 (Paravirtualization)',y:'2003년 Xen',
+    d:'문제가 되는 명령을 CPU 차원에서 잡는 대신, 아예 게스트 OS 커널을 고칩니다. 특권 명령을 실행하는 대신 하이퍼바이저에게 직접 요청하는 하이퍼콜(hypercall)을 부르도록 바꿉니다.',
+    pro:['속이거나 변환할 일이 없어 오버헤드가 작음','게스트와 하이퍼바이저가 협력하므로 I/O 최적화 여지가 큼','하드웨어 가상화 지원이 없어도 동작'],
+    con:['게스트 OS 커널 수정이 필수','소스를 못 고치는 OS(당시 Windows)는 적용 불가','게스트와 하이퍼바이저 버전이 맞아야 함'],
+    now:'전체 OS를 반가상화하는 방식은 사라졌지만, <strong>핵심 아이디어는 지금도 현역입니다.</strong> virtio 드라이버가 정확히 반가상화입니다. CPU는 하드웨어 보조로, I/O는 반가상화 드라이버로 처리하는 하이브리드가 현재의 표준입니다.'},
+  hw:{t:'하드웨어 보조 가상화 (HVM)',y:'2005~2006년 Intel VT-x · AMD-V',
+    d:'CPU에 가상화 전용 실행 모드를 새로 만들었습니다. root 모드(하이퍼바이저)와 non-root 모드(게스트)를 분리해, 게스트가 자기 세계의 Ring 0에서 진짜로 동작하게 합니다.',
+    pro:['게스트 OS를 전혀 수정할 필요 없음','구현이 단순해져 KVM 같은 하이퍼바이저가 빠르게 등장','세대가 지날수록 하드웨어가 더 많은 일을 대신함'],
+    con:['VM Exit 한 번마다 수백~수천 사이클 비용','BIOS/UEFI에서 기능이 꺼져 있으면 사용 불가','I/O는 여전히 별도 최적화가 필요'],
+    now:'현재의 사실상 표준입니다. 여기에 EPT/NPT(메모리), virtio·SR-IOV(I/O), APICv(인터럽트)를 얹어 VM Exit을 최대한 줄이는 것이 현대 하이퍼바이저의 설계 방향입니다.'}
+};
+var techBody=document.getElementById('techBody');
+function showTech(k){
+  var d=TECH[k];
+  techBody.innerHTML=
+    '<h4 style="margin-top:20px">'+d.t+'</h4>'+
+    '<p style="font-family:var(--mono);font-size:12.5px;color:var(--ink3);margin:0 0 12px">'+d.y+'</p>'+
+    '<p style="font-size:15.5px;color:var(--ink2)">'+d.d+'</p>'+
+    '<div class="grid g2" style="margin:18px 0">'+
+      '<div class="card"><h4 style="color:var(--ok)">장점</h4><ul style="margin:0;font-size:14.5px;color:var(--ink2)"><li>'+d.pro.join('</li><li>')+'</li></ul></div>'+
+      '<div class="card"><h4 style="color:var(--warn)">한계</h4><ul style="margin:0;font-size:14.5px;color:var(--ink2)"><li>'+d.con.join('</li><li>')+'</li></ul></div>'+
+    '</div>'+
+    '<div class="note" style="margin-bottom:0"><div class="note-h">지금은</div><p>'+d.now+'</p></div>';
+}
+Array.prototype.forEach.call(document.querySelectorAll('.tech'),function(b){
+  b.addEventListener('click',function(){
+    Array.prototype.forEach.call(document.querySelectorAll('.tech'),function(x){x.setAttribute('aria-pressed','false');});
+    b.setAttribute('aria-pressed','true');
+    showTech(b.dataset.t);
+  });
+});
+showTech('bt');
+
+/* ---------------- 5. VM Exit 시뮬레이터 ---------------- */
+var STEPS=[
+  {s:'0 / 정상 실행',hot:'g',g:'애플리케이션 실행 중',c:'non-root 모드 유지',h:'대기 (개입 없음)',
+   t:'게스트 OS가 VMX non-root 모드의 Ring 0에서 평소처럼 실행되고 있습니다. 이 구간에서 하이퍼바이저는 아무 일도 하지 않습니다. 성능 손실이 거의 없는 이유입니다.'},
+  {s:'1 / 특권 동작 발생',hot:'g',g:'CPUID 명령 실행',c:'가로채기 조건 검사',h:'대기',
+   t:'게스트가 CPUID 명령을 실행합니다. CPU 모델과 지원 기능을 물어보는 명령입니다. 하이퍼바이저는 VMCS에 "CPUID는 가로채라"고 미리 설정해 두었습니다.'},
+  {s:'2 / VM Exit',hot:'c',g:'실행 정지',c:'게스트 상태를 VMCS에 저장',h:'제어권 획득 준비',
+   t:'CPU가 게스트 실행을 멈추고 모든 레지스터 상태를 VMCS에 저장합니다. 그리고 root 모드로 전환합니다. 이 저장·전환 과정이 VM Exit 비용의 실체입니다.'},
+  {s:'3 / 원인 분석',hot:'h',g:'정지 상태',c:'exit reason 전달',h:'VMCS에서 원인 코드 읽기',
+   t:'하이퍼바이저가 VMCS의 exit reason 필드를 읽어 "CPUID 때문에 나왔구나"를 파악합니다. 원인에 따라 처리 경로가 완전히 달라집니다.'},
+  {s:'4 / 에뮬레이션',hot:'h',g:'정지 상태',c:'대기',h:'가공된 CPU 정보 생성',
+   t:'하이퍼바이저가 응답을 만듭니다. 여기서 중요한 선택이 일어납니다. 실제 CPU 정보를 그대로 주면 라이브 마이그레이션 시 게스트가 혼란에 빠지므로, 클러스터 전체에서 공통인 기능 집합만 노출하도록 값을 가공합니다.'},
+  {s:'5 / VM Entry',hot:'c',g:'재개 준비',c:'VMCS에서 상태 복원',h:'VMRESUME 실행',
+   t:'하이퍼바이저가 결과를 VMCS에 쓰고 VMRESUME을 실행합니다. CPU가 게스트 상태를 복원하고 non-root 모드로 돌아갑니다.'},
+  {s:'6 / 실행 재개',hot:'g',g:'다음 명령으로 진행',c:'non-root 모드',h:'대기',
+   t:'게스트는 CPUID가 정상 처리됐다고 믿고 다음 명령을 실행합니다. 중간에 세계가 한 번 바뀌었다 온 사실을 전혀 모릅니다. 이 전체 과정이 마이크로초 단위로 끝납니다.'}
+];
+var si=-1;
+var sb={g:document.getElementById('sbGuest'),c:document.getElementById('sbCpu'),h:document.getElementById('sbHv')};
+var sd={g:document.getElementById('sbGuestD'),c:document.getElementById('sbCpuD'),h:document.getElementById('sbHvD')};
+var simStep=document.getElementById('simStep'),simText=document.getElementById('simText');
+var simNext=document.getElementById('simNext'),simReset=document.getElementById('simReset');
+var simDots=document.getElementById('simDots');
+STEPS.forEach(function(){simDots.appendChild(document.createElement('i'));});
+function drawSim(){
+  var dots=simDots.children;
+  for(var i=0;i<dots.length;i++) dots[i].className = (i<=si)?'on':'';
+  if(si<0){
+    sb.g.className=sb.c.className=sb.h.className='simbox';
+    sd.g.textContent=sd.c.textContent=sd.h.textContent='대기 중';
+    simStep.textContent='준비'; simText.textContent='"다음 단계"를 눌러 시작하세요.';
+    simNext.disabled=false; simNext.textContent='다음 단계';
+    return;
+  }
+  var st=STEPS[si];
+  sb.g.className='simbox'+(st.hot==='g'?' hot':'');
+  sb.c.className='simbox'+(st.hot==='c'?' hot':'');
+  sb.h.className='simbox'+(st.hot==='h'?' hot':'');
+  sd.g.textContent=st.g; sd.c.textContent=st.c; sd.h.textContent=st.h;
+  simStep.textContent=st.s; simText.textContent=st.t;
+  simNext.disabled = (si>=STEPS.length-1);
+  simNext.textContent = (si>=STEPS.length-1)?'완료':'다음 단계';
+}
+simNext.addEventListener('click',function(){ if(si<STEPS.length-1){si++;drawSim();} });
+simReset.addEventListener('click',function(){ si=-1; drawSim(); });
+drawSim();
+
+/* ---------------- 7. 제품 목록 ---------------- */
+var PRODUCTS=[
+  {nm:'VMware ESXi / vSphere',tags:['t1'],tag:'Type 1',
+   p:'기업 가상화의 오랜 기준점. VMkernel이라는 전용 커널 위에서 동작하며, vCenter로 묶어 클러스터 단위 HA·DRS·vMotion을 제공합니다.',
+   dl:[['강점','성숙한 생태계, 안정성, 운영 도구의 완성도'],['약점','브로드컴 인수 후 구독제 전환과 비용 상승'],['자주 보는 곳','국내 엔터프라이즈 온프레미스 대부분']]},
+  {nm:'KVM (Kernel-based VM)',tags:['t1','oss','cloud'],tag:'Type 1 · 오픈소스',
+   p:'리눅스 커널 모듈 형태의 하이퍼바이저. 2007년 커널에 병합됐습니다. QEMU와 짝을 이뤄 장치 에뮬레이션을 담당하고, libvirt로 관리합니다.',
+   dl:[['강점','커널 발전을 그대로 흡수, 라이선스 비용 없음'],['약점','관리 도구는 별도로 골라야 함'],['자주 보는 곳','GCP, AWS Nitro, OpenStack, Proxmox, oVirt/RHV']]},
+  {nm:'Microsoft Hyper-V',tags:['t1','cloud'],tag:'Type 1',
+   p:'Windows Server의 역할로 제공되지만 실제로는 하드웨어 위에 직접 올라가는 Type 1입니다. 설치하면 기존 Windows가 관리용 파티션(부모 파티션)으로 내려갑니다.',
+   dl:[['강점','Windows·AD 환경과의 통합, Azure와 동일 계열'],['약점','리눅스 게스트 지원은 개선됐으나 여전히 Windows 우선'],['자주 보는 곳','Windows 중심 기업, Azure 기반 기술']]},
+  {nm:'Xen / XCP-ng',tags:['t1','oss'],tag:'Type 1 · 오픈소스',
+   p:'2003년 케임브리지 대학에서 출발해 반가상화를 대중화한 하이퍼바이저. Dom0라는 특권 도메인이 장치 접근을 담당하는 구조가 특징입니다.',
+   dl:[['강점','작고 검증된 코드베이스, 보안 지향 설계'],['약점','AWS가 Nitro로 옮겨간 뒤 점유율 감소'],['자주 보는 곳','XCP-ng, Citrix Hypervisor, 통신·보안 분야']]},
+  {nm:'Proxmox VE',tags:['t1','oss'],tag:'Type 1 · 오픈소스',
+   p:'데비안 기반 배포판으로 KVM(가상 머신)과 LXC(컨테이너)를 하나의 웹 UI에서 함께 관리합니다. 클러스터·백업·Ceph 연동이 기본 제공됩니다.',
+   dl:[['강점','무료로 클러스터 기능까지, 설치·운영이 쉬움'],['약점','대규모 엔터프라이즈 레퍼런스는 상대적으로 적음'],['자주 보는 곳','중소 규모 인프라, VMware 대안 검토 1순위']]},
+  {nm:'Nutanix AHV',tags:['t1'],tag:'Type 1',
+   p:'HCI(하이퍼컨버지드) 제품에 내장된 KVM 기반 하이퍼바이저. 컴퓨트와 스토리지를 한 노드에 통합하고 Prism으로 관리합니다.',
+   dl:[['강점','스토리지까지 포함한 통합 운영, 별도 하이퍼바이저 비용 없음'],['약점','HCI 아키텍처에 종속'],['자주 보는 곳','HCI 도입 고객사, VMware 대안']]},
+  {nm:'Oracle VirtualBox',tags:['t2','oss'],tag:'Type 2 · 오픈소스',
+   p:'Windows·macOS·Linux에서 모두 동작하는 대표적인 데스크톱 하이퍼바이저. 학습과 실습 환경의 사실상 표준입니다.',
+   dl:[['강점','무료, 크로스 플랫폼, Vagrant 연동'],['약점','운영 환경에는 부적합, I/O 성능 한계'],['자주 보는 곳','개발자 노트북, 자격증 실습']]},
+  {nm:'VMware Workstation / Fusion',tags:['t2'],tag:'Type 2',
+   p:'데스크톱용 상용 하이퍼바이저. Workstation은 Windows·Linux, Fusion은 macOS용입니다. ESXi와 동일한 가상 하드웨어 규격을 써서 VM 이관이 수월합니다.',
+   dl:[['강점','안정적인 3D·USB 지원, ESXi와의 호환성'],['약점','상용 라이선스(개인 용도 무료 정책은 변동 있음)'],['자주 보는 곳','엔지니어 업무용 PC, POC 환경']]},
+  {nm:'AWS Nitro',tags:['t1','cloud'],tag:'Type 1 · 클라우드 내부',
+   p:'AWS가 직접 만든 KVM 기반 가상화 플랫폼. 네트워크·스토리지·보안 처리를 전용 Nitro 카드로 오프로드해 호스트 CPU를 거의 게스트에만 쓰도록 만들었습니다.',
+   dl:[['강점','베어메탈에 근접한 성능, 하드웨어 수준 격리'],['약점','AWS 내부 전용'],['자주 보는 곳','현세대 EC2 인스턴스 전반']]}
+];
+var prodList=document.getElementById('prodList');
+PRODUCTS.forEach(function(p,i){
+  var d=document.createElement('div');
+  d.className='prod'; d.dataset.tags=p.tags.join(' ');
+  var dl='';
+  p.dl.forEach(function(r){ dl+='<dt>'+r[0]+'</dt><dd>'+r[1]+'</dd>'; });
+  d.innerHTML='<div class="prod-top"><span class="prod-nm">'+p.nm+'</span><span class="prod-tag">'+p.tag+'</span></div>'+
+              '<p>'+p.p+'</p><dl>'+dl+'</dl>';
+  prodList.appendChild(d);
+});
+Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){
+  c.addEventListener('click',function(){
+    Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(x){x.setAttribute('aria-pressed','false');});
+    c.setAttribute('aria-pressed','true');
+    var f=c.dataset.f;
+    Array.prototype.forEach.call(prodList.children,function(el){
+      el.classList.toggle('hide', !(f==='all' || el.dataset.tags.indexOf(f)>-1));
+    });
+  });
+});
+
+/* ---------------- 10. 용어집 ---------------- */
+var GLOSS=[
+  ['하이퍼바이저','Hypervisor / VMM','물리 하드웨어를 추상화해 여러 가상 머신에 자원을 배분하고 격리를 유지하는 소프트웨어 계층.'],
+  ['가상 머신','VM','하이퍼바이저가 만들어낸 가상의 컴퓨터. 자체 게스트 OS를 가지며, 실행 중이 아닐 때는 디스크 위의 파일 묶음이다.'],
+  ['게스트 OS','Guest OS','VM 안에 설치된 운영체제. 자신이 전용 물리 서버에서 동작한다고 믿는다.'],
+  ['호스트 OS','Host OS','Type 2 하이퍼바이저가 설치되는 일반 운영체제. Type 1에는 존재하지 않는다.'],
+  ['Type 1 / 베어메탈','Bare-metal Hypervisor','하드웨어 위에 직접 설치되는 하이퍼바이저. ESXi, KVM, Hyper-V, Xen 등. 데이터센터 표준.'],
+  ['Type 2 / 호스티드','Hosted Hypervisor','호스트 OS 위에 애플리케이션으로 설치되는 하이퍼바이저. VirtualBox, Workstation 등.'],
+  ['보호 링','Protection Ring','x86 CPU의 실행 권한 계층. Ring 0이 최고 권한(커널), Ring 3이 최저(앱). 1과 2는 사실상 미사용.'],
+  ['트랩 앤 에뮬레이트','Trap and Emulate','게스트의 특권 명령에서 예외를 발생시켜 하이퍼바이저가 가로챈 뒤 대신 실행해 주는 고전적 가상화 기법.'],
+  ['디프리빌리징','De-privileging','게스트 OS를 원래보다 낮은 권한 링에 두어 특권 명령이 트랩되도록 만드는 기법.'],
+  ['팝엑·골드버그 요구사항','Popek & Goldberg, 1974','가상화 가능한 아키텍처의 조건. 등가성, 자원 제어, 효율성 세 가지와 "민감한 명령은 모두 특권 명령이어야 한다"는 정리.'],
+  ['바이너리 변환','Binary Translation','실행 직전에 게스트 명령어를 검사해 문제 명령을 안전한 코드로 치환하는 방식. VMware가 상용화.'],
+  ['반가상화','Paravirtualization','게스트 OS 커널을 수정해 특권 명령 대신 하이퍼콜을 호출하게 하는 방식. Xen이 대중화했고, 지금은 virtio 드라이버로 살아 있다.'],
+  ['하이퍼콜','Hypercall','게스트가 하이퍼바이저에게 직접 작업을 요청하는 호출. 시스템 콜의 가상화 버전에 해당한다.'],
+  ['하드웨어 보조 가상화','HVM · Intel VT-x · AMD-V','CPU에 가상화 전용 실행 모드를 추가해 게스트 OS 수정 없이 가상화를 가능하게 한 기술. 현재의 표준.'],
+  ['VMX root / non-root','Intel VT-x 실행 모드','하이퍼바이저가 사는 root 모드와 게스트가 사는 non-root 모드. root 모드를 흔히 Ring -1이라 부른다.'],
+  ['VM Exit / VM Entry','VM Exit / Entry','게스트에서 하이퍼바이저로 제어권이 넘어가는 사건(Exit)과 되돌아가는 사건(Entry). 한 번에 수백~수천 사이클이 든다.'],
+  ['VMCS / VMCB','Control Structure','게스트 상태, 호스트 상태, 가로채기 조건을 담는 메모리 구조체. 인텔은 VMCS, AMD는 VMCB라 부른다.'],
+  ['오버커밋','Overcommit','물리 자원보다 많은 양을 VM들에 할당하는 것. 모든 VM이 동시에 최대치를 쓰지 않는다는 전제에 기댄다.'],
+  ['vCPU','Virtual CPU','VM에 할당된 가상 CPU. 물리 코어를 시간으로 나눠 쓰는 스케줄링 단위이며 물리 코어와 1:1이 아니다.'],
+  ['CPU Ready','CPU Ready Time','VM이 실행 준비를 마치고도 물리 CPU를 얻지 못해 대기한 시간. 오버커밋 과다를 진단하는 핵심 지표.'],
+  ['EPT / NPT','Extended / Nested Page Table','게스트 물리주소를 호스트 물리주소로 변환하는 2단계 주소 변환을 하드웨어가 처리하는 기능. 2편에서 자세히 다룬다.'],
+  ['virtio','Paravirtual Driver','KVM 환경의 반가상화 장치 드라이버 규격. 에뮬레이션 대신 하이퍼바이저와 직접 통신해 I/O 성능을 크게 높인다.'],
+  ['SR-IOV','Single Root I/O Virtualization','물리 NIC 하나를 여러 개의 가상 기능(VF)으로 쪼개 VM에 직접 할당하는 하드웨어 기능.'],
+  ['P2V','Physical to Virtual','물리 서버를 가상 머신으로 전환하는 작업. 드라이버와 라이선스가 주요 함정.'],
+  ['스냅샷','Snapshot','특정 시점의 VM 상태를 기록해 되돌릴 수 있게 하는 기능. 원본에 의존하므로 백업의 대체재가 아니다.'],
+  ['라이브 마이그레이션','Live Migration / vMotion','실행 중인 VM을 멈추지 않고 다른 물리 호스트로 옮기는 기능. 호스트 점검을 무중단으로 만드는 핵심 기술.'],
+  ['시끄러운 이웃','Noisy Neighbor','같은 물리 자원을 공유하는 다른 VM 때문에 내 VM 성능이 떨어지는 현상.'],
+  ['VM 탈출','VM Escape','게스트에서 하이퍼바이저나 호스트로 빠져나가 장악하는 공격. 가상화 보안의 최악 시나리오.'],
+  ['중첩 가상화','Nested Virtualization','VM 안에서 다시 하이퍼바이저를 실행하는 구성. 실습·CI에 유용하나 성능 손실이 크다.']
+];
+var glEl=document.getElementById('glossary'), glNone=document.getElementById('glNone');
+GLOSS.sort(function(a,b){return a[0].localeCompare(b[0],'ko');});
+GLOSS.forEach(function(g){
+  var dt=document.createElement('dt'); dt.className='gl';
+  dt.innerHTML=g[0]+'<em>'+g[1]+'</em>';
+  var dd=document.createElement('dd'); dd.className='gl'; dd.textContent=g[2];
+  dd.style.borderTop='none'; 
+  dt.dataset.key=(g[0]+' '+g[1]+' '+g[2]).toLowerCase();
+  dd.dataset.key=dt.dataset.key;
+  glEl.appendChild(dt); glEl.appendChild(dd);
+});
+document.getElementById('glSearch').addEventListener('input',function(e){
+  var q=e.target.value.trim().toLowerCase(), hits=0;
+  Array.prototype.forEach.call(glEl.children,function(el){
+    var m = !q || el.dataset.key.indexOf(q)>-1;
+    el.classList.toggle('hide',!m);
+    if(m && el.tagName==='DT') hits++;
+  });
+  glNone.style.display = hits? 'none':'block';
+});
+
+/* ---------------- 11. 퀴즈 ---------------- */
+var QUIZ=[
+  {q:'x86이 원래 "가상화 불가능한 아키텍처"로 분류됐던 이유는?',
+   o:['CPU 속도가 느려서 여러 OS를 돌릴 수 없었기 때문',
+      '민감하지만 특권 명령이 아닌 명령이 17개 있어서 트랩이 걸리지 않았기 때문',
+      '메모리 주소 공간이 부족했기 때문',
+      '보호 링이 4개뿐이어서'],
+   a:1,
+   e:'팝엑·골드버그 정리에 따르면 민감한 명령은 모두 특권 명령이어야 가상화가 가능합니다. x86에는 POPF처럼 <b>민감한데 특권이 아닌 명령이 17개</b> 있어서, 낮은 권한에서 실행해도 예외가 안 나고 조용히 무시됩니다. 하이퍼바이저가 개입할 기회 자체가 없었던 것이 문제의 본질입니다.'},
+  {q:'반가상화(Paravirtualization)의 핵심 아이디어는?',
+   o:['게스트 명령어를 실행 직전에 다른 코드로 치환한다',
+      'CPU에 새로운 실행 모드를 추가한다',
+      '게스트 OS 커널을 수정해 하이퍼콜을 직접 호출하게 한다',
+      '물리 NIC을 여러 개의 가상 기능으로 나눈다'],
+   a:2,
+   e:'반가상화는 속이는 대신 <b>게스트에게 사실을 알려주고 협력을 요청하는</b> 방식입니다. 1번은 바이너리 변환, 2번은 하드웨어 보조 가상화, 4번은 SR-IOV입니다. 전체 OS 반가상화는 사라졌지만 virtio 드라이버 형태로 지금도 현역입니다.'},
+  {q:'VM Exit이 가상화 성능에서 중요한 이유는?',
+   o:['발생할 때마다 게스트 상태 저장·복원과 파이프라인 무효화로 수백~수천 사이클이 들기 때문',
+      'VM Exit이 발생하면 VM이 재부팅되기 때문',
+      'VM Exit 횟수만큼 라이선스 비용이 청구되기 때문',
+      'VM Exit은 성능과 무관하다'],
+   a:0,
+   e:'VM Exit은 세계를 한 번 갈아끼우는 작업입니다. 레지스터를 VMCS에 저장하고 모드를 전환하며 파이프라인과 분기 예측기가 무효화됩니다. 그래서 <b>가상화 성능 튜닝의 본질은 VM Exit을 얼마나 줄이느냐</b>이고, EPT·virtio·SR-IOV·APICv가 전부 이 목표를 향합니다.'},
+  {q:'KVM의 분류로 가장 적절한 설명은?',
+   o:['명백한 Type 2다. 리눅스 위에서 실행되기 때문',
+      '하이퍼바이저가 아니라 에뮬레이터다',
+      '일반적으로 Type 1로 분류한다. 모듈이 로드되면 리눅스 커널 자체가 하이퍼바이저가 되기 때문',
+      'Type 1과 Type 2 어디에도 속하지 않는 Type 3이다'],
+   a:2,
+   e:'논쟁의 여지가 있지만 업계 통용 답은 Type 1입니다. <code>kvm.ko</code>가 로드되면 <b>리눅스 커널이 곧 하이퍼바이저가 되어</b> 하드웨어를 직접 제어합니다. 면접에서는 "Type 1으로 분류하되 커널 내장형이라 경계에 있다"고 답하면 가장 정확합니다.'},
+  {q:'물리 서버를 VM으로 전환(P2V)할 때 가장 흔한 실패 원인은?',
+   o:['가상 디스크 용량을 원본보다 크게 잡아서',
+      '물리 하드웨어용 드라이버가 가상 하드웨어에 없어 부팅·네트워크 장애가 발생',
+      'VM 이름에 한글을 써서',
+      '게스트 OS 버전이 하이퍼바이저보다 최신이어서'],
+   a:1,
+   e:'RAID 컨트롤러나 NIC 드라이버가 가상 하드웨어에서는 존재하지 않아 부팅 직후 블루스크린이 나거나 네트워크가 안 올라옵니다. 전환 전에 <b>virtio·VMware Tools 드라이버를 미리 주입</b>하는 것이 정석입니다. 하드웨어에 묶인 라이선스 인증이 풀리는 것도 함께 점검할 항목입니다.'},
+  {q:'VM에 vCPU 8개를 줬을 때 실제로 보장되는 것은?',
+   o:['물리 코어 8개가 전용으로 예약된다',
+      '물리 코어 8개 분량의 성능이 항상 나온다',
+      '스케줄링 단위가 8개일 뿐, 물리 코어는 다른 VM과 시간으로 나눠 쓴다',
+      '호스트의 물리 코어가 8개 이상이어야만 부팅된다'],
+   a:2,
+   e:'vCPU는 예약이 아니라 <b>스케줄링 단위</b>입니다. 오버커밋 상태에서 VM들이 동시에 바빠지면 물리 CPU를 기다리는 CPU Ready 시간이 늘고 체감 성능이 급격히 떨어집니다. 그래서 오버커밋 비율은 "얼마나 많이 얹을 수 있나"가 아니라 "동시에 바빠질 확률이 얼마나 되나"로 설계해야 합니다.'}
+];
+var quizEl=document.getElementById('quiz'), answered=0, correct=0;
+QUIZ.forEach(function(q,i){
+  var d=document.createElement('div'); d.className='quiz';
+  var html='<div class="qn">문제 '+(i+1)+' / '+QUIZ.length+'</div><p class="qt">'+q.q+'</p>';
+  q.o.forEach(function(o,j){ html+='<button class="opt" data-i="'+j+'">'+o+'</button>'; });
+  html+='<div class="expl"></div>';
+  d.innerHTML=html;
+  var expl=d.querySelector('.expl');
+  Array.prototype.forEach.call(d.querySelectorAll('.opt'),function(b){
+    b.addEventListener('click',function(){
+      var picked=parseInt(b.dataset.i,10);
+      Array.prototype.forEach.call(d.querySelectorAll('.opt'),function(x){
+        x.disabled=true;
+        var xi=parseInt(x.dataset.i,10);
+        if(xi===q.a) x.classList.add('right');
+        else if(xi===picked) x.classList.add('wrong');
+      });
+      expl.innerHTML=(picked===q.a?'<b>정답입니다.</b> ':'<b>정답은 '+(q.a+1)+'번입니다.</b> ')+q.e;
+      expl.classList.add('show');
+      answered++; if(picked===q.a) correct++;
+      if(answered===QUIZ.length){
+        var box=document.getElementById('quizScore');
+        var msg;
+        if(correct===QUIZ.length) msg='전부 맞혔습니다. 2편으로 바로 넘어가도 좋습니다.';
+        else if(correct>=QUIZ.length-2) msg='핵심은 잡으셨습니다. 틀린 문항의 해당 섹션만 다시 보면 충분합니다.';
+        else msg='4장(x86의 한계)과 5장(세 가지 해법)을 다시 읽어 보시길 권합니다. 이 두 장이 2편의 전제가 됩니다.';
+        document.getElementById('quizScoreText').textContent=QUIZ.length+'문제 중 '+correct+'문제 정답. '+msg;
+        box.style.display='block';
+      }
+    });
+  });
+  quizEl.appendChild(d);
+});
+
+})();
+</script>
+</body>
+</html>
