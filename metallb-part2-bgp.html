@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetalLB 2편 · BGP 모드와 실전 운영</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d1420; --bg2:#111a28; --panel:#172233; --panel2:#1d2a3d;
+  --line:#2a3a52; --line-soft:#213047;
+  --ink:#e3eaf5; --ink2:#a8b7cc; --ink3:#73879f;
+  --teal:#43d6c8; --teal-deep:#1f8f85; --teal-wash:rgba(67,214,200,.10);
+  --amber:#f0a93c; --amber-wash:rgba(240,169,60,.10);
+  --violet:#9b8cf5; --violet-wash:rgba(155,140,245,.10);
+  --red:#ff8080; --red-wash:rgba(255,128,128,.10);
+  --shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 18px 40px -28px rgba(0,0,0,.9);
+}
+:root[data-theme="light"]{
+  --bg:#eef2f7; --bg2:#e5ebf3; --panel:#ffffff; --panel2:#f5f8fc;
+  --line:#d2dbe7; --line-soft:#e2e9f2;
+  --ink:#122032; --ink2:#465a72; --ink3:#6c8098;
+  --teal:#0d827a; --teal-deep:#0a6a63; --teal-wash:rgba(13,130,122,.09);
+  --amber:#9e6112; --amber-wash:rgba(158,97,18,.10);
+  --violet:#5546bd; --violet-wash:rgba(85,70,189,.09);
+  --red:#bf3b32; --red-wash:rgba(191,59,50,.09);
+  --shadow:0 1px 2px rgba(18,32,50,.05), 0 14px 30px -24px rgba(18,32,50,.35);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans KR",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-weight:400; font-size:16.5px; line-height:1.78;
+  -webkit-font-smoothing:antialiased; word-break:keep-all;
+}
+code,kbd,pre,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+.topbar{position:sticky; top:0; z-index:60; background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(12px); border-bottom:1px solid var(--line-soft)}
+.topbar-in{max-width:1180px; margin:0 auto; padding:.6rem 1.1rem; display:flex; align-items:center; gap:.75rem}
+.brand{font-weight:600; font-size:.9rem; letter-spacing:-.01em; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.brand b{color:var(--teal); font-weight:600}
+.topbar-sp{flex:1}
+.tbtn{border:1px solid var(--line); background:var(--panel); color:var(--ink2); border-radius:9px; padding:.34rem .7rem; font:inherit; font-size:.82rem; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; transition:border-color .15s,color .15s}
+.tbtn:hover{border-color:var(--teal); color:var(--ink)}
+.tbtn:focus-visible,a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--teal); outline-offset:2px}
+#tocBtn{display:none}
+.progress{position:absolute; left:0; bottom:-1px; height:2px; background:var(--teal); width:0%}
+
+.shell{max-width:1180px; margin:0 auto; padding:0 1.1rem; display:grid; grid-template-columns:232px minmax(0,1fr); gap:2.6rem}
+.toc{position:sticky; top:74px; align-self:start; max-height:calc(100vh - 92px); overflow-y:auto; padding:1.6rem 0 3rem; font-size:.82rem}
+.toc h4{margin:0 0 .7rem; font-size:.7rem; font-weight:600; color:var(--ink3); letter-spacing:.06em}
+.toc a{display:block; padding:.3rem .55rem .3rem .7rem; color:var(--ink3); text-decoration:none; border-left:2px solid var(--line-soft); line-height:1.45; transition:color .15s,border-color .15s}
+.toc a:hover{color:var(--ink2)}
+.toc a.on{color:var(--teal); border-left-color:var(--teal); background:var(--teal-wash)}
+main{min-width:0; padding-bottom:5rem}
+@media (max-width:920px){
+  .shell{grid-template-columns:1fr; gap:0}
+  #tocBtn{display:inline-flex}
+  .toc{position:fixed; inset:56px 0 auto 0; max-height:70vh; background:var(--panel); border-bottom:1px solid var(--line); padding:1rem 1.2rem 1.4rem; display:none; z-index:55; box-shadow:0 20px 40px -24px rgba(0,0,0,.6)}
+  .toc.open{display:block}
+  body{font-size:16px}
+}
+
+.hero{padding:3.6rem 0 2.4rem; border-bottom:1px solid var(--line-soft)}
+.kicker{font-size:.78rem; color:var(--teal); font-weight:500; margin:0 0 1rem; display:flex; align-items:center; gap:.55rem}
+.kicker::before{content:""; width:26px; height:1px; background:var(--teal)}
+.hero h1{margin:0 0 1rem; font-size:clamp(2rem,5.2vw,3.15rem); line-height:1.16; font-weight:700; letter-spacing:-.035em}
+.hero .lede{margin:0 0 1.7rem; font-size:1.06rem; color:var(--ink2); max-width:62ch; font-weight:300}
+.chips{display:flex; flex-wrap:wrap; gap:.5rem}
+.chip{font-size:.76rem; color:var(--ink2); border:1px solid var(--line); border-radius:999px; padding:.22rem .7rem; background:var(--panel)}
+.chip.hl{border-color:var(--teal-deep); color:var(--teal); background:var(--teal-wash)}
+
+.topo{margin-top:2.2rem; border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:1.3rem 1.2rem 1.1rem; box-shadow:var(--shadow)}
+.topo .rt{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:.85rem; color:var(--violet); border:1px solid var(--violet); border-radius:8px; padding:.3rem .8rem; background:var(--violet-wash); margin-bottom:.9rem}
+.topo .cap{font-size:.82rem; color:var(--ink3); margin:.2rem 0 1rem}
+.fan{display:flex; gap:.5rem}
+.fan div{flex:1; border:1px solid var(--teal-deep); border-radius:9px; padding:.55rem .5rem; text-align:center; font-family:"IBM Plex Mono",monospace; font-size:.74rem; color:var(--teal); background:var(--teal-wash)}
+
+section{padding:3.2rem 0 .6rem; scroll-margin-top:74px; border-bottom:1px solid var(--line-soft)}
+section:last-of-type{border-bottom:none}
+.sec-no{font-family:"IBM Plex Mono",monospace; font-size:.76rem; color:var(--ink3); display:block; margin-bottom:.45rem}
+h2{font-size:clamp(1.42rem,3.1vw,1.85rem); line-height:1.3; margin:0 0 1.1rem; font-weight:700; letter-spacing:-.025em}
+h3{font-size:1.06rem; margin:2.2rem 0 .7rem; font-weight:600; letter-spacing:-.015em}
+h4{font-size:.93rem; margin:1.5rem 0 .5rem; font-weight:600; color:var(--ink2)}
+p{margin:0 0 1.05rem; max-width:74ch}
+ul,ol{margin:0 0 1.1rem; padding-left:1.25rem; max-width:74ch}
+li{margin-bottom:.45rem}
+li::marker{color:var(--ink3)}
+a{color:var(--teal)}
+strong{font-weight:600; color:var(--ink)}
+em{font-style:normal; color:var(--amber); font-weight:500}
+code:not(pre code){background:var(--panel2); border:1px solid var(--line-soft); border-radius:5px; padding:.08em .38em; font-size:.85em; color:var(--teal); white-space:nowrap}
+:root[data-theme="light"] code:not(pre code){color:var(--teal-deep)}
+
+.code{position:relative; margin:0 0 1.2rem}
+.code-hd{display:flex; align-items:center; gap:.6rem; font-size:.73rem; color:var(--ink3); background:var(--panel2); border:1px solid var(--line); border-bottom:none; border-radius:9px 9px 0 0; padding:.35rem .75rem}
+.code-hd .f{flex:1; font-family:"IBM Plex Mono",monospace}
+.copy{border:1px solid var(--line); background:var(--panel); color:var(--ink3); border-radius:6px; padding:.1rem .45rem; font:inherit; font-size:.71rem; cursor:pointer}
+.copy:hover{color:var(--teal); border-color:var(--teal-deep)}
+pre{margin:0; background:var(--bg2); border:1px solid var(--line); border-radius:0 0 9px 9px; padding:.9rem 1rem; overflow-x:auto; font-size:.845rem; line-height:1.68; color:var(--ink2)}
+pre code{color:inherit}
+.tok-k{color:var(--violet)} .tok-s{color:var(--teal)} .tok-c{color:var(--ink3); font-style:italic} .tok-n{color:var(--amber)}
+
+.note,.warn,.tip{border:1px solid var(--line); border-left-width:3px; border-radius:0 10px 10px 0; padding:.95rem 1.1rem; margin:0 0 1.3rem; background:var(--panel); font-size:.93rem; max-width:74ch}
+.note{border-left-color:var(--teal); background:var(--teal-wash)}
+.warn{border-left-color:var(--red); background:var(--red-wash)}
+.tip{border-left-color:var(--amber); background:var(--amber-wash)}
+.note p:last-child,.warn p:last-child,.tip p:last-child{margin-bottom:0}
+.note b,.warn b,.tip b{display:block; margin-bottom:.25rem; font-size:.82rem; font-weight:600}
+.note b{color:var(--teal)} .warn b{color:var(--red)} .tip b{color:var(--amber)}
+
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.3rem}
+@media (max-width:700px){.grid2{grid-template-columns:1fr}}
+.card{border:1px solid var(--line); border-radius:11px; padding:1rem 1.1rem; background:var(--panel)}
+.card h5{margin:0 0 .5rem; font-size:.9rem; font-weight:600}
+.card p{font-size:.9rem; color:var(--ink2); margin:0}
+.card ul{font-size:.89rem; color:var(--ink2); margin:.5rem 0 0; padding-left:1.1rem}
+
+table{width:100%; border-collapse:collapse; margin:0 0 1.4rem; font-size:.88rem; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:.55rem .7rem; text-align:left; vertical-align:top}
+th{background:var(--panel2); font-weight:600; font-size:.83rem; color:var(--ink2); white-space:nowrap}
+td code{white-space:nowrap}
+
+.sim{border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:1.2rem; margin:0 0 1.4rem; box-shadow:var(--shadow)}
+.sim-hd{display:flex; align-items:baseline; gap:.7rem; margin-bottom:.9rem; flex-wrap:wrap}
+.sim-hd h5{margin:0; font-size:.95rem; font-weight:600}
+.sim-hd span{font-size:.78rem; color:var(--ink3)}
+.simbar{display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.9rem; align-items:center}
+.sbtn{border:1px solid var(--line); background:var(--panel2); color:var(--ink2); border-radius:8px; padding:.4rem .8rem; font:inherit; font-size:.82rem; cursor:pointer}
+.sbtn:hover:not(:disabled){border-color:var(--teal); color:var(--ink)}
+.sbtn.primary{border-color:var(--teal-deep); color:var(--teal); background:var(--teal-wash)}
+.sbtn.danger{border-color:var(--red); color:var(--red); background:var(--red-wash)}
+.sbtn[aria-pressed="true"]{border-color:var(--violet); color:var(--violet); background:var(--violet-wash)}
+.sbtn:disabled{opacity:.4; cursor:not-allowed}
+
+.rack{display:grid; grid-template-columns:repeat(4,1fr); gap:.5rem; margin-bottom:.9rem}
+@media (max-width:560px){.rack{grid-template-columns:repeat(2,1fr)}}
+.rnode{border:1px solid var(--line); border-radius:9px; background:var(--panel2); padding:.55rem .5rem; text-align:center; font-size:.74rem; color:var(--ink3); transition:opacity .2s,border-color .2s}
+.rnode .h{display:block; font-family:"IBM Plex Mono",monospace; font-size:.78rem; color:var(--ink2)}
+.rnode .cnt{display:block; margin-top:.25rem; font-family:"IBM Plex Mono",monospace; font-size:1.05rem; color:var(--teal); font-weight:600}
+.rnode.down{opacity:.45; border-style:dashed; border-color:var(--red)}
+.rnode.down .cnt{color:var(--red)}
+.conns{display:grid; grid-template-columns:repeat(auto-fill,minmax(168px,1fr)); gap:.35rem; margin-bottom:.9rem}
+.conn{border:1px solid var(--line); border-radius:7px; background:var(--bg2); padding:.3rem .5rem; font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink3); display:flex; justify-content:space-between; gap:.4rem}
+.conn b{font-weight:500; color:var(--ink2)}
+.conn.kept{border-color:var(--teal-deep)} .conn.kept b{color:var(--teal)}
+.conn.broke{border-color:var(--red); background:var(--red-wash)} .conn.broke b{color:var(--red)}
+.verdict{background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem; font-size:.85rem; color:var(--ink2)}
+.verdict b{color:var(--ink)}
+.verdict .big{font-family:"IBM Plex Mono",monospace; font-size:1.15rem; font-weight:600}
+.verdict .bad{color:var(--red)} .verdict .ok{color:var(--teal)}
+
+.fsm{display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:.8rem}
+.fsm div{flex:1; min-width:92px; border:1px solid var(--line); border-radius:8px; padding:.45rem .3rem; text-align:center; font-family:"IBM Plex Mono",monospace; font-size:.74rem; color:var(--ink3); background:var(--panel2)}
+.fsm div.on{border-color:var(--teal); color:var(--teal); background:var(--teal-wash)}
+.fsm div.done{border-color:var(--teal-deep); color:var(--ink2)}
+.fsmtxt{background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem; font-size:.86rem; color:var(--ink2); min-height:3.6rem}
+
+.tabs{border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:0 0 1.4rem; background:var(--panel)}
+.tabbar{display:flex; overflow-x:auto; background:var(--panel2); border-bottom:1px solid var(--line)}
+.tabbar button{border:none; background:none; color:var(--ink3); font:inherit; font-size:.84rem; padding:.65rem 1rem; cursor:pointer; white-space:nowrap; border-bottom:2px solid transparent}
+.tabbar button[aria-selected="true"]{color:var(--teal); border-bottom-color:var(--teal); background:var(--panel)}
+.tabpane{padding:1.1rem}
+.tabpane[hidden]{display:none}
+.tabpane p:last-child,.tabpane .code:last-child{margin-bottom:0}
+
+.builder{display:grid; grid-template-columns:1fr 1fr; gap:1rem}
+@media (max-width:760px){.builder{grid-template-columns:1fr}}
+.bopts label{display:flex; align-items:center; gap:.5rem; font-size:.86rem; color:var(--ink2); padding:.3rem 0; cursor:pointer}
+.bopts input[type=checkbox]{accent-color:var(--teal); width:15px; height:15px}
+.bopts select{background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:.2rem .4rem; font:inherit; font-size:.82rem}
+.bout{background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:.75rem .85rem; font-family:"IBM Plex Mono",monospace; font-size:.78rem; line-height:1.65; color:var(--ink2); white-space:pre-wrap}
+
+details{border:1px solid var(--line); border-radius:10px; margin-bottom:.55rem; background:var(--panel); overflow:hidden}
+summary{cursor:pointer; padding:.7rem .95rem; font-size:.9rem; font-weight:500; list-style:none; display:flex; align-items:center; gap:.6rem}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+"; font-family:"IBM Plex Mono",monospace; color:var(--teal); font-size:.95rem; width:.9em}
+details[open] summary::before{content:"−"}
+details[open] summary{border-bottom:1px solid var(--line-soft); background:var(--panel2)}
+.dbody{padding:.9rem .95rem .3rem}
+.dbody p,.dbody ul{font-size:.9rem}
+.dbody .code{margin-top:.6rem}
+
+.terms{display:grid; grid-template-columns:1fr 1fr; gap:.55rem}
+@media (max-width:760px){.terms{grid-template-columns:1fr}}
+.term{border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem; background:var(--panel); font-size:.87rem}
+.term b{display:block; font-family:"IBM Plex Mono",monospace; font-size:.83rem; color:var(--teal); margin-bottom:.2rem; font-weight:500}
+.term span{color:var(--ink2)}
+
+.quiz{border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:1.2rem; box-shadow:var(--shadow)}
+.q{border-bottom:1px solid var(--line-soft); padding-bottom:1.1rem; margin-bottom:1.1rem}
+.q:last-of-type{border-bottom:none}
+.q p{font-weight:500; margin-bottom:.6rem; font-size:.95rem}
+.q p span{font-family:"IBM Plex Mono",monospace; color:var(--ink3); font-size:.85rem; margin-right:.4rem}
+.opt{display:block; width:100%; text-align:left; border:1px solid var(--line); background:var(--panel2); color:var(--ink2); border-radius:8px; padding:.5rem .8rem; font:inherit; font-size:.88rem; margin-bottom:.35rem; cursor:pointer}
+.opt:hover:not(.locked){border-color:var(--teal-deep)}
+.opt.right{border-color:var(--teal); background:var(--teal-wash); color:var(--teal)}
+.opt.wrong{border-color:var(--red); background:var(--red-wash); color:var(--red)}
+.qex{font-size:.86rem; color:var(--ink2); background:var(--panel2); border-left:2px solid var(--teal); padding:.55rem .8rem; border-radius:0 7px 7px 0; margin-top:.5rem}
+.qex[hidden]{display:none}
+.score{font-size:.9rem; color:var(--ink2); text-align:center; padding-top:.4rem}
+.score b{color:var(--teal)}
+
+.wrapup{border:1px solid var(--teal-deep); border-radius:14px; background:var(--teal-wash); padding:1.4rem 1.3rem; margin-top:1rem}
+.wrapup h3{margin:0 0 .6rem; color:var(--teal); font-size:1.05rem}
+.wrapup ol{margin-bottom:0; font-size:.92rem; color:var(--ink2)}
+
+footer{max-width:1180px; margin:0 auto; padding:2rem 1.1rem 3.5rem; font-size:.8rem; color:var(--ink3); border-top:1px solid var(--line-soft)}
+footer a{color:var(--ink3)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important; animation:none!important} html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <span class="brand"><b>MetalLB 2편</b> · BGP 모드와 실전 운영</span>
+    <span class="topbar-sp"></span>
+    <button class="tbtn" id="tocBtn" aria-expanded="false">목차</button>
+    <button class="tbtn" id="themeBtn" aria-label="테마 전환">라이트</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</div>
+
+<div class="shell">
+  <nav class="toc" id="toc">
+    <h4>목차</h4>
+    <a href="#s1">1. L2로는 안 되는 순간</a>
+    <a href="#s2">2. BGP 기초 30분</a>
+    <a href="#s3">3. BGP 모드의 동작</a>
+    <a href="#s4">4. ECMP와 패킷 해싱</a>
+    <a href="#s5">5. 가장 큰 함정: 재해싱</a>
+    <a href="#s6">6. 백엔드 3종과 v0.16 변화</a>
+    <a href="#s7">7. 설치와 마이그레이션</a>
+    <a href="#s8">8. BGPPeer 설정 전부</a>
+    <a href="#s9">9. BGPAdvertisement</a>
+    <a href="#s10">10. BFD와 Graceful Restart</a>
+    <a href="#s11">11. 트래픽 정책과 노드 선택</a>
+    <a href="#s12">12. 모니터링</a>
+    <a href="#s13">13. 트러블슈팅</a>
+    <a href="#s14">14. 대안 비교</a>
+    <a href="#s15">15. 도입 체크리스트</a>
+    <a href="#s16">16. 용어 사전</a>
+    <a href="#s17">17. 셀프 체크 퀴즈</a>
+    <a href="#s18">18. 시리즈 마무리</a>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <p class="kicker">클라우드 인프라 강의 시리즈 · MetalLB 2편</p>
+      <h1>라우터와 대화하는<br>로드밸런서</h1>
+      <p class="lede">
+        1편의 L2 모드는 한 노드가 모든 트래픽을 받았습니다. BGP 모드는 라우터에게
+        "이 IP로 가려면 이 노드들 중 아무 데나 보내면 된다"고 알려 줍니다.
+        진짜 부하 분산이 시작되는 지점이자, 동시에 <strong>연결이 통째로 끊기는 새로운 함정</strong>이 생기는 지점이기도 합니다.
+      </p>
+      <div class="chips">
+        <span class="chip hl">MetalLB v0.16.1 기준</span>
+        <span class="chip">BGP 사전 지식 불필요</span>
+        <span class="chip">1편(L2 모드) 이후</span>
+        <span class="chip">읽기 약 80분</span>
+      </div>
+
+      <div class="topo">
+        <span class="rt">ToR Router · AS 64501</span>
+        <p class="cap">라우터의 라우팅 테이블에는 같은 목적지(192.168.1.240/32)로 가는 경로가 네 개 올라가 있습니다. 넥스트홉만 다릅니다.</p>
+        <div class="fan">
+          <div>node-01</div><div>node-02</div><div>node-03</div><div>node-04</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============================================ 1 -->
+    <section id="s1">
+      <span class="sec-no">01</span>
+      <h2>L2로는 안 되는 순간이 온다</h2>
+
+      <p>1편에서 L2 모드의 한계 두 가지를 짚었습니다. 다시 정리하면 이렇습니다.</p>
+      <ul>
+        <li>한 서비스 IP의 트래픽은 <strong>한 노드</strong>만 받는다. 대역폭이 노드 1대로 제한된다.</li>
+        <li>페일오버가 클라이언트의 ARP 캐시 갱신에 의존한다. 보통 몇 초지만 보장되지는 않는다.</li>
+        <li>VIP가 <strong>노드와 같은 L2 세그먼트</strong> 안에 있어야 한다.</li>
+      </ul>
+
+      <p>BGP 모드는 이 세 가지를 모두 다르게 풉니다.</p>
+
+      <table>
+        <thead><tr><th>상황</th><th>L2 모드</th><th>BGP 모드</th></tr></thead>
+        <tbody>
+          <tr><td>서비스 1개의 인그레스 대역폭</td><td>노드 1대 NIC</td><td>여러 노드의 합 (ECMP)</td></tr>
+          <tr><td>VIP 대역 조건</td><td>노드와 같은 서브넷 필수</td><td>라우팅만 되면 어느 대역이든 가능</td></tr>
+          <tr><td>장애 감지 주체</td><td>memberlist + 클라이언트 ARP 캐시</td><td>라우터의 BGP 세션 (+ BFD면 밀리초 단위)</td></tr>
+          <tr><td>필요한 것</td><td>없음</td><td>BGP 가능한 라우터 + 네트워크팀 협의</td></tr>
+          <tr><td>노드 장애 시 기존 연결</td><td>대부분 유지 (새 리더가 이어받음)</td><td><em>대부분 끊긴다</em> (5장에서 자세히)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <b>선택 기준 한 줄</b>
+        <p>
+          <strong>대역폭이나 IP 대역 때문에 L2가 막히면 BGP로 간다.</strong>
+          반대로 "기존 연결이 끊기면 안 되는" 요구가 더 강하다면 BGP는 오히려 불리할 수 있습니다.
+          두 모드는 상위·하위 관계가 아니라 트레이드오프가 다른 선택지입니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 2 -->
+    <section id="s2">
+      <span class="sec-no">02</span>
+      <h2>BGP 기초 30분 — 라우터를 다뤄 본 적 없어도 괜찮다</h2>
+
+      <p>
+        BGP(Border Gateway Protocol)는 원래 <strong>인터넷을 굴러가게 하는 라우팅 프로토콜</strong>입니다.
+        전 세계 통신사들이 "내가 어떤 IP 대역으로 가는 길을 알고 있다"고 서로 알려 주는 데 쓰입니다.
+        MetalLB는 이 프로토콜을 데이터센터 안에서, 아주 작은 범위로 사용합니다.
+      </p>
+
+      <h3>AS와 ASN</h3>
+      <p>
+        <strong>AS(Autonomous System, 자율 시스템)</strong>는 하나의 정책 아래 관리되는 네트워크 덩어리입니다.
+        KT, SKB 같은 통신사가 각각 하나의 AS이고, 여기에 붙은 고유 번호가 <strong>ASN</strong>입니다.
+      </p>
+      <p>
+        사내 데이터센터에서는 인터넷에 등록된 번호가 필요 없으므로 <strong>사설 ASN 대역</strong>을 씁니다.
+      </p>
+      <ul>
+        <li><strong>64512 – 65534</strong> — 16비트 사설 ASN 대역. MetalLB 문서 예제도 대부분 이 대역(64500, 64512 등)을 씁니다.</li>
+        <li><strong>4200000000 – 4294967294</strong> — 32비트 사설 ASN 대역. 노드/랙이 많으면 이쪽을 씁니다.</li>
+      </ul>
+      <p>보통 <strong>쿠버네티스 클러스터에 ASN 하나, 라우터에 ASN 하나</strong>를 할당하는 것으로 시작합니다.</p>
+
+      <h3>피어링(peering)과 세션</h3>
+      <p>
+        두 BGP 라우터가 <strong>TCP 179 포트</strong>로 연결을 맺고 경로 정보를 주고받는 관계를 피어링이라고 합니다.
+        MetalLB에서는 <strong>각 노드의 speaker가 BGP 라우터 역할</strong>을 하고, 물리 라우터(보통 ToR 스위치)와 피어링합니다.
+      </p>
+
+      <div class="sim">
+        <div class="sim-hd">
+          <h5>BGP 세션이 맺어지는 과정</h5>
+          <span>상태 머신을 단계별로 따라가 보세요</span>
+        </div>
+        <div class="fsm" id="fsm">
+          <div data-i="0">Idle</div>
+          <div data-i="1">Connect</div>
+          <div data-i="2">OpenSent</div>
+          <div data-i="3">OpenConfirm</div>
+          <div data-i="4">Established</div>
+        </div>
+        <div class="fsmtxt" id="fsmTxt">시작 전입니다. "다음"을 눌러 진행하세요.</div>
+        <div class="simbar" style="margin-top:.9rem; margin-bottom:0">
+          <button class="sbtn primary" id="fsmNext">다음</button>
+          <button class="sbtn" id="fsmReset">처음으로</button>
+        </div>
+      </div>
+
+      <h3>eBGP와 iBGP</h3>
+      <ul>
+        <li><strong>eBGP</strong> — 서로 <em>다른</em> ASN끼리 맺는 세션. 기본적으로 직접 연결된(1홉) 이웃끼리만 맺습니다. 노드와 ToR 라우터의 ASN이 다르면 eBGP입니다.</li>
+        <li><strong>iBGP</strong> — <em>같은</em> ASN 안에서 맺는 세션. 노드와 라우터에 같은 ASN을 주면 iBGP가 됩니다.</li>
+      </ul>
+      <div class="warn">
+        <b>eBGP multihop</b>
+        <p>
+          eBGP 피어가 <strong>여러 홉 떨어져 있다면</strong> <code>ebgpMultiHop: true</code>를 켜야 세션이 맺어집니다.
+          FRR 기반 모드(기본)에서는 이 플래그가 필수입니다. "설정은 맞는데 세션이 안 붙는" 사례의 단골 원인입니다.
+        </p>
+      </div>
+
+      <h3>경로 광고와 넥스트홉</h3>
+      <p>
+        BGP에서 "광고한다"는 것은 <strong>"이 목적지 대역으로 가려면 나를 거쳐라"</strong>라고 알리는 일입니다.
+        광고에는 목적지 프리픽스(예: <code>192.168.1.240/32</code>)와 넥스트홉(그 노드의 IP)이 함께 담깁니다.
+      </p>
+      <p>MetalLB는 기본적으로 <strong>서비스 IP 하나당 /32 경로 하나</strong>를 광고합니다. IPv6면 /128입니다.</p>
+
+      <h3>경로 속성 두 가지만 알아 두기</h3>
+      <ul>
+        <li><strong>localPref (Local Preference)</strong> — 같은 목적지로 가는 경로가 여러 개일 때 <strong>높을수록 선호</strong>됩니다. MetalLB의 기본값은 0입니다. 운영 서비스를 200, 스테이징을 100으로 주는 식으로 활용합니다.</li>
+        <li><strong>community (커뮤니티)</strong> — 경로에 붙이는 <strong>태그</strong>입니다. 라우터가 이 태그를 보고 "이 경로는 외부로 전파하지 마라" 같은 정책을 적용합니다. <code>65535:65282</code>가 표준 <code>NO_ADVERTISE</code> 커뮤니티입니다.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================ 3 -->
+    <section id="s3">
+      <span class="sec-no">03</span>
+      <h2>BGP 모드는 어떻게 동작하는가</h2>
+
+      <p>
+        BGP 모드에서는 <strong>클러스터의 각 노드가 네트워크 라우터와 BGP 피어링 세션을 맺고</strong>,
+        그 세션으로 외부 서비스의 IP를 광고합니다.
+      </p>
+      <p>
+        라우터가 멀티패스(multipath)를 지원하도록 설정되어 있다면 <strong>진짜 로드밸런싱</strong>이 됩니다.
+        MetalLB가 광고하는 경로들은 <strong>넥스트홉만 다를 뿐 나머지는 완전히 동등</strong>하기 때문에,
+        라우터는 이 넥스트홉들을 모두 함께 사용하며 트래픽을 분산합니다.
+      </p>
+      <p>
+        패킷이 노드에 도착한 다음은 1편과 똑같습니다. <strong>kube-proxy가 마지막 홉을 담당</strong>해 특정 파드로 보냅니다.
+        MetalLB의 역할은 여기서도 "트래픽을 노드까지 끌어오는 것"까지입니다.
+      </p>
+
+      <h3>L2 모드와 구조적으로 다른 점</h3>
+      <div class="grid2">
+        <div class="card">
+          <h5>L2 모드</h5>
+          <ul>
+            <li>한 IP당 리더 노드 <strong>1개</strong></li>
+            <li>ARP 응답으로 트래픽 유도</li>
+            <li>나머지 노드는 대기만</li>
+            <li>스위치·라우터 설정 불필요</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h5>BGP 모드</h5>
+          <ul>
+            <li>한 IP를 <strong>여러 노드</strong>가 동시에 광고</li>
+            <li>라우터의 라우팅 테이블에 경로 여러 개</li>
+            <li>모든 노드가 트래픽을 나눠 받음</li>
+            <li>라우터에 BGP 이웃 설정 필요</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>라우터 쪽 준비물</b>
+        <p>
+          MetalLB만 설정해서는 동작하지 않습니다. <strong>라우터에도 이웃(neighbor) 설정이 있어야</strong> 세션이 맺어집니다.
+          네트워크팀에 전달할 정보는 네 가지입니다. ① 각 노드의 IP, ② 클러스터가 쓸 ASN, ③ 라우터 ASN,
+          ④ 광고할 IP 대역. 여기에 <strong>ECMP/멀티패스 활성화</strong> 요청을 반드시 추가하세요.
+          멀티패스가 꺼져 있으면 라우터가 경로 하나만 골라 쓰기 때문에 <em>BGP를 써도 L2처럼 단일 노드로 몰립니다.</em>
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 4 -->
+    <section id="s4">
+      <span class="sec-no">04</span>
+      <h2>ECMP와 패킷 해싱: 어떻게 나뉘는가</h2>
+
+      <p>
+        로드밸런싱의 정확한 동작은 라우터 기종과 설정에 따라 다르지만, 일반적인 방식은
+        <strong>패킷 해시를 기반으로 연결 단위(per-connection)로 분산</strong>하는 것입니다.
+      </p>
+
+      <h3>연결 단위 분산이란</h3>
+      <p>
+        하나의 TCP·UDP 세션에 속한 모든 패킷은 <strong>같은 노드</strong>로 갑니다.
+        분산은 서로 <em>다른 연결들 사이에서만</em> 일어나고, 한 연결 안의 패킷들이 흩어지지는 않습니다.
+      </p>
+      <p>이건 <strong>좋은 설계</strong>입니다. 한 연결을 여러 경로로 쪼개면 두 가지 문제가 생깁니다.</p>
+      <ul>
+        <li>패킷 순서가 뒤섞여(reordering) 종단 호스트의 성능이 크게 떨어집니다.</li>
+        <li>쿠버네티스의 노드 내부 라우팅이 노드 간에 일관되다는 보장이 없습니다. 두 노드가 같은 연결의 패킷을 서로 다른 파드로 보내면 연결 자체가 깨집니다.</li>
+      </ul>
+
+      <h3>패킷 해싱 방식</h3>
+      <p>
+        고성능 라우터는 <strong>상태를 저장하지 않고</strong> 연결을 분산합니다.
+        패킷에서 몇 개 필드를 뽑아 해시의 씨앗으로 삼고, 그 값으로 백엔드를 결정론적으로 고릅니다.
+        필드 값이 같으면 항상 같은 백엔드가 선택됩니다.
+      </p>
+      <table>
+        <thead><tr><th>방식</th><th>해시 키</th><th>특징</th></tr></thead>
+        <tbody>
+          <tr><td><strong>3-tuple</strong></td><td>프로토콜, 출발지 IP, 목적지 IP</td><td>같은 두 IP 사이의 모든 패킷이 같은 노드로. 분산이 거칠다.</td></tr>
+          <tr><td><strong>5-tuple</strong></td><td>3-tuple + 출발지 포트 + 목적지 포트</td><td>같은 클라이언트의 서로 다른 연결도 흩어진다. 분산이 고르다.</td></tr>
+        </tbody>
+      </table>
+      <p>
+        일반적으로 <strong>해시에 들어가는 엔트로피가 클수록 좋습니다.</strong>
+        이상적인 상태(모든 노드가 정확히 같은 양을 받는 상태)에 가까워지기 때문입니다.
+        완벽한 균등은 위의 이유들 때문에 불가능하지만, 핫스팟이 생기지 않도록 최대한 고르게 퍼뜨리는 것이 목표입니다.
+      </p>
+      <div class="tip">
+        <b>네트워크팀에 요청할 항목</b>
+        <p>라우터에서 <strong>5-tuple 해싱</strong>을 쓸 수 있는지 확인하세요. 3-tuple만 지원하면, NAT 뒤에 있는 대규모 사용자 집단이 통째로 한 노드에 몰릴 수 있습니다.</p>
+      </div>
+    </section>
+
+    <!-- ============================================ 5 -->
+    <section id="s5">
+      <span class="sec-no">05</span>
+      <h2>가장 큰 함정: 노드가 하나 빠지면 대부분의 연결이 끊긴다</h2>
+
+      <p>
+        BGP 기반 로드밸런싱의 가장 큰 단점은 <strong>백엔드 집합이 바뀔 때 우아하게 반응하지 못한다</strong>는 점입니다.
+        공식 문서의 표현을 그대로 옮기면, 클러스터 노드 하나가 내려가면
+        <strong>그 서비스로의 활성 연결 대부분이 끊긴다고 예상해야 합니다.</strong> 사용자는 "Connection reset by peer"를 보게 됩니다.
+      </p>
+
+      <h3>왜 이런 일이</h3>
+      <p>
+        라우터의 해싱은 대개 <strong>안정적(stable)이지 않습니다.</strong>
+        백엔드 개수가 바뀌면(노드의 BGP 세션이 끊기면) 기존 연결들이 사실상 무작위로 <strong>재해싱</strong>됩니다.
+        그 결과 멀쩡하던 연결의 다수가 갑자기 <em>그 연결을 전혀 모르는 다른 노드로</em> 전달됩니다.
+        새 노드에는 해당 TCP 세션의 상태가 없으니 RST가 돌아옵니다.
+      </p>
+      <p>
+        중요한 건 이게 <strong>지속적인 패킷 손실이 아니라 한 번의 깔끔한 단절</strong>이라는 점입니다.
+        IP → 노드 매핑이 바뀌는 순간에 한 번 크게 끊기고, 그 뒤로는 정상 동작합니다.
+      </p>
+
+      <h3>직접 확인해 보기</h3>
+      <p>
+        아래 시뮬레이터는 활성 연결 16개가 4개 노드에 해싱으로 배치된 상태입니다.
+        노드 하나를 내려 보고, 몇 개의 연결이 살아남는지 확인해 보세요.
+        그다음 <strong>Resilient ECMP</strong>를 켜고 같은 실험을 반복하면 차이가 분명해집니다.
+      </p>
+
+      <div class="sim">
+        <div class="sim-hd">
+          <h5>ECMP 재해싱 시뮬레이터</h5>
+          <span id="modeLabel">해싱 방식: 일반 ECMP (모듈로)</span>
+        </div>
+        <div class="rack" id="rack"></div>
+        <div class="conns" id="conns"></div>
+        <div class="simbar">
+          <button class="sbtn danger" id="ecmpKill">node-04 장애 주입</button>
+          <button class="sbtn" id="ecmpRestore">노드 복구</button>
+          <button class="sbtn" id="ecmpShuffle">연결 다시 생성</button>
+          <button class="sbtn" id="ecmpMode" aria-pressed="false">Resilient ECMP 켜기</button>
+        </div>
+        <div class="verdict" id="verdict">노드를 내려 보면 몇 개의 연결이 유지되는지 계산해 드립니다.</div>
+      </div>
+
+      <h3>완화 전략 (공식 문서 권고)</h3>
+      <ol>
+        <li><strong>Resilient ECMP를 지원하는 라우터를 쓴다.</strong> "resilient ECMP" 또는 "resilient LAG"라고 불리며, 백엔드 집합이 바뀔 때 영향받는 연결 수를 크게 줄여 줍니다. 가능하다면 이것이 최선입니다.</li>
+        <li><strong>서비스 파드를 특정 노드에 고정</strong>해서 "조심해야 할 노드"의 범위를 좁힙니다.</li>
+        <li><strong>트래픽이 적은 시간대에 배포</strong>합니다.</li>
+        <li><strong>서비스를 두 개의 IP로 나누고 DNS로 점진 전환</strong>한 뒤, 비워진 쪽을 건드립니다.</li>
+        <li><strong>클라이언트에 재시도 로직</strong>을 넣습니다. 모바일 앱이나 SPA처럼 클라이언트를 통제할 수 있으면 특히 효과적입니다.</li>
+        <li><strong>Ingress Controller를 앞에 둡니다.</strong> Ingress Controller 자신은 MetalLB로 트래픽을 받되, BGP와 서비스 사이에 상태를 가진 계층이 생기므로 뒤쪽 서비스를 마음 놓고 바꿀 수 있습니다. 조심할 대상이 Ingress Controller의 배포로 줄어듭니다.</li>
+        <li><strong>그냥 받아들입니다.</strong> 가용성 요구가 낮은 내부 서비스라면 가끔 연결이 리셋되는 것을 감수할 수 있습니다.</li>
+      </ol>
+
+      <div class="note">
+        <b>실무에서 가장 현실적인 답</b>
+        <p>
+          6번(Ingress Controller를 앞에 두기)이 압도적으로 자주 쓰입니다.
+          BGP로 받는 대상을 Ingress Controller 하나로 줄이면, 애플리케이션을 배포할 때마다 연결이 끊기는 일이 사라집니다.
+          조심해야 하는 순간은 Ingress Controller 파드를 스케일링하거나 재배포할 때로 한정됩니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 6 -->
+    <section id="s6">
+      <span class="sec-no">06</span>
+      <h2>백엔드 3종과 v0.16이 바꾼 것</h2>
+
+      <p>
+        MetalLB의 BGP 구현체는 역사적으로 세 가지가 있습니다.
+        <strong>v0.16.0부터 FRR-K8s가 기본 백엔드가 되었고, 기존 FRR 모드는 deprecated</strong> 되었습니다.
+      </p>
+
+      <div class="tabs" id="beTabs">
+        <div class="tabbar" role="tablist">
+          <button role="tab" aria-selected="true" data-p="b1">FRR-K8s (기본)</button>
+          <button role="tab" aria-selected="false" data-p="b2">Native</button>
+          <button role="tab" aria-selected="false" data-p="b3">FRR (deprecated)</button>
+        </div>
+        <div class="tabpane" id="b1">
+          <p><strong>FRR-K8s는 FRR을 쿠버네티스 API로 감싼 별도 프로젝트</strong>입니다. 이 모드에서 MetalLB는 FRR을 직접 설정하지 않고 <strong>FRR-K8s용 설정을 생성</strong>합니다.</p>
+          <p>네이티브 구현 대비 제공하는 것:</p>
+          <ul>
+            <li>BFD를 곁들인 BGP 세션</li>
+            <li>BGP와 BFD의 IPv6 지원</li>
+            <li>Multiprotocol BGP</li>
+            <li><strong>사용자나 다른 컨트롤러가 만든 FRRConfiguration을 병합</strong>할 수 있어, 같은 FRR 인스턴스와 BGP 세션을 MetalLB 외의 용도와 공유 가능</li>
+          </ul>
+          <p>speaker가 배포된 노드에 FRR-K8s 인스턴스가 함께 배포됩니다. 앞으로의 신규 BGP 기능은 이 백엔드에만 추가됩니다.</p>
+        </div>
+        <div class="tabpane" id="b2" hidden>
+          <p>Go로 직접 구현한 경량 BGP 스택입니다. <strong>풋프린트가 작아야 하는 환경</strong>을 위해 계속 유지됩니다.</p>
+          <p>다만 제약이 있습니다.</p>
+          <ul>
+            <li>BFD 미지원</li>
+            <li>IPv6 BGP 미지원</li>
+            <li><code>localASN</code> 같은 신규 필드는 검증 단계에서 거부됨</li>
+          </ul>
+          <p>L2 전용으로 쓰거나, 아주 단순한 BGP 구성이라면 충분합니다.</p>
+        </div>
+        <div class="tabpane" id="b3" hidden>
+          <p>FRR을 speaker 파드의 <strong>사이드카 컨테이너</strong>로 두고 직접 설정하는 방식입니다. FRR-K8s와 기능·제약은 같지만, 다른 컨트롤러의 FRR 설정을 병합할 수 없습니다.</p>
+          <div class="warn">
+            <b>deprecated</b>
+            <p>향후 릴리스에서 제거될 예정입니다. 두 구현을 병행 유지하는 비용이 커서 FRR-K8s로 통합하기로 한 결정입니다. 지금 쓰고 있다면 마이그레이션 계획을 잡아야 합니다.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3>FRR 기반 모드(FRR-K8s·FRR)의 공통 제약</h3>
+      <ul>
+        <li>BGPAdvertisement의 <strong>RouterID는 재정의할 수 있지만 모든 광고에서 동일</strong>해야 합니다. 광고마다 다른 RouterID를 줄 수 없습니다.</li>
+        <li><strong>myASN도 마찬가지</strong>로, 재정의는 가능하지만 모든 광고에서 같아야 합니다.</li>
+        <li>eBGP 피어가 여러 홉 떨어져 있으면 <code>ebgpMultiHop</code>을 켜야 합니다.</li>
+        <li><strong>같은 호스트 안에서의 피어링은 불가능</strong>합니다. 네이티브 구현은 가능했던 부분입니다.</li>
+      </ul>
+
+      <div class="warn">
+        <b>업그레이드 시 반드시 확인할 것</b>
+        <p>
+          Helm 차트의 기본값이 FRR 모드에서 FRR-K8s 모드로 바뀌었습니다. 명시적으로 값을 고정하지 않았다면
+          업그레이드만으로 <strong>백엔드가 바뀌고 파드 토폴로지도 달라집니다</strong>(사이드카 → 별도 DaemonSet).
+          그리고 <strong>Prometheus 메트릭 접두사가 <code>metallb_</code>에서 <code>frrk8s_</code>로 바뀝니다.</strong>
+          기존 대시보드와 알람이 조용히 깨질 수 있습니다. 12장에서 대응 방법을 다룹니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 7 -->
+    <section id="s7">
+      <span class="sec-no">07</span>
+      <h2>설치와 마이그레이션</h2>
+
+      <h3>새로 설치하는 경우</h3>
+      <div class="code">
+        <div class="code-hd"><span class="f">매니페스트 (FRR-K8s 모드)</span><button class="copy">복사</button></div>
+<pre><code>kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-frr-k8s.yaml</code></pre>
+      </div>
+      <div class="code">
+        <div class="code-hd"><span class="f">Helm (기본값이 FRR-K8s)</span><button class="copy">복사</button></div>
+<pre><code>helm repo add metallb https://metallb.github.io/metallb
+helm repo update
+helm install metallb metallb/metallb -n metallb-system --create-namespace</code></pre>
+      </div>
+      <div class="code">
+        <div class="code-hd"><span class="f">Kustomize</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+
+<span class="tok-k">resources</span>:
+  - <span class="tok-s">github.com/metallb/metallb/config/frr-k8s?ref=main</span></code></pre>
+      </div>
+
+      <h3>FRR 모드를 유지해야 한다면 (권장하지 않음)</h3>
+      <div class="code">
+        <div class="code-hd"><span class="f">values.yaml</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">speaker</span>:
+  <span class="tok-k">frr</span>:
+    <span class="tok-k">enabled</span>: <span class="tok-n">true</span>
+<span class="tok-k">frrk8s</span>:
+  <span class="tok-k">enabled</span>: <span class="tok-n">false</span></code></pre>
+      </div>
+
+      <h3>FRR → FRR-K8s 마이그레이션 순서</h3>
+      <ol>
+        <li><strong>릴리스 노트를 먼저 읽습니다.</strong> 마이너 버전 업그레이드에서는 필수입니다.</li>
+        <li>현재 values를 명시적으로 고정해 둡니다. 기본값에 의존하고 있다면 그것부터 문서화합니다.</li>
+        <li>모니터링 쪽을 먼저 준비합니다. <code>frrk8s_</code> 접두사 메트릭을 수집하도록 ServiceMonitor를 바꾸거나, 12장의 relabeling 규칙을 넣습니다.</li>
+        <li>트래픽이 적은 시간대에 전환합니다. <strong>BGP 세션이 재수립되면서 연결이 한 번 끊깁니다.</strong> 5장의 내용 그대로입니다.</li>
+        <li>전환 후 세션 상태(<code>frrk8s_bgp_session_up</code>)와 광고 프리픽스 수를 확인합니다.</li>
+      </ol>
+      <div class="tip">
+        <b>Graceful Restart를 켜 두면</b>
+        <p>업그레이드로 인한 네트워크 단절을 줄이기 위해 도입된 기능입니다. 10장에서 다룹니다. 업그레이드 전에 미리 설정해 두면 전환 시 충격이 줄어듭니다.</p>
+      </div>
+    </section>
+
+    <!-- ============================================ 8 -->
+    <section id="s8">
+      <span class="sec-no">08</span>
+      <h2>BGPPeer: 라우터와의 관계 정의</h2>
+
+      <p>연결할 라우터마다 <code>BGPPeer</code> 하나를 만듭니다. 최소 구성에 필요한 정보는 네 가지입니다.</p>
+      <ul>
+        <li>MetalLB가 접속할 라우터 IP</li>
+        <li>라우터의 AS 번호</li>
+        <li>MetalLB가 사용할 AS 번호</li>
+        <li>(광고할 IP 대역은 IPAddressPool에서 정의)</li>
+      </ul>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">가장 기본적인 BGPPeer</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta2</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BGPPeer</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">tor-router</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">myASN</span>: <span class="tok-n">64500</span>
+  <span class="tok-k">peerASN</span>: <span class="tok-n">64501</span>
+  <span class="tok-k">peerAddress</span>: <span class="tok-s">10.0.0.1</span></code></pre>
+      </div>
+      <div class="note">
+        <b>API 버전 주의</b>
+        <p><code>BGPPeer</code>의 <strong>v1beta1은 deprecated</strong>입니다. 반드시 <code>v1beta2</code>를 쓰세요. IPAddressPool과 BGPAdvertisement는 여전히 v1beta1입니다. 헷갈리기 쉬운 부분입니다.</p>
+      </div>
+
+      <h3>랙별 피어링: nodeSelectors</h3>
+      <p>
+        기본값은 <strong>클러스터의 모든 노드가 설정된 모든 피어에 접속</strong>합니다.
+        하지만 leaf-spine 구조라면 각 서버는 <strong>자기 랙의 ToR 라우터와만</strong> 피어링해야 합니다.
+        다른 랙의 라우터와 세션을 맺으려 하면 실패하거나 엉뚱한 경로가 생깁니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">랙 A의 ToR 라우터</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta2</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BGPPeer</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">tor-rack-a</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">myASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerAddress</span>: <span class="tok-s">172.30.0.3</span>
+  <span class="tok-k">nodeSelectors</span>:
+  - <span class="tok-k">matchLabels</span>:
+      <span class="tok-k">rack</span>: <span class="tok-s">a</span>
+    <span class="tok-k">matchExpressions</span>:
+    - <span class="tok-k">key</span>: <span class="tok-s">network-speed</span>
+      <span class="tok-k">operator</span>: <span class="tok-s">NotIn</span>
+      <span class="tok-k">values</span>: [<span class="tok-s">slow</span>]</code></pre>
+      </div>
+
+      <h3>자주 쓰는 필드 정리</h3>
+      <table>
+        <thead><tr><th>필드</th><th>용도</th><th>비고</th></tr></thead>
+        <tbody>
+          <tr><td><code>peerPort</code></td><td>BGP 포트 변경</td><td>기본 179</td></tr>
+          <tr><td><code>ebgpMultiHop</code></td><td>피어가 여러 홉 떨어졌을 때</td><td>FRR 기반 모드에서 필수</td></tr>
+          <tr><td><code>password</code> / <code>passwordSecret</code></td><td>TCP MD5 인증</td><td>Secret 참조 방식 권장</td></tr>
+          <tr><td><code>sourceAddress</code></td><td>세션의 출발지 IP 고정</td><td><strong>노드별 피어에만</strong> 사용할 것</td></tr>
+          <tr><td><code>holdTime</code> / <code>keepaliveTime</code></td><td>세션 타이머</td><td>미지정 시 FRR 기본값에 위임</td></tr>
+          <tr><td><code>dynamicASN</code></td><td>상대 ASN을 자동 감지</td><td><code>peerASN</code>과 상호 배타</td></tr>
+          <tr><td><code>localASN</code></td><td>이 피어에게만 다른 ASN으로 보이기</td><td><strong>FRR 기반 모드 전용.</strong> 네이티브는 거부</td></tr>
+          <tr><td><code>enableGracefulRestart</code></td><td>재시작 중 포워딩 유지</td><td><strong>불변 필드.</strong> 나중에 못 바꿈</td></tr>
+          <tr><td><code>bfdProfile</code></td><td>BFD 프로파일 연결</td><td>FRR 기반 모드 전용</td></tr>
+          <tr><td><code>vrf</code></td><td>리눅스 VRF를 통한 피어링</td><td>호스트 쪽 추가 설정 필요</td></tr>
+        </tbody>
+      </table>
+
+      <div class="warn">
+        <b>sourceAddress의 함정</b>
+        <p>
+          피어는 기본적으로 <strong>모든 speaker 노드에서 동작</strong>합니다.
+          그런데 두 노드가 같은 IP를 가질 수는 없으므로, 여러 노드에 적용되는 피어에 <code>sourceAddress</code>를 지정하는 건 의미가 없습니다.
+          이 필드는 <strong>노드 셀렉터로 노드 하나만 선택한 피어</strong>에만 쓰세요.
+        </p>
+      </div>
+
+      <h3>localASN: 멀티테넌트/마이그레이션용</h3>
+      <p>
+        FRR은 별도의 라우터 인스턴스를 만들지 않고도 특정 피어에게 다른 ASN을 보여 줄 수 있습니다.
+        MetalLB는 이를 <code>localASN</code> 필드로 노출합니다. 설정하면 <strong>그 피어에게만</strong> 해당 ASN이 광고되고,
+        라우터 인스턴스 자체는 계속 <code>myASN</code>을 씁니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">localASN 예시</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">spec</span>:
+  <span class="tok-k">myASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerASN</span>: <span class="tok-n">64520</span>
+  <span class="tok-k">peerAddress</span>: <span class="tok-s">172.30.0.3</span>
+  <span class="tok-k">localASN</span>: <span class="tok-n">65410</span>
+
+<span class="tok-c"># 생성되는 frr.conf</span>
+<span class="tok-c"># neighbor 172.30.0.3 remote-as 64520</span>
+<span class="tok-c"># neighbor 172.30.0.3 local-as 65410 no-prepend replace-as</span></code></pre>
+      </div>
+    </section>
+
+    <!-- ============================================ 9 -->
+    <section id="s9">
+      <span class="sec-no">09</span>
+      <h2>BGPAdvertisement: 무엇을, 어떻게, 누구에게</h2>
+
+      <p>
+        1편의 L2Advertisement와 같은 자리에 있는 CR입니다.
+        <strong>BGPAdvertisement를 만들지 않으면 IP는 할당되지만 광고되지 않습니다.</strong>
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">가장 단순한 형태</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BGPAdvertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">example</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span></code></pre>
+      </div>
+      <p>
+        셀렉터가 없으면 <strong>모든 IPAddressPool에 적용</strong>되고, 추가 속성 없이 각 서비스 IP를 <code>/32</code>로 광고합니다.
+        이때 localPref는 0이고 커뮤니티는 붙지 않습니다.
+      </p>
+
+      <h3>광고 옵션 조립해 보기</h3>
+      <p>아래에서 옵션을 켜 보면 라우터가 실제로 어떤 경로를 받게 되는지 확인할 수 있습니다.</p>
+
+      <div class="sim">
+        <div class="sim-hd">
+          <h5>BGPAdvertisement 미리보기</h5>
+          <span>서비스 IP 198.51.100.10 기준</span>
+        </div>
+        <div class="builder">
+          <div class="bopts" id="bopts">
+            <label><input type="checkbox" id="optLocalPref"> localPref 지정
+              <select id="lpVal"><option>100</option><option>200</option><option>50</option></select>
+            </label>
+            <label><input type="checkbox" id="optCommunity"> NO_ADVERTISE 커뮤니티 부착</label>
+            <label><input type="checkbox" id="optAggregate"> /24 집약 경로 추가 광고</label>
+            <label><input type="checkbox" id="optPeers"> 특정 피어에만 광고 (PeerA, PeerB)</label>
+            <label><input type="checkbox" id="optNodes"> 특정 노드만 넥스트홉으로 (NodeA, NodeB)</label>
+            <label><input type="checkbox" id="optSvcSel"> serviceSelectors 사용 (environment=production)</label>
+          </div>
+          <div class="bout" id="bout"></div>
+        </div>
+      </div>
+
+      <h3>집약(aggregation): /32를 묶어서 내보내기</h3>
+      <p>
+        공인 IP <code>/24</code>를 임대받아 MetalLB에 할당한 상황을 생각해 봅시다.
+        MetalLB는 기본적으로 IP마다 /32를 광고하는데, <strong>상위 사업자가 /24보다 구체적인 경로를 거부</strong>할 수 있습니다.
+        이때 <code>aggregationLength</code>로 /32들을 더 큰 프리픽스로 "말아 올립니다".
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">내부는 /32, 외부는 /24</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-c"># 내부용: /32에 localPref와 no-advertise 커뮤니티</span>
+<span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BGPAdvertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">local</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">ipAddressPools</span>:
+  - <span class="tok-s">first-pool</span>
+  <span class="tok-k">aggregationLength</span>: <span class="tok-n">32</span>
+  <span class="tok-k">localPref</span>: <span class="tok-n">100</span>
+  <span class="tok-k">communities</span>:
+  - <span class="tok-s">65535:65282</span>
+---
+<span class="tok-c"># 외부용: /24 집약 경로</span>
+<span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BGPAdvertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">external</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">ipAddressPools</span>:
+  - <span class="tok-s">first-pool</span>
+  <span class="tok-k">aggregationLength</span>: <span class="tok-n">24</span></code></pre>
+      </div>
+      <p>이 설정에서 198.51.100.10 서비스를 만들면 피어는 경로 <strong>두 개</strong>를 받습니다.</p>
+      <ul>
+        <li><code>198.51.100.10/32</code> — localPref 100, <code>no-advertise</code> 커뮤니티. 이 라우터는 써도 되지만 남에게 알리지 말라는 뜻입니다.</li>
+        <li><code>198.51.100.0/24</code> — 속성 없음. 이게 상위 사업자로 전파됩니다.</li>
+      </ul>
+      <p>
+        서비스를 여러 개 만들면 각각의 /32가 늘어나지만, <strong>/24는 MetalLB가 중복 제거해서 하나만</strong> 광고합니다.
+        트래픽이 실제로 들어오면 더 구체적인 /32 경로가 선택되어 클러스터로 들어옵니다.
+      </p>
+
+      <h3>커뮤니티에 이름 붙이기</h3>
+      <p><code>65535:65282</code> 같은 숫자를 그대로 쓰면 읽기 어렵습니다. <code>Community</code> CR로 별칭을 정의할 수 있습니다.</p>
+      <div class="code">
+        <div class="code-hd"><span class="f">community 별칭</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Community</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">communities</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">communities</span>:
+  - <span class="tok-k">name</span>: <span class="tok-s">vpn-only</span>
+    <span class="tok-k">value</span>: <span class="tok-s">1234:1</span>
+  - <span class="tok-k">name</span>: <span class="tok-s">NO_ADVERTISE</span>
+    <span class="tok-k">value</span>: <span class="tok-s">65535:65282</span></code></pre>
+      </div>
+      <p>이후 BGPAdvertisement의 <code>communities</code>에 <code>vpn-only</code>처럼 이름으로 적으면 됩니다.</p>
+
+      <h3>광고 범위 좁히기</h3>
+      <h4>넥스트홉이 될 노드 제한 — nodeSelectors</h4>
+      <p>
+        서비스 IP의 넥스트홉으로 광고될 노드 집합을 제한합니다.
+        이것은 <strong>BGPPeer의 노드 셀렉터와는 별개</strong>입니다. 피어 셀렉터는 "누가 어느 라우터와 세션을 맺을지"를,
+        광고 셀렉터는 "어느 노드가 이 서비스의 진입점이 될지"를 정합니다.
+      </p>
+      <h4>광고 대상 피어 제한 — peers</h4>
+      <p>기본은 연결된 모든 피어에게 광고합니다. 특정 풀의 IP를 특정 피어에게만 광고하려면 <code>peers</code>에 피어 이름을 나열합니다.</p>
+      <h4>대상 서비스 제한 — serviceSelectors</h4>
+      <p>운영 서비스는 localPref 200, 스테이징은 100처럼 <strong>서비스 라벨에 따라 다른 라우팅 정책</strong>을 적용할 때 씁니다. 여러 셀렉터는 OR로 평가됩니다.</p>
+      <div class="warn">
+        <b>serviceSelectors와 aggregationLength는 함께 쓸 수 없다</b>
+        <p>
+          <code>serviceSelectors</code>는 <code>aggregationLength</code>·<code>aggregationLengthV6</code>와 <strong>상호 배타</strong>입니다.
+          기본 집약 길이(IPv4 /32, IPv6 /128)로 광고할 때만 서비스 셀렉터를 쓸 수 있습니다.
+          집약된 경로는 개별 서비스와 연결 지을 수 없기 때문입니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 10 -->
+    <section id="s10">
+      <span class="sec-no">10</span>
+      <h2>BFD와 Graceful Restart</h2>
+
+      <h3>BFD: 장애를 훨씬 빨리 잡아내기</h3>
+      <p>
+        BGP만으로 장애를 감지하려면 hold timer가 만료될 때까지 기다려야 합니다. 보통 수십 초입니다.
+        <strong>BFD(Bidirectional Forwarding Detection)</strong>는 아주 가벼운 패킷을 짧은 간격으로 주고받아
+        <strong>경로 장애를 밀리초 단위로 감지</strong>합니다. FRR 기반 모드(FRR-K8s 또는 FRR)에서만 사용할 수 있습니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">BFD 프로파일 정의 후 피어에 연결</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BFDProfile</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">fast-detect</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">receiveInterval</span>: <span class="tok-n">380</span>
+  <span class="tok-k">transmitInterval</span>: <span class="tok-n">270</span>
+---
+<span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta2</span>
+<span class="tok-k">kind</span>: <span class="tok-s">BGPPeer</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">peersample</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">myASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerAddress</span>: <span class="tok-s">172.30.0.3</span>
+  <span class="tok-k">bfdProfile</span>: <span class="tok-s">fast-detect</span></code></pre>
+      </div>
+      <div class="tip">
+        <b>BFD는 양날의 검</b>
+        <p>
+          장애 감지가 빨라진다는 건 <strong>백엔드 집합이 더 빨리 바뀐다</strong>는 뜻이기도 합니다.
+          5장에서 본 재해싱이 더 자주, 더 민첩하게 일어납니다.
+          네트워크가 살짝 불안정한 환경에서 간격을 너무 공격적으로 잡으면 세션이 오르내리며(flapping)
+          오히려 연결 단절이 잦아집니다. <strong>라우터 쪽에도 같은 프로파일이 설정</strong>되어야 하니 네트워크팀과 값을 맞추세요.
+        </p>
+      </div>
+
+      <h3>Graceful Restart: 업그레이드 중 끊김 줄이기</h3>
+      <p>
+        BGP Graceful Restart(RFC 4724)는 <strong>라우팅 정보가 복구되는 동안에도 알려진 경로로 데이터 패킷을 계속 전달</strong>하게 하는 메커니즘입니다.
+        컨트롤 플레인과 포워딩 플레인이 분리되어 있을 때 적용할 수 있는데, 대부분의 쿠버네티스 클러스터가 여기에 해당합니다.
+        <strong>업그레이드 중 네트워크 단절을 최소화하기 위해</strong> 추가된 기능입니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">피어 단위로 활성화</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">spec</span>:
+  <span class="tok-k">myASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerASN</span>: <span class="tok-n">64512</span>
+  <span class="tok-k">peerAddress</span>: <span class="tok-s">172.30.0.3</span>
+  <span class="tok-k">enableGracefulRestart</span>: <span class="tok-n">true</span></code></pre>
+      </div>
+      <div class="warn">
+        <b>불변 필드</b>
+        <p>
+          <code>enableGracefulRestart</code>는 <strong>immutable</strong>입니다. 나중에 값을 바꿀 수 없고, 피어를 지웠다 다시 만들어야 합니다.
+          처음 설계할 때 결정해 두세요.
+        </p>
+      </div>
+      <p>
+        BFD와 Graceful Restart를 함께 쓰는 것은 RFC상 가능하지만 <strong>구현체마다 다릅니다</strong>(RFC 5882).
+        벤더 권고를 확인하고 반드시 테스트해야 합니다.
+      </p>
+    </section>
+
+    <!-- ============================================ 11 -->
+    <section id="s11">
+      <span class="sec-no">11</span>
+      <h2>트래픽 정책: BGP에서는 의미가 달라진다</h2>
+
+      <p>1편에서 다룬 <code>externalTrafficPolicy</code>는 BGP 모드에서 동작이 조금 다릅니다.</p>
+
+      <h3>Cluster 정책</h3>
+      <ul>
+        <li><strong>클러스터의 모든 노드</strong>가 그 서비스 IP의 트래픽을 끌어옵니다.</li>
+        <li>각 노드에서 kube-proxy가 2차 로드밸런싱을 합니다.</li>
+        <li>노드와 파드 양쪽에서 고르게 분산됩니다.</li>
+        <li>단점: <strong>2단계 로드밸런싱</strong>이라 비효율적인 경로가 생깁니다. 라우터가 node A로 보낸 연결을 node A가 다시 node B의 파드로 넘길 수 있습니다.</li>
+        <li>단점: kube-proxy가 SNAT하므로 <strong>소스 IP가 가려집니다.</strong></li>
+      </ul>
+
+      <h3>Local 정책</h3>
+      <ul>
+        <li><strong>해당 서비스의 파드가 실제로 떠 있는 노드만</strong> 트래픽을 끌어옵니다.</li>
+        <li>노드 간 전달이 없어 경로가 가장 효율적이고, <strong>소스 IP가 보존</strong>됩니다.</li>
+        <li>단점: 노드를 "로드밸런싱 단위 하나"로 취급하므로 <strong>파드 수를 고려하지 않습니다.</strong></li>
+      </ul>
+
+      <div class="note">
+        <b>Local 정책의 불균형, 숫자로 보기</b>
+        <p>
+          서비스에 파드가 node A에 2개, node B에 1개 있다고 합시다. Local 정책이면 트래픽이 <strong>노드</strong> 기준으로 50:50으로 갈립니다.
+          node A는 받은 50%를 파드 둘이 나누니 각 25%, node B의 파드는 혼자 50%를 받습니다.
+          같은 상황에서 Cluster 정책이면 파드마다 33%씩입니다.
+        </p>
+      </div>
+      <p>
+        그래서 Local 정책을 쓸 때는 <strong>파드의 노드 배치를 세밀하게 통제</strong>하는 것이 권장됩니다.
+        노드 안티어피니티를 걸어 노드당 파드 수를 균등하게 맞추면, 노드 균등 분산이 곧 파드 균등 분산이 됩니다.
+      </p>
+      <div class="tip">
+        <b>실무 권장</b>
+        <p>Ingress Controller를 DaemonSet 또는 노드당 1파드 안티어피니티로 배포하고 <code>Local</code> 정책을 쓰는 것이 가장 깔끔한 조합입니다. 소스 IP도 살고 분산도 균등합니다.</p>
+      </div>
+    </section>
+
+    <!-- ============================================ 12 -->
+    <section id="s12">
+      <span class="sec-no">12</span>
+      <h2>모니터링: 무엇에 알람을 걸 것인가</h2>
+
+      <h3>공통 메트릭 (백엔드 무관)</h3>
+      <table>
+        <thead><tr><th>메트릭</th><th>의미</th><th>알람 아이디어</th></tr></thead>
+        <tbody>
+          <tr><td><code>metallb_allocator_addresses_in_use_total</code></td><td>풀별 사용 중인 IP 수</td><td rowspan="2">사용률 80% 초과 시 경고</td></tr>
+          <tr><td><code>metallb_allocator_addresses_total</code></td><td>풀별 사용 가능한 IP 수</td></tr>
+          <tr><td><code>metallb_k8s_client_config_stale_bool</code></td><td>최신 설정 로드 실패로 오래된 설정으로 동작 중이면 1</td><td><strong>1이면 즉시 알람.</strong> 설정이 조용히 무시되는 상황</td></tr>
+          <tr><td><code>metallb_k8s_client_config_loaded_bool</code></td><td>설정이 한 번이라도 성공적으로 로드됐으면 1</td><td>0이면 초기 구성 실패</td></tr>
+          <tr><td><code>metallb_k8s_client_update_errors_total</code></td><td>실패한 k8s 오브젝트 업데이트 수</td><td>증가율 감시</td></tr>
+        </tbody>
+      </table>
+
+      <h3>BGP 메트릭 — 접두사가 백엔드마다 다르다</h3>
+      <p>
+        네이티브 모드와 (deprecated) FRR 모드는 <code>metallb_bgp_</code> 접두사를 씁니다.
+        <strong>기본값인 FRR-K8s 모드에서는 <code>frrk8s_</code> 접두사</strong>를 쓰고, FRR-K8s 파드가 메트릭을 노출합니다.
+      </p>
+      <table>
+        <thead><tr><th>FRR-K8s 메트릭</th><th>의미</th></tr></thead>
+        <tbody>
+          <tr><td><code>frrk8s_bgp_session_up</code></td><td>세션 상태 (1=up, 0=down). <strong>가장 중요한 알람 대상</strong></td></tr>
+          <tr><td><code>frrk8s_bgp_announced_prefixes_total</code></td><td>현재 광고 중인 프리픽스 수</td></tr>
+          <tr><td><code>frrk8s_bgp_received_prefixes_total</code></td><td>현재 수신 중인 프리픽스 수</td></tr>
+          <tr><td><code>frrk8s_bgp_notifications_sent</code></td><td>NOTIFICATION 메시지 수. 급증하면 세션 플래핑 의심</td></tr>
+          <tr><td><code>frrk8s_bfd_session_up</code></td><td>BFD 세션 상태</td></tr>
+          <tr><td><code>frrk8s_bfd_session_down_events</code></td><td>BFD 다운 이벤트 수. 플래핑 탐지에 유용</td></tr>
+        </tbody>
+      </table>
+      <p>
+        <code>peer</code> 라벨에는 <strong>IP만</strong> 들어갑니다(포트 없음). VRF를 쓰면 <code>vrf</code> 라벨이 추가됩니다.
+      </p>
+
+      <h3>기존 대시보드를 살리려면</h3>
+      <p>
+        예전 버전에서는 FRR 기반 메트릭이 <code>metallb_</code> 접두사였고 <code>peer</code> 라벨에 포트가 붙었습니다(<code>172.23.0.5:179</code>).
+        접두사만이라도 유지하려면 FRR-K8s ServiceMonitor에 metric relabeling을 겁니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">ServiceMonitor metricRelabelings</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">metricRelabelings</span>:
+- <span class="tok-k">sourceLabels</span>: [<span class="tok-s">__name__</span>]
+  <span class="tok-k">regex</span>: <span class="tok-s">"frrk8s_bgp_(.*)"</span>
+  <span class="tok-k">targetLabel</span>: <span class="tok-s">"__name__"</span>
+  <span class="tok-k">replacement</span>: <span class="tok-s">"metallb_bgp_$1"</span>
+- <span class="tok-k">sourceLabels</span>: [<span class="tok-s">__name__</span>]
+  <span class="tok-k">regex</span>: <span class="tok-s">"frrk8s_bfd_(.*)"</span>
+  <span class="tok-k">targetLabel</span>: <span class="tok-s">"__name__"</span>
+  <span class="tok-k">replacement</span>: <span class="tok-s">"metallb_bfd_$1"</span></code></pre>
+      </div>
+      <div class="warn">
+        <b>라벨 형식은 relabeling으로 못 고친다</b>
+        <p>
+          <code>peer</code> 라벨의 <code>IP</code> vs <code>IP:port</code> 차이는 metric relabeling으로 해결되지 않습니다.
+          쿼리에서 포트가 붙은 <code>peer</code> 값으로 필터링하고 있었다면 <strong>쿼리 자체를 수정</strong>해야 합니다.
+        </p>
+      </div>
+      <div class="note">
+        <b>v0.16.0의 메트릭 엔드포인트 변경</b>
+        <p>
+          kube-rbac-proxy가 제거되고 네이티브 TLS/RBAC으로 대체되면서 <strong>메트릭이 HTTPS 전용</strong>이 되었습니다.
+          기존 HTTP 엔드포인트는 사라졌습니다. 스크레이프 설정이 <code>scheme: https</code>가 아니면 TLS 핸드셰이크 오류가 납니다.
+          v0.16.1에서 Helm 차트의 애노테이션·PodMonitor·ServiceMonitor가 이에 맞게 수정되었습니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 13 -->
+    <section id="s13">
+      <span class="sec-no">13</span>
+      <h2>트러블슈팅</h2>
+
+      <div class="note">
+        <b>진단의 출발점</b>
+        <p>
+          MetalLB의 역할은 LoadBalancer IP로 향하는 트래픽을 <strong>클러스터 노드까지 끌어오는 것</strong>까지입니다.
+          트래픽이 노드에 도착한 뒤는 CNI의 몫입니다. 그래서 <strong>노드에서 LoadBalancer IP에 접속되는 것은 MetalLB가 동작한다는 증거가 아닙니다.</strong>
+          그건 CNI가 동작한다는 증거일 뿐입니다. 반드시 <strong>클러스터 밖 클라이언트</strong>에서 테스트하세요.
+          그리고 <strong>서비스 IP로 ping은 되지 않습니다.</strong> 실제 서비스 포트로 접속해서 확인해야 합니다.
+        </p>
+      </div>
+
+      <details>
+        <summary>BGP 세션이 Established가 되지 않는다</summary>
+        <div class="dbody">
+          <ul>
+            <li>세션 파라미터를 다시 확인합니다. <strong>ASN(myASN/peerASN)과 패스워드</strong>가 양쪽에서 일치해야 합니다.</li>
+            <li>eBGP 피어가 여러 홉 떨어져 있다면 <code>ebgpMultiHop: true</code>가 필요합니다.</li>
+            <li>FRR 컨테이너의 로그를 봅니다.</li>
+            <li>포트를 바꿨다면 그 포트로 tcpdump를 떠서 패킷이 실제로 오가는지 확인합니다.</li>
+            <li>라우터 쪽에 해당 노드 IP가 neighbor로 등록되어 있는지 네트워크팀에 확인합니다.</li>
+          </ul>
+          <div class="code">
+            <div class="code-hd"><span class="f">FRR 컨테이너에 질의</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-c"># 현재 FRR 설정</span>
+vtysh show running-conf
+
+<span class="tok-c"># 세션 상태 — Established면 정상</span>
+vtysh show bgp neigh &lt;neigh-ip&gt;
+
+<span class="tok-c"># 광고 상태</span>
+vtysh show ipv4</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>세션은 붙었는데 서비스가 광고되지 않는다</summary>
+        <div class="dbody">
+          <p>각 speaker는 광고를 시작할 때 서비스에 <code>announcing from node "xxx" with protocol "bgp"</code> 이벤트를 남깁니다. L2와 달리 <strong>BGP에서는 여러 노드가 동시에</strong> 이 이벤트를 남깁니다.</p>
+          <p>speaker가 광고하지 <em>않는</em> 조건은 다음과 같습니다.</p>
+          <ul>
+            <li>서비스를 받쳐 주는 <strong>활성 엔드포인트가 없음</strong></li>
+            <li><code>externalTrafficPolicy=Local</code>인데 그 노드에 실행 중인 엔드포인트가 없음</li>
+            <li>노드 셀렉터를 지정했는데 매칭되는 <strong>BGPAdvertisement가 없음</strong></li>
+            <li>쿠버네티스 API가 그 노드에 대해 "network not available"을 보고 중</li>
+            <li><strong>BGPAdvertisement 자체를 안 만든 경우</strong></li>
+          </ul>
+          <div class="code">
+            <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>kubectl describe svc &lt;service-name&gt;
+kubectl get endpointslices &lt;service-name&gt; -o yaml</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>컨트롤 플레인 노드나 단일 노드 클러스터에서 광고가 안 된다</summary>
+        <div class="dbody">
+          <p>
+            노드에 <code>node.kubernetes.io/exclude-from-external-load-balancers</code> 라벨이 붙어 있는지 확인하세요.
+            MetalLB는 이 라벨을 존중해서 해당 노드에서는 <strong>어떤 서비스도 광고하지 않습니다.</strong>
+            단일 노드 클러스터나 컨트롤 플레인만 있는 환경에서 자주 부딪힙니다.
+          </p>
+          <p>우회하려면 speaker에 <code>--ignore-exclude-lb</code> 플래그를 줍니다(Helm 또는 Kustomize에서 설정 가능).</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>트래픽이 노드에 도착하는데 응답이 없다 — rp_filter 문제</summary>
+        <div class="dbody">
+          <p>
+            리눅스의 <strong>역경로 필터링(reverse path filtering)</strong>은 "그 인터페이스로 들어올 리 없는" 패킷을 버립니다.
+            BGP에서 특히 흔한데, MetalLB는 서비스로 오는 경로를 광고하지만 <strong>노드는 클라이언트로 돌아가는 경로를 배우지 못하기</strong> 때문입니다.
+          </p>
+          <p>전형적인 시나리오:</p>
+          <ol>
+            <li>다른 서브넷의 클라이언트가 서비스에 접속</li>
+            <li>패킷이 기본 게이트웨이와 <strong>다른 인터페이스</strong>로 노드에 도착</li>
+            <li>노드에는 그 인터페이스를 통해 클라이언트로 돌아가는 경로가 없음</li>
+            <li><code>rp_filter</code> 설정에 따라 패킷이 폐기됨</li>
+          </ol>
+          <p>해결 방법:</p>
+          <ul>
+            <li>노드에 <strong>정적 경로</strong>를 추가한다</li>
+            <li><strong>FRR-K8s 모드를 사용</strong>해서 네트워크 패브릭이 노드에게 경로를 보내 주게 한다 (이게 FRR-K8s의 큰 장점 중 하나)</li>
+            <li>소스 기반 라우팅으로 응답 트래픽을 올바른 인터페이스로 유도한다</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>접속이 간헐적이다</summary>
+        <div class="dbody">
+          <p>BGP 모드에서는 원인이 여럿일 수 있습니다.</p>
+          <ul>
+            <li><strong>진입점이 매번 다르다.</strong> ECMP라서 정상 동작입니다. 어느 노드로 들어가느냐에 따라 결과가 달라진다면 특정 노드에 문제가 있는 것입니다.</li>
+            <li>엔드포인트가 계속 재시작 중이다.</li>
+            <li>일부 엔드포인트만 정상 응답하고 나머지는 아니다.</li>
+          </ul>
+          <p>
+            <strong>범위를 좁히는 것이 핵심입니다.</strong> BGPAdvertisement의 노드 셀렉터로 광고를 <strong>노드 한 대</strong>로 제한하고,
+            서비스 엔드포인트도 파드 <strong>하나</strong>로 줄이면 트래픽 경로가 분명해집니다.
+            이 상태에서 정상이면 특정 노드나 특정 파드의 문제입니다.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>설정이 반영되지 않는다</summary>
+        <div class="dbody">
+          <p>
+            MetalLB의 설정은 여러 CR의 조합으로 검증되므로, 개별 CR 하나만 놓고 유효하다고 말할 수 없습니다.
+            유효하지 않은 설정이 들어오면 <strong>stale로 표시하고 마지막으로 유효했던 설정으로 계속 동작</strong>합니다.
+            각 컴포넌트가 자기 역할과 관련된 부분만 검증하므로, <strong>controller는 통과시킨 설정을 speaker가 거부</strong>할 수도 있습니다.
+          </p>
+          <p>확인 방법 두 가지:</p>
+          <ul>
+            <li>해당 컴포넌트 로그에서 <code>failed to parse the configuration</code> 형태의 에러를 찾습니다.</li>
+            <li><code>metallb_k8s_client_config_stale_bool</code> 메트릭을 봅니다. 1이면 오래된 설정으로 동작 중입니다.</li>
+          </ul>
+        </div>
+      </details>
+
+      <h3>버그 리포트를 남길 때</h3>
+      <p>
+        원인이 MetalLB 버그로 의심되면, <strong>어느 단계에서 실패하는지</strong>를 구체적으로 적어야 합니다.
+      </p>
+      <div class="grid2">
+        <div class="card">
+          <h5>좋은 예</h5>
+          <ul>
+            <li>MetalLB가 ARP 요청에 응답하지 않는다</li>
+            <li>서비스 IP가 BGP로 광고되지 않는다</li>
+            <li>일부 노드에서만 광고된다</li>
+            <li>광고는 되는데 tcpdump에 트래픽이 안 보인다</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h5>나쁜 예</h5>
+          <ul>
+            <li>서비스에 curl이 안 된다</li>
+            <li>MetalLB가 동작하지 않는다</li>
+          </ul>
+        </div>
+      </div>
+      <p>로그 레벨을 debug로 올리면 더 많은 정보를 얻을 수 있습니다. Helm은 <code>controller.logLevel</code>·<code>speaker.logLevel</code>, Operator는 MetalLB CRD의 loglevel 필드로 설정합니다.</p>
+      <div class="note">
+        <b>distroless 이미지 디버깅</b>
+        <p>
+          speaker와 controller 컨테이너는 <strong>distroless 이미지</strong> 기반이라 셸이 없습니다.
+          내부를 들여다보려면 ephemeral container를 붙여야 합니다.
+        </p>
+      </div>
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>kubectl debug -it -n metallb-system -c &lt;ephemeral-container-name&gt; \
+  --target=speaker --image=&lt;debug-image&gt; &lt;speaker-pod&gt;</code></pre>
+      </div>
+    </section>
+
+    <!-- ============================================ 14 -->
+    <section id="s14">
+      <span class="sec-no">14</span>
+      <h2>대안 비교: MetalLB가 최선이 아닐 수도 있다</h2>
+
+      <table>
+        <thead><tr><th>솔루션</th><th>방식</th><th>MetalLB 대비</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>kube-vip</strong></td>
+            <td>ARP 또는 BGP로 VIP 제공. 컨트롤 플레인 엔드포인트 HA에도 사용</td>
+            <td>API 서버 VIP까지 한 도구로 처리하려는 경우에 유리. 서비스 LB 기능 자체의 성숙도와 문서량은 MetalLB가 앞선다.</td>
+          </tr>
+          <tr>
+            <td><strong>Cilium (LB IPAM + BGP Control Plane)</strong></td>
+            <td>CNI가 IP 할당과 BGP 광고를 직접 수행</td>
+            <td>이미 Cilium을 CNI로 쓴다면 <strong>MetalLB가 불필요할 수 있다.</strong> 컴포넌트가 줄고 eBPF 데이터패스와 통합된다. 다만 CNI 교체는 큰 결정이므로 CNI 선택이 먼저다.</td>
+          </tr>
+          <tr>
+            <td><strong>OpenELB</strong></td>
+            <td>L2·BGP·VIP 모드 제공. KubeSphere 생태계</td>
+            <td>개념이 MetalLB와 거의 같다. 국내 레퍼런스와 커뮤니티 규모는 MetalLB가 크다.</td>
+          </tr>
+          <tr>
+            <td><strong>PureLB</strong></td>
+            <td>리눅스 라우팅 스택을 그대로 활용. 외부 라우팅 데몬과 연동</td>
+            <td>네트워크 엔지니어링 역량이 있는 팀이 기존 라우팅 정책과 깊이 통합할 때 선택지가 된다.</td>
+          </tr>
+          <tr>
+            <td><strong>외부 하드웨어 LB / F5</strong></td>
+            <td>전용 장비 + 쿠버네티스 연동 컨트롤러</td>
+            <td>이미 장비가 있고 운영 조직이 있다면 그쪽이 낫다. TLS 종료, WAF 등 부가 기능이 풍부하다.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <b>선택 가이드</b>
+        <p>
+          <strong>Cilium을 이미 쓰고 있다면</strong> Cilium의 LB IPAM과 BGP Control Plane을 먼저 검토하세요. 컴포넌트를 하나 줄일 수 있습니다.
+          <strong>CNI가 Calico·Flannel 등이고 온프레미스 LB만 필요하다면</strong> MetalLB가 가장 무난한 선택입니다.
+          레퍼런스, 문서, 커뮤니티 규모 면에서 문제가 생겼을 때 답을 찾기 가장 쉽습니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================ 15 -->
+    <section id="s15">
+      <span class="sec-no">15</span>
+      <h2>BGP 모드 도입 체크리스트</h2>
+
+      <h3>네트워크팀에 전달할 문서 항목</h3>
+      <ul>
+        <li><strong>클러스터 ASN</strong>과 <strong>라우터 ASN</strong> (사설 대역에서 할당)</li>
+        <li>BGP 세션을 맺을 <strong>노드 IP 목록</strong>과 각 노드가 붙을 ToR 라우터</li>
+        <li>광고할 <strong>서비스 IP 대역</strong>과 집약 정책(/32 vs /24)</li>
+        <li><strong>ECMP·멀티패스 활성화 요청</strong> — 빠뜨리면 BGP를 써도 단일 노드로 몰립니다</li>
+        <li><strong>Resilient ECMP 지원 여부</strong> 확인 요청</li>
+        <li>해싱 방식(3-tuple vs <strong>5-tuple</strong>) 확인</li>
+        <li>BFD 사용 여부와 interval 값 합의</li>
+        <li>MD5 패스워드 사용 여부</li>
+      </ul>
+
+      <h3>구성 단계 확인</h3>
+      <ol>
+        <li>FRR-K8s 모드로 설치했는가</li>
+        <li><code>BGPPeer</code>를 v1beta2로 작성했는가</li>
+        <li>랙 구조라면 피어에 <code>nodeSelectors</code>를 걸었는가</li>
+        <li><strong><code>BGPAdvertisement</code>를 만들었는가</strong> (가장 흔한 누락)</li>
+        <li>세션이 Established인지 메트릭 또는 vtysh로 확인했는가</li>
+        <li>라우터 라우팅 테이블에 경로가 <strong>노드 수만큼</strong> 올라왔는지 확인했는가</li>
+        <li>클러스터 <strong>밖</strong>에서 접속 테스트를 했는가</li>
+      </ol>
+
+      <h3>운영 원칙</h3>
+      <ul>
+        <li><strong>노드 작업은 곧 연결 단절</strong>이라고 전제하고 일정을 잡습니다. 트래픽이 적은 시간대에, 사전 공지와 함께.</li>
+        <li><strong>Ingress Controller를 앞에 두어</strong> BGP로 노출되는 서비스 개수를 최소화합니다.</li>
+        <li><code>frrk8s_bgp_session_up</code>과 <code>metallb_k8s_client_config_stale_bool</code>에 알람을 겁니다.</li>
+        <li>세션 플래핑을 감시합니다. <code>frrk8s_bgp_notifications_sent</code>나 BFD down 이벤트의 급증이 신호입니다.</li>
+        <li>업그레이드 전에는 반드시 릴리스 노트를 확인합니다. v0.16.0처럼 <strong>기본값이 바뀌는 릴리스</strong>가 있습니다.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================ 16 -->
+    <section id="s16">
+      <span class="sec-no">16</span>
+      <h2>용어 사전</h2>
+      <div class="terms">
+        <div class="term"><b>BGP</b><span>Border Gateway Protocol. 네트워크 간 경로 정보를 교환하는 라우팅 프로토콜. TCP 179 포트를 사용한다.</span></div>
+        <div class="term"><b>AS / ASN</b><span>하나의 정책으로 관리되는 네트워크 단위와 그 고유 번호. 사설 대역은 64512–65534, 4200000000–4294967294.</span></div>
+        <div class="term"><b>eBGP / iBGP</b><span>서로 다른 ASN 간 세션 / 같은 ASN 내부 세션.</span></div>
+        <div class="term"><b>피어링(peering)</b><span>두 BGP 화자가 세션을 맺고 경로를 교환하는 관계.</span></div>
+        <div class="term"><b>넥스트홉(next hop)</b><span>해당 목적지로 가기 위해 다음에 거쳐야 할 장비의 주소. MetalLB에서는 각 노드의 IP.</span></div>
+        <div class="term"><b>ECMP</b><span>Equal-Cost Multi-Path. 비용이 같은 여러 경로에 트래픽을 나눠 보내는 기법.</span></div>
+        <div class="term"><b>패킷 해싱</b><span>패킷의 특정 필드들로 해시를 만들어 상태 저장 없이 백엔드를 고르는 방식.</span></div>
+        <div class="term"><b>3-tuple / 5-tuple</b><span>해시 키 조합. 3-tuple은 프로토콜·출발지 IP·목적지 IP, 5-tuple은 여기에 양쪽 포트를 더한다.</span></div>
+        <div class="term"><b>재해싱(rehash)</b><span>백엔드 개수가 바뀌어 기존 연결의 목적지가 재계산되는 것. BGP 모드에서 연결이 끊기는 원인.</span></div>
+        <div class="term"><b>Resilient ECMP</b><span>백엔드 집합이 바뀌어도 기존 연결 대부분을 유지하는 안정적 해싱 기법. resilient LAG라고도 한다.</span></div>
+        <div class="term"><b>localPref</b><span>같은 목적지의 여러 경로 중 선호도를 나타내는 BGP 속성. 높을수록 선호. MetalLB 기본값 0.</span></div>
+        <div class="term"><b>BGP community</b><span>경로에 붙이는 태그. 라우터가 이를 보고 전파 정책을 결정한다. 65535:65282는 NO_ADVERTISE.</span></div>
+        <div class="term"><b>aggregationLength</b><span>여러 /32 경로를 더 큰 프리픽스로 묶어 광고하는 설정.</span></div>
+        <div class="term"><b>FRR / FRRouting</b><span>리눅스용 오픈소스 라우팅 프로토콜 제품군. BGP와 BFD를 구현한다.</span></div>
+        <div class="term"><b>FRR-K8s</b><span>FRR을 쿠버네티스 API로 감싼 프로젝트. v0.16.0부터 MetalLB의 기본 BGP 백엔드.</span></div>
+        <div class="term"><b>FRRConfiguration</b><span>FRR-K8s의 CRD. MetalLB가 생성하는 설정과 사용자 설정을 병합할 수 있다.</span></div>
+        <div class="term"><b>BFD</b><span>Bidirectional Forwarding Detection. 경로 장애를 밀리초 단위로 감지하는 경량 프로토콜.</span></div>
+        <div class="term"><b>Graceful Restart</b><span>RFC 4724. 라우팅 정보 복구 중에도 기존 경로로 패킷 전달을 이어 가게 하는 메커니즘.</span></div>
+        <div class="term"><b>rp_filter</b><span>리눅스의 역경로 필터링. 돌아갈 경로가 없는 인터페이스로 들어온 패킷을 폐기한다.</span></div>
+        <div class="term"><b>vtysh</b><span>FRR의 통합 CLI. show bgp neigh 등으로 세션 상태를 확인한다.</span></div>
+      </div>
+    </section>
+
+    <!-- ============================================ 17 -->
+    <section id="s17">
+      <span class="sec-no">17</span>
+      <h2>셀프 체크 퀴즈</h2>
+      <p>2편의 핵심을 확인하는 6문항입니다.</p>
+      <div class="quiz" id="quiz"></div>
+    </section>
+
+    <!-- ============================================ 18 -->
+    <section id="s18">
+      <span class="sec-no">18</span>
+      <h2>시리즈 마무리</h2>
+
+      <div class="wrapup">
+        <h3>MetalLB 2편에서 꼭 가져갈 여섯 가지</h3>
+        <ol>
+          <li>BGP 모드는 <strong>모든 노드가 라우터와 세션을 맺고</strong> 같은 IP를 광고한다. 라우터가 ECMP로 분산하면 진짜 로드밸런싱이 된다.</li>
+          <li>분산은 <strong>연결 단위</strong>다. 한 TCP 세션의 패킷은 항상 같은 노드로 간다.</li>
+          <li>가장 큰 함정은 <strong>노드가 빠질 때의 재해싱</strong>이다. 기존 연결 대부분이 한 번에 끊긴다.</li>
+          <li>가장 현실적인 완화책은 <strong>Ingress Controller를 앞에 두는 것</strong>이다.</li>
+          <li>v0.16.0부터 <strong>FRR-K8s가 기본 백엔드</strong>이고 FRR 모드는 deprecated다. 메트릭 접두사도 <code>frrk8s_</code>로 바뀐다.</li>
+          <li>BGPPeer는 <strong>v1beta2</strong>, 그리고 <strong>BGPAdvertisement를 반드시 만들어야</strong> 광고가 시작된다.</li>
+        </ol>
+      </div>
+
+      <h3>두 편을 관통하는 한 문장</h3>
+      <p>
+        MetalLB가 하는 일은 결국 <strong>"이 IP로 가려면 이 노드로 보내라"를 네트워크에 알리는 것</strong>입니다.
+        L2 모드는 ARP 응답으로, BGP 모드는 경로 광고로 같은 말을 합니다.
+        어떤 방식으로 알릴지, 그리고 몇 대의 노드에게 나눠 보낼지가 두 모드의 유일한 차이입니다.
+      </p>
+      <p>
+        나머지(kube-proxy의 파드 분배, CNI의 패킷 전달)는 MetalLB가 없어도 원래 동작하던 부분입니다.
+        문제가 생겼을 때 <strong>"이건 MetalLB 구간인가, CNI 구간인가"</strong>를 먼저 나눠 생각하면 트러블슈팅이 훨씬 빨라집니다.
+      </p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  MetalLB 2편 · BGP 모드 · MetalLB v0.16.1 기준으로 작성 (2026년 9월).
+  버전별 동작 차이가 있을 수 있으니 실제 적용 전 <a href="https://metallb.io/release-notes/" target="_blank" rel="noopener">공식 릴리스 노트</a>를 확인하세요.
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var root=document.documentElement, tbtn=document.getElementById('themeBtn');
+  try{ var saved=localStorage.getItem('metallb-theme'); if(saved){root.setAttribute('data-theme',saved);} }catch(e){}
+  function syncBtn(){ tbtn.textContent = root.getAttribute('data-theme')==='light' ? '다크' : '라이트'; }
+  syncBtn();
+  tbtn.addEventListener('click',function(){
+    var n = root.getAttribute('data-theme')==='light' ? 'dark' : 'light';
+    root.setAttribute('data-theme',n); syncBtn();
+    try{ localStorage.setItem('metallb-theme',n); }catch(e){}
+  });
+
+  var toc=document.getElementById('toc'), tocBtn=document.getElementById('tocBtn');
+  tocBtn.addEventListener('click',function(){
+    var open=toc.classList.toggle('open');
+    tocBtn.setAttribute('aria-expanded', open?'true':'false');
+  });
+  toc.addEventListener('click',function(e){ if(e.target.tagName==='A'){ toc.classList.remove('open'); tocBtn.setAttribute('aria-expanded','false'); }});
+
+  var bar=document.getElementById('progress');
+  var links=Array.prototype.slice.call(toc.querySelectorAll('a'));
+  var secs=links.map(function(a){ return document.getElementById(a.getAttribute('href').slice(1)); });
+  function onScroll(){
+    var h=document.documentElement, max=h.scrollHeight-h.clientHeight;
+    bar.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+    var idx=-1;
+    for(var i=0;i<secs.length;i++){ if(secs[i] && secs[i].getBoundingClientRect().top<=120) idx=i; }
+    links.forEach(function(a,i){ a.classList.toggle('on', i===idx); });
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  window.addEventListener('resize',onScroll); onScroll();
+
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var txt=btn.closest('.code').querySelector('pre').innerText;
+      var done=function(){ var o=btn.textContent; btn.textContent='복사됨'; setTimeout(function(){btn.textContent=o;},1300); };
+      if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){}); }
+      else{ var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); done(); }catch(e){} document.body.removeChild(ta); }
+    });
+  });
+
+  /* 백엔드 탭 */
+  var bt=document.getElementById('beTabs');
+  bt.querySelectorAll('.tabbar button').forEach(function(b){
+    b.addEventListener('click',function(){
+      bt.querySelectorAll('.tabbar button').forEach(function(x){x.setAttribute('aria-selected','false');});
+      bt.querySelectorAll('.tabpane').forEach(function(p){p.hidden=true;});
+      b.setAttribute('aria-selected','true');
+      document.getElementById(b.dataset.p).hidden=false;
+    });
+  });
+
+  /* BGP 상태 머신 */
+  var fsmStates=[
+    ['Idle','세션이 비활성 상태입니다. speaker가 설정을 읽고 연결을 준비합니다. 여기서 멈춰 있다면 설정 자체가 로드되지 않았을 가능성이 큽니다.'],
+    ['Connect','라우터의 TCP 179 포트로 연결을 시도합니다. 방화벽이 막혀 있거나 라우터에 neighbor 설정이 없으면 이 단계와 Idle 사이를 오갑니다.'],
+    ['OpenSent','TCP 연결이 맺어져 OPEN 메시지를 보냈습니다. 여기에는 내 ASN, Router ID, 지원 기능이 담깁니다. ASN이 서로 맞지 않으면 상대가 NOTIFICATION을 보내고 끊습니다.'],
+    ['OpenConfirm','상대의 OPEN을 받아들이고 KEEPALIVE를 교환하는 중입니다. MD5 패스워드 불일치는 보통 여기 도달하기 전에 걸러집니다.'],
+    ['Established','세션 성립. 이제 경로를 광고하고 받을 수 있습니다. 운영 중 확인해야 할 정상 상태이며, frrk8s_bgp_session_up 메트릭이 1이 됩니다.']
+  ];
+  var fsmEls=document.querySelectorAll('#fsm div'), fsmTxt=document.getElementById('fsmTxt'), fsmI=-1;
+  function fsmPaint(){
+    fsmEls.forEach(function(el,i){
+      el.classList.toggle('on', i===fsmI);
+      el.classList.toggle('done', i<fsmI);
+    });
+    fsmTxt.innerHTML = fsmI<0 ? '시작 전입니다. "다음"을 눌러 진행하세요.'
+      : '<strong>'+fsmStates[fsmI][0]+'</strong> — '+fsmStates[fsmI][1];
+  }
+  document.getElementById('fsmNext').addEventListener('click',function(){
+    if(fsmI<fsmStates.length-1){ fsmI++; fsmPaint(); }
+  });
+  document.getElementById('fsmReset').addEventListener('click',function(){ fsmI=-1; fsmPaint(); });
+  fsmPaint();
+
+  /* ECMP 시뮬레이터 */
+  var NODES=['node-01','node-02','node-03','node-04'];
+  var downIdx=-1, resilient=false, conns=[], prev=null;
+  var rack=document.getElementById('rack'), connsEl=document.getElementById('conns'), verdict=document.getElementById('verdict');
+
+  function fnv(s){ var h=2166136261; for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+  function makeConns(){
+    conns=[]; 
+    for(var i=0;i<16;i++){
+      conns.push('203.0.113.'+(2+Math.floor(Math.random()*250))+':'+(40000+Math.floor(Math.random()*20000)));
+    }
+  }
+  function alive(){ return NODES.filter(function(n,i){ return i!==downIdx; }); }
+  function assign(conn, list){
+    if(!resilient) return list[fnv(conn)%list.length];
+    var best=null, bs=-1;
+    list.forEach(function(n){ var s=fnv(conn+'|'+n); if(s>bs){bs=s; best=n;} });
+    return best;
+  }
+  function compute(){
+    var list=alive(), map={};
+    conns.forEach(function(c){ map[c]=assign(c,list); });
+    return map;
+  }
+  function render(map, compareTo){
+    var counts={}; NODES.forEach(function(n){counts[n]=0;});
+    conns.forEach(function(c){ counts[map[c]]++; });
+    rack.innerHTML=NODES.map(function(n,i){
+      return '<div class="rnode'+(i===downIdx?' down':'')+'"><span class="h">'+n+'</span>'
+        +'<span class="cnt">'+(i===downIdx?'—':counts[n])+'</span>연결</div>';
+    }).join('');
+    connsEl.innerHTML=conns.map(function(c){
+      var cls='';
+      if(compareTo){ cls = (compareTo[c]===map[c]) ? ' kept' : ' broke'; }
+      return '<div class="conn'+cls+'"><span>'+c.split(':')[0].replace('203.0.113.','…')+':'+c.split(':')[1]+'</span><b>'+map[c].replace('node-','n')+'</b></div>';
+    }).join('');
+  }
+  function reset(keepConns){
+    downIdx=-1; prev=null;
+    if(!keepConns) makeConns();
+    var map=compute();
+    render(map,null);
+    verdict.innerHTML='모든 노드 정상. 16개 연결이 4개 노드에 분산되어 있습니다. 노드를 내려 보세요.';
+  }
+  document.getElementById('ecmpKill').addEventListener('click',function(){
+    if(downIdx>=0) return;
+    prev=compute();
+    downIdx=3;
+    var map=compute();
+    var kept=conns.filter(function(c){ return prev[c]===map[c]; }).length;
+    var onDead=conns.filter(function(c){ return prev[c]==='node-04'; }).length;
+    render(map, prev);
+    var broke=conns.length-kept;
+    verdict.innerHTML='<b>node-04 다운.</b> 원래 node-04에 있던 연결은 '+onDead+'개였습니다.<br>'
+      +'결과: <span class="big ok">'+kept+'개 유지</span> · <span class="big bad">'+broke+'개 끊김</span><br>'
+      +(resilient
+        ? '<span style="color:var(--teal)">안정 해시라 <strong>죽은 노드의 연결만</strong> 이동했습니다. 나머지는 그대로입니다.</span>'
+        : '<span style="color:var(--red)">모듈로 해싱이라 <strong>멀쩡한 노드의 연결까지</strong> 재계산되어 끊겼습니다. 이것이 공식 문서가 경고하는 상황입니다.</span>');
+  });
+  document.getElementById('ecmpRestore').addEventListener('click',function(){ reset(true); });
+  document.getElementById('ecmpShuffle').addEventListener('click',function(){ reset(false); });
+  var modeBtn=document.getElementById('ecmpMode'), modeLabel=document.getElementById('modeLabel');
+  modeBtn.addEventListener('click',function(){
+    resilient=!resilient;
+    modeBtn.setAttribute('aria-pressed', resilient?'true':'false');
+    modeBtn.textContent = resilient ? 'Resilient ECMP 끄기' : 'Resilient ECMP 켜기';
+    modeLabel.textContent = '해싱 방식: ' + (resilient ? 'Resilient ECMP (안정 해시)' : '일반 ECMP (모듈로)');
+    reset(true);
+  });
+  reset(false);
+
+  /* BGPAdvertisement 빌더 */
+  var bout=document.getElementById('bout');
+  function buildAdv(){
+    var lp=document.getElementById('optLocalPref').checked;
+    var cm=document.getElementById('optCommunity').checked;
+    var ag=document.getElementById('optAggregate').checked;
+    var pr=document.getElementById('optPeers').checked;
+    var nd=document.getElementById('optNodes').checked;
+    var ss=document.getElementById('optSvcSel').checked;
+    var lpv=document.getElementById('lpVal').value;
+
+    var y='apiVersion: metallb.io/v1beta1\nkind: BGPAdvertisement\nmetadata:\n  name: main\n  namespace: metallb-system\nspec:\n  ipAddressPools:\n  - first-pool\n';
+    if(lp) y+='  localPref: '+lpv+'\n';
+    if(cm) y+='  communities:\n  - 65535:65282\n';
+    if(pr) y+='  peers:\n  - PeerA\n  - PeerB\n';
+    if(nd) y+='  nodeSelectors:\n  - matchLabels:\n      kubernetes.io/hostname: NodeA\n  - matchLabels:\n      kubernetes.io/hostname: NodeB\n';
+    if(ss) y+='  serviceSelectors:\n  - matchLabels:\n      environment: production\n';
+    if(ag) y+='---\napiVersion: metallb.io/v1beta1\nkind: BGPAdvertisement\nmetadata:\n  name: aggregate\n  namespace: metallb-system\nspec:\n  ipAddressPools:\n  - first-pool\n  aggregationLength: 24\n';
+
+    var r='\n라우터가 받는 경로:\n';
+    r+='  198.51.100.10/32  localPref='+(lp?lpv:'0')+(cm?'  community=65535:65282 (no-advertise)':'  community=없음')+'\n';
+    if(ag) r+='  198.51.100.0/24   속성 없음 (상위로 전파됨)\n';
+    r+='  넥스트홉: '+(nd?'NodeA, NodeB 만':'모든 speaker 노드')+'\n';
+    r+='  광고 대상: '+(pr?'PeerA, PeerB 만':'연결된 모든 피어')+'\n';
+    r+='  적용 서비스: '+(ss?'environment=production 라벨을 가진 서비스만':'풀에서 IP를 받은 모든 서비스')+'\n';
+
+    if(ss&&ag) r+='\n[검증 오류] serviceSelectors는 aggregationLength와 함께 쓸 수 없습니다.\n';
+
+    bout.textContent=y+r;
+  }
+  document.querySelectorAll('#bopts input, #bopts select').forEach(function(el){
+    el.addEventListener('change',buildAdv);
+  });
+  buildAdv();
+
+  /* 퀴즈 */
+  var QS=[
+    {q:'BGP 모드에서 라우터가 트래픽을 여러 노드로 분산하려면 라우터 쪽에 무엇이 필요한가?',
+     o:['BFD 활성화','멀티패스(ECMP) 활성화','Graceful Restart 활성화','MD5 패스워드 설정'],
+     a:1, e:'멀티패스가 꺼져 있으면 라우터는 동등한 경로 중 하나만 골라 씁니다. 그러면 BGP를 써도 L2처럼 단일 노드로 트래픽이 몰립니다. 네트워크팀 요청 시 빠뜨리기 쉬운 항목입니다.'},
+    {q:'ECMP는 무엇을 단위로 트래픽을 분산하나?',
+     o:['패킷 단위','연결(세션) 단위','요청(HTTP request) 단위','파드 단위'],
+     a:1, e:'한 TCP/UDP 세션의 모든 패킷은 같은 노드로 갑니다. 패킷 단위로 쪼개면 재정렬 문제와 노드 간 라우팅 불일치로 연결이 깨지기 때문입니다.'},
+    {q:'노드 하나의 BGP 세션이 끊겼을 때 일반적으로 벌어지는 일은?',
+     o:['그 노드의 연결만 끊기고 나머지는 유지된다','기존 연결 대부분이 재해싱되어 끊긴다','라우터가 자동으로 연결을 이전 노드로 되돌린다','아무 영향이 없다'],
+     a:1, e:'라우터의 해시는 보통 안정적이지 않아서, 백엔드 개수가 바뀌면 기존 연결들이 사실상 무작위로 재배치됩니다. 지속적인 손실이 아니라 한 번의 깔끔한 단절입니다.'},
+    {q:'v0.16.0에서 BGP 백엔드에 생긴 가장 큰 변화는?',
+     o:['네이티브 구현이 제거됐다','FRR-K8s가 기본이 되고 FRR 모드가 deprecated 됐다','BGP 모드 자체가 deprecated 됐다','BFD가 네이티브 모드에서도 지원된다'],
+     a:1, e:'두 구현을 병행 유지하는 비용 때문에 FRR-K8s로 통합했습니다. 신규 BGP 기능은 FRR-K8s에만 추가되며, 네이티브 구현은 경량 배포용으로 남아 있습니다.'},
+    {q:'서비스 IP가 할당됐고 BGP 세션도 Established인데 광고가 안 된다. 가장 먼저 확인할 것은?',
+     o:['strictARP 설정','BGPAdvertisement를 만들었는지','IPAddressPool의 avoidBuggyIPs','BFDProfile의 interval 값'],
+     a:1, e:'IP 할당(controller)과 광고(speaker)는 별개 단계입니다. BGPAdvertisement가 없으면 EXTERNAL-IP는 붙지만 어떤 경로도 광고되지 않습니다. 1편의 L2Advertisement와 정확히 같은 구조입니다.'},
+    {q:'BGP 모드에서 노드 배포 시 연결 단절을 줄이는 가장 현실적인 방법은?',
+     o:['BFD interval을 최대한 짧게 잡는다','externalTrafficPolicy를 Cluster로 바꾼다','Ingress Controller를 앞에 두고 BGP 노출 대상을 줄인다','aggregationLength를 24로 설정한다'],
+     a:2, e:'BGP와 서비스 사이에 상태를 가진 계층을 두면, 뒤쪽 애플리케이션을 배포할 때 연결이 끊기지 않습니다. 조심할 순간이 Ingress Controller의 배포로 한정됩니다.'}
+  ];
+  var quiz=document.getElementById('quiz'), correct=0, answered=0;
+  QS.forEach(function(item,qi){
+    var d=document.createElement('div'); d.className='q';
+    var html='<p><span>Q'+(qi+1)+'</span>'+item.q+'</p>';
+    item.o.forEach(function(op,oi){ html+='<button class="opt" data-q="'+qi+'" data-o="'+oi+'">'+op+'</button>'; });
+    html+='<div class="qex" hidden>'+item.e+'</div>';
+    d.innerHTML=html; quiz.appendChild(d);
+  });
+  var score=document.createElement('div'); score.className='score';
+  score.innerHTML='진행 <b>0</b> / '+QS.length; quiz.appendChild(score);
+  quiz.addEventListener('click',function(e){
+    var b=e.target.closest('.opt'); if(!b) return;
+    var box=b.closest('.q'); if(box.dataset.done) return;
+    box.dataset.done='1';
+    var qi=+b.dataset.q, oi=+b.dataset.o, ans=QS[qi].a;
+    box.querySelectorAll('.opt').forEach(function(x){
+      x.classList.add('locked');
+      var xo=+x.dataset.o;
+      if(xo===ans) x.classList.add('right'); else if(xo===oi) x.classList.add('wrong');
+    });
+    box.querySelector('.qex').hidden=false;
+    answered++; if(oi===ans) correct++;
+    score.innerHTML=(answered===QS.length)
+      ? '최종 <b>'+correct+'</b> / '+QS.length+(correct>=5?' · BGP 모드 도입 논의를 시작해도 좋습니다':' · 4장과 5장을 다시 보면 좋습니다')
+      : '진행 <b>'+correct+'</b> / '+answered;
+  });
+})();
+</script>
+</body>
+</html>

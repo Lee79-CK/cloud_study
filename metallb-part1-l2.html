@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetalLB 1편 · 베어메탈 쿠버네티스에 LoadBalancer 만들기 (L2 모드)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS — 다크 기본, 라이트는 [data-theme="light"]로 덮어쓴다
+   ============================================================ */
+:root{
+  --bg:#0d1420; --bg2:#111a28; --panel:#172233; --panel2:#1d2a3d;
+  --line:#2a3a52; --line-soft:#213047;
+  --ink:#e3eaf5; --ink2:#a8b7cc; --ink3:#73879f;
+  --teal:#43d6c8; --teal-deep:#1f8f85; --teal-wash:rgba(67,214,200,.10);
+  --amber:#f0a93c; --amber-wash:rgba(240,169,60,.10);
+  --violet:#9b8cf5; --violet-wash:rgba(155,140,245,.10);
+  --red:#ff8080; --red-wash:rgba(255,128,128,.10);
+  --shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 18px 40px -28px rgba(0,0,0,.9);
+  --wire:#31445f;
+}
+:root[data-theme="light"]{
+  --bg:#eef2f7; --bg2:#e5ebf3; --panel:#ffffff; --panel2:#f5f8fc;
+  --line:#d2dbe7; --line-soft:#e2e9f2;
+  --ink:#122032; --ink2:#465a72; --ink3:#6c8098;
+  --teal:#0d827a; --teal-deep:#0a6a63; --teal-wash:rgba(13,130,122,.09);
+  --amber:#9e6112; --amber-wash:rgba(158,97,18,.10);
+  --violet:#5546bd; --violet-wash:rgba(85,70,189,.09);
+  --red:#bf3b32; --red-wash:rgba(191,59,50,.09);
+  --shadow:0 1px 2px rgba(18,32,50,.05), 0 14px 30px -24px rgba(18,32,50,.35);
+  --wire:#b8c6d7;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans KR",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-weight:400; font-size:16.5px; line-height:1.78;
+  -webkit-font-smoothing:antialiased; word-break:keep-all;
+}
+code,kbd,pre,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ============================================================
+   상단 바
+   ============================================================ */
+.topbar{
+  position:sticky; top:0; z-index:60; background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(12px); border-bottom:1px solid var(--line-soft);
+}
+.topbar-in{max-width:1180px; margin:0 auto; padding:.6rem 1.1rem; display:flex; align-items:center; gap:.75rem}
+.brand{font-weight:600; font-size:.9rem; letter-spacing:-.01em; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.brand b{color:var(--teal); font-weight:600}
+.topbar-sp{flex:1}
+.tbtn{
+  border:1px solid var(--line); background:var(--panel); color:var(--ink2);
+  border-radius:9px; padding:.34rem .7rem; font:inherit; font-size:.82rem; cursor:pointer;
+  display:inline-flex; align-items:center; gap:.4rem; transition:border-color .15s, color .15s;
+}
+.tbtn:hover{border-color:var(--teal); color:var(--ink)}
+.tbtn:focus-visible,a:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--teal); outline-offset:2px}
+#tocBtn{display:none}
+.progress{position:absolute; left:0; bottom:-1px; height:2px; background:var(--teal); width:0%}
+
+/* ============================================================
+   레이아웃
+   ============================================================ */
+.shell{max-width:1180px; margin:0 auto; padding:0 1.1rem; display:grid; grid-template-columns:232px minmax(0,1fr); gap:2.6rem}
+.toc{position:sticky; top:74px; align-self:start; max-height:calc(100vh - 92px); overflow-y:auto; padding:1.6rem 0 3rem; font-size:.82rem}
+.toc h4{margin:0 0 .7rem; font-size:.7rem; font-weight:600; color:var(--ink3); letter-spacing:.06em}
+.toc a{display:block; padding:.3rem .55rem .3rem .7rem; color:var(--ink3); text-decoration:none; border-left:2px solid var(--line-soft); line-height:1.45; transition:color .15s,border-color .15s}
+.toc a:hover{color:var(--ink2)}
+.toc a.on{color:var(--teal); border-left-color:var(--teal); background:var(--teal-wash)}
+main{min-width:0; padding-bottom:5rem}
+
+@media (max-width:920px){
+  .shell{grid-template-columns:1fr; gap:0}
+  #tocBtn{display:inline-flex}
+  .toc{
+    position:fixed; inset:56px 0 auto 0; max-height:70vh; background:var(--panel);
+    border-bottom:1px solid var(--line); padding:1rem 1.2rem 1.4rem; display:none; z-index:55;
+    box-shadow:0 20px 40px -24px rgba(0,0,0,.6);
+  }
+  .toc.open{display:block}
+  body{font-size:16px}
+}
+
+/* ============================================================
+   히어로
+   ============================================================ */
+.hero{padding:3.6rem 0 2.4rem; border-bottom:1px solid var(--line-soft)}
+.kicker{font-size:.78rem; color:var(--teal); font-weight:500; margin:0 0 1rem; display:flex; align-items:center; gap:.55rem}
+.kicker::before{content:""; width:26px; height:1px; background:var(--teal)}
+.hero h1{
+  margin:0 0 1rem; font-size:clamp(2rem,5.2vw,3.15rem); line-height:1.16; font-weight:700;
+  letter-spacing:-.035em;
+}
+.hero .lede{margin:0 0 1.7rem; font-size:1.06rem; color:var(--ink2); max-width:62ch; font-weight:300}
+.chips{display:flex; flex-wrap:wrap; gap:.5rem}
+.chip{font-size:.76rem; color:var(--ink2); border:1px solid var(--line); border-radius:999px; padding:.22rem .7rem; background:var(--panel)}
+.chip.hl{border-color:var(--teal-deep); color:var(--teal); background:var(--teal-wash)}
+
+/* 히어로 다이어그램 */
+.vipboard{
+  margin-top:2.2rem; border:1px solid var(--line); border-radius:14px; background:var(--panel);
+  padding:1.4rem 1.2rem 1.1rem; box-shadow:var(--shadow);
+}
+.vipboard .vip{
+  display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:1.35rem; font-weight:600; color:var(--teal);
+  border:1px dashed var(--teal-deep); border-radius:10px; padding:.3rem .8rem; background:var(--teal-wash);
+}
+.vipboard .cap{font-size:.82rem; color:var(--ink3); margin:.7rem 0 1.1rem}
+.vipwire{display:flex; gap:.5rem; align-items:stretch}
+.vipnode{
+  flex:1; border:1px solid var(--line); border-radius:9px; padding:.6rem .5rem; text-align:center;
+  font-size:.76rem; color:var(--ink3); background:var(--panel2); position:relative;
+}
+.vipnode.owner{border-color:var(--teal); color:var(--teal); box-shadow:0 0 0 3px var(--teal-wash)}
+.vipnode .nm{font-family:"IBM Plex Mono",monospace; display:block; font-size:.8rem; color:var(--ink2); margin-bottom:.15rem}
+.vipnode.owner .nm{color:var(--teal)}
+
+/* ============================================================
+   섹션 / 타이포
+   ============================================================ */
+section{padding:3.2rem 0 .6rem; scroll-margin-top:74px; border-bottom:1px solid var(--line-soft)}
+section:last-of-type{border-bottom:none}
+.sec-no{font-family:"IBM Plex Mono",monospace; font-size:.76rem; color:var(--ink3); display:block; margin-bottom:.45rem}
+h2{font-size:clamp(1.42rem,3.1vw,1.85rem); line-height:1.3; margin:0 0 1.1rem; font-weight:700; letter-spacing:-.025em}
+h3{font-size:1.06rem; margin:2.2rem 0 .7rem; font-weight:600; letter-spacing:-.015em}
+h4{font-size:.93rem; margin:1.5rem 0 .5rem; font-weight:600; color:var(--ink2)}
+p{margin:0 0 1.05rem; max-width:74ch}
+ul,ol{margin:0 0 1.1rem; padding-left:1.25rem; max-width:74ch}
+li{margin-bottom:.45rem}
+li::marker{color:var(--ink3)}
+a{color:var(--teal)}
+strong{font-weight:600; color:var(--ink)}
+em{font-style:normal; color:var(--amber); font-weight:500}
+hr{border:none; border-top:1px solid var(--line-soft); margin:2rem 0}
+code:not(pre code){
+  background:var(--panel2); border:1px solid var(--line-soft); border-radius:5px;
+  padding:.08em .38em; font-size:.85em; color:var(--teal); white-space:nowrap;
+}
+:root[data-theme="light"] code:not(pre code){color:var(--teal-deep)}
+
+/* ============================================================
+   코드 블록
+   ============================================================ */
+.code{position:relative; margin:0 0 1.2rem}
+.code-hd{
+  display:flex; align-items:center; gap:.6rem; font-size:.73rem; color:var(--ink3);
+  background:var(--panel2); border:1px solid var(--line); border-bottom:none;
+  border-radius:9px 9px 0 0; padding:.35rem .75rem;
+}
+.code-hd .f{flex:1; font-family:"IBM Plex Mono",monospace}
+.copy{border:1px solid var(--line); background:var(--panel); color:var(--ink3); border-radius:6px; padding:.1rem .45rem; font:inherit; font-size:.71rem; cursor:pointer}
+.copy:hover{color:var(--teal); border-color:var(--teal-deep)}
+pre{
+  margin:0; background:var(--bg2); border:1px solid var(--line); border-radius:0 0 9px 9px;
+  padding:.9rem 1rem; overflow-x:auto; font-size:.845rem; line-height:1.68; color:var(--ink2);
+}
+pre code{color:inherit}
+.tok-k{color:var(--violet)}      /* 키 */
+.tok-s{color:var(--teal)}        /* 값/문자열 */
+.tok-c{color:var(--ink3); font-style:italic} /* 주석 */
+.tok-n{color:var(--amber)}       /* 숫자/강조 */
+
+/* ============================================================
+   박스류
+   ============================================================ */
+.note,.warn,.tip{
+  border:1px solid var(--line); border-left-width:3px; border-radius:0 10px 10px 0;
+  padding:.95rem 1.1rem; margin:0 0 1.3rem; background:var(--panel); font-size:.93rem; max-width:74ch;
+}
+.note{border-left-color:var(--teal); background:var(--teal-wash)}
+.warn{border-left-color:var(--red); background:var(--red-wash)}
+.tip{border-left-color:var(--amber); background:var(--amber-wash)}
+.note p:last-child,.warn p:last-child,.tip p:last-child{margin-bottom:0}
+.note b,.warn b,.tip b{display:block; margin-bottom:.25rem; font-size:.82rem; font-weight:600}
+.note b{color:var(--teal)} .warn b{color:var(--red)} .tip b{color:var(--amber)}
+
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.3rem}
+@media (max-width:700px){.grid2{grid-template-columns:1fr}}
+.card{border:1px solid var(--line); border-radius:11px; padding:1rem 1.1rem; background:var(--panel)}
+.card h5{margin:0 0 .5rem; font-size:.9rem; font-weight:600}
+.card p{font-size:.9rem; color:var(--ink2); margin:0}
+.card ul{font-size:.89rem; color:var(--ink2); margin:.5rem 0 0; padding-left:1.1rem}
+
+table{width:100%; border-collapse:collapse; margin:0 0 1.4rem; font-size:.88rem; display:block; overflow-x:auto}
+th,td{border:1px solid var(--line); padding:.55rem .7rem; text-align:left; vertical-align:top}
+th{background:var(--panel2); font-weight:600; font-size:.83rem; color:var(--ink2); white-space:nowrap}
+td code{white-space:nowrap}
+
+/* ============================================================
+   시뮬레이터
+   ============================================================ */
+.sim{border:1px solid var(--line); border-radius:14px; background:var(--panel); padding:1.2rem; margin:0 0 1.4rem; box-shadow:var(--shadow)}
+.sim-hd{display:flex; align-items:baseline; gap:.7rem; margin-bottom:1rem; flex-wrap:wrap}
+.sim-hd h5{margin:0; font-size:.95rem; font-weight:600}
+.sim-hd span{font-size:.78rem; color:var(--ink3)}
+.stage{position:relative; display:grid; grid-template-columns:120px 1fr; gap:1rem; align-items:center; min-height:190px; margin-bottom:1rem}
+@media (max-width:640px){.stage{grid-template-columns:1fr; gap:.6rem}}
+.client{
+  border:1px solid var(--line); border-radius:10px; background:var(--panel2); padding:.75rem .6rem; text-align:center; font-size:.78rem;
+}
+.client .ttl{font-weight:600; color:var(--ink); display:block; margin-bottom:.25rem; font-size:.82rem}
+.client .arp{font-family:"IBM Plex Mono",monospace; font-size:.68rem; color:var(--ink3); margin-top:.45rem; line-height:1.4; border-top:1px dashed var(--line); padding-top:.4rem}
+.client .arp b{color:var(--amber); font-weight:500}
+.nodes{display:grid; grid-template-columns:repeat(3,1fr); gap:.6rem}
+.node{
+  border:1px solid var(--line); border-radius:10px; background:var(--panel2); padding:.7rem .55rem; text-align:center;
+  font-size:.74rem; color:var(--ink3); transition:border-color .25s, box-shadow .25s, opacity .25s;
+}
+.node .h{display:block; font-family:"IBM Plex Mono",monospace; font-size:.8rem; color:var(--ink2); font-weight:500}
+.node .mac{font-family:"IBM Plex Mono",monospace; font-size:.66rem; color:var(--ink3); margin-top:.2rem}
+.node .badge{display:inline-block; margin-top:.5rem; font-size:.66rem; padding:.1rem .4rem; border-radius:5px; border:1px solid var(--line); color:var(--ink3)}
+.node.owner{border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-wash)}
+.node.owner .badge{border-color:var(--teal); color:var(--teal); background:var(--teal-wash)}
+.node.dead{opacity:.4; border-style:dashed; border-color:var(--red)}
+.node.dead .badge{border-color:var(--red); color:var(--red)}
+.node .vipchip{display:block; margin-top:.4rem; font-family:"IBM Plex Mono",monospace; font-size:.68rem; color:var(--teal); visibility:hidden}
+.node.owner .vipchip{visibility:visible}
+.pkt{
+  position:absolute; width:11px; height:11px; border-radius:50%; background:var(--amber);
+  box-shadow:0 0 0 4px var(--amber-wash); opacity:0; pointer-events:none;
+  transition:left .62s cubic-bezier(.4,.05,.3,1), top .62s cubic-bezier(.4,.05,.3,1), opacity .2s, background .2s;
+}
+.simbar{display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.9rem}
+.sbtn{border:1px solid var(--line); background:var(--panel2); color:var(--ink2); border-radius:8px; padding:.4rem .8rem; font:inherit; font-size:.82rem; cursor:pointer}
+.sbtn:hover:not(:disabled){border-color:var(--teal); color:var(--ink)}
+.sbtn.primary{border-color:var(--teal-deep); color:var(--teal); background:var(--teal-wash)}
+.sbtn.danger{border-color:var(--red); color:var(--red); background:var(--red-wash)}
+.sbtn:disabled{opacity:.4; cursor:not-allowed}
+.log{
+  background:var(--bg2); border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem;
+  font-family:"IBM Plex Mono",monospace; font-size:.78rem; line-height:1.7; color:var(--ink2);
+  max-height:190px; overflow-y:auto;
+}
+.log div{margin-bottom:.15rem}
+.log .t{color:var(--ink3)}
+.log .ok{color:var(--teal)}
+.log .bad{color:var(--red)}
+.log .hi{color:var(--amber)}
+
+/* 탭 */
+.tabs{border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:0 0 1.4rem; background:var(--panel)}
+.tabbar{display:flex; overflow-x:auto; background:var(--panel2); border-bottom:1px solid var(--line)}
+.tabbar button{
+  border:none; background:none; color:var(--ink3); font:inherit; font-size:.84rem; padding:.65rem 1rem;
+  cursor:pointer; white-space:nowrap; border-bottom:2px solid transparent;
+}
+.tabbar button[aria-selected="true"]{color:var(--teal); border-bottom-color:var(--teal); background:var(--panel)}
+.tabpane{padding:1.1rem}
+.tabpane[hidden]{display:none}
+.tabpane p:last-child,.tabpane .code:last-child{margin-bottom:0}
+
+/* 토글 스위치 */
+.switcher{display:flex; gap:.4rem; margin-bottom:1rem; flex-wrap:wrap}
+.switcher button{
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink3); border-radius:999px;
+  padding:.33rem .9rem; font:inherit; font-size:.82rem; cursor:pointer;
+}
+.switcher button[aria-pressed="true"]{border-color:var(--teal); color:var(--teal); background:var(--teal-wash)}
+.etpbox{border:1px solid var(--line); border-radius:11px; padding:1rem; background:var(--panel2); font-size:.9rem}
+.etprow{display:grid; grid-template-columns:120px 1fr; gap:.6rem; padding:.42rem 0; border-bottom:1px dashed var(--line)}
+.etprow:last-child{border-bottom:none}
+.etprow b{font-size:.8rem; color:var(--ink3); font-weight:500}
+
+/* 아코디언 */
+details{border:1px solid var(--line); border-radius:10px; margin-bottom:.55rem; background:var(--panel); overflow:hidden}
+summary{cursor:pointer; padding:.7rem .95rem; font-size:.9rem; font-weight:500; list-style:none; display:flex; align-items:center; gap:.6rem}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+"; font-family:"IBM Plex Mono",monospace; color:var(--teal); font-size:.95rem; width:.9em}
+details[open] summary::before{content:"−"}
+details[open] summary{border-bottom:1px solid var(--line-soft); background:var(--panel2)}
+.dbody{padding:.9rem .95rem .3rem}
+.dbody p,.dbody ul{font-size:.9rem}
+.dbody .code{margin-top:.6rem}
+
+/* 용어 사전 */
+.terms{display:grid; grid-template-columns:1fr 1fr; gap:.55rem}
+@media (max-width:760px){.terms{grid-template-columns:1fr}}
+.term{border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem; background:var(--panel); font-size:.87rem}
+.term b{display:block; font-family:"IBM Plex Mono",monospace; font-size:.83rem; color:var(--teal); margin-bottom:.2rem; font-weight:500}
+.term span{color:var(--ink2)}
+
+/* 퀴즈 */
+.quiz{border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:1.2rem; box-shadow:var(--shadow)}
+.q{border-bottom:1px solid var(--line-soft); padding-bottom:1.1rem; margin-bottom:1.1rem}
+.q:last-of-type{border-bottom:none}
+.q p{font-weight:500; margin-bottom:.6rem; font-size:.95rem}
+.q p span{font-family:"IBM Plex Mono",monospace; color:var(--ink3); font-size:.85rem; margin-right:.4rem}
+.opt{
+  display:block; width:100%; text-align:left; border:1px solid var(--line); background:var(--panel2);
+  color:var(--ink2); border-radius:8px; padding:.5rem .8rem; font:inherit; font-size:.88rem;
+  margin-bottom:.35rem; cursor:pointer;
+}
+.opt:hover:not(.locked){border-color:var(--teal-deep)}
+.opt.right{border-color:var(--teal); background:var(--teal-wash); color:var(--teal)}
+.opt.wrong{border-color:var(--red); background:var(--red-wash); color:var(--red)}
+.qex{font-size:.86rem; color:var(--ink2); background:var(--panel2); border-left:2px solid var(--teal); padding:.55rem .8rem; border-radius:0 7px 7px 0; margin-top:.5rem}
+.qex[hidden]{display:none}
+.score{font-size:.9rem; color:var(--ink2); text-align:center; padding-top:.4rem}
+.score b{color:var(--teal)}
+
+/* 다음 편 */
+.next{border:1px solid var(--violet); border-radius:14px; background:var(--violet-wash); padding:1.4rem 1.3rem; margin-top:1rem}
+.next h3{margin:0 0 .6rem; color:var(--violet); font-size:1.05rem}
+.next ul{margin-bottom:0; font-size:.92rem; color:var(--ink2)}
+
+footer{max-width:1180px; margin:0 auto; padding:2rem 1.1rem 3.5rem; font-size:.8rem; color:var(--ink3); border-top:1px solid var(--line-soft)}
+footer a{color:var(--ink3)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important; animation:none!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <span class="brand"><b>MetalLB 1편</b> · L2 모드로 만드는 베어메탈 LoadBalancer</span>
+    <span class="topbar-sp"></span>
+    <button class="tbtn" id="tocBtn" aria-expanded="false">목차</button>
+    <button class="tbtn" id="themeBtn" aria-label="테마 전환">라이트</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</div>
+
+<div class="shell">
+  <nav class="toc" id="toc">
+    <h4>목차</h4>
+    <a href="#s1">1. LoadBalancer가 Pending인 이유</a>
+    <a href="#s2">2. MetalLB 없이 버티는 방법들</a>
+    <a href="#s3">3. MetalLB는 무엇을 대신하나</a>
+    <a href="#s4">4. 아키텍처: controller와 speaker</a>
+    <a href="#s5">5. L2 모드의 원리 (ARP/NDP)</a>
+    <a href="#s6">6. 리더 선출과 장애 전환</a>
+    <a href="#s7">7. L2 모드의 두 가지 한계</a>
+    <a href="#s8">8. 설치 준비와 백엔드 선택</a>
+    <a href="#s9">9. IPAddressPool: IP 주소 정의</a>
+    <a href="#s10">10. L2Advertisement: 광고 범위</a>
+    <a href="#s11">11. 서비스 노출과 어노테이션</a>
+    <a href="#s12">12. externalTrafficPolicy</a>
+    <a href="#s13">13. 확인과 트러블슈팅</a>
+    <a href="#s14">14. 현업 적용 체크리스트</a>
+    <a href="#s15">15. 용어 사전</a>
+    <a href="#s16">16. 셀프 체크 퀴즈</a>
+    <a href="#s17">17. 2편 예고</a>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <p class="kicker">클라우드 인프라 강의 시리즈 · MetalLB 1편</p>
+      <h1>베어메탈 쿠버네티스에<br>LoadBalancer를 직접 만든다</h1>
+      <p class="lede">
+        AWS나 Azure에서는 <code>type: LoadBalancer</code> 한 줄이면 몇 분 뒤 외부 IP가 생깁니다.
+        온프레미스에 직접 구축한 클러스터에서 같은 YAML을 적용하면 EXTERNAL-IP는 영원히 <code>&lt;pending&gt;</code>에 머뭅니다.
+        이 강의는 그 이유를 밑바닥부터 설명하고, MetalLB의 L2 모드로 실제 동작하는 외부 IP를 만드는 과정을 따라갑니다.
+      </p>
+      <div class="chips">
+        <span class="chip hl">MetalLB v0.16.1 기준</span>
+        <span class="chip">대상: 1~2년차 클라우드 엔지니어</span>
+        <span class="chip">선수 지식: Service / Pod / kubectl</span>
+        <span class="chip">읽기 약 70분</span>
+      </div>
+
+      <div class="vipboard">
+        <span class="vip">192.168.1.240</span>
+        <p class="cap">이 IP는 어느 노드의 랜카드에도 설정되어 있지 않습니다. 그런데도 외부에서 접속하면 연결됩니다. 1편 전체가 이 한 문장을 이해하는 과정입니다.</p>
+        <div class="vipwire">
+          <div class="vipnode"><span class="nm">node-01</span>대기</div>
+          <div class="vipnode owner"><span class="nm">node-02</span>내가 응답한다</div>
+          <div class="vipnode"><span class="nm">node-03</span>대기</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===================================================== 1 -->
+    <section id="s1">
+      <span class="sec-no">01</span>
+      <h2>LoadBalancer 서비스가 Pending에서 멈추는 이유</h2>
+
+      <p>
+        먼저 증상부터 봅시다. 직접 구축한(native, 또는 흔히 "온프레미스 kubeadm 클러스터"라 부르는) 환경에서
+        아래처럼 서비스를 만들면 이런 결과가 나옵니다.
+      </p>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>$ kubectl expose deploy nginx --type=LoadBalancer --port=80
+$ kubectl get svc nginx
+NAME    TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+nginx   LoadBalancer   10.96.142.18    <span class="tok-n">&lt;pending&gt;</span>       80:31674/TCP   5m</code></pre>
+      </div>
+
+      <p>
+        <code>&lt;pending&gt;</code>은 에러가 아닙니다. 쿠버네티스 입장에서는 <strong>"부탁은 접수했는데 처리해 줄 담당자가 없다"</strong>는 뜻입니다.
+        여기서 핵심은 쿠버네티스가 로드밸런서를 <em>직접 만들지 않는다</em>는 사실입니다.
+      </p>
+
+      <h3>쿠버네티스가 실제로 하는 일과 하지 않는 일</h3>
+      <p>
+        <code>type: LoadBalancer</code> 서비스를 만들면 다음 순서로 일이 진행됩니다.
+      </p>
+      <ol>
+        <li>kube-controller-manager 안의 <strong>service controller</strong>가 새 LoadBalancer 서비스를 감지합니다.</li>
+        <li>이 컨트롤러는 <strong>cloud provider 인터페이스</strong>에 "외부 LB를 하나 만들어 달라"고 요청합니다.</li>
+        <li>클라우드에서는 이 요청을 <strong>CCM(Cloud Controller Manager)</strong>이 받아 AWS NLB, Azure Load Balancer, GCP 포워딩 룰 같은 실제 장비/리소스를 생성합니다.</li>
+        <li>생성이 끝나면 CCM이 서비스의 <code>status.loadBalancer.ingress</code> 필드에 IP나 DNS 이름을 써 줍니다. 이 값이 EXTERNAL-IP로 보입니다.</li>
+      </ol>
+
+      <div class="note">
+        <b>그래서 무엇이 빠져 있나</b>
+        <p>
+          직접 구축한 클러스터에는 3번을 수행할 CCM이 없습니다. 요청을 받아 줄 클라우드 API도, 앞단에 놓을 물리 LB 장비도 없습니다.
+          그래서 서비스는 계속 대기 상태로 남습니다. <strong>쿠버네티스가 고장 난 게 아니라, 구현체가 비어 있는 것</strong>입니다.
+        </p>
+      </div>
+
+      <h3>용어 정리: CCM과 in-tree provider</h3>
+      <ul>
+        <li><strong>CCM (Cloud Controller Manager)</strong> — 클라우드에 종속적인 컨트롤러를 쿠버네티스 본체에서 분리한 컴포넌트. 노드 정보 갱신, 라우팅 설정, 그리고 LoadBalancer 서비스 처리를 담당합니다.</li>
+        <li><strong>in-tree provider</strong> — 과거에는 클라우드 연동 코드가 쿠버네티스 소스 안에 함께 들어 있었습니다. 지금은 대부분 외부 CCM으로 분리됐습니다.</li>
+        <li><strong>status.loadBalancer.ingress</strong> — EXTERNAL-IP 값이 실제로 저장되는 필드. <code>kubectl get svc -o yaml</code>로 직접 확인할 수 있습니다.</li>
+      </ul>
+
+      <p>
+        결론은 단순합니다. <strong>비어 있는 자리를 채워 줄 구현체를 클러스터 안에 직접 설치하면 됩니다.</strong>
+        그 구현체 중 가장 널리 쓰이는 것이 MetalLB입니다.
+      </p>
+    </section>
+
+    <!-- ===================================================== 2 -->
+    <section id="s2">
+      <span class="sec-no">02</span>
+      <h2>MetalLB 없이 버티는 방법들, 그리고 그 한계</h2>
+
+      <p>
+        현장에서는 LB 없이도 어떻게든 서비스를 외부에 노출합니다. 어떤 방법들이 있고 왜 부족한지 알면,
+        MetalLB가 정확히 어떤 문제를 푸는지 선명해집니다.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>방법</th><th>동작</th><th>한계</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>NodePort</strong></td>
+            <td>모든 노드의 고정 포트(기본 30000–32767)를 열고, 그 포트로 들어온 트래픽을 서비스로 전달</td>
+            <td>포트 번호가 지저분하다(<code>:31674</code>). 사용자는 노드 IP를 알아야 하고, 그 노드가 죽으면 그 주소는 죽는다. 80/443을 쓰려면 별도 설정이 필요하다.</td>
+          </tr>
+          <tr>
+            <td><strong>externalIPs</strong></td>
+            <td>서비스 스펙에 임의의 IP를 적으면 그 IP로 들어온 트래픽을 kube-proxy가 처리</td>
+            <td>그 IP를 네트워크에 <em>광고해 주는 주체가 없다</em>. 누군가 수동으로 노드에 IP를 붙이거나 라우팅을 잡아 줘야 한다. IP 중복 관리도 사람 몫.</td>
+          </tr>
+          <tr>
+            <td><strong>hostNetwork / hostPort</strong></td>
+            <td>파드가 노드의 네트워크 네임스페이스를 직접 사용</td>
+            <td>파드가 특정 노드에 묶인다. 포트 충돌이 잦고, 스케줄링 유연성을 잃는다.</td>
+          </tr>
+          <tr>
+            <td><strong>외부 HAProxy / Nginx</strong></td>
+            <td>클러스터 밖 VM에 LB를 두고 NodePort로 포워딩</td>
+            <td>서비스가 늘 때마다 사람이 설정을 고쳐야 한다. 그 VM 자체가 단일 장애점이 된다. 쿠버네티스와 상태가 어긋난다.</td>
+          </tr>
+          <tr>
+            <td><strong>Ingress Controller만 설치</strong></td>
+            <td>L7 라우팅을 담당하는 컨트롤러를 설치</td>
+            <td>Ingress Controller 자신도 외부에서 접근 가능해야 한다. 결국 그 앞단에 LoadBalancer나 NodePort가 필요하다. <strong>문제가 한 단계 미뤄질 뿐이다.</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="tip">
+        <b>자주 나오는 오해</b>
+        <p>
+          "Ingress를 쓰면 LB가 필요 없다"는 말은 절반만 맞습니다. Ingress Controller 파드도 결국 클러스터 안에 있습니다.
+          외부 사용자가 그 파드에 닿으려면 진입점이 필요하고, 그 진입점을 자동으로 만들어 주는 것이 LoadBalancer입니다.
+          실무에서 가장 흔한 조합은 <strong>MetalLB가 IP 하나를 Ingress Controller에 주고, 그 뒤는 Ingress가 호스트/경로로 분기</strong>하는 구조입니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 3 -->
+    <section id="s3">
+      <span class="sec-no">03</span>
+      <h2>MetalLB는 정확히 무엇을 대신하는가</h2>
+
+      <p>
+        MetalLB는 <strong>표준 라우팅 프로토콜을 사용하는, 베어메탈 쿠버네티스용 로드밸런서 구현체</strong>입니다.
+        CNCF 생태계에서 가장 널리 쓰이는 온프레미스 LB 솔루션이며, 하는 일은 두 가지로 요약됩니다.
+      </p>
+
+      <div class="grid2">
+        <div class="card">
+          <h5>① 주소 할당 (Address allocation)</h5>
+          <p>관리자가 미리 지정해 둔 IP 대역에서 비어 있는 주소 하나를 골라 서비스에 배정하고, <code>status.loadBalancer.ingress</code>에 기록합니다. 클라우드에서 CCM이 하던 일입니다.</p>
+        </div>
+        <div class="card">
+          <h5>② 외부 알림 (Announcement)</h5>
+          <p>배정한 IP가 "여기 살아 있다"고 네트워크에 알립니다. 이 알림 방식이 두 가지인데, 그게 바로 <strong>L2 모드</strong>와 <strong>BGP 모드</strong>입니다.</p>
+        </div>
+      </div>
+
+      <h3>L2 모드와 BGP 모드, 한 문장 비교</h3>
+      <table>
+        <thead><tr><th>구분</th><th>L2 모드 (1편)</th><th>BGP 모드 (2편)</th></tr></thead>
+        <tbody>
+          <tr><td>원리</td><td>ARP/NDP에 응답해서 "그 IP는 내 MAC이다"라고 알림</td><td>라우터와 BGP 세션을 맺고 경로를 광고</td></tr>
+          <tr><td>필요 장비</td><td>없음. 평범한 이더넷 스위치면 충분</td><td>BGP를 지원하는 라우터/스위치와 네트워크팀 협의</td></tr>
+          <tr><td>트래픽 분산</td><td>한 IP당 한 노드가 전부 받음 (failover)</td><td>ECMP로 여러 노드에 분산 (진짜 로드밸런싱)</td></tr>
+          <tr><td>IP 대역 조건</td><td>노드와 같은 L2 세그먼트 안의 IP여야 함</td><td>라우팅만 되면 어느 대역이든 가능</td></tr>
+          <tr><td>도입 난이도</td><td>낮음. 30분이면 된다</td><td>중간~높음. 네트워크 지식 필요</td></tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <b>버전 메모 (2026년 9월 기준)</b>
+        <p>
+          최신 릴리스는 <strong>v0.16.1</strong>(2026-05-27)입니다. 직전 마이너인 v0.16.0에서 BGP 백엔드 기본값이 <code>frr-k8s</code>로 바뀌고 기존 FRR 모드가 deprecated 됐으며,
+          메트릭 엔드포인트가 HTTPS 전용으로 변경됐습니다. 이 변화는 대부분 BGP 쪽 이야기라 2편에서 자세히 다룹니다.
+          L2 모드만 쓴다면 v0.16.x는 이전 버전과 설정 방식이 사실상 동일합니다.
+        </p>
+      </div>
+
+      <div class="tip">
+        <b>프로젝트 성숙도</b>
+        <p>
+          MetalLB는 공식적으로 API와 프로젝트 상태를 beta로 표기하지만, 문서에서 직접 "안정적이고 신뢰할 수 있다고 알려져 있다"고 밝히고 있습니다.
+          실제로 온프레미스 쿠버네티스 환경의 사실상 표준에 가깝게 쓰입니다. beta라는 표기만 보고 프로덕션 부적합이라고 판단할 필요는 없습니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 4 -->
+    <section id="s4">
+      <span class="sec-no">04</span>
+      <h2>아키텍처: controller 하나와 speaker 여럿</h2>
+
+      <p>
+        MetalLB를 설치하면 <code>metallb-system</code> 네임스페이스에 딱 두 종류의 워크로드가 뜹니다. 구조가 단순한 것이 이 프로젝트의 큰 장점입니다.
+      </p>
+
+      <div class="grid2">
+        <div class="card">
+          <h5>controller (Deployment, 1개)</h5>
+          <ul>
+            <li>클러스터 전체에서 하나만 동작하는 <strong>IP 할당 담당자</strong></li>
+            <li>LoadBalancer 서비스를 감시하다가 풀에서 IP를 골라 배정</li>
+            <li>어떤 IP를 줬는지 서비스 status에 기록</li>
+            <li>설정 CR의 유효성 검증(validating webhook)도 담당</li>
+            <li>네트워크 패킷은 전혀 건드리지 않음</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h5>speaker (DaemonSet, 노드마다 1개)</h5>
+          <ul>
+            <li>실제로 <strong>네트워크에 IP를 알리는 담당자</strong></li>
+            <li>L2 모드에서는 ARP/NDP 요청에 응답</li>
+            <li>BGP 모드에서는 라우터와 세션을 맺고 경로 광고</li>
+            <li>노드의 네트워크를 직접 다뤄야 해서 권한이 높음 (hostNetwork, NET_RAW 등)</li>
+            <li>서로 memberlist로 통신하며 생존 여부를 확인</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>서비스 하나가 만들어질 때 벌어지는 일 (전체 흐름)</h3>
+      <ol>
+        <li>사용자가 <code>type: LoadBalancer</code> 서비스를 생성한다.</li>
+        <li><strong>controller</strong>가 이를 감지하고, 조건에 맞는 <code>IPAddressPool</code>에서 비어 있는 IP를 하나 고른다.</li>
+        <li>controller가 서비스의 <code>status.loadBalancer.ingress</code>에 그 IP를 기록한다. → 이 순간 EXTERNAL-IP가 보인다.</li>
+        <li>모든 노드의 <strong>speaker</strong>가 이 변화를 감지한다.</li>
+        <li>각 speaker가 동일한 계산식으로 "이 IP를 누가 광고할지" 결정한다. (뒤에서 자세히 설명)</li>
+        <li>선택된 한 노드의 speaker가 그 IP에 대한 ARP 요청에 자기 MAC 주소로 응답하기 시작한다.</li>
+        <li>외부 클라이언트의 패킷이 그 노드에 도착하고, 그 다음은 <strong>kube-proxy</strong>가 파드로 분배한다.</li>
+      </ol>
+
+      <div class="warn">
+        <b>여기서 자주 놓치는 지점</b>
+        <p>
+          6번까지가 MetalLB의 역할이고, 7번부터는 기존 쿠버네티스(kube-proxy 또는 CNI의 서비스 구현)가 하던 일 그대로입니다.
+          MetalLB는 <strong>트래픽 경로 위에 새로 끼어드는 프록시가 아닙니다.</strong> "이 IP는 이 노드로 보내라"고 네트워크에 알려 주는 역할만 합니다.
+          그래서 성능 오버헤드를 거의 걱정하지 않아도 됩니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 5 -->
+    <section id="s5">
+      <span class="sec-no">05</span>
+      <h2>L2 모드의 원리: ARP를 가로채는 것이 전부다</h2>
+
+      <h3>먼저 ARP 복습</h3>
+      <p>
+        같은 네트워크(L2 세그먼트) 안의 장비끼리 통신하려면 상대의 <strong>MAC 주소</strong>를 알아야 합니다.
+        IP는 알지만 MAC을 모를 때 쓰는 프로토콜이 <strong>ARP(Address Resolution Protocol)</strong>입니다. 동작은 아주 단순합니다.
+      </p>
+      <ol>
+        <li>클라이언트가 브로드캐스트로 묻는다: <em>"192.168.1.240 가진 사람 누구야? MAC 알려줘"</em></li>
+        <li>해당 IP를 가진 장비가 유니캐스트로 답한다: <em>"나야, 내 MAC은 aa:bb:cc:...야"</em></li>
+        <li>클라이언트는 이 결과를 <strong>ARP 캐시</strong>에 저장하고, 이후 패킷을 그 MAC으로 보낸다.</li>
+      </ol>
+      <p>
+        IPv6에서는 ARP 대신 <strong>NDP(Neighbor Discovery Protocol)</strong>가 같은 역할을 합니다. MetalLB는 두 가지 모두 지원합니다.
+      </p>
+
+      <h3>MetalLB가 끼어드는 방식</h3>
+      <p>
+        L2 모드에서 MetalLB speaker는 <strong>자기 노드에 설정되어 있지도 않은 IP에 대해 ARP 응답을 보냅니다.</strong>
+        네트워크 입장에서는 그저 "저 서버가 IP를 여러 개 가지고 있구나"로 보일 뿐이고, 스위치나 라우터에 어떤 설정도 필요 없습니다.
+        이것이 L2 모드의 가장 큰 장점인 <strong>범용성</strong>입니다. 평범한 이더넷 네트워크라면 어디서든 동작합니다.
+      </p>
+
+      <div class="note">
+        <b>핵심 문장</b>
+        <p>
+          L2 모드에서 서비스 IP는 <strong>어떤 노드의 인터페이스에도 바인딩되지 않습니다.</strong>
+          <code>ip addr</code>을 쳐 봐도 그 IP는 보이지 않습니다. 오직 ARP 응답만으로 트래픽을 끌어옵니다.
+          그래서 "가상 IP(VIP)"라고 부릅니다.
+        </p>
+      </div>
+
+      <h3>직접 따라가 보기</h3>
+      <p>아래 시뮬레이터로 패킷이 어떻게 흐르는지, 그리고 리더 노드가 죽으면 무슨 일이 일어나는지 단계별로 확인해 보세요.</p>
+
+      <div class="sim">
+        <div class="sim-hd">
+          <h5>L2 모드 동작 시뮬레이터</h5>
+          <span>VIP 192.168.1.240 · 3노드 클러스터</span>
+        </div>
+        <div class="stage" id="stage">
+          <div class="client" id="client">
+            <span class="ttl">클라이언트</span>
+            192.168.1.50
+            <div class="arp" id="arpCache">ARP 캐시<br><b>(비어 있음)</b></div>
+          </div>
+          <div class="nodes">
+            <div class="node" id="n0" data-mac="aa:00:01">
+              <span class="h">node-01</span>
+              <span class="mac">aa:00:01</span>
+              <span class="vipchip">.240</span>
+              <span class="badge">speaker</span>
+            </div>
+            <div class="node owner" id="n1" data-mac="aa:00:02">
+              <span class="h">node-02</span>
+              <span class="mac">aa:00:02</span>
+              <span class="vipchip">.240</span>
+              <span class="badge">speaker</span>
+            </div>
+            <div class="node" id="n2" data-mac="aa:00:03">
+              <span class="h">node-03</span>
+              <span class="mac">aa:00:03</span>
+              <span class="vipchip">.240</span>
+              <span class="badge">speaker</span>
+            </div>
+          </div>
+          <div class="pkt" id="pkt"></div>
+        </div>
+        <div class="simbar">
+          <button class="sbtn primary" id="simNext">다음 단계</button>
+          <button class="sbtn danger" id="simKill">리더 노드 장애 주입</button>
+          <button class="sbtn" id="simReset">처음으로</button>
+        </div>
+        <div class="log" id="simLog"><div class="t">준비됨. "다음 단계"를 눌러 시작하세요.</div></div>
+      </div>
+    </section>
+
+    <!-- ===================================================== 6 -->
+    <section id="s6">
+      <span class="sec-no">06</span>
+      <h2>누가 리더가 되는가: 상태 없는 선출 알고리즘</h2>
+
+      <p>
+        여러 노드에 speaker가 떠 있는데 왜 한 노드만 응답할까요? 두 노드가 동시에 같은 IP로 ARP 응답을 하면 네트워크가 엉망이 됩니다.
+        그래서 IP마다 <strong>광고할 노드 하나(리더)</strong>를 정해야 합니다.
+      </p>
+
+      <h3>선출 방식: 투표가 아니라 계산</h3>
+      <p>MetalLB의 L2 리더 선출은 <strong>상태를 저장하지 않는(stateless)</strong> 방식입니다. 동작은 이렇습니다.</p>
+      <ol>
+        <li>각 speaker가 해당 IP를 광고할 <strong>후보 노드 목록</strong>을 만든다. 살아 있는 speaker, externalTrafficPolicy, 실제 엔드포인트 위치, 노드 셀렉터 등을 모두 반영한다.</li>
+        <li>각 speaker가 <strong>"노드 + VIP" 조합의 해시</strong>를 계산하고, 그 값으로 목록을 정렬한다.</li>
+        <li>정렬 결과에서 <strong>자기가 첫 번째면 광고하고, 아니면 가만히 있는다.</strong></li>
+      </ol>
+      <p>
+        모든 노드가 같은 입력으로 같은 계산을 하니 결과도 같습니다. 따로 리더를 기억해 둘 필요도, 합의 프로토콜도 필요 없습니다.
+        어떤 노드가 리더인지 저장하는 곳이 없다는 뜻이기도 합니다.
+      </p>
+
+      <h3>노드가 늘거나 줄면</h3>
+      <ul>
+        <li><strong>노드 제거</strong>: 리더가 아닌 노드가 빠져도 정렬 1등은 그대로이므로 광고 노드는 바뀌지 않습니다.</li>
+        <li><strong>노드 추가</strong>: 새 노드의 해시가 1등이 되는 경우에만 광고 노드가 바뀝니다.</li>
+      </ul>
+
+      <h3>장애 감지: memberlist</h3>
+      <p>
+        리더 노드가 죽었는지는 <strong>memberlist</strong>(HashiCorp의 가십 프로토콜 라이브러리)로 감지합니다.
+        speaker들끼리 주기적으로 상태를 교환하다가 응답이 없는 노드를 죽은 것으로 판단하고, 남은 노드들이 다시 계산해서 새 리더를 정합니다.
+      </p>
+      <p>
+        리더가 바뀌면 새 리더는 <strong>Gratuitous ARP(GARP)</strong>를 여러 번 뿌립니다.
+        "이 IP의 MAC이 바뀌었다"고 묻지도 않은 클라이언트들에게 먼저 알려 주는 패킷입니다.
+        대부분의 최신 OS는 이 패킷을 받고 ARP 캐시를 즉시 갱신합니다.
+      </p>
+
+      <div class="warn">
+        <b>브레인 스플릿 가능성</b>
+        <p>
+          계산이 상태 없이 이뤄지기 때문에, 어떤 speaker가 다른 노드들을 <em>잘못</em> 죽었다고 판단하면
+          그 노드만 다른 후보 목록으로 계산하게 됩니다. 결과적으로 <strong>두 노드가 같은 VIP를 광고하거나, 아무도 광고하지 않는 상황</strong>이 생길 수 있습니다.
+          speaker 간 memberlist 통신(기본 7946/TCP·UDP)이 방화벽에 막히지 않도록 하는 것이 중요한 이유입니다.
+        </p>
+      </div>
+
+      <h3>Keepalived를 써 봤다면</h3>
+      <p>
+        동작 결과만 보면 Keepalived의 VIP 페일오버와 거의 같습니다. 다만 Keepalived는 VRRP 프로토콜로 리더를 뽑고,
+        MetalLB는 memberlist를 씁니다. 차이는 이렇습니다.
+      </p>
+      <ul>
+        <li>MetalLB에는 <strong>VRRP의 네트워크당 255개 제한이 없습니다.</strong> IP가 남아 있는 만큼 VIP를 만들 수 있습니다.</li>
+        <li>Virtual Router ID 같은 설정을 맞출 필요가 없어 설정이 단순합니다.</li>
+        <li>반대로 VRRP를 이해하는 외부 라우터나 서드파티 장비와는 <strong>연동되지 않습니다.</strong> 설계상 클러스터 내부 전용입니다.</li>
+      </ul>
+    </section>
+
+    <!-- ===================================================== 7 -->
+    <section id="s7">
+      <span class="sec-no">07</span>
+      <h2>L2 모드의 두 가지 한계 (반드시 알고 들어가야 하는 부분)</h2>
+
+      <p>
+        공식 문서가 직접 못 박아 둔 한계가 두 가지 있습니다. 도입 전에 이해하지 못하면 반드시 나중에 문제가 됩니다.
+      </p>
+
+      <h3>한계 ①: 단일 노드 병목</h3>
+      <p>
+        L2 모드에서 <strong>하나의 서비스 IP로 들어오는 모든 트래픽은 한 노드를 통과합니다.</strong>
+        따라서 그 서비스의 인그레스 대역폭은 <strong>노드 한 대의 NIC 대역폭</strong>으로 제한됩니다.
+        10G NIC을 쓰는 노드가 5대 있어도, 한 VIP가 쓸 수 있는 건 10G입니다.
+      </p>
+      <div class="note">
+        <b>그래서 L2 모드는 로드밸런서가 아니다</b>
+        <p>
+          공식 문서 표현을 빌리면, L2 모드는 로드밸런싱을 구현한 것이 아니라 <strong>페일오버 메커니즘</strong>을 구현한 것입니다.
+          리더 노드가 죽었을 때 다른 노드가 IP를 넘겨받는 것이 핵심이지, 트래픽을 분산하는 게 목적이 아닙니다.
+          (노드에 도착한 뒤 파드들로 분산하는 것은 kube-proxy의 몫입니다.)
+        </p>
+      </div>
+      <p>
+        다만 <strong>서비스가 여러 개면 VIP마다 리더가 달라지므로</strong> 자연스럽게 노드별로 분산됩니다.
+        "서비스 20개가 노드 5대에 흩어진다"는 그림은 성립하지만, "서비스 1개의 트래픽이 노드 5대로 나뉜다"는 성립하지 않습니다.
+      </p>
+
+      <h3>한계 ②: 페일오버 속도가 클라이언트에 달려 있다</h3>
+      <p>
+        리더가 바뀔 때 MetalLB는 GARP를 뿌리지만, <strong>그 패킷을 받아들여 캐시를 갱신하는 건 클라이언트의 몫</strong>입니다.
+        최신 Windows·macOS·Linux는 모두 올바르게 처리하므로 보통 수 초 안에 복구됩니다.
+        하지만 오래됐거나 특이한 OS, 일부 네트워크 장비는 GARP를 무시하거나 늦게 반영합니다.
+        그런 클라이언트는 자신의 ARP 캐시가 만료될 때까지 계속 죽은 노드로 패킷을 보냅니다.
+      </p>
+      <ul>
+        <li><strong>계획된 전환</strong>(노드 점검 등)이라면, 리더를 옮긴 뒤에도 <strong>옛 노드를 몇 분간 살려 두는 것</strong>이 안전합니다. 캐시가 갱신될 때까지 옛 노드가 계속 전달해 줍니다.</li>
+        <li><strong>계획되지 않은 장애</strong>라면 문제 있는 클라이언트는 캐시가 만료될 때까지 접속이 끊깁니다.</li>
+        <li>페일오버가 <strong>10초 이상</strong> 걸린다면 정상이 아닙니다. 버그이거나 클라이언트 문제이니 원인을 찾아야 합니다.</li>
+      </ul>
+
+      <div class="tip">
+        <b>MSP 관점의 판단 기준</b>
+        <p>
+          고객사 환경에 L2 모드를 제안할 때 이렇게 정리해 두면 협의가 쉬워집니다.
+          <strong>"사내 업무 시스템·관리 콘솔·개발 클러스터"는 L2로 충분</strong>하고,
+          <strong>"단일 서비스가 노드 1대의 NIC를 넘는 트래픽을 받거나, 수 초의 끊김도 허용되지 않는 서비스"는 BGP 모드가 필요</strong>합니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 8 -->
+    <section id="s8">
+      <span class="sec-no">08</span>
+      <h2>설치: 사전 준비와 백엔드 선택</h2>
+
+      <h3>사전 준비 ① kube-proxy가 IPVS 모드라면 strictARP</h3>
+      <p>
+        kube-proxy를 IPVS 모드로 쓰고 있다면 <strong>반드시</strong> strict ARP를 켜야 합니다.
+        켜지 않으면 노드가 자기 것이 아닌 IP에 대해서도 ARP 응답을 해 버려서 MetalLB의 동작과 충돌합니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">kube-proxy ConfigMap 수정</span><button class="copy">복사</button></div>
+<pre><code>$ kubectl edit configmap -n kube-system kube-proxy
+
+<span class="tok-c"># 아래 두 값을 확인/변경</span>
+<span class="tok-k">apiVersion</span>: <span class="tok-s">kubeproxy.config.k8s.io/v1alpha1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">KubeProxyConfiguration</span>
+<span class="tok-k">mode</span>: <span class="tok-s">"ipvs"</span>
+<span class="tok-k">ipvs</span>:
+  <span class="tok-k">strictARP</span>: <span class="tok-n">true</span></code></pre>
+      </div>
+      <p>자동화한다면 이렇게 한 줄로 처리할 수 있습니다.</p>
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-c"># 먼저 무엇이 바뀌는지 확인 (변경점이 있으면 0이 아닌 코드 반환)</span>
+kubectl get configmap kube-proxy -n kube-system -o yaml | \
+  sed -e "s/strictARP: false/strictARP: true/" | \
+  kubectl diff -f - -n kube-system
+
+<span class="tok-c"># 실제 적용</span>
+kubectl get configmap kube-proxy -n kube-system -o yaml | \
+  sed -e "s/strictARP: false/strictARP: true/" | \
+  kubectl apply -f - -n kube-system</code></pre>
+      </div>
+      <div class="note">
+        <b>알아 둘 점</b>
+        <p>kube-router를 service proxy로 쓰는 경우에는 기본적으로 strict ARP가 켜져 있어 별도 설정이 필요 없습니다. iptables 모드의 kube-proxy도 이 설정과 무관합니다.</p>
+      </div>
+
+      <h3>사전 준비 ② IP 대역 확보</h3>
+      <p>
+        L2 모드에서 쓸 IP는 <strong>노드들과 같은 L2 세그먼트(같은 서브넷)</strong> 안에 있어야 하고,
+        <strong>DHCP 범위 밖이며 다른 장비가 쓰지 않는 대역</strong>이어야 합니다.
+        예를 들어 노드가 192.168.1.0/24를 쓴다면 192.168.1.240–192.168.1.250 같은 구간을 네트워크 담당자와 합의해 확보합니다.
+        여기를 대충 넘기면 나중에 <strong>IP 충돌로 원인 모를 간헐적 장애</strong>를 겪게 됩니다.
+      </p>
+
+      <h3>사전 준비 ③ CNI 호환성 확인</h3>
+      <p>
+        대부분의 CNI와 잘 동작하지만 주의할 조합이 있습니다. 특히 <strong>Calico를 BGP와 함께 쓰는 경우</strong>,
+        <strong>kube-router</strong>, <strong>Cilium의 자체 LB 기능과 중복</strong>되는 경우가 그렇습니다.
+        Cilium은 자체적으로 LB IPAM과 BGP Control Plane을 제공하므로 MetalLB와 역할이 겹칠 수 있습니다(2편에서 비교).
+        L2 모드만 쓴다면 대부분 문제가 없습니다.
+      </p>
+
+      <h3>설치 방법 네 가지</h3>
+      <div class="tabs" id="installTabs">
+        <div class="tabbar" role="tablist">
+          <button role="tab" aria-selected="true" data-p="p1">Manifest</button>
+          <button role="tab" aria-selected="false" data-p="p2">Helm</button>
+          <button role="tab" aria-selected="false" data-p="p3">Kustomize</button>
+          <button role="tab" aria-selected="false" data-p="p4">Operator</button>
+        </div>
+        <div class="tabpane" id="p1">
+          <p>가장 단순한 방법입니다. <strong>L2 모드만 쓸 거라면 native 매니페스트</strong>를 권합니다. FRR 컨테이너가 없어 가볍습니다.</p>
+          <div class="code">
+            <div class="code-hd"><span class="f">native 모드 (L2 전용에 적합)</span><button class="copy">복사</button></div>
+<pre><code>kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml</code></pre>
+          </div>
+          <div class="code">
+            <div class="code-hd"><span class="f">FRR-K8s 모드 (BGP까지 쓸 계획이면)</span><button class="copy">복사</button></div>
+<pre><code>kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-frr-k8s.yaml</code></pre>
+          </div>
+          <p>설치되는 것은 controller Deployment, speaker DaemonSet, 그리고 두 컴포넌트의 ServiceAccount와 RBAC입니다. <strong>설정은 포함되지 않습니다.</strong> 설치 직후 MetalLB는 아무 일도 하지 않고 대기합니다.</p>
+        </div>
+        <div class="tabpane" id="p2" hidden>
+          <p>운영 환경에서 가장 권장되는 방식입니다. values로 세부 설정을 관리할 수 있고, 업그레이드 시 CRD도 자동으로 갱신됩니다.</p>
+          <div class="code">
+            <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>helm repo add metallb https://metallb.github.io/metallb
+helm repo update
+helm install metallb metallb/metallb -n metallb-system --create-namespace
+
+<span class="tok-c"># values 파일로 설치</span>
+helm install metallb metallb/metallb -n metallb-system -f values.yaml</code></pre>
+          </div>
+          <div class="warn">
+            <b>v0.16.x 업그레이드 주의</b>
+            <p>
+              Helm 차트의 기본 BGP 백엔드가 FRR 모드에서 <strong>FRR-K8s 모드</strong>로 바뀌었습니다.
+              기존에 기본값에 의존해 쓰고 있었다면 업그레이드 시 백엔드가 자동으로 바뀌며, 파드 구성(사이드카 → 별도 DaemonSet)과
+              Prometheus 메트릭 접두사(<code>metallb_</code> → <code>frrk8s_</code>)도 달라집니다. L2만 쓴다면 영향이 없지만, 대시보드를 쓰고 있다면 확인이 필요합니다.
+            </p>
+          </div>
+          <p>L2만 쓰고 최대한 가볍게 가려면 FRR 관련 기능을 모두 끄면 됩니다.</p>
+          <div class="code">
+            <div class="code-hd"><span class="f">values.yaml (네이티브 구성)</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">speaker</span>:
+  <span class="tok-k">frr</span>:
+    <span class="tok-k">enabled</span>: <span class="tok-n">false</span>
+<span class="tok-k">frrk8s</span>:
+  <span class="tok-k">enabled</span>: <span class="tok-n">false</span></code></pre>
+          </div>
+        </div>
+        <div class="tabpane" id="p3" hidden>
+          <p>GitOps 파이프라인에 태울 때 유용합니다. 원격 kustomization을 참조하고 필요한 패치를 얹습니다.</p>
+          <div class="code">
+            <div class="code-hd"><span class="f">kustomization.yaml</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+
+<span class="tok-k">resources</span>:
+  - <span class="tok-s">github.com/metallb/metallb/config/native?ref=v0.16.1</span></code></pre>
+          </div>
+          <p>FRR-K8s 백엔드를 쓸 경우에는 <code>config/frr-k8s</code> 경로를 참조합니다.</p>
+        </div>
+        <div class="tabpane" id="p4" hidden>
+          <p>OperatorHub에 MetalLB Operator가 올라와 있습니다. 설치와 라이프사이클을 CR로 관리하고 싶을 때, 특히 OpenShift 환경에서 많이 씁니다.</p>
+          <p>BGP 백엔드를 고르려면 <code>metallb-operator</code> CSV의 <code>manager</code> 컨테이너에서 <code>METALLB_BGP_TYPE</code> 환경변수를 <code>frr-k8s</code>로 지정합니다.</p>
+          <div class="code">
+            <div class="code-hd"><span class="f">CSV 편집</span><button class="copy">복사</button></div>
+<pre><code>kubectl edit csv metallb-operator
+
+<span class="tok-c"># manager 컨테이너에</span>
+- <span class="tok-k">name</span>: <span class="tok-s">METALLB_BGP_TYPE</span>
+  <span class="tok-k">value</span>: <span class="tok-s">frr-k8s</span></code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="warn">
+        <b>Pod Security Admission을 쓰는 클러스터라면</b>
+        <p>
+          speaker 파드는 네트워크를 직접 다루기 위해 높은 권한이 필요합니다.
+          PSA가 강제되는 클러스터에서는 MetalLB를 배포하는 네임스페이스에 privileged 레이블을 붙여야 합니다.
+        </p>
+      </div>
+      <div class="code">
+        <div class="code-hd"><span class="f">namespace labels</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">labels</span>:
+  <span class="tok-k">pod-security.kubernetes.io/enforce</span>: <span class="tok-s">privileged</span>
+  <span class="tok-k">pod-security.kubernetes.io/audit</span>: <span class="tok-s">privileged</span>
+  <span class="tok-k">pod-security.kubernetes.io/warn</span>: <span class="tok-s">privileged</span></code></pre>
+      </div>
+
+      <h3>설치 확인</h3>
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>$ kubectl get pods -n metallb-system
+NAME                          READY   STATUS    RESTARTS   AGE
+controller-6b78bff7d9-q8k2v   1/1     Running   0          62s
+speaker-4x9nm                 1/1     Running   0          62s
+speaker-7kdlq                 1/1     Running   0          62s
+speaker-t2wrb                 1/1     Running   0          62s
+
+<span class="tok-c"># speaker는 DaemonSet이므로 노드 수만큼 떠야 정상이다</span>
+$ kubectl get ds -n metallb-system speaker</code></pre>
+      </div>
+    </section>
+
+    <!-- ===================================================== 9 -->
+    <section id="s9">
+      <span class="sec-no">09</span>
+      <h2>IPAddressPool: 나눠 줄 IP를 정의한다</h2>
+
+      <p>
+        설치만 해서는 아무 일도 일어나지 않습니다. MetalLB는 <strong>설정 CR이 들어오기 전까지 대기 상태</strong>입니다.
+        먼저 할 일은 "어떤 IP를 나눠 줘도 되는지" 알려 주는 것입니다. 이때 쓰는 것이 <code>IPAddressPool</code> CR입니다.
+      </p>
+
+      <div class="warn">
+        <b>네임스페이스 주의</b>
+        <p>모든 설정 CR은 <strong>MetalLB가 배포된 것과 같은 네임스페이스</strong>에 만들어야 합니다. 보통 <code>metallb-system</code>입니다. Helm으로 다른 네임스페이스에 설치했다면 그곳에 맞춰야 합니다.</p>
+      </div>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">ipaddresspool.yaml</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">IPAddressPool</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">first-pool</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">addresses</span>:
+  - <span class="tok-s">192.168.1.240-192.168.1.250</span>   <span class="tok-c"># 범위 표기</span>
+  - <span class="tok-s">192.168.10.0/24</span>               <span class="tok-c"># CIDR 표기</span>
+  - <span class="tok-s">fc00:f853:0ccd:e799::/124</span>     <span class="tok-c"># IPv6도 가능</span></code></pre>
+      </div>
+
+      <p>
+        여러 개의 IPAddressPool을 동시에 둘 수 있고, 한 풀 안에서 범위 표기와 CIDR 표기를 섞어 쓸 수 있습니다.
+        IPv4와 IPv6를 함께 넣으면 듀얼스택 서비스에 대응할 수 있습니다. 단일 IP 하나만 풀로 만들려면 <code>/32</code>를 씁니다.
+      </p>
+
+      <h3>자주 쓰는 세부 옵션</h3>
+
+      <h4>autoAssign — 자동 배정 끄기</h4>
+      <p>
+        기본적으로 MetalLB는 여유가 있는 아무 풀에서나 IP를 꺼내 줍니다.
+        "값비싼" 공인 IP 풀이 있다면 자동 배정을 꺼 두고, 필요한 서비스만 명시적으로 요청하게 만들 수 있습니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">비싼 대역은 수동 배정만 허용</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">IPAddressPool</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">public-ips</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">addresses</span>:
+  - <span class="tok-s">42.176.25.64/30</span>
+  <span class="tok-k">autoAssign</span>: <span class="tok-n">false</span></code></pre>
+      </div>
+
+      <h4>avoidBuggyIPs — .0과 .255 피하기</h4>
+      <p>
+        일부 오래된 가정용/저가 네트워크 장비는 <code>.0</code>과 <code>.255</code>로 끝나는 주소를 잘못된 스머프 공격 방어 로직 때문에 차단합니다.
+        그런 환경이라면 이 플래그를 켜서 해당 주소를 건너뛰게 할 수 있습니다.
+      </p>
+
+      <h4>serviceAllocation — 멀티테넌트 환경의 풀 분리</h4>
+      <p>
+        특정 네임스페이스나 특정 라벨을 가진 서비스만 그 풀을 쓰도록 제한할 수 있습니다.
+        고객사별로 대역을 나눠야 하는 MSP 환경에서 유용합니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">테넌트별 풀 고정</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">IPAddressPool</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">tenant-a-pool</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">addresses</span>:
+    - <span class="tok-s">192.168.20.0/24</span>
+  <span class="tok-k">avoidBuggyIPs</span>: <span class="tok-n">true</span>
+  <span class="tok-k">serviceAllocation</span>:
+    <span class="tok-k">priority</span>: <span class="tok-n">50</span>
+    <span class="tok-k">namespaces</span>:
+      - <span class="tok-s">tenant-a</span>
+      - <span class="tok-s">tenant-a-staging</span>
+    <span class="tok-k">serviceSelectors</span>:
+      - <span class="tok-k">matchExpressions</span>:
+          - {<span class="tok-k">key</span>: <span class="tok-s">tier</span>, <span class="tok-k">operator</span>: <span class="tok-s">In</span>, <span class="tok-k">values</span>: [<span class="tok-s">public</span>]}</code></pre>
+      </div>
+      <div class="note">
+        <b>priority 읽는 법 (헷갈리기 쉬움)</b>
+        <p>
+          여러 풀이 한 서비스에 매칭되면 <strong>priority 숫자가 작은 풀부터</strong> 사용합니다. 즉 <code>priority: 1</code>이 가장 높은 우선순위입니다.
+          값을 지정하지 않거나 <code>0</code>으로 두면 <strong>가장 낮은 우선순위</strong>가 되어 마지막에 쓰입니다. 우선순위가 같으면 무작위로 선택됩니다.
+        </p>
+      </div>
+
+      <h3>IP가 이미 쓰이고 있을 때의 동작</h3>
+      <p>
+        운영 중에 IPAddressPool을 지우거나 축소해서 <strong>이미 서비스에 할당된 IP가 사라지는 상황</strong>이 되면,
+        MetalLB는 서비스 연결을 지키는 쪽을 택합니다. 즉 새 설정을 stale로 표시하고 <strong>마지막으로 유효했던 설정으로 계속 동작</strong>합니다.
+        IP를 실제로 재할당하려면 controller 파드를 재시작하거나, 해당 서비스를 삭제 후 재생성해야 합니다.
+      </p>
+    </section>
+
+    <!-- ===================================================== 10 -->
+    <section id="s10">
+      <span class="sec-no">10</span>
+      <h2>L2Advertisement: 어떻게, 어디서 광고할지 정한다</h2>
+
+      <p>
+        IPAddressPool은 "이 IP들을 나눠 줘도 된다"까지만 말합니다. 실제로 <strong>그 IP를 L2로 광고하라</strong>고 지시하려면
+        <code>L2Advertisement</code> CR이 필요합니다. 이 두 개가 짝을 이뤄야 비로소 외부에서 접속됩니다.
+      </p>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">가장 단순한 형태 — 모든 풀을 L2로 광고</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">L2Advertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">example</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span></code></pre>
+      </div>
+      <p>
+        <code>spec</code>이 비어 있는 것이 오타가 아닙니다. <strong>IPAddressPool 셀렉터를 지정하지 않으면 존재하는 모든 풀에 적용된다</strong>는 의미입니다.
+        L2 모드가 "설정이 거의 필요 없다"고 불리는 이유입니다.
+      </p>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">특정 풀만 L2로 광고</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">L2Advertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">example</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">ipAddressPools</span>:
+  - <span class="tok-s">first-pool</span></code></pre>
+      </div>
+
+      <h3>nodeSelectors — 광고할 노드를 제한한다</h3>
+      <p>
+        기본적으로 speaker가 떠 있는 모든 노드가 리더 후보입니다. 그런데 현실에서는
+        <strong>특정 노드만 특정 네트워크에 물려 있는</strong> 경우가 많습니다.
+        예를 들어 node-01, node-02는 서비스망에 물려 있고 node-03은 관리망만 물려 있다면,
+        node-03이 리더로 뽑히는 순간 서비스가 죽습니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">서비스망에 연결된 노드만 후보로</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">L2Advertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">service-network</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">ipAddressPools</span>:
+  - <span class="tok-s">first-pool</span>
+  <span class="tok-k">nodeSelectors</span>:
+  - <span class="tok-k">matchLabels</span>:
+      <span class="tok-k">kubernetes.io/hostname</span>: <span class="tok-s">node-01</span>
+  - <span class="tok-k">matchLabels</span>:
+      <span class="tok-k">kubernetes.io/hostname</span>: <span class="tok-s">node-02</span></code></pre>
+      </div>
+
+      <h3>interfaces — 광고할 NIC을 지정한다</h3>
+      <p>
+        기본값은 <strong>노드의 모든 인터페이스에서 광고</strong>입니다. 본딩·VLAN·관리용 NIC이 섞여 있는 서버라면
+        의도하지 않은 망에 VIP가 노출될 수 있으므로 인터페이스를 고정하는 편이 안전합니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">특정 NIC에서만 광고</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">spec</span>:
+  <span class="tok-k">ipAddressPools</span>:
+  - <span class="tok-s">third-pool</span>
+  <span class="tok-k">interfaces</span>:
+  - <span class="tok-s">eth0</span>
+  - <span class="tok-s">eth1</span></code></pre>
+      </div>
+      <div class="warn">
+        <b>인터페이스 셀렉터의 함정</b>
+        <p>
+          <code>interfaces</code>는 <strong>리더 선출에 영향을 주지 않습니다.</strong>
+          지정한 인터페이스가 없는 노드가 리더로 뽑히면, 그 서비스는 그냥 광고되지 않습니다.
+          따라서 <code>interfaces</code>를 쓸 때는 <strong>반드시 <code>nodeSelectors</code>와 함께</strong> 써서
+          "그 NIC이 있는 노드만 후보"가 되도록 제한해야 합니다.
+        </p>
+      </div>
+      <div class="note">
+        <b>여러 L2Advertisement가 있을 때</b>
+        <p>
+          한 IPAddressPool을 참조하는 L2Advertisement가 여러 개면, 그 IP는 <strong>모든 광고의 합집합</strong>으로 광고됩니다.
+          인터페이스 목록도 합쳐집니다. 의도치 않게 범위가 넓어질 수 있으니 CR을 여러 개 둘 때 주의하세요.
+        </p>
+      </div>
+
+      <h3>serviceSelectors — 서비스별로 다른 광고 규칙</h3>
+      <p>
+        같은 풀을 쓰면서도 서비스 라벨에 따라 다른 인터페이스나 노드에서 광고하고 싶다면 <code>serviceSelectors</code>를 씁니다.
+        여러 셀렉터를 나열하면 <strong>OR 조건</strong>으로 평가됩니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">프론트엔드는 eth0, 백엔드는 eth1</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">metallb.io/v1beta1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">L2Advertisement</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">frontend-services</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">metallb-system</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">ipAddressPools</span>:
+  - <span class="tok-s">first-pool</span>
+  <span class="tok-k">interfaces</span>:
+  - <span class="tok-s">eth0</span>
+  <span class="tok-k">serviceSelectors</span>:
+  - <span class="tok-k">matchLabels</span>:
+      <span class="tok-k">tier</span>: <span class="tok-s">frontend</span></code></pre>
+      </div>
+    </section>
+
+    <!-- ===================================================== 11 -->
+    <section id="s11">
+      <span class="sec-no">11</span>
+      <h2>서비스 노출하기: 실제로 써 보는 구간</h2>
+
+      <p>설정이 끝났으면 평범한 LoadBalancer 서비스를 만들기만 하면 됩니다. 특별한 어노테이션도 필요 없습니다.</p>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">nginx-lb.yaml</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">apps/v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Deployment</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">nginx</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">replicas</span>: <span class="tok-n">3</span>
+  <span class="tok-k">selector</span>:
+    <span class="tok-k">matchLabels</span>: {<span class="tok-k">app</span>: <span class="tok-s">nginx</span>}
+  <span class="tok-k">template</span>:
+    <span class="tok-k">metadata</span>:
+      <span class="tok-k">labels</span>: {<span class="tok-k">app</span>: <span class="tok-s">nginx</span>}
+    <span class="tok-k">spec</span>:
+      <span class="tok-k">containers</span>:
+      - <span class="tok-k">name</span>: <span class="tok-s">nginx</span>
+        <span class="tok-k">image</span>: <span class="tok-s">nginx:1.27</span>
+        <span class="tok-k">ports</span>:
+        - <span class="tok-k">containerPort</span>: <span class="tok-n">80</span>
+---
+<span class="tok-k">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Service</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">nginx</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">type</span>: <span class="tok-s">LoadBalancer</span>
+  <span class="tok-k">selector</span>: {<span class="tok-k">app</span>: <span class="tok-s">nginx</span>}
+  <span class="tok-k">ports</span>:
+  - <span class="tok-k">port</span>: <span class="tok-n">80</span>
+    <span class="tok-k">targetPort</span>: <span class="tok-n">80</span></code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code-hd"><span class="f">결과 확인</span><button class="copy">복사</button></div>
+<pre><code>$ kubectl get svc nginx
+NAME    TYPE           CLUSTER-IP     EXTERNAL-IP       PORT(S)        AGE
+nginx   LoadBalancer   10.96.142.18   <span class="tok-s">192.168.1.240</span>     80:31674/TCP   3s
+
+$ curl http://192.168.1.240
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;&lt;title&gt;Welcome to nginx!&lt;/title&gt;...</code></pre>
+      </div>
+
+      <h3>IP를 직접 지정하고 싶을 때</h3>
+      <p>
+        <code>spec.loadBalancerIP</code> 필드도 동작하지만, <strong>쿠버네티스 API에서 deprecated 예정</strong>이라
+        MetalLB는 자체 어노테이션을 권장합니다. 듀얼스택에서 IP 두 개를 지정하려면 어노테이션 방식이 필수입니다.
+      </p>
+      <div class="code">
+        <div class="code-hd"><span class="f">권장 방식</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">metadata</span>:
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">metallb.io/loadBalancerIPs</span>: <span class="tok-s">192.168.1.100</span>
+    <span class="tok-c"># 듀얼스택이면 쉼표로 나열</span>
+    <span class="tok-c"># metallb.io/loadBalancerIPs: "192.168.1.100,fc00::100"</span></code></pre>
+      </div>
+
+      <h3>특정 풀에서만 받고 싶을 때</h3>
+      <div class="code">
+        <div class="code-hd"><span class="f">풀 지정</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">metadata</span>:
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">metallb.io/address-pool</span>: <span class="tok-s">public-ips</span></code></pre>
+      </div>
+      <div class="warn">
+        <b>어노테이션 접두사 변경</b>
+        <p>
+          예전 문서와 블로그에 나오는 <code>metallb.universe.tf/...</code> 접두사는 <strong>deprecated</strong>입니다.
+          현재는 <code>metallb.io/...</code>를 써야 합니다. 과거 접두사도 아직 동작하지만 향후 제거될 수 있으니 새로 작성하는 매니페스트는 반드시 새 접두사를 쓰세요.
+        </p>
+      </div>
+      <div class="note">
+        <b>요청한 IP나 풀이 조건에 안 맞으면</b>
+        <p>서비스는 조용히 다른 IP를 받는 게 아니라 <strong>Pending 상태로 남습니다.</strong> 오타 하나로 서비스가 안 뜨는 흔한 원인입니다.</p>
+      </div>
+
+      <h3>IP 하나를 여러 서비스가 나눠 쓰기</h3>
+      <p>
+        IP가 부족하거나, TCP와 UDP를 같은 주소로 받아야 할 때(예: DNS) 서비스끼리 IP를 공유할 수 있습니다.
+        <code>metallb.io/allow-shared-ip</code> 어노테이션에 같은 "공유 키"를 넣으면 됩니다. 단, 아래 조건을 모두 만족해야 합니다.
+      </p>
+      <ul>
+        <li>공유 키(annotation 값)가 서로 같을 것</li>
+        <li>서로 <strong>다른 포트</strong>를 사용할 것</li>
+        <li>둘 다 <code>Cluster</code> 트래픽 정책을 쓰거나, 혹은 <strong>완전히 동일한 파드 집합</strong>을 가리킬 것</li>
+      </ul>
+      <div class="code">
+        <div class="code-hd"><span class="f">DNS: TCP/UDP를 한 IP로</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Service</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">dns-service-tcp</span>
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">metallb.io/allow-shared-ip</span>: <span class="tok-s">"key-to-share-1.2.3.4"</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">type</span>: <span class="tok-s">LoadBalancer</span>
+  <span class="tok-k">ports</span>:
+    - {<span class="tok-k">name</span>: <span class="tok-s">dnstcp</span>, <span class="tok-k">protocol</span>: <span class="tok-s">TCP</span>, <span class="tok-k">port</span>: <span class="tok-n">53</span>, <span class="tok-k">targetPort</span>: <span class="tok-n">53</span>}
+  <span class="tok-k">selector</span>: {<span class="tok-k">app</span>: <span class="tok-s">dns</span>}
+---
+<span class="tok-k">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Service</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">dns-service-udp</span>
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">metallb.io/allow-shared-ip</span>: <span class="tok-s">"key-to-share-1.2.3.4"</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">type</span>: <span class="tok-s">LoadBalancer</span>
+  <span class="tok-k">ports</span>:
+    - {<span class="tok-k">name</span>: <span class="tok-s">dnsudp</span>, <span class="tok-k">protocol</span>: <span class="tok-s">UDP</span>, <span class="tok-k">port</span>: <span class="tok-n">53</span>, <span class="tok-k">targetPort</span>: <span class="tok-n">53</span>}
+  <span class="tok-k">selector</span>: {<span class="tok-k">app</span>: <span class="tok-s">dns</span>}</code></pre>
+      </div>
+      <p>
+        조건을 만족하면 MetalLB가 <em>같은 IP를 줄 수도 있지만 반드시 그런 것은 아닙니다.</em>
+        특정 IP로 확실히 묶고 싶다면 <code>metallb.io/loadBalancerIPs</code>로 IP까지 명시하세요.
+      </p>
+    </section>
+
+    <!-- ===================================================== 12 -->
+    <section id="s12">
+      <span class="sec-no">12</span>
+      <h2>externalTrafficPolicy: 소스 IP를 살릴 것인가</h2>
+
+      <p>
+        LoadBalancer 서비스를 만들고 나면 애플리케이션 로그에 <strong>실제 사용자 IP 대신 노드 IP가 찍히는</strong> 문제를 겪게 됩니다.
+        이걸 결정하는 것이 <code>externalTrafficPolicy</code>입니다. L2 모드 기준으로 두 값의 차이를 보겠습니다.
+      </p>
+
+      <div class="switcher" id="etpSwitch">
+        <button aria-pressed="true" data-v="cluster">Cluster (기본값)</button>
+        <button aria-pressed="false" data-v="local">Local</button>
+      </div>
+      <div class="etpbox" id="etpBox"></div>
+
+      <h3>언제 무엇을 쓰나</h3>
+      <ul>
+        <li><strong>Cluster</strong> — 기본값이고 대부분의 경우 무난합니다. 파드 분산이 고르고, 엔드포인트가 어느 노드에 있든 동작합니다. 대신 소스 IP를 잃습니다.</li>
+        <li><strong>Local</strong> — 접속 로그, IP 기반 접근 제어, 지역 분석 등 <strong>실제 클라이언트 IP가 필요할 때</strong> 씁니다. 대신 리더 노드에 파드가 없으면 그 트래픽은 버려지므로, DaemonSet으로 배포하거나 파드 배치를 세심하게 관리해야 합니다.</li>
+      </ul>
+
+      <div class="tip">
+        <b>실전에서 가장 많이 쓰는 조합</b>
+        <p>
+          Ingress Controller(예: ingress-nginx)를 <code>Local</code>로 두고 MetalLB에서 IP를 하나 받습니다.
+          그러면 Ingress Controller가 실제 클라이언트 IP를 보고, 뒤쪽 애플리케이션에는 <code>X-Forwarded-For</code> 헤더로 전달합니다.
+          개별 애플리케이션 서비스마다 LoadBalancer를 만들지 않아도 되니 IP도 절약됩니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 13 -->
+    <section id="s13">
+      <span class="sec-no">13</span>
+      <h2>동작 확인과 트러블슈팅</h2>
+
+      <h3>지금 누가 광고 중인지 확인하는 3가지 방법</h3>
+
+      <h4>① 서비스 이벤트 보기</h4>
+      <p>MetalLB는 자신이 관리하는 서비스에 이벤트를 붙입니다. 어떤 노드가 IP를 광고 중인지 여기 나옵니다.</p>
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>$ kubectl describe svc nginx
+...
+Events:
+  Type    Reason        Age   From                Message
+  ----    ------        ----  ----                -------
+  Normal  IPAllocated   2m    metallb-controller  Assigned IP ["192.168.1.240"]
+  Normal  nodeAssigned  2m    metallb-speaker     announcing from node "node-02" with protocol "layer2"</code></pre>
+      </div>
+
+      <h4>② ServiceL2Status CR 보기</h4>
+      <p>L2로 노출된 서비스의 광고 상태를 CR로 노출해 줍니다. 여러 서비스를 한 번에 훑을 때 편합니다.</p>
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>kubectl get servicel2status -n metallb-system -o wide</code></pre>
+      </div>
+
+      <h4>③ 클라이언트에서 ARP 테이블 확인</h4>
+      <div class="code">
+        <div class="code-hd"><span class="f">terminal (클라이언트)</span><button class="copy">복사</button></div>
+<pre><code><span class="tok-c"># Linux</span>
+$ ip neigh show 192.168.1.240
+192.168.1.240 dev eth0 lladdr <span class="tok-s">52:54:00:aa:00:02</span> REACHABLE
+
+<span class="tok-c"># 노드의 실제 MAC과 대조하면 어느 노드가 리더인지 알 수 있다</span>
+$ ip link show eth0 | grep ether</code></pre>
+      </div>
+
+      <h3>증상별 원인 찾기</h3>
+
+      <details>
+        <summary>EXTERNAL-IP가 계속 &lt;pending&gt;이다</summary>
+        <div class="dbody">
+          <p>IP 할당 단계에서 막힌 것이므로 <strong>controller</strong> 쪽 문제입니다. 순서대로 확인하세요.</p>
+          <ul>
+            <li>IPAddressPool이 <strong>MetalLB와 같은 네임스페이스</strong>에 있는가</li>
+            <li>풀에 남은 IP가 있는가 (v0.15.0부터 풀 status에 사용/잔여 카운터가 노출됩니다)</li>
+            <li>서비스가 <code>metallb.io/address-pool</code>이나 특정 IP를 요청했는데 그 조건에 맞는 풀이 없는 건 아닌가</li>
+            <li>풀에 <code>serviceAllocation</code> 제한이 걸려 있어 이 네임스페이스가 배제된 건 아닌가</li>
+            <li><code>autoAssign: false</code>인 풀만 있는 건 아닌가</li>
+          </ul>
+          <div class="code">
+            <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>kubectl describe svc &lt;svc-name&gt;              <span class="tok-c"># 경고 이벤트 확인</span>
+kubectl get ipaddresspool -n metallb-system -o wide
+kubectl logs -n metallb-system deploy/controller</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>IP는 할당됐는데 ping도 curl도 안 된다</summary>
+        <div class="dbody">
+          <p>할당은 됐으니 이번엔 <strong>광고(speaker) 단계</strong>의 문제입니다.</p>
+          <ul>
+            <li><strong>L2Advertisement를 만들었는가.</strong> IPAddressPool만 만들고 끝낸 것이 압도적으로 흔한 실수입니다.</li>
+            <li>할당된 IP가 <strong>노드와 같은 서브넷</strong>인가. 다른 대역이면 L2로는 도달할 수 없습니다.</li>
+            <li>kube-proxy가 IPVS 모드인데 <code>strictARP: true</code>를 빠뜨리지 않았는가.</li>
+            <li><code>nodeSelectors</code>나 <code>interfaces</code>를 걸어 뒀는데, 리더로 뽑힌 노드에 그 인터페이스가 없는 건 아닌가.</li>
+            <li>클라이언트와 노드 사이에 <strong>L2가 실제로 연결</strong>되어 있는가(VLAN 분리, 라우터를 넘는 경로가 아닌지).</li>
+          </ul>
+          <div class="code">
+            <div class="code-hd"><span class="f">리더 노드에서 ARP 응답 직접 관찰</span><button class="copy">복사</button></div>
+<pre><code>$ tcpdump -i eth0 -n arp host 192.168.1.240
+
+<span class="tok-c"># 요청과 응답이 모두 보여야 정상</span>
+ARP, Request who-has 192.168.1.240 tell 192.168.1.50
+ARP, Reply 192.168.1.240 is-at 52:54:00:aa:00:02</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>CR을 적용했는데 설정이 반영되지 않는 것 같다</summary>
+        <div class="dbody">
+          <p>
+            MetalLB는 검증 웹훅으로 CR 유효성을 확인하지만, 전체 설정 조합이 만들어 내는 모순까지는 웹훅이 잡지 못합니다.
+            유효하지 않은 설정이 들어오면 <strong>그것을 버리고 마지막으로 유효했던 설정을 계속 사용합니다.</strong>
+            겉보기에는 "적용했는데 아무 일도 안 일어남"으로 보입니다.
+          </p>
+          <p>v0.15.3부터 추가된 <code>ConfigurationState</code> CRD가 컴포넌트별 설정 오류를 노출해 줍니다. 로그를 뒤지기 전에 여기부터 보세요.</p>
+          <div class="code">
+            <div class="code-hd"><span class="f">terminal</span><button class="copy">복사</button></div>
+<pre><code>kubectl get configurationstate -n metallb-system -o yaml
+kubectl logs -n metallb-system deploy/controller | grep -i "stale\|invalid"</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>페일오버가 너무 느리다 (10초 이상)</summary>
+        <div class="dbody">
+          <ul>
+            <li>클라이언트가 GARP를 무시하는 구형 OS/장비인지 확인합니다.</li>
+            <li>speaker 간 memberlist 통신이 방화벽에 막히지 않았는지 확인합니다. 막히면 장애 감지 자체가 지연됩니다.</li>
+            <li>중간 스위치의 MAC 주소 테이블 갱신이 느린 경우도 있습니다.</li>
+            <li>공식 문서는 10초 이상 걸리면 버그로 보고 이슈를 남겨 달라고 안내합니다.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>두 노드가 동시에 같은 IP를 광고하는 것 같다</summary>
+        <div class="dbody">
+          <p>
+            리더 선출이 상태 없이 각자 계산되는 구조이므로, 노드 간 통신이 끊기면 서로 다른 후보 목록을 계산해
+            <strong>브레인 스플릿</strong>이 발생할 수 있습니다. speaker 간 memberlist 포트(기본 7946/TCP·UDP)가
+            모든 노드 사이에서 열려 있는지 확인하세요. 특히 노드가 서로 다른 보안 그룹이나 방화벽 존에 있을 때 자주 발생합니다.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>간헐적으로만 접속이 안 된다</summary>
+        <div class="dbody">
+          <p>
+            <strong>IP 충돌</strong>을 가장 먼저 의심하세요. MetalLB 풀에 넣은 IP를 DHCP가 다른 장비에 나눠 주고 있거나,
+            누군가 수동으로 같은 IP를 설정했을 수 있습니다. 두 장비가 같은 IP에 ARP 응답을 하면 클라이언트마다 다른 MAC을 캐시하게 되어
+            "어떤 PC는 되고 어떤 PC는 안 되는" 전형적인 증상이 나타납니다.
+          </p>
+          <div class="code">
+            <div class="code-hd"><span class="f">충돌 탐지</span><button class="copy">복사</button></div>
+<pre><code>arping -D -I eth0 192.168.1.240
+arp-scan --interface=eth0 192.168.1.0/24 | grep 192.168.1.240</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <div class="note">
+        <b>v0.16.x 메트릭 변경</b>
+        <p>
+          v0.16.0부터 kube-rbac-proxy가 제거되고 <strong>메트릭이 HTTPS 전용</strong>으로 바뀌었습니다(자체 서명 또는 주입한 인증서 사용).
+          기존 HTTP 엔드포인트는 더 이상 제공되지 않으므로, Prometheus 스크레이프 설정이 <code>scheme: https</code>가 아니면 TLS 핸드셰이크 오류가 납니다.
+          v0.16.1에서 Helm 차트의 관련 애노테이션과 PodMonitor가 이 부분에 맞춰 수정됐습니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 14 -->
+    <section id="s14">
+      <span class="sec-no">14</span>
+      <h2>현업 적용 체크리스트</h2>
+
+      <p>고객사 클러스터에 MetalLB L2 모드를 넣기 전에 확인하면 좋은 항목들입니다.</p>
+
+      <h3>도입 전 협의</h3>
+      <ul>
+        <li><strong>IP 대역 확보 문서화</strong> — 시작 IP, 끝 IP, 용도, 담당자를 문서로 남깁니다. DHCP 범위와 겹치지 않는지 네트워크 담당자 확인 서명까지 받아 두면 나중에 분쟁이 없습니다.</li>
+        <li><strong>서브넷 일치 확인</strong> — 노드 IP와 VIP 대역이 같은 L2 세그먼트인지. 다르면 L2 모드는 불가능하고 BGP로 가야 합니다.</li>
+        <li><strong>대역폭 요구사항</strong> — 단일 서비스가 노드 1대 NIC 용량을 넘는지. 넘으면 L2로는 해결이 안 됩니다.</li>
+        <li><strong>노드 간 방화벽</strong> — memberlist 통신(7946/TCP·UDP)이 열려 있는지.</li>
+      </ul>
+
+      <h3>구성 원칙</h3>
+      <ul>
+        <li><strong>서비스마다 LoadBalancer를 만들지 않습니다.</strong> Ingress Controller 하나에 VIP 하나를 주고, HTTP/HTTPS는 그 뒤에서 분기시킵니다. IP는 유한한 자원입니다.</li>
+        <li><strong>TCP/UDP 직접 노출이 필요한 서비스</strong>(데이터베이스, DNS, 게임 서버, gRPC 스트리밍 등)에만 별도 VIP를 할당합니다.</li>
+        <li><strong>풀을 용도별로 나눕니다.</strong> 운영/개발, 또는 테넌트별로 IPAddressPool을 분리하고 <code>serviceAllocation</code>으로 잠급니다.</li>
+        <li><strong>중요 서비스에는 nodeSelectors를 겁니다.</strong> 모든 노드를 리더 후보로 두는 것이 항상 좋은 건 아닙니다.</li>
+      </ul>
+
+      <h3>운영</h3>
+      <ul>
+        <li><strong>노드 점검 시</strong>에는 리더 노드를 먼저 파악하고, 전환 후 몇 분 대기했다가 작업을 시작합니다.</li>
+        <li><strong>풀 잔여 IP 모니터링</strong> — IPAddressPool status의 카운터나 <code>metallb_allocator_addresses_in_use_total</code> 계열 메트릭에 알람을 겁니다. 다 떨어지면 신규 서비스가 조용히 Pending에 빠집니다.</li>
+        <li><strong>업그레이드 전 릴리스 노트 확인</strong> — 마이너 버전 업그레이드에서는 기본값이 바뀌는 경우가 있습니다(v0.16.0의 BGP 백엔드 변경이 대표적).</li>
+        <li><strong>LoadBalancerClass 활용</strong> — 클러스터에 다른 LB 구현체가 공존한다면 <code>--lb-class</code>로 MetalLB가 처리할 서비스 범위를 명시합니다.</li>
+      </ul>
+
+      <div class="tip">
+        <b>온프레미스 AI 추론 환경이라면</b>
+        <p>
+          모델 서빙 엔드포인트를 외부에 노출할 때도 같은 구조가 적용됩니다.
+          다만 추론 트래픽은 요청당 페이로드가 크고 응답이 길게 스트리밍되는 경우가 많아 <strong>단일 노드 병목이 훨씬 빨리 드러납니다.</strong>
+          작은 규모에서는 L2로 시작하되, 트래픽이 늘 조짐이 보이면 BGP 모드 전환을 미리 설계에 넣어 두는 편이 좋습니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================== 15 -->
+    <section id="s15">
+      <span class="sec-no">15</span>
+      <h2>용어 사전</h2>
+      <div class="terms">
+        <div class="term"><b>VIP (Virtual IP)</b><span>어떤 물리 인터페이스에도 고정 바인딩되지 않고, 상황에 따라 다른 장비가 소유권을 넘겨받는 IP 주소.</span></div>
+        <div class="term"><b>ARP</b><span>같은 L2 네트워크에서 IP에 대응하는 MAC 주소를 알아내는 프로토콜. IPv4 전용.</span></div>
+        <div class="term"><b>NDP</b><span>IPv6에서 ARP 역할을 대신하는 이웃 탐색 프로토콜.</span></div>
+        <div class="term"><b>GARP (Gratuitous ARP)</b><span>아무도 묻지 않았는데 먼저 보내는 ARP. "이 IP의 MAC이 나로 바뀌었다"를 알리는 용도.</span></div>
+        <div class="term"><b>L2 세그먼트</b><span>라우터를 거치지 않고 스위치만으로 서로 도달 가능한 네트워크 범위. 브로드캐스트 도메인과 거의 같은 의미.</span></div>
+        <div class="term"><b>CCM</b><span>Cloud Controller Manager. 클라우드 의존 로직을 담당하는 컨트롤러. 온프레미스에는 없어서 MetalLB가 그 자리를 메운다.</span></div>
+        <div class="term"><b>speaker</b><span>각 노드에서 동작하며 실제로 IP를 네트워크에 알리는 MetalLB DaemonSet 파드.</span></div>
+        <div class="term"><b>controller</b><span>클러스터에 하나만 있으며 IP 할당을 담당하는 MetalLB Deployment 파드.</span></div>
+        <div class="term"><b>memberlist</b><span>HashiCorp의 가십 프로토콜 라이브러리. speaker들이 서로의 생존을 확인하는 데 사용한다.</span></div>
+        <div class="term"><b>IPAddressPool</b><span>MetalLB가 나눠 줄 수 있는 IP 범위를 정의하는 CR.</span></div>
+        <div class="term"><b>L2Advertisement</b><span>풀의 IP를 L2(ARP/NDP) 방식으로 광고하라고 지시하는 CR.</span></div>
+        <div class="term"><b>externalTrafficPolicy</b><span>외부 트래픽을 받은 노드가 다른 노드의 파드로 넘길지(Cluster) 자기 노드 파드만 쓸지(Local) 결정하는 서비스 필드.</span></div>
+        <div class="term"><b>SNAT</b><span>출발지 주소를 바꾸는 NAT. Cluster 정책에서 kube-proxy가 이걸 수행해 원래 클라이언트 IP가 가려진다.</span></div>
+        <div class="term"><b>strictARP</b><span>IPVS 모드 kube-proxy 설정. 노드가 자기 소유가 아닌 IP에 ARP 응답하지 않도록 막는다.</span></div>
+        <div class="term"><b>CRD / CR</b><span>Custom Resource Definition / Custom Resource. 쿠버네티스 API를 확장해 만든 사용자 정의 리소스 타입과 그 인스턴스.</span></div>
+        <div class="term"><b>frr-k8s</b><span>FRR 라우팅 데몬을 쿠버네티스 API로 제어하는 별도 프로젝트. v0.16.0부터 MetalLB BGP의 기본 백엔드.</span></div>
+        <div class="term"><b>ServiceL2Status</b><span>L2로 노출된 서비스가 현재 어느 노드에서 광고되는지 보여 주는 CR.</span></div>
+        <div class="term"><b>ConfigurationState</b><span>MetalLB 컴포넌트별로 설정 반영 오류를 노출하는 CR. v0.15.3부터 추가.</span></div>
+      </div>
+    </section>
+
+    <!-- ===================================================== 16 -->
+    <section id="s16">
+      <span class="sec-no">16</span>
+      <h2>셀프 체크 퀴즈</h2>
+      <p>각 문항에서 정답을 고르면 바로 해설이 나옵니다. 6문항 중 5개 이상이면 2편으로 넘어가도 좋습니다.</p>
+      <div class="quiz" id="quiz"></div>
+    </section>
+
+    <!-- ===================================================== 17 -->
+    <section id="s17">
+      <span class="sec-no">17</span>
+      <h2>정리, 그리고 2편 예고</h2>
+
+      <h3>1편에서 꼭 가져갈 다섯 가지</h3>
+      <ol>
+        <li>온프레미스에서 LoadBalancer가 Pending인 건 고장이 아니라 <strong>구현체가 없기 때문</strong>이다.</li>
+        <li>MetalLB는 <strong>IP 할당(controller)</strong>과 <strong>네트워크 광고(speaker)</strong> 두 가지 일만 한다. 트래픽 경로에 끼어들지 않는다.</li>
+        <li>L2 모드는 <strong>ARP 응답을 대신해 주는 것</strong>이 전부다. 특별한 장비가 필요 없는 대신 IP가 노드와 같은 서브넷에 있어야 한다.</li>
+        <li>L2 모드는 로드밸런싱이 아니라 <strong>페일오버</strong>다. 한 VIP의 트래픽은 한 노드를 통과한다.</li>
+        <li>설정은 <strong>IPAddressPool + L2Advertisement</strong> 두 개가 짝이다. 하나만 만들면 IP는 붙지만 접속은 안 된다.</li>
+      </ol>
+
+      <div class="next">
+        <h3>2편: BGP 모드와 실전 운영</h3>
+        <ul>
+          <li>초보자를 위한 BGP 기초 — AS, 피어링, 경로 광고가 무엇인지부터</li>
+          <li>BGPPeer, BGPAdvertisement, Community, BFDProfile 설정 전부</li>
+          <li>백엔드 3종 비교: native / FRR(deprecated) / <strong>frr-k8s(v0.16.0부터 기본)</strong> — 무엇이 달라졌고 어떻게 마이그레이션하나</li>
+          <li>ECMP로 진짜 부하 분산하기, 그리고 해싱 때문에 연결이 끊기는 문제</li>
+          <li>모니터링(Prometheus 메트릭)과 운영 중 트러블슈팅</li>
+          <li>대안 비교: kube-vip, Cilium LB IPAM &amp; BGP Control Plane, OpenELB</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  MetalLB 1편 · L2 모드 · MetalLB v0.16.1 기준으로 작성 (2026년 9월).
+  버전별 동작 차이가 있을 수 있으니 실제 적용 전 <a href="https://metallb.io/release-notes/" target="_blank" rel="noopener">공식 릴리스 노트</a>를 확인하세요.
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- 테마 ---------- */
+  var root=document.documentElement, tbtn=document.getElementById('themeBtn');
+  try{ var saved=localStorage.getItem('metallb-theme'); if(saved){root.setAttribute('data-theme',saved);} }catch(e){}
+  function syncBtn(){ tbtn.textContent = root.getAttribute('data-theme')==='light' ? '다크' : '라이트'; }
+  syncBtn();
+  tbtn.addEventListener('click',function(){
+    var next = root.getAttribute('data-theme')==='light' ? 'dark' : 'light';
+    root.setAttribute('data-theme',next); syncBtn();
+    try{ localStorage.setItem('metallb-theme',next); }catch(e){}
+  });
+
+  /* ---------- 모바일 목차 ---------- */
+  var toc=document.getElementById('toc'), tocBtn=document.getElementById('tocBtn');
+  tocBtn.addEventListener('click',function(){
+    var open=toc.classList.toggle('open');
+    tocBtn.setAttribute('aria-expanded', open?'true':'false');
+  });
+  toc.addEventListener('click',function(e){ if(e.target.tagName==='A'){ toc.classList.remove('open'); tocBtn.setAttribute('aria-expanded','false'); }});
+
+  /* ---------- 진행 바 + 스크롤 스파이 ---------- */
+  var bar=document.getElementById('progress');
+  var links=Array.prototype.slice.call(toc.querySelectorAll('a'));
+  var secs=links.map(function(a){ return document.getElementById(a.getAttribute('href').slice(1)); });
+  function onScroll(){
+    var h=document.documentElement;
+    var max=h.scrollHeight-h.clientHeight;
+    bar.style.width = (max>0 ? (h.scrollTop/max*100) : 0) + '%';
+    var idx=-1;
+    for(var i=0;i<secs.length;i++){ if(secs[i] && secs[i].getBoundingClientRect().top<=120) idx=i; }
+    links.forEach(function(a,i){ a.classList.toggle('on', i===idx); });
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  window.addEventListener('resize',onScroll);
+  onScroll();
+
+  /* ---------- 코드 복사 ---------- */
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var pre=btn.closest('.code').querySelector('pre');
+      var txt=pre.innerText;
+      var done=function(){ var o=btn.textContent; btn.textContent='복사됨'; setTimeout(function(){btn.textContent=o;},1300); };
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){}); }
+      else{
+        var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); done(); }catch(e){} document.body.removeChild(ta);
+      }
+    });
+  });
+
+  /* ---------- 설치 탭 ---------- */
+  var tabWrap=document.getElementById('installTabs');
+  tabWrap.querySelectorAll('.tabbar button').forEach(function(b){
+    b.addEventListener('click',function(){
+      tabWrap.querySelectorAll('.tabbar button').forEach(function(x){ x.setAttribute('aria-selected','false'); });
+      tabWrap.querySelectorAll('.tabpane').forEach(function(p){ p.hidden=true; });
+      b.setAttribute('aria-selected','true');
+      document.getElementById(b.dataset.p).hidden=false;
+    });
+  });
+
+  /* ---------- externalTrafficPolicy ---------- */
+  var etpData={
+    cluster:[
+      ['경로','클라이언트 → 리더 노드(node-02) → kube-proxy가 <strong>모든 노드</strong>의 파드로 분산'],
+      ['파드 분산','고르다. 노드에 파드가 없어도 다른 노드로 넘긴다'],
+      ['소스 IP','<span style="color:var(--red)">사라진다.</span> kube-proxy가 SNAT하므로 파드 로그에는 노드 IP가 찍힌다'],
+      ['홉 수','최대 2홉 (진입 노드 → 파드가 있는 노드)'],
+      ['적합한 경우','대부분의 내부 서비스, 클라이언트 IP가 필요 없는 API'],
+      ['주의','접속 로그 분석·IP 화이트리스트가 무의미해진다']
+    ],
+    local:[
+      ['경로','클라이언트 → 리더 노드(node-02) → <strong>그 노드 위의 파드만</strong>'],
+      ['파드 분산','불균형하다. 리더 노드의 파드만 트래픽을 받는다'],
+      ['소스 IP','<span style="color:var(--teal)">보존된다.</span> SNAT이 없어 실제 클라이언트 IP가 그대로 보인다'],
+      ['홉 수','1홉 (노드 간 전달 없음)'],
+      ['적합한 경우','Ingress Controller, 접속 로그가 필요한 서비스'],
+      ['주의','<span style="color:var(--amber)">리더 노드에 파드가 없으면 트래픽이 버려진다.</span> DaemonSet 배포나 anti-affinity 설계 필요']
+    ]
+  };
+  var etpBox=document.getElementById('etpBox'), etpSwitch=document.getElementById('etpSwitch');
+  function renderEtp(v){
+    etpBox.innerHTML = etpData[v].map(function(r){
+      return '<div class="etprow"><b>'+r[0]+'</b><div>'+r[1]+'</div></div>';
+    }).join('');
+  }
+  etpSwitch.querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click',function(){
+      etpSwitch.querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed','false'); });
+      b.setAttribute('aria-pressed','true');
+      renderEtp(b.dataset.v);
+    });
+  });
+  renderEtp('cluster');
+
+  /* ---------- L2 시뮬레이터 ---------- */
+  var stage=document.getElementById('stage'), pkt=document.getElementById('pkt');
+  var client=document.getElementById('client'), arpCache=document.getElementById('arpCache');
+  var logBox=document.getElementById('simLog');
+  var nodes=[document.getElementById('n0'),document.getElementById('n1'),document.getElementById('n2')];
+  var owner=1, dead=-1, step=0;
+
+  function log(msg,cls){
+    var d=document.createElement('div');
+    d.innerHTML='<span class="t">'+String(step).padStart(2,'0')+'</span> '+(cls?'<span class="'+cls+'">'+msg+'</span>':msg);
+    logBox.appendChild(d); logBox.scrollTop=logBox.scrollHeight;
+  }
+  function center(el){
+    var a=el.getBoundingClientRect(), b=stage.getBoundingClientRect();
+    return {x:a.left-b.left+a.width/2-5, y:a.top-b.top+a.height/2-5};
+  }
+  function move(from,to,color,cb){
+    var p1=center(from), p2=center(to);
+    pkt.style.transition='none'; pkt.style.left=p1.x+'px'; pkt.style.top=p1.y+'px';
+    pkt.style.background=color||'var(--amber)'; pkt.style.opacity='1';
+    void pkt.offsetWidth;
+    pkt.style.transition='';
+    pkt.style.left=p2.x+'px'; pkt.style.top=p2.y+'px';
+    setTimeout(function(){ pkt.style.opacity='0'; if(cb) cb(); }, 680);
+  }
+  function paint(){
+    nodes.forEach(function(n,i){
+      n.classList.toggle('owner', i===owner && i!==dead);
+      n.classList.toggle('dead', i===dead);
+      var badge=n.querySelector('.badge');
+      badge.textContent = (i===dead) ? 'DOWN' : (i===owner ? 'VIP 광고 중' : 'speaker');
+    });
+  }
+  function setCache(mac){
+    arpCache.innerHTML = mac
+      ? 'ARP 캐시<br>192.168.1.240<br>→ <b>'+mac+'</b>'
+      : 'ARP 캐시<br><b>(비어 있음)</b>';
+  }
+
+  var steps=[
+    function(){
+      log('클라이언트가 192.168.1.240 접속 시도 → MAC을 몰라 ARP 브로드캐스트 전송');
+      move(client, nodes[1], 'var(--amber)');
+    },
+    function(){
+      var n=nodes[owner];
+      log('node-0'+(owner+1)+'의 speaker가 자기 MAC('+n.dataset.mac+')으로 ARP 응답. 이 IP는 어떤 NIC에도 설정돼 있지 않다','ok');
+      move(n, client, 'var(--teal)', function(){ setCache(nodes[owner].dataset.mac); });
+    },
+    function(){
+      log('클라이언트가 캐시된 MAC으로 HTTP 요청 전송 → 리더 노드 도착');
+      move(client, nodes[owner], 'var(--amber)');
+    },
+    function(){
+      log('노드에 도착한 뒤부터는 kube-proxy의 몫. 서비스 파드들로 분배된다. 여기까지가 정상 동작','ok');
+    }
+  ];
+
+  var next=document.getElementById('simNext'), kill=document.getElementById('simKill'), reset=document.getElementById('simReset');
+
+  next.addEventListener('click',function(){
+    if(step>=steps.length){ log('모든 단계 완료. 장애를 주입해 보거나 처음으로 돌아가세요.','t'); return; }
+    step++; steps[step-1]();
+    if(step>=steps.length){ next.disabled=true; }
+  });
+
+  kill.addEventListener('click',function(){
+    if(dead>=0){ log('이미 장애가 주입된 상태입니다.','t'); return; }
+    step++;
+    dead=owner;
+    paint();
+    log('node-0'+(dead+1)+' 다운. 이 IP로 가는 트래픽이 블랙홀에 빠진다','bad');
+    setTimeout(function(){
+      step++;
+      log('memberlist가 노드 이탈을 감지 → 남은 speaker들이 각자 "노드+VIP" 해시를 다시 정렬','hi');
+      setTimeout(function(){
+        step++;
+        owner = (dead===2) ? 0 : (dead+1);
+        paint();
+        log('새 리더 node-0'+(owner+1)+' 선출. Gratuitous ARP를 브로드캐스트해 MAC 변경을 먼저 알린다','ok');
+        move(nodes[owner], client, 'var(--teal)', function(){
+          setCache(nodes[owner].dataset.mac);
+          step++;
+          log('클라이언트 ARP 캐시 갱신 완료. GARP를 무시하는 구형 클라이언트라면 캐시 만료까지 접속이 끊긴다','hi');
+        });
+      },900);
+    },900);
+  });
+
+  reset.addEventListener('click',function(){
+    owner=1; dead=-1; step=0; next.disabled=false;
+    paint(); setCache(null); pkt.style.opacity='0';
+    logBox.innerHTML='<div class="t">초기화됨. "다음 단계"를 눌러 시작하세요.</div>';
+  });
+
+  paint(); setCache(null);
+
+  /* ---------- 퀴즈 ---------- */
+  var QS=[
+    {q:'온프레미스 클러스터에서 LoadBalancer 서비스의 EXTERNAL-IP가 &lt;pending&gt;인 가장 근본적인 이유는?',
+     o:['kube-proxy 설정이 잘못되어서','LoadBalancer 생성 요청을 처리할 구현체(CCM 등)가 없어서','노드에 공인 IP가 없어서','Ingress Controller가 설치되지 않아서'],
+     a:1, e:'쿠버네티스는 LB 생성 요청만 하고 실제 생성은 클라우드 구현체가 합니다. 온프레미스에는 그 구현체가 없어서 요청이 처리되지 않은 채 남습니다.'},
+    {q:'L2 모드에서 서비스 IP는 어디에 설정되어 있나?',
+     o:['리더 노드의 NIC에 보조 IP로 설정된다','모든 노드의 loopback에 설정된다','어디에도 설정되지 않는다. ARP 응답만으로 트래픽을 끌어온다','kube-proxy의 iptables 규칙에만 존재한다'],
+     a:2, e:'L2 모드의 핵심입니다. IP는 어떤 인터페이스에도 바인딩되지 않으며, speaker가 ARP/NDP에 응답하는 것만으로 트래픽이 그 노드로 옵니다.'},
+    {q:'IPAddressPool만 만들고 L2Advertisement를 만들지 않으면 어떻게 되나?',
+     o:['아무 일도 일어나지 않고 서비스는 Pending에 머문다','IP는 할당되지만 외부에서 접속되지 않는다','기본값으로 L2 광고가 자동 시작된다','controller 파드가 CrashLoopBackOff에 빠진다'],
+     a:1, e:'IP 할당(controller)과 광고(speaker)는 별개 단계입니다. 풀만 있으면 EXTERNAL-IP는 붙지만 아무도 그 IP를 네트워크에 알리지 않아 접속이 안 됩니다. 초보자가 가장 많이 겪는 상황입니다.'},
+    {q:'L2 모드의 리더 노드는 어떻게 결정되나?',
+     o:['etcd에 리더 정보를 기록하고 합의한다','가장 먼저 기동한 speaker가 계속 리더가 된다','각 speaker가 "노드+VIP" 해시를 정렬해 동일하게 계산한다','controller가 라운드로빈으로 지정한다'],
+     a:2, e:'상태를 저장하지 않는 방식입니다. 모든 speaker가 같은 입력으로 같은 계산을 하므로 별도 합의 없이 같은 결론에 도달합니다.'},
+    {q:'서비스 하나의 인그레스 트래픽이 노드 1대 NIC 용량을 넘을 것으로 예상된다. 올바른 판단은?',
+     o:['노드를 늘리면 L2 모드가 자동으로 분산해 준다','replicas를 늘리면 해결된다','L2 모드로는 해결되지 않는다. BGP 모드를 검토해야 한다','externalTrafficPolicy를 Local로 바꾸면 된다'],
+     a:2, e:'L2 모드는 한 VIP당 한 노드만 트래픽을 받으므로 대역폭이 노드 1대로 제한됩니다. 이건 설계상의 한계라 파드나 노드를 늘려도 해소되지 않습니다.'},
+    {q:'애플리케이션 로그에 실제 클라이언트 IP를 남기려면?',
+     o:['externalTrafficPolicy를 Local로 설정한다','avoidBuggyIPs를 켠다','strictARP를 활성화한다','IPAddressPool에 autoAssign: false를 준다'],
+     a:0, e:'Local 정책은 SNAT 없이 로컬 파드로만 전달하므로 소스 IP가 보존됩니다. 다만 리더 노드에 파드가 없으면 트래픽이 버려지므로 배치 전략이 함께 필요합니다.'}
+  ];
+  var quiz=document.getElementById('quiz'), correct=0, answered=0;
+  QS.forEach(function(item,qi){
+    var d=document.createElement('div'); d.className='q';
+    var html='<p><span>Q'+(qi+1)+'</span>'+item.q+'</p>';
+    item.o.forEach(function(op,oi){ html+='<button class="opt" data-q="'+qi+'" data-o="'+oi+'">'+op+'</button>'; });
+    html+='<div class="qex" hidden>'+item.e+'</div>';
+    d.innerHTML=html; quiz.appendChild(d);
+  });
+  var score=document.createElement('div'); score.className='score';
+  score.innerHTML='진행 <b>0</b> / '+QS.length;
+  quiz.appendChild(score);
+
+  quiz.addEventListener('click',function(e){
+    var b=e.target.closest('.opt'); if(!b) return;
+    var box=b.closest('.q');
+    if(box.dataset.done) return;
+    box.dataset.done='1';
+    var qi=+b.dataset.q, oi=+b.dataset.o, ans=QS[qi].a;
+    box.querySelectorAll('.opt').forEach(function(x){
+      x.classList.add('locked');
+      var xo=+x.dataset.o;
+      if(xo===ans) x.classList.add('right');
+      else if(xo===oi) x.classList.add('wrong');
+    });
+    box.querySelector('.qex').hidden=false;
+    answered++; if(oi===ans) correct++;
+    score.innerHTML = (answered===QS.length)
+      ? '최종 <b>'+correct+'</b> / '+QS.length+ (correct>=5 ? ' · 2편으로 넘어가도 좋습니다' : ' · 5번과 3번 섹션을 다시 보면 좋습니다')
+      : '진행 <b>'+correct+'</b> / '+answered;
+  });
+})();
+</script>
+</body>
+</html>
