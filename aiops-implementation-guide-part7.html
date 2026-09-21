@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AIOps 시스템 구현 가이드 7편 — 텔레메트리 비용과 데이터 엔지니어링</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── 토큰 ───────────────────────────────────────────── */
+:root{
+  --bg:#0E1526; --bg2:#131C31; --surface:#182340; --surface2:#1E2B4D;
+  --line:#2A3A61; --line-soft:#223052;
+  --text:#E7EBF7; --muted:#93A0C2; --dim:#6E7CA3;
+  --teal:#5FD2BE;   /* 1계층: 신호 수집 */
+  --amber:#F0A55C;  /* 3계층: 이벤트·경보 */
+  --violet:#A88BF5; /* 5계층: AI 추론 */
+  --rose:#F27D8B;   /* 위험·안티패턴 */
+  --ok:#6FCF97;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --radius:14px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EAEEF8; --surface:#FFFFFF; --surface2:#F1F4FB;
+  --line:#D6DDEF; --line-soft:#E4E9F5;
+  --text:#16203A; --muted:#55628A; --dim:#7B87A8;
+  --teal:#0E8F7C; --amber:#B4661A; --violet:#6640D4; --rose:#C43B54; --ok:#1C8B4F;
+  --shadow:0 8px 24px rgba(20,32,64,.10);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:calc(64px + env(safe-area-inset-top,0px))}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-weight:400;font-size:16.5px;line-height:1.78;
+  -webkit-text-size-adjust:100%;
+  overflow-x:hidden;
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+.wrap{max-width:768px;margin:0 auto;padding:0 18px}
+p{margin:0 0 1.05em}
+a{color:var(--teal);text-underline-offset:3px}
+code,pre,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+hr{border:0;border-top:1px solid var(--line-soft);margin:34px 0}
+
+/* ── 상단 바 ─────────────────────────────────────────── */
+.rail{
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:50;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line-soft);
+}
+.rail-in{display:flex;align-items:center;gap:10px;height:56px}
+.rail-title{font-size:13.5px;font-weight:600;color:var(--muted);flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.btn-ghost{
+  appearance:none;background:var(--surface);border:1px solid var(--line);
+  color:var(--text);border-radius:10px;padding:7px 11px;font:inherit;font-size:13px;
+  cursor:pointer;line-height:1.2;white-space:nowrap;
+}
+.btn-ghost:hover{border-color:var(--teal)}
+.btn-ghost:focus-visible,a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible{
+  outline:2px solid var(--teal);outline-offset:2px}
+#bar{height:2px;background:var(--teal);width:0%;transition:width .12s linear}
+
+/* ── 목차 드로어 ─────────────────────────────────────── */
+#toc{
+  position:fixed;inset:0;z-index:60;background:color-mix(in srgb,var(--bg) 96%,transparent);
+  padding:calc(18px + env(safe-area-inset-top,0px)) 18px calc(24px + env(safe-area-inset-bottom,0px));
+  overflow-y:auto;display:none;
+}
+#toc.open{display:block}
+#toc h3{margin:6px 0 16px;font-size:15px;color:var(--muted);font-weight:600}
+#toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+#toc li{counter-increment:t;border-bottom:1px solid var(--line-soft)}
+#toc a{display:flex;gap:12px;padding:12px 2px;color:var(--text);text-decoration:none;font-size:15px}
+#toc a::before{content:counter(t,decimal-leading-zero);color:var(--dim);
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;padding-top:4px}
+#toc a:hover{color:var(--teal)}
+.toc-close{position:sticky;top:0;float:right}
+
+/* ── 히어로 ──────────────────────────────────────────── */
+.hero{padding:44px 0 30px;border-bottom:1px solid var(--line-soft)}
+.hero-kicker{font-size:12.5px;color:var(--teal);font-family:"IBM Plex Mono",monospace;margin-bottom:14px}
+.hero h1{
+  font-size:clamp(30px,8.6vw,46px);line-height:1.16;letter-spacing:-.035em;
+  font-weight:700;margin:0 0 16px;
+}
+.hero h1 .l2{display:block;color:var(--muted);font-weight:300}
+.hero-sub{color:var(--muted);font-size:16px;max-width:60ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.meta span{font-size:12px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
+
+/* 알림 폭풍 데모 */
+.storm{margin:26px 0 8px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.storm-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.storm-label{font-size:12.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace}
+.chips{display:flex;flex-wrap:wrap;gap:5px;min-height:96px;align-content:flex-start}
+.chip{
+  font-size:10.5px;font-family:"IBM Plex Mono",monospace;padding:3px 7px;border-radius:6px;
+  background:color-mix(in srgb,var(--amber) 16%,transparent);color:var(--amber);
+  border:1px solid color-mix(in srgb,var(--amber) 34%,transparent);
+  transition:opacity .5s ease,transform .5s ease;
+}
+.storm.solved .chip{opacity:0;transform:translateY(-6px) scale(.9)}
+.incident{
+  display:none;border-left:3px solid var(--violet);background:var(--surface2);
+  border-radius:8px;padding:12px 14px;font-size:14px
+}
+.storm.solved .incident{display:block;animation:pop .45s ease}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.incident b{color:var(--violet)}
+.incident .rc{color:var(--muted);font-size:13px;display:block;margin-top:6px}
+.btn{
+  appearance:none;border:0;border-radius:10px;padding:9px 14px;font:inherit;font-size:13.5px;
+  font-weight:600;cursor:pointer;background:var(--teal);color:#08131F;
+}
+:root[data-theme="light"] .btn{color:#fff}
+.btn:hover{filter:brightness(1.08)}
+
+/* ── 챕터 ────────────────────────────────────────────── */
+.chap{padding:46px 0 10px;border-top:1px solid var(--line-soft)}
+.chap:first-of-type{border-top:0}
+.chap-no{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--dim);margin-bottom:8px}
+.chap h2{font-size:clamp(23px,5.6vw,30px);line-height:1.28;letter-spacing:-.025em;
+  font-weight:700;margin:0 0 6px}
+.chap-lead{color:var(--muted);font-size:15.5px;margin:10px 0 24px}
+h3{font-size:19px;line-height:1.4;letter-spacing:-.015em;font-weight:600;margin:34px 0 10px}
+h4{font-size:16px;font-weight:600;margin:24px 0 8px;color:var(--text)}
+ul,ol{margin:0 0 1.1em;padding-left:1.25em}
+li{margin:.3em 0}
+li::marker{color:var(--dim)}
+strong{font-weight:600}
+.key{color:var(--teal);font-weight:600}
+
+/* 카드·박스 */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 17px;margin:18px 0}
+.card h4{margin-top:0}
+.note{border-left:3px solid var(--teal);background:var(--surface2);border-radius:0 10px 10px 0;
+  padding:14px 16px;margin:18px 0;font-size:15px}
+.note.amber{border-color:var(--amber)}
+.note.violet{border-color:var(--violet)}
+.note.rose{border-color:var(--rose)}
+.note.ok{border-color:var(--ok)}
+.note .nt{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px;
+  font-family:"IBM Plex Mono",monospace;color:var(--teal)}
+.note.amber .nt{color:var(--amber)} .note.violet .nt{color:var(--violet)}
+.note.rose .nt{color:var(--rose)} .note.ok .nt{color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+
+/* 용어 */
+details.term{border:1px solid var(--line);border-radius:10px;margin:10px 0;background:var(--surface)}
+details.term summary{cursor:pointer;padding:11px 14px;font-size:14.5px;font-weight:500;list-style:none}
+details.term summary::-webkit-details-marker{display:none}
+details.term summary::before{content:"＋";color:var(--teal);margin-right:9px;font-size:13px}
+details.term[open] summary::before{content:"－"}
+details.term .body{padding:0 14px 14px;font-size:14.5px;color:var(--muted)}
+details.term .body b{color:var(--text)}
+
+/* 코드 */
+.codewrap{position:relative;margin:18px 0}
+.codewrap .cap{font-size:12px;color:var(--dim);font-family:"IBM Plex Mono",monospace;margin-bottom:6px}
+pre{
+  margin:0;background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:14px 14px;overflow-x:auto;font-size:12.6px;line-height:1.7;color:var(--text)
+}
+pre .c{color:var(--dim)}       /* 주석 */
+pre .k{color:var(--violet)}    /* 키 */
+pre .s{color:var(--teal)}      /* 값 */
+pre .n{color:var(--amber)}     /* 숫자·강조 */
+.copy{position:absolute;top:26px;right:8px;font-size:11px;padding:4px 8px;border-radius:7px;
+  background:var(--surface);border:1px solid var(--line);color:var(--muted);cursor:pointer}
+.copy:hover{color:var(--teal);border-color:var(--teal)}
+code.i{background:var(--surface2);border:1px solid var(--line-soft);border-radius:5px;
+  padding:1px 5px;font-size:13px;color:var(--text)}
+
+/* 표 */
+.tablewrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:14px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{background:var(--surface2);font-weight:600;font-size:13px;color:var(--muted);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+
+/* 계층 다이어그램 */
+.layers{margin:22px 0;display:flex;flex-direction:column;gap:8px}
+.layer{
+  display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;
+  background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--lc,var(--teal));
+  border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;font:inherit;color:var(--text);
+  width:100%;
+}
+.layer:hover{border-color:var(--lc,var(--teal))}
+.layer .ix{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--lc,var(--teal));padding-top:3px}
+.layer .tt{display:block;font-weight:600;font-size:15px;line-height:1.45}
+.layer .ds{display:block;font-size:13.5px;color:var(--muted);margin-top:2px;line-height:1.55}
+.layer .more{display:none;margin-top:10px;font-size:14px;color:var(--muted);
+  border-top:1px dashed var(--line);padding-top:10px}
+.layer.open .more{display:block}
+.layer .more ul{margin:6px 0 0;padding-left:1.1em}
+
+/* 자가진단·계산기·퀴즈 공통 */
+.tool{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:17px;margin:22px 0;box-shadow:var(--shadow)}
+.tool h4{margin:0 0 4px;font-size:16px}
+.tool .hint{font-size:13px;color:var(--dim);margin-bottom:14px}
+.q{margin:14px 0}
+.q p{font-size:14.5px;margin:0 0 8px;font-weight:500}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{font-size:13px;padding:7px 11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--muted);cursor:pointer;font-family:inherit}
+.opt[aria-pressed="true"]{border-color:var(--teal);color:var(--teal);
+  background:color-mix(in srgb,var(--teal) 14%,transparent)}
+.opt.wrong[aria-pressed="true"]{border-color:var(--rose);color:var(--rose);
+  background:color-mix(in srgb,var(--rose) 14%,transparent)}
+.result{margin-top:14px;padding:13px 15px;border-radius:10px;background:var(--surface2);
+  border:1px solid var(--line);font-size:14.5px;display:none}
+.result.show{display:block}
+.result b{color:var(--teal)}
+.field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+.field label{font-size:14px;color:var(--muted);flex:1}
+.field input{
+  width:110px;background:var(--bg2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:7px 9px;font:inherit;font-size:14px;text-align:right;
+  font-family:"IBM Plex Mono",monospace
+}
+.out{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.out div{flex:1 1 140px;background:var(--surface2);border:1px solid var(--line);
+  border-radius:10px;padding:12px 13px}
+.out .v{font-size:23px;font-weight:700;letter-spacing:-.02em;color:var(--teal);
+  font-family:"IBM Plex Mono",monospace;line-height:1.2}
+.out .l{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* 체크리스트 */
+.check{list-style:none;padding:0;margin:14px 0}
+.check li{margin:0;border-bottom:1px solid var(--line-soft)}
+.check label{display:flex;gap:11px;align-items:flex-start;padding:10px 2px;cursor:pointer;font-size:14.5px}
+.check input{margin-top:5px;accent-color:var(--teal);width:16px;height:16px;flex:none}
+.check input:checked + span{color:var(--dim);text-decoration:line-through}
+
+/* 시나리오 */
+.flow{list-style:none;padding:0;margin:14px 0;counter-reset:f}
+.flow li{counter-increment:f;position:relative;display:block;
+  padding:9px 0 9px 38px;border-bottom:1px dashed var(--line-soft);font-size:14.5px}
+.flow li::before{content:counter(f);position:absolute;left:0;top:11px;
+  width:22px;height:22px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  color:var(--violet);border:1px solid var(--line);border-radius:6px;
+  display:flex;align-items:center;justify-content:center}
+.flow li:last-child{border-bottom:0}
+
+footer{padding:50px 0 70px;border-top:1px solid var(--line-soft);margin-top:40px;
+  color:var(--dim);font-size:13.5px}
+footer a{color:var(--muted)}
+.slider{margin:14px 0}
+.slider label{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted);margin-bottom:5px}
+.slider label b{color:var(--text);font-family:"IBM Plex Mono",monospace;font-size:13px}
+.slider input[type=range]{width:100%;accent-color:var(--teal)}
+.gauge{height:10px;border-radius:999px;background:var(--bg2);border:1px solid var(--line);overflow:hidden;margin-top:6px}
+.gauge i{display:block;height:100%;background:var(--teal);width:0%;transition:width .15s ease}
+.verdict{margin-top:12px;font-size:14.5px}
+.verdict b{font-family:inherit}
+.path{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;
+  font-family:"IBM Plex Mono",monospace;color:var(--muted);margin:14px 0}
+.path span{border:1px solid var(--line);border-radius:7px;padding:4px 8px;background:var(--surface)}
+.path em{font-style:normal;color:var(--dim)}
+.tree{font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:1.85;color:var(--muted);
+  background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:14px;overflow-x:auto;margin:18px 0}
+.tree b{color:var(--teal);font-weight:400}
+/* 좁은 화면: 표를 카드형으로 쌓아 가독성 확보 */
+@media (max-width:640px){
+  .tablewrap{border:0;overflow-x:visible;background:transparent}
+  table{min-width:0;width:100%;display:block;font-size:14px}
+  thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  tbody{display:block}
+  tbody tr{display:block;border:1px solid var(--line);border-radius:12px;
+    background:var(--surface);margin-bottom:10px;overflow:hidden}
+  tbody tr:last-child{margin-bottom:0}
+  tbody td{display:block;padding:9px 13px;border-bottom:1px solid var(--line-soft)}
+  tbody tr td:last-child{border-bottom:0}
+  tbody td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11.5px;
+    font-weight:600;line-height:1.5;margin-bottom:3px;word-break:keep-all}
+  tbody td:first-child{background:var(--surface2)}
+  tbody td:first-child>*,tbody td:first-child{font-weight:600}
+}
+.pill{display:inline-block;font-size:11.5px;font-family:"IBM Plex Mono",monospace;
+  padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
+.pill.on{border-color:var(--teal);color:var(--teal)}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.seg button{font-size:13px;padding:7px 11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--muted);cursor:pointer;font-family:inherit}
+.seg button[aria-pressed="true"]{border-color:var(--teal);color:var(--teal);
+  background:color-mix(in srgb,var(--teal) 14%,transparent)}
+.matrix{display:flex;flex-direction:column;gap:8px;margin:18px 0}
+.mrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.mrow .nm{font-size:14.5px}
+.mrow .nm small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.tag{font-size:11.5px;font-family:"IBM Plex Mono",monospace;padding:3px 9px;border-radius:999px;
+  border:1px solid var(--line);white-space:nowrap}
+.tag.block{border-color:var(--ok);color:var(--ok)}
+.tag.pass{border-color:var(--rose);color:var(--rose)}
+.toggles{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.toggles label{display:flex;gap:11px;align-items:flex-start;font-size:14px;cursor:pointer;
+  background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.toggles input{margin-top:4px;accent-color:var(--teal);width:16px;height:16px;flex:none}
+.toggles span small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.chartbox{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:12px;margin:14px 0}
+.chartbox svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.bars{margin:16px 0}
+.barrow{margin:10px 0}
+.barrow .lb{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:5px}
+.barrow .lb b{color:var(--text);font-family:"IBM Plex Mono",monospace}
+.bar{display:flex;height:22px;border-radius:7px;overflow:hidden;border:1px solid var(--line);background:var(--bg2)}
+.bar i{display:block;height:100%}
+.bar i.m{background:var(--teal)} .bar i.l{background:var(--amber)} .bar i.t{background:var(--violet)}
+.barlegend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:12px;color:var(--muted)}
+.barlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.upbtn{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  z-index:40;border-radius:999px;padding:10px 13px;font-size:12px;display:none}
+.upbtn.show{display:block}
+</style>
+</head>
+<body>
+<header class="rail">
+  <div class="wrap rail-in">
+    <button class="btn-ghost" id="tocBtn" aria-expanded="false">목차</button>
+    <div class="rail-title">AIOps 구현 가이드 7편 · 비용과 데이터</div>
+    <button class="btn-ghost" id="themeBtn" aria-label="테마 전환">라이트</button>
+  </div>
+  <div id="bar"></div>
+</header>
+
+<nav id="toc" aria-label="목차">
+  <div class="wrap">
+    <button class="btn-ghost toc-close" id="tocClose">닫기</button>
+    <h3>목차</h3>
+    <ol id="tocList"></ol>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<section class="hero">
+  <div class="hero-kicker">신입·초보 클라우드 엔지니어를 위한 기술 강의 · 2026년판 · 7편</div>
+  <h1>텔레메트리 비용과 데이터 엔지니어링<span class="l2">가시성을 잃지 않고 청구서를 줄이기</span></h1>
+  <p class="hero-sub">1편에서 "일단 다 모으자는 3개월 뒤 청구서로 돌아온다"고 했습니다. 이 편이 그 청구서를 다룹니다.
+  <b>카디널리티, 샘플링, 파이프라인 가공, 저장 아키텍처, 보존 정책, 비용 귀속</b>까지
+  — 관측 데이터를 데이터 엔지니어링 문제로 보는 관점입니다.</p>
+
+  <div class="path">
+    <span>비용 구조</span><em>→</em><span>사용률 측정</span><em>→</em><span>카디널리티</span><em>→</em>
+    <span>샘플링·가공</span><em>→</em><span>저장·티어링</span><em>→</em><span>비용 거버넌스</span>
+  </div>
+
+  <div class="meta">
+    <span>예상 학습 85분</span><span>비용 계산기 3종</span><span>OTel 파이프라인 중심</span><span>1~2편을 전제로 함</span>
+  </div>
+
+  <div class="note amber" style="margin-top:26px">
+    <span class="nt">이 편의 전제</span>
+    <p>비용 절감의 목표는 <b>싸게 만드는 것이 아니라 비싼 데이터와 싼 데이터를 구분하는 것</b>입니다.
+    무차별 삭감은 장애 때 데이터가 없는 상황을 만들고, 그 한 번의 손실이 몇 년치 절감액을 넘습니다.
+    이 편은 "무엇을 지키면서 무엇을 줄일지"를 정하는 방법을 다룹니다.</p>
+  </div>
+</section>
+
+<!-- 1 -->
+<section class="chap" id="c1">
+  <div class="chap-no">CHAPTER 01</div>
+  <h2>돈은 어디서 새는가</h2>
+  <p class="chap-lead">청구서를 줄이려면 먼저 과금 단위를 알아야 합니다. 도구마다 비싼 지점이 다릅니다.</p>
+
+  <h3>비용이 발생하는 다섯 지점</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>단계</th><th>비용 요인</th><th>주로 문제되는 신호</th></tr></thead>
+    <tbody>
+      <tr><td>수집·에이전트</td><td>노드 수, 에이전트 CPU·메모리</td><td>전 신호. 컬렉터 자체가 클러스터 자원을 먹음</td></tr>
+      <tr><td>전송</td><td>네트워크 이그레스(특히 리전·클라우드 간)</td><td>로그·트레이스(양이 큼)</td></tr>
+      <tr><td>수집 과금(ingest)</td><td>수집된 바이트·이벤트 수</td><td>로그가 압도적</td></tr>
+      <tr><td>인덱싱·시계열</td><td>활성 시계열 수, 인덱스 크기</td><td>메트릭(카디널리티), 로그 라벨</td></tr>
+      <tr><td>저장·보존</td><td>보존 기간 × 데이터 크기, 핫·콜드 구분</td><td>전 신호. 장기 보존이 조용히 쌓임</td></tr>
+      <tr><td>질의</td><td>스캔량, 동시성, 대시보드 자동 갱신</td><td>대시보드가 많은 조직</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note violet">
+    <span class="nt">과금 모델을 먼저 확인하세요</span>
+    <p>같은 데이터라도 어디에 두느냐에 따라 비용 구조가 다릅니다. 수집량 기준으로 과금하는 곳에서는 <b>필터링</b>이 최고 레버이고,
+    시계열 수 기준이면 <b>카디널리티</b>, 보존 기준이면 <b>티어링</b>이 레버입니다.
+    자체 운영이라면 사실상 저장·컴퓨트 비용과 <b>사람 시간</b>이 비용입니다. 레버를 잘못 고르면 노력 대비 효과가 거의 없습니다.</p>
+  </div>
+
+  <h3>비용 구성 감 잡기</h3>
+  <p>아래 계산기로 현재 구조를 대략 넣어보고, 절감 레버를 하나씩 적용해 보세요.
+  실제 단가는 환경마다 다르므로 <b>비율의 변화</b>를 보는 용도로 쓰면 됩니다.</p>
+
+  <div class="tool" id="cost">
+    <h4>텔레메트리 비용 시뮬레이터</h4>
+    <p class="hint">현재 규모(월 기준)</p>
+    <div class="field"><label for="a1">활성 시계열 수 (천 개)</label><input id="a1" type="number" value="800" min="1"></div>
+    <div class="field"><label for="a2">로그 수집량 (GB/일)</label><input id="a2" type="number" value="600" min="0"></div>
+    <div class="field"><label for="a3">트레이스 스팬 (백만/일)</label><input id="a3" type="number" value="400" min="0"></div>
+    <p class="hint" style="margin-top:14px">절감 레버</p>
+    <div class="slider">
+      <label for="a4">카디널리티 감축 <b id="av4">0%</b></label>
+      <input id="a4" type="range" min="0" max="80" value="0" step="5">
+    </div>
+    <div class="slider">
+      <label for="a5">로그 필터링·샘플링 <b id="av5">0%</b></label>
+      <input id="a5" type="range" min="0" max="90" value="0" step="5">
+    </div>
+    <div class="slider">
+      <label for="a6">트레이스 샘플링 축소 <b id="av6">0%</b></label>
+      <input id="a6" type="range" min="0" max="95" value="0" step="5">
+    </div>
+    <div class="slider">
+      <label for="a7">콜드 티어로 이전하는 비율 <b id="av7">0%</b></label>
+      <input id="a7" type="range" min="0" max="90" value="0" step="5">
+    </div>
+
+    <div class="bars">
+      <div class="barrow">
+        <div class="lb"><span>현재</span><b id="c0">–</b></div>
+        <div class="bar" id="bar0"></div>
+      </div>
+      <div class="barrow">
+        <div class="lb"><span>절감 적용 후</span><b id="c1v">–</b></div>
+        <div class="bar" id="bar1"></div>
+      </div>
+      <div class="barlegend">
+        <span><i style="background:var(--teal)"></i>메트릭</span>
+        <span><i style="background:var(--amber)"></i>로그</span>
+        <span><i style="background:var(--violet)"></i>트레이스</span>
+      </div>
+    </div>
+    <div class="result show" id="cverdict"></div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="chap" id="c2">
+  <div class="chap-no">CHAPTER 02</div>
+  <h2>무엇이 실제로 쓰이는가</h2>
+  <p class="chap-lead">절감의 출발점은 압축이나 샘플링이 아니라 <b>사용되지 않는 데이터를 찾는 것</b>입니다.</p>
+
+  <h3>쓰이지 않는 데이터는 생각보다 많다</h3>
+  <p>업계에서 반복해서 나오는 관찰은 <b>수집된 메트릭의 상당 부분이 한 번도 조회되지 않는다</b>는 것입니다.
+  2026년 옵저버빌리티 커뮤니티 논의에서는 오늘날 수집되는 메트릭의 절반가량이 한 번도 질의되지 않는다는 주장이 나왔습니다.
+  중요한 것은 정확한 비율이 아니라, <b>측정해보면 우리 환경에도 비슷한 구간이 있다</b>는 점입니다.</p>
+
+  <h3>사용률을 실제로 측정하는 방법</h3>
+  <ol class="flow">
+    <li><b>대시보드·알림 규칙 파싱</b> — 모든 대시보드 JSON과 알림 규칙에서 참조하는 메트릭 이름을 추출합니다</li>
+    <li><b>질의 로그 수집</b> — 저장소의 질의 로그에서 지난 90일간 실제로 조회된 메트릭·라벨을 집계합니다</li>
+    <li><b>수집 중인 목록과 대조</b> — 수집되지만 어디에도 등장하지 않는 항목이 1차 삭제 후보입니다</li>
+    <li><b>삭제 전 유예</b> — 바로 지우지 말고 30일간 "폐기 예정" 목록으로 공지한 뒤 반응이 없으면 제거합니다</li>
+  </ol>
+
+  <div class="codewrap">
+    <div class="cap">사용되지 않는 메트릭 찾기 — 개념 스크립트</div>
+<pre><code><span class="c"># 1) 현재 수집 중인 메트릭 이름</span>
+ingested = <span class="k">set</span>(prom.label_values(<span class="s">"__name__"</span>))
+
+<span class="c"># 2) 대시보드·알림에서 참조되는 이름</span>
+referenced = <span class="k">set</span>()
+<span class="k">for</span> d <span class="k">in</span> grafana.list_dashboards():
+    referenced |= extract_metric_names(json.dumps(d))       <span class="c"># PromQL 파싱</span>
+<span class="k">for</span> r <span class="k">in</span> prom.rules():
+    referenced |= extract_metric_names(r.expr)
+
+<span class="c"># 3) 최근 90일 질의 로그에서 실제 조회된 이름</span>
+queried = <span class="k">set</span>(query_log.metric_names(days=<span class="n">90</span>))
+
+unused = ingested - referenced - queried
+<span class="k">print</span>(<span class="s">f"미사용 후보 {len(unused)}개 / 전체 {len(ingested)}개"</span>)
+
+<span class="c"># 4) 시계열 수 기준으로 정렬 — 비용 영향이 큰 것부터 처리</span>
+<span class="k">for</span> m <span class="k">in</span> <span class="k">sorted</span>(unused, key=<span class="k">lambda</span> m: -series_count(m))[:<span class="n">30</span>]:
+    <span class="k">print</span>(m, series_count(m))
+</code></pre>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">가치 대비 비용으로 분류하기</span>
+    <p>모든 데이터를 네 칸으로 나눠 보세요. <b>비싸고 많이 쓰는 것</b>(최적화 대상),
+    <b>비싸고 안 쓰는 것</b>(즉시 제거), <b>싸고 많이 쓰는 것</b>(그대로), <b>싸고 안 쓰는 것</b>(나중에).
+    대부분의 팀이 "비싸고 안 쓰는 것"만 정리해도 목표의 절반을 달성합니다.</p>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="chap" id="c3">
+  <div class="chap-no">CHAPTER 03</div>
+  <h2>카디널리티 — 메트릭 비용의 주범</h2>
+  <p class="chap-lead">메트릭에서 비용을 결정하는 것은 데이터 양이 아니라 <b>시계열의 개수</b>입니다.</p>
+
+  <h3>폭발의 메커니즘</h3>
+  <p>시계열 수는 라벨 값의 <b>곱</b>으로 늘어납니다. 라벨 하나를 추가하는 것이 산술적 증가가 아니라 곱셈이라는 점이 핵심입니다.</p>
+
+  <div class="tool" id="card">
+    <h4>카디널리티 계산기</h4>
+    <p class="hint">라벨별 고유값 수를 넣어 보세요. 마지막 라벨을 켜고 끄며 영향을 확인하세요.</p>
+    <div class="field"><label for="k1">서비스 수</label><input id="k1" type="number" value="40" min="1"></div>
+    <div class="field"><label for="k2">엔드포인트 수 (서비스당)</label><input id="k2" type="number" value="25" min="1"></div>
+    <div class="field"><label for="k3">HTTP 상태 코드 종류</label><input id="k3" type="number" value="8" min="1"></div>
+    <div class="field"><label for="k4">파드·인스턴스 수 (서비스당)</label><input id="k4" type="number" value="6" min="1"></div>
+    <div class="field"><label for="k5">히스토그램 버킷 수</label><input id="k5" type="number" value="12" min="1"></div>
+    <div class="toggles" style="margin-top:12px">
+      <label><input type="checkbox" id="k6"><span>라벨 추가: 고객사 ID (30종)
+        <small>멀티테넌트에서 흔히 추가되는 라벨</small></span></label>
+      <label><input type="checkbox" id="k7"><span>라벨 추가: 요청 ID 또는 사용자 ID
+        <small>고유값이 사실상 무한한 라벨 — 절대 넣으면 안 되는 종류</small></span></label>
+    </div>
+    <div class="out">
+      <div><div class="v" id="ko1">–</div><div class="l">추정 시계열 수</div></div>
+      <div><div class="v" id="ko2">–</div><div class="l">기본 대비 배수</div></div>
+    </div>
+    <div class="result show" id="kverdict" style="margin-top:14px"></div>
+  </div>
+
+  <h3>라벨 설계 규칙</h3>
+  <ul>
+    <li><b>유한하고 낮은 카디널리티만</b> — 값 종류가 수십 개를 넘으면 라벨 후보에서 제외합니다.</li>
+    <li><b>고유 식별자는 메트릭이 아니라 로그·트레이스로</b> — 요청 ID, 사용자 ID, 세션 ID가 대표적입니다. 이들은 로그·트레이스에서 훨씬 싸게 다뤄집니다.</li>
+    <li><b>파드 이름 주의</b> — 배포마다 새 시계열이 생깁니다. 디플로이먼트 단위 집계를 기본으로 두고, 파드 단위는 필요할 때만.</li>
+    <li><b>URL 경로 정규화</b> — <code class="i">/user/12345</code>가 아니라 <code class="i">/user/{id}</code>로. 정규화하지 않으면 엔드포인트 라벨이 무한해집니다.</li>
+    <li><b>에러 메시지를 라벨로 쓰지 않기</b> — 자유 텍스트는 카디널리티가 통제되지 않습니다.</li>
+  </ul>
+
+  <h3>파이프라인에서 막기</h3>
+  <p>규칙을 문서로 두면 언젠가 깨집니다. 수집 파이프라인에서 강제하는 편이 안전합니다.
+  최근 OpenTelemetry 생태계에는 <b>카디널리티 제한 프로세서</b>가 추가되어, 한도를 넘는 시계열을 잘라내거나
+  기타 항목으로 접을 수 있습니다. 백엔드가 무너지기 전에 파이프라인에서 멈추는 것이 핵심입니다.</p>
+
+  <div class="codewrap">
+    <div class="cap">OTel Collector — 고위험 라벨 제거와 경로 정규화</div>
+<pre><code><span class="k">processors</span>:
+  <span class="c"># 1) 위험 라벨은 아예 제거한다(사후 정리는 불가능하다)</span>
+  <span class="k">attributes/strip</span>:
+    <span class="k">actions</span>:
+      - { <span class="k">key</span>: <span class="s">user.id</span>,     <span class="k">action</span>: <span class="s">delete</span> }
+      - { <span class="k">key</span>: <span class="s">request.id</span>,  <span class="k">action</span>: <span class="s">delete</span> }
+      - { <span class="k">key</span>: <span class="s">session.id</span>,  <span class="k">action</span>: <span class="s">delete</span> }
+
+  <span class="c"># 2) URL 경로 정규화 — 숫자·UUID를 플레이스홀더로</span>
+  <span class="k">transform/normalize</span>:
+    <span class="k">metric_statements</span>:
+      - <span class="k">context</span>: <span class="s">datapoint</span>
+        <span class="k">statements</span>:
+          - <span class="s">replace_pattern(attributes["http.route"], "/[0-9]+", "/{id}")</span>
+          - <span class="s">replace_pattern(attributes["http.route"], "/[0-9a-f]{8}-[0-9a-f-]+", "/{uuid}")</span>
+
+  <span class="c"># 3) 파드 단위를 디플로이먼트 단위로 접어 시계열 수를 줄인다</span>
+  <span class="k">groupbyattrs</span>:
+    <span class="k">keys</span>: [<span class="s">service.name</span>, <span class="s">k8s.deployment.name</span>, <span class="s">http.route</span>, <span class="s">http.response.status_code</span>]
+
+  <span class="c"># 4) 그래도 폭발하면 파이프라인에서 한도를 건다(백엔드 보호)</span>
+  <span class="c">#    한도 초과분은 버리지 말고 'overflow'로 접어 존재 자체는 남긴다</span>
+</code></pre>
+  </div>
+
+  <div class="note rose">
+    <span class="nt">히스토그램은 카디널리티 곱셈기</span>
+    <p>히스토그램 하나가 버킷 수만큼 시계열을 만듭니다. 라벨 조합 1만 개 × 버킷 12개 = 12만 시계열입니다.
+    버킷 수를 실제로 쓰는 만큼으로 줄이거나, 지원되는 환경이라면 <b>네이티브 히스토그램</b>(가변 해상도 방식)을 검토하세요.
+    p99를 볼 것도 아니면서 촘촘한 버킷을 두는 경우가 매우 흔합니다.</p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="chap" id="c4">
+  <div class="chap-no">CHAPTER 04</div>
+  <h2>로그 — 가장 크고 가장 줄이기 쉬운 것</h2>
+  <p class="chap-lead">대부분의 조직에서 수집 과금의 최대 항목입니다. 동시에 손대기 가장 쉬운 영역이기도 합니다.</p>
+
+  <h3>단계별 절감 레버</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>레버</th><th>방법</th><th>효과</th><th>위험</th></tr></thead>
+    <tbody>
+      <tr><td>레벨 정책</td><td>운영은 WARN·ERROR 기본, DEBUG는 개발·스테이징만</td><td>매우 큼</td><td>조사 시 상세도 부족 → 동적 레벨 상향 수단 필요</td></tr>
+      <tr><td>구조화</td><td>JSON 필드로 출력, 중복 텍스트 제거</td><td>중간(압축률 개선)</td><td>낮음</td></tr>
+      <tr><td>중복 접기</td><td>같은 패턴 반복을 카운트로 요약</td><td>큼(헬스체크·리트라이 로그)</td><td>개별 타임스탬프 손실</td></tr>
+      <tr><td>필터링</td><td>헬스체크, 정상 200 접근 로그 제외</td><td>큼</td><td>트래픽 분석 용도가 있으면 메트릭으로 대체</td></tr>
+      <tr><td>로그→메트릭</td><td>"몇 건 발생"만 필요한 로그는 카운터로 변환</td><td>큼</td><td>원문이 필요할 때 없음 → 에러는 남기기</td></tr>
+      <tr><td>샘플링</td><td>정상 로그만 N분의 1로</td><td>큼</td><td>에러·느린 요청은 반드시 100% 유지</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="codewrap">
+    <div class="cap">파이프라인에서 로그 줄이기</div>
+<pre><code><span class="k">processors</span>:
+  <span class="c"># 1) 헬스체크·정적 파일 접근 로그 제거 — 보통 전체의 20~40%</span>
+  <span class="k">filter/noise</span>:
+    <span class="k">logs</span>:
+      <span class="k">log_record</span>:
+        - <span class="s">'attributes["http.route"] == "/healthz"'</span>
+        - <span class="s">'attributes["http.route"] == "/metrics"'</span>
+        - <span class="s">'IsMatch(body, ".*static/.*200.*")'</span>
+
+  <span class="c"># 2) 운영 환경의 DEBUG 제거(개발 환경은 파이프라인 분리)</span>
+  <span class="k">filter/level</span>:
+    <span class="k">logs</span>:
+      <span class="k">log_record</span>:
+        - <span class="s">'severity_number &lt; SEVERITY_NUMBER_INFO and resource.attributes["deployment.environment"] == "prod"'</span>
+
+  <span class="c"># 3) 긴 본문 잘라내기 — 스택트레이스는 앞부분이 대부분의 정보를 담는다</span>
+  <span class="k">transform/trim</span>:
+    <span class="k">log_statements</span>:
+      - <span class="k">context</span>: <span class="s">log</span>
+        <span class="k">statements</span>:
+          - <span class="s">'set(body, Substring(body, 0, 4096)) where Len(body) &gt; 4096'</span>
+
+<span class="c"># 4) "몇 건인지"만 필요한 로그는 메트릭으로 바꾼다(count 프로세서/커넥터 활용)</span>
+<span class="c">#    예: 로그인 실패 로그 → login_failures_total 카운터</span>
+</code></pre>
+  </div>
+
+  <div class="note amber">
+    <span class="nt">동적 레벨 상향 수단을 먼저 만드세요</span>
+    <p>DEBUG를 끄는 것이 두려운 이유는 "필요할 때 없을까봐"입니다.
+    <b>특정 서비스의 로그 레벨을 몇 분간 올리는 스위치</b>(설정 리로드 또는 기능 플래그)를 먼저 만들면,
+    상시 DEBUG 수집을 안심하고 끌 수 있습니다. 이것 하나로 대개 가장 큰 절감이 나옵니다.</p>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="chap" id="c5">
+  <div class="chap-no">CHAPTER 05</div>
+  <h2>트레이스 — 샘플링 설계</h2>
+  <p class="chap-lead">트레이스는 "전부 저장"이 거의 항상 낭비입니다. 문제는 <b>무엇을 남길지 어떻게 정하느냐</b>입니다.</p>
+
+  <h3>두 가지 방식</h3>
+  <ul>
+    <li><b>헤드 샘플링</b> — 요청 시작 시점에 확률로 결정. 간단하고 부하가 적지만, 에러 보존을 보장하지 못합니다.</li>
+    <li><b>테일 샘플링</b> — 트레이스가 끝난 뒤 내용을 보고 결정. 에러·느린 요청·희귀 경로를 100% 남길 수 있습니다.
+      대신 게이트웨이가 트레이스를 모아 두어야 하므로 메모리와 설계 부담이 있습니다.</li>
+  </ul>
+  <p>실무 기본값은 1편에서 본 조합입니다. <b>에러·p95 초과·희귀 경로는 전부 남기고, 나머지는 5~15%</b>.
+  여기에 더해 다음 규칙들이 비용과 가치의 균형을 크게 개선합니다.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>규칙</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>서비스별 차등 샘플링</td><td>핵심 결제 경로는 높게, 내부 배치는 낮게. 균일 샘플링은 항상 어딘가에서 과하거나 부족합니다</td></tr>
+      <tr><td>저트래픽 서비스는 높게</td><td>초당 2건인 서비스를 10% 샘플링하면 사실상 아무것도 안 남습니다</td></tr>
+      <tr><td>스팬 수 상한</td><td>루프에서 스팬 수천 개를 만드는 코드가 반드시 있습니다. 트레이스당 상한을 두세요</td></tr>
+      <tr><td>스팬 속성 정리</td><td>큰 페이로드나 SQL 전문을 속성에 넣으면 스팬 크기가 폭증합니다</td></tr>
+      <tr><td>스팬 메트릭 생성</td><td>샘플링으로 버려도 통계는 남기기 위해, 스팬에서 RED 메트릭을 파생시켜 저장합니다</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">샘플링해도 통계는 지키기</span>
+    <p>트레이스를 1%만 남겨도, 파이프라인에서 <b>모든 스팬으로부터 요청 수·에러율·지연 분포를 먼저 계산</b>해 메트릭으로 저장하면
+    대시보드와 SLO는 정확도를 유지합니다. 즉 "정확한 통계 + 대표 샘플"이 됩니다.
+    이 구성을 모르면 샘플링을 올릴 때마다 지표가 흔들려서 결국 샘플링을 못 하게 됩니다.</p>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="chap" id="c6">
+  <div class="chap-no">CHAPTER 06</div>
+  <h2>파이프라인이 제어 평면이다</h2>
+  <p class="chap-lead">애플리케이션 코드를 고치지 않고도 수집량·형식·라우팅을 바꿀 수 있는 유일한 지점입니다.</p>
+
+  <h3>파이프라인에서 하는 일</h3>
+  <ol>
+    <li><b>정규화</b> — 속성 이름 통일(1편 시맨틱 컨벤션). 상관분석과 에이전트 품질의 전제</li>
+    <li><b>감축</b> — 필터, 샘플링, 중복 접기, 속성 제거</li>
+    <li><b>변환</b> — 로그→메트릭, 스팬→메트릭, 경로 정규화, 마스킹</li>
+    <li><b>라우팅</b> — 신호·테넌트·중요도별로 다른 백엔드·티어로 분배</li>
+    <li><b>보호</b> — 카디널리티 한도, 메모리 제한, 백프레셔</li>
+  </ol>
+
+  <div class="codewrap">
+    <div class="cap">중요도에 따라 다른 저장소로 라우팅</div>
+<pre><code><span class="k">connectors</span>:
+  <span class="k">routing</span>:
+    <span class="k">default_pipelines</span>: [<span class="s">logs/cold</span>]
+    <span class="k">table</span>:
+      <span class="c"># 에러·보안 로그는 핫 티어(빠른 검색, 짧은 보존)</span>
+      - <span class="k">context</span>: <span class="s">log</span>
+        <span class="k">condition</span>: <span class="s">'severity_number &gt;= SEVERITY_NUMBER_ERROR'</span>
+        <span class="k">pipelines</span>: [<span class="s">logs/hot</span>]
+      - <span class="k">context</span>: <span class="s">log</span>
+        <span class="k">condition</span>: <span class="s">'attributes["category"] == "audit"'</span>
+        <span class="k">pipelines</span>: [<span class="s">logs/audit</span>]     <span class="c"># 장기 보존·불변 저장(5편)</span>
+
+<span class="k">service</span>:
+  <span class="k">pipelines</span>:
+    <span class="k">logs/hot</span>:   { <span class="k">exporters</span>: [<span class="s">loki</span>] }
+    <span class="k">logs/cold</span>:  { <span class="k">exporters</span>: [<span class="s">s3/parquet</span>] }      <span class="c"># 객체 스토리지에 컬럼형으로</span>
+    <span class="k">logs/audit</span>: { <span class="k">exporters</span>: [<span class="s">s3/audit</span>] }
+</code></pre>
+  </div>
+
+  <h3>플릿 관리</h3>
+  <p>컬렉터가 수십·수백 대가 되면 설정 배포 자체가 문제가 됩니다.
+  OpenTelemetry 진영에는 에이전트 원격 관리 프로토콜(OpAMP)이 있어, 중앙에서 설정을 배포하고 상태를 수집할 수 있습니다.
+  4편의 카나리 테넌트 원칙을 여기에도 적용하세요. <b>수집 설정 변경은 전 고객사 동시 배포 금지</b>입니다.</p>
+
+  <div class="note violet">
+    <span class="nt">듀얼 라이트로 안전하게 바꾸기</span>
+    <p>백엔드 교체나 대규모 감축을 할 때는 <b>같은 데이터를 두 곳으로 동시에 보내는 기간</b>을 두세요.
+    한 달간 새 쪽으로 실제 장애를 조사해 보고, 질의 성능과 데이터 충분성을 확인한 뒤 전환합니다.
+    파이프라인이 있으면 이 작업이 설정 변경 한 번으로 끝납니다. 이것이 파이프라인을 두는 가장 큰 이유입니다.</p>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="chap" id="c7">
+  <div class="chap-no">CHAPTER 07</div>
+  <h2>저장 아키텍처 — 컬럼형과 티어링</h2>
+  <p class="chap-lead">같은 데이터를 어떻게 저장하느냐에 따라 비용이 한 자릿수 배 차이가 납니다.</p>
+
+  <h3>왜 컬럼형인가</h3>
+  <p>로그·트레이스는 사실상 <b>넓은 테이블의 append-only 데이터</b>입니다. 컬럼 단위로 저장하면
+  같은 종류의 값이 모여 있어 압축률이 크게 올라가고, 질의 시 필요한 컬럼만 읽습니다.
+  ClickHouse나 Parquet 기반 구성에서 <b>원본 대비 한 자릿수 배 이상의 압축</b>이 보고되며,
+  고카디널리티 필드도 인덱스 폭발 없이 다룰 수 있습니다.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>구성</th><th>강점</th><th>부담</th></tr></thead>
+    <tbody>
+      <tr><td>관리형 SaaS</td><td>운영 부담 0, 즉시 사용</td><td>수집량·보존 과금이 규모에 따라 급증</td></tr>
+      <tr><td>Loki·Mimir·Tempo 자체 운영</td><td>OTel 친화적, 객체 스토리지 기반으로 저렴</td><td>운영 인력 필요, 튜닝 지식 요구</td></tr>
+      <tr><td>ClickHouse 계열</td><td>고카디널리티에 강하고 SQL로 신호 간 조인 가능, 압축률 우수</td><td>스키마·머지·티어링 설계를 직접 해야 함</td></tr>
+      <tr><td>객체 스토리지 + Parquet + 쿼리 엔진</td><td>저장 단가 최저. 대용량 아카이브에 적합</td><td>질의 지연이 큼. 실시간 조사에는 부적합</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>2026년에는 대형 조직이 벤더를 벗어나 <b>Fluent Bit·객체 스토리지·Parquet·쿼리 엔진</b> 조합으로
+  자체 로그 플랫폼을 구축한 사례들이 공유되고 있습니다. 다만 이것은 <b>전담 인력이 있는 규모</b>에서 성립하는 선택입니다.</p>
+
+  <h3>자체 구축의 손익분기</h3>
+  <div class="tool" id="bep">
+    <h4>SaaS vs 자체 운영 비교</h4>
+    <p class="hint">대략적인 감을 잡는 용도입니다. 실제 판단에는 마이그레이션 비용과 위험도 함께 넣으세요.</p>
+    <div class="field"><label for="b1">월 수집량 (TB)</label><input id="b1" type="number" value="20" min="1"></div>
+    <div class="field"><label for="b2">SaaS 단가 (만원/TB)</label><input id="b2" type="number" value="150" min="1"></div>
+    <div class="field"><label for="b3">자체 인프라 비용 (만원/월)</label><input id="b3" type="number" value="400" min="0" step="50"></div>
+    <div class="field"><label for="b4">운영 투입 (인월 비율 %)</label><input id="b4" type="number" value="30" min="0" max="200"></div>
+    <div class="field"><label for="b5">엔지니어 인건비 (만원/월)</label><input id="b5" type="number" value="800" min="0" step="50"></div>
+    <div class="out">
+      <div><div class="v" id="bo1">–</div><div class="l">SaaS 월 비용</div></div>
+      <div><div class="v" id="bo2">–</div><div class="l">자체 월 비용</div></div>
+      <div><div class="v" id="bo3">–</div><div class="l">손익분기 수집량</div></div>
+    </div>
+    <div class="result show" id="bverdict" style="margin-top:14px"></div>
+  </div>
+
+  <h3>티어링 설계</h3>
+  <p>데이터의 가치는 시간에 따라 급격히 떨어집니다. 이 곡선에 맞춰 저장 위치를 바꾸는 것이 티어링입니다.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>티어</th><th>기간</th><th>용도</th><th>저장</th></tr></thead>
+    <tbody>
+      <tr><td>핫</td><td>3~7일</td><td>실시간 장애 조사</td><td>빠른 디스크·인덱스</td></tr>
+      <tr><td>웜</td><td>8~30일</td><td>주간 회고, 추세 비교</td><td>객체 스토리지 + 캐시</td></tr>
+      <tr><td>콜드</td><td>1~13개월</td><td>용량 계획, 계절성 비교</td><td>다운샘플링된 메트릭, 압축 아카이브</td></tr>
+      <tr><td>규정 보관</td><td>계약·법령 기준</td><td>감사 대응</td><td>불변 객체 스토리지(5편 감사 로그)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note amber">
+    <span class="nt">메트릭 다운샘플링</span>
+    <p>15초 해상도를 13개월 보관할 이유는 거의 없습니다. 레코딩 룰로 5분 해상도 집계본을 미리 만들어 두고,
+    원본은 15일만 유지하세요. 용량 계획과 전년 대비 비교에는 집계본으로 충분하며, 저장량은 수십 분의 1이 됩니다.
+    <b>대시보드도 장기 구간에서는 집계본을 보게</b> 바꿔야 효과가 납니다.</p>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="chap" id="c8">
+  <div class="chap-no">CHAPTER 08</div>
+  <h2>비용 거버넌스 — 다시 늘어나지 않게</h2>
+  <p class="chap-lead">절감 프로젝트의 진짜 실패는 줄이지 못하는 것이 아니라, 6개월 뒤 원래대로 돌아가는 것입니다.</p>
+
+  <h3>비용을 관측 대상으로</h3>
+  <ul>
+    <li><b>수집량·시계열 수를 지표로</b> — 서비스별·테넌트별·팀별로 일 단위 추적. 4편의 테넌트 집계와 같은 구조입니다</li>
+    <li><b>증가율 알림</b> — "지난주 대비 20% 증가"에 알림. 절대값보다 변화가 신호입니다</li>
+    <li><b>신규 시계열 급증 탐지</b> — 새 배포가 카디널리티를 터뜨리는 것을 당일에 잡습니다</li>
+    <li><b>예산과 실적</b> — 월 예산 대비 소진율을 대시보드에 두고, 초과 예상 시 조기 경보</li>
+  </ul>
+
+  <div class="codewrap">
+    <div class="cap">카디널리티 급증 감지 규칙</div>
+<pre><code><span class="k">groups</span>:
+- <span class="k">name</span>: <span class="s">telemetry-cost</span>
+  <span class="k">rules</span>:
+  <span class="c"># 특정 메트릭의 시계열 수가 하루 만에 3배가 되면 배포를 의심한다</span>
+  - <span class="k">alert</span>: <span class="s">CardinalitySpike</span>
+    <span class="k">expr</span>: |
+      sum by (job, __name__) (scrape_series_added)
+        &gt; 3 * sum by (job, __name__) (scrape_series_added offset 1d)
+    <span class="k">for</span>: <span class="s">30m</span>
+    <span class="k">labels</span>: { <span class="k">severity</span>: <span class="s">warning</span>, <span class="k">category</span>: <span class="s">cost</span> }
+    <span class="k">annotations</span>:
+      <span class="k">summary</span>: <span class="s">"시계열 급증 — 최근 배포의 라벨 변경 여부 확인"</span>
+
+  <span class="c"># 수집량 예산 소진 속도(6편 번레이트와 같은 발상)</span>
+  - <span class="k">alert</span>: <span class="s">IngestBudgetBurn</span>
+    <span class="k">expr</span>: <span class="s">sum(rate(otelcol_receiver_accepted_log_records[6h])) * 86400 &gt; daily_log_budget * 1.3</span>
+    <span class="k">for</span>: <span class="s">2h</span>
+</code></pre>
+  </div>
+
+  <h3>조직 규칙</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>규칙</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td>신규 메트릭 리뷰</td><td>새 메트릭·라벨 추가는 PR에서 카디널리티 영향을 명시하게 합니다(코드 리뷰 체크리스트 한 줄)</td></tr>
+      <tr><td>분기 정리</td><td>미사용 메트릭·대시보드·알림 규칙을 분기마다 제거. 지표는 계속 추가되기만 하고 지워지지 않습니다</td></tr>
+      <tr><td>기본값 제한</td><td>새 서비스 온보딩 시 표준 번들(4편)에 수집 한도와 보존 기본값을 포함시킵니다</td></tr>
+      <tr><td>비용 가시화</td><td>팀·고객사별 사용량을 공개합니다. 보이면 줄어듭니다(쇼백의 효과)</td></tr>
+      <tr><td>예외에 만료일</td><td>"임시로 보존 90일" 같은 예외는 반드시 종료일과 함께</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">MSP라면 그대로 상품이 됩니다</span>
+    <p>4편의 테넌트별 집계와 결합하면 "고객사별 관측 비용 리포트"가 나옵니다.
+    고객사 입장에서는 자신들이 무엇을 얼마나 쓰는지 처음 보게 되는 경우가 많고,
+    <b>절감 제안 자체가 MSP의 부가가치</b>가 됩니다. 계약 갱신 근거로도 유용합니다.</p>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="chap" id="c9">
+  <div class="chap-no">CHAPTER 09</div>
+  <h2>90일 절감 프로젝트</h2>
+  <p class="chap-lead">가시성을 잃지 않으면서 순서대로 진행하는 방법입니다.</p>
+
+  <h3>0~30일 · 측정과 무손실 절감</h3>
+  <ul>
+    <li>비용 구조 파악 — 신호별·서비스별 수집량과 시계열 수를 집계</li>
+    <li>미사용 메트릭 목록화(2장) 후 30일 폐기 예고</li>
+    <li>헬스체크·정적 자원 접근 로그 필터링 — 위험이 거의 없고 효과가 큽니다</li>
+    <li>수집량·시계열 수 대시보드와 증가율 알림 구축</li>
+  </ul>
+
+  <h3>31~60일 · 구조 개선</h3>
+  <ul>
+    <li>고위험 라벨 제거와 URL 정규화(3장), 파이프라인에 카디널리티 한도 적용</li>
+    <li>운영 DEBUG 로그 중단 — 단, <b>동적 레벨 상향 수단을 먼저</b> 구축</li>
+    <li>테일 샘플링 도입 또는 정교화, 스팬 메트릭 파생 설정</li>
+    <li>히스토그램 버킷 정리, 레코딩 룰로 다운샘플링 집계본 생성</li>
+  </ul>
+
+  <h3>61~90일 · 저장과 보존</h3>
+  <ul>
+    <li>보존 티어 적용 — 핫·웜·콜드 분리, 대시보드를 장기 구간에서 집계본 사용으로 전환</li>
+    <li>필요 시 콜드 티어를 객체 스토리지·컬럼형으로 이전(듀얼 라이트 검증 후)</li>
+    <li>분기 정리 루틴과 신규 메트릭 리뷰 규칙을 프로세스로 고정</li>
+    <li>절감 결과 보고 — 절감액과 함께 <b>가시성 지표</b>(장애 조사 시 데이터 부족 사례 수)를 같이 보고</li>
+  </ul>
+
+  <div class="note rose">
+    <span class="nt">반드시 함께 측정할 것</span>
+    <p>절감만 보고하면 다음 장애에서 "데이터가 없다"는 말이 나왔을 때 프로젝트 전체가 부정됩니다.
+    <b>"조사 중 데이터 부족으로 막힌 횟수"</b>를 사건 기록에 필드로 추가하고 함께 추적하세요.
+    이 숫자가 늘지 않았다는 근거가 있어야 절감이 유지됩니다.</p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="chap" id="c10">
+  <div class="chap-no">CHAPTER 10</div>
+  <h2>앞으로 주목할 것</h2>
+  <p class="chap-lead">2026년 시점에서 논의되고 있는 흐름입니다. 당장 도입할 것과 지켜볼 것을 구분해 두세요.</p>
+
+  <ul>
+    <li><b>전송 포맷 효율화</b> — SDK에서 백엔드까지 거치는 형식 변환이 의미 없는 CPU를 소모한다는 문제 제기와,
+      Apache Arrow 기반 컬럼형 전송 프로토콜(OTAP) 논의가 있습니다. 초기 테스트에서 페이로드 축소가 보고되지만
+      아직 프로덕션 단계는 아닙니다. <b>지켜볼 것</b>에 해당합니다.</li>
+    <li><b>중앙 집중 샘플링 결정</b> — 가벼운 메타데이터만 먼저 수집해 중앙에서 샘플링을 결정하고,
+      선택된 것만 전체 데이터를 가져오는 방식이 제안되고 있습니다. 게이트웨이 메모리 부담이 큰 테일 샘플링의 대안이 될 수 있습니다.</li>
+    <li><b>AI 텔레메트리 증가</b> — 3편의 LLM 옵저버빌리티 데이터가 새로운 비용 축으로 등장합니다.
+      프롬프트·응답 전문을 저장할지 여부는 비용과 보안(5편) 양쪽에서 결정해야 합니다.</li>
+    <li><b>프로파일링 신호</b> — 연속 프로파일링이 네 번째 신호로 자리를 잡아가고 있습니다.
+      가치가 크지만 수집량도 크므로, 도입 시 샘플링 설계를 처음부터 함께 하세요.</li>
+  </ul>
+
+  <div class="note violet">
+    <span class="nt">새 신호를 들일 때의 규칙</span>
+    <p>어떤 신호든 도입 전에 세 가지를 정하세요. <b>누가 언제 볼 것인가, 보존은 얼마인가, 비용 상한은 얼마인가.</b>
+    이 셋이 없으면 새 신호는 예외 없이 "켜두고 아무도 안 보는 비용"이 됩니다.</p>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="chap" id="c11">
+  <div class="chap-no">CHAPTER 11</div>
+  <h2>정리 — 안티패턴과 점검</h2>
+
+  <h3>안티패턴 8선</h3>
+  <ol>
+    <li><b>일단 다 모으기</b> — 3개월 뒤 청구서와 노이즈로 돌아옵니다.</li>
+    <li><b>고유 식별자를 메트릭 라벨로</b> — 시계열 폭발의 1순위 원인입니다.</li>
+    <li><b>측정 없이 감축</b> — 무엇이 쓰이는지 모른 채 줄이면 필요한 것부터 사라집니다.</li>
+    <li><b>DEBUG 상시 수집</b> — 동적 레벨 상향 수단이 있으면 불필요합니다.</li>
+    <li><b>균일 샘플링</b> — 저트래픽 서비스는 사실상 관측이 사라집니다.</li>
+    <li><b>샘플링 후 통계 붕괴</b> — 스팬 메트릭을 파생시키지 않아 지표가 흔들립니다.</li>
+    <li><b>원본 해상도 장기 보존</b> — 다운샘플링만 해도 저장량이 수십 분의 1이 됩니다.</li>
+    <li><b>절감 후 방치</b> — 거버넌스가 없으면 6개월 뒤 원상 복구됩니다.</li>
+  </ol>
+
+  <div class="tool">
+    <h4>비용·데이터 점검 체크리스트</h4>
+    <ul class="check" id="cl">
+      <li><label><input type="checkbox" data-k="c1"><span>신호별·서비스별 수집량과 시계열 수를 대시보드로 본다</span></label></li>
+      <li><label><input type="checkbox" data-k="c2"><span>과금 모델(수집량·시계열·보존)을 정확히 알고 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c3"><span>미사용 메트릭 목록을 뽑아본 적이 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c4"><span>폐기 전 유예 공지 절차가 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c5"><span>고유 식별자가 메트릭 라벨에 들어가지 않는다</span></label></li>
+      <li><label><input type="checkbox" data-k="c6"><span>URL 경로가 정규화되어 수집된다</span></label></li>
+      <li><label><input type="checkbox" data-k="c7"><span>파이프라인에 카디널리티 한도가 설정됐다</span></label></li>
+      <li><label><input type="checkbox" data-k="c8"><span>히스토그램 버킷 수를 검토한 적이 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c9"><span>헬스체크·정적 자원 로그가 필터링된다</span></label></li>
+      <li><label><input type="checkbox" data-k="c10"><span>동적 로그 레벨 상향 수단이 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c11"><span>테일 샘플링으로 에러·느린 요청은 100% 보존한다</span></label></li>
+      <li><label><input type="checkbox" data-k="c12"><span>스팬에서 RED 메트릭을 파생해 저장한다</span></label></li>
+      <li><label><input type="checkbox" data-k="c13"><span>보존 티어(핫·웜·콜드)가 정의되어 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c14"><span>장기 구간 대시보드가 다운샘플링 집계본을 쓴다</span></label></li>
+      <li><label><input type="checkbox" data-k="c15"><span>수집량 증가율·카디널리티 급증 알림이 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="c16"><span>팀·고객사별 사용량이 가시화된다</span></label></li>
+      <li><label><input type="checkbox" data-k="c17"><span>분기마다 미사용 지표·대시보드를 정리한다</span></label></li>
+      <li><label><input type="checkbox" data-k="c18"><span>데이터 부족으로 조사가 막힌 횟수를 추적한다</span></label></li>
+    </ul>
+  </div>
+
+  <div class="tool" id="quiz">
+    <h4>확인 문제</h4>
+    <p class="hint">7편 내용 기준 5문항입니다.</p>
+    <div id="qwrap"></div>
+    <div class="result" id="qres"></div>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">이 편의 한 문장</span>
+    <p><span class="key">관측 데이터는 자산이 아니라 재고입니다.</span>
+    쌓아두는 것 자체에는 가치가 없고, 조회될 때만 가치가 생깁니다.
+    무엇이 조회되는지 측정하고, 조회되지 않는 것을 줄이고, 다시 늘어나지 않게 관리하는 것.
+    이것이 이 편 전체의 요약입니다.</p>
+  </div>
+</section>
+
+<footer>
+  <p>AIOps 시스템 구현 가이드 7편 · 2026년 9월 기준. 단가와 도구 기능은 빠르게 바뀌므로,
+  계산기의 수치는 비율 감각을 잡는 용도로만 쓰고 실제 판단에는 자사 청구서와 벤치마크를 사용하세요.</p>
+  <p>참고: <a href="https://opentelemetry.io/docs/collector/configuration/" target="_blank" rel="noopener">OTel Collector 설정</a> ·
+  <a href="https://opentelemetry.io/docs/collector/transforming-telemetry/" target="_blank" rel="noopener">텔레메트리 변환</a> ·
+  <a href="https://prometheus.io/docs/practices/naming/" target="_blank" rel="noopener">메트릭 명명 규약</a> ·
+  <a href="https://grafana.com/docs/loki/latest/operations/storage/retention/" target="_blank" rel="noopener">Loki 보존 설정</a></p>
+</footer>
+
+</main>
+
+<button class="btn-ghost upbtn" id="up">맨 위로</button>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(s,r){return (r||document).querySelector(s);};
+  var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+  function store(k,v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){ return null; } }
+
+  var root=document.documentElement, tb=$("#themeBtn");
+  function setTheme(t){ root.setAttribute("data-theme",t); tb.textContent=(t==="dark"?"라이트":"다크"); store("aiops-theme",t); }
+  setTheme(store("aiops-theme")==="light"?"light":"dark");
+  tb.addEventListener("click",function(){ setTheme(root.getAttribute("data-theme")==="dark"?"light":"dark"); });
+
+  var toc=$("#toc"), list=$("#tocList");
+  $$(".chap").forEach(function(sec){
+    var h=$("h2",sec); if(!h) return;
+    var li=document.createElement("li"), a=document.createElement("a");
+    a.href="#"+sec.id; a.textContent=h.textContent; li.appendChild(a); list.appendChild(li);
+  });
+  function closeToc(){ toc.classList.remove("open"); $("#tocBtn").setAttribute("aria-expanded","false"); document.body.style.overflow=""; }
+  $("#tocBtn").addEventListener("click",function(){ toc.classList.add("open"); this.setAttribute("aria-expanded","true"); document.body.style.overflow="hidden"; });
+  $("#tocClose").addEventListener("click",closeToc);
+  list.addEventListener("click",function(e){ if(e.target.tagName==="A") closeToc(); });
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeToc(); });
+
+  var bar=$("#bar"), up=$("#up"), tick=false;
+  function onScroll(){
+    var h=document.documentElement.scrollHeight-window.innerHeight;
+    bar.style.width=Math.min(100,Math.max(0,h>0?(window.scrollY/h)*100:0))+"%";
+    up.classList.toggle("show",window.scrollY>1200); tick=false;
+  }
+  window.addEventListener("scroll",function(){ if(!tick){tick=true;requestAnimationFrame(onScroll);} },{passive:true});
+  onScroll();
+  up.addEventListener("click",function(){ window.scrollTo({top:0,behavior:"smooth"}); });
+
+  $$(".codewrap").forEach(function(w){
+    var b=document.createElement("button"); b.className="copy"; b.type="button"; b.textContent="복사";
+    b.addEventListener("click",function(){
+      var txt=$("pre",w).innerText;
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(function(){ b.textContent="복사됨"; setTimeout(function(){b.textContent="복사";},1600); })
+        .catch(function(){ b.textContent="복사 실패"; setTimeout(function(){b.textContent="복사";},1600); });
+      } else { b.textContent="복사 불가"; setTimeout(function(){b.textContent="복사";},1600); }
+    });
+    w.appendChild(b);
+  });
+
+  $$("table").forEach(function(t){
+    var hs=$$("thead th",t).map(function(th){return th.textContent.trim();});
+    if(!hs.length) return;
+    $$("tbody tr",t).forEach(function(tr){
+      Array.prototype.forEach.call(tr.children,function(td,i){
+        if(!td.hasAttribute("data-label")) td.setAttribute("data-label", hs[i]||"");
+      });
+    });
+  });
+
+  /* ── 비용 시뮬레이터 ── */
+  // 상대 단가(비율 감각용): 시계열 천 개, 로그 GB/일, 스팬 백만/일 각각의 월 비용 가중치
+  var UM=0.9, UL=1.1, UT=0.6;
+  function fmt(n){ return Math.round(n).toLocaleString(); }
+  function bars(el, m, l, t){
+    var tot=Math.max(m+l+t,1);
+    el.innerHTML='<i class="m" style="width:'+(m/tot*100)+'%"></i>'+
+                 '<i class="l" style="width:'+(l/tot*100)+'%"></i>'+
+                 '<i class="t" style="width:'+(t/tot*100)+'%"></i>';
+  }
+  function costCalc(){
+    var ts=+$("#a1").value||0, lg=+$("#a2").value||0, sp=+$("#a3").value||0;
+    var cut=+$("#a4").value/100, lf=+$("#a5").value/100, tsamp=+$("#a6").value/100, cold=+$("#a7").value/100;
+    $("#av4").textContent=Math.round(cut*100)+"%";
+    $("#av5").textContent=Math.round(lf*100)+"%";
+    $("#av6").textContent=Math.round(tsamp*100)+"%";
+    $("#av7").textContent=Math.round(cold*100)+"%";
+
+    var m0=ts*UM, l0=lg*UL, t0=sp*UT, tot0=m0+l0+t0;
+    // 콜드 티어 이전분은 단가의 20%만 든다고 가정
+    var coldFactor=1-cold*0.8;
+    var m1=m0*(1-cut)*coldFactor, l1=l0*(1-lf)*coldFactor, t1=t0*(1-tsamp)*coldFactor;
+    var tot1=m1+l1+t1;
+
+    $("#c0").textContent=fmt(tot0)+" 단위";
+    $("#c1v").textContent=fmt(tot1)+" 단위 ("+Math.round((1-tot1/Math.max(tot0,1))*100)+"% 절감)";
+    bars($("#bar0"), m0,l0,t0); bars($("#bar1"), m1,l1,t1);
+
+    var big = (m0>=l0 && m0>=t0) ? "메트릭(카디널리티)" : (l0>=t0 ? "로그" : "트레이스");
+    var v=$("#cverdict");
+    var save=Math.round((1-tot1/Math.max(tot0,1))*100);
+    v.innerHTML="현재 비용의 최대 항목은 <b>"+big+"</b>입니다. "+
+      (save===0 ? "레버를 움직여 어느 쪽이 효과가 큰지 확인해 보세요."
+       : save>=50 ? "절감폭이 큽니다. 이 정도 감축은 반드시 듀얼 라이트와 가시성 지표 추적을 병행하세요(9장)."
+       : "레버 대부분은 되돌릴 수 있습니다. 위험이 낮은 필터링부터 적용하세요.");
+    v.classList.add("show");
+  }
+  ["a1","a2","a3","a4","a5","a6","a7"].forEach(function(id){ var e=$("#"+id); if(e) e.addEventListener("input",costCalc); });
+  costCalc();
+
+  /* ── 카디널리티 계산기 ── */
+  function cardCalc(){
+    var svc=+$("#k1").value||1, ep=+$("#k2").value||1, st=+$("#k3").value||1,
+        pod=+$("#k4").value||1, bk=+$("#k5").value||1;
+    var base=svc*ep*st*pod*bk;
+    var n=base;
+    if($("#k6").checked) n*=30;
+    if($("#k7").checked) n*=50000;   // 고유 식별자: 사실상 무한
+    $("#ko1").textContent = n>=1e9 ? (n/1e9).toFixed(1)+"B" : n>=1e6 ? (n/1e6).toFixed(1)+"M" : fmt(n);
+    $("#ko2").textContent = (n/base).toFixed(0)+"x";
+    var v=$("#kverdict");
+    if($("#k7").checked) v.innerHTML="<b>즉시 장애 수준</b> — 고유 식별자 라벨 하나로 시계열이 수억 개가 됩니다. 이런 값은 로그·트레이스에 담고 메트릭 라벨에서는 반드시 제외하세요.";
+    else if(n>5e6) v.innerHTML="<b>위험</b> — 수백만 시계열은 저장소 메모리와 질의 성능에 직접 타격을 줍니다. 파드 라벨을 디플로이먼트로 접거나 버킷 수를 줄이세요.";
+    else if(n>1e6) v.innerHTML="<b>주의</b> — 관리 가능한 상한 근처입니다. 라벨을 하나 더 추가하기 전에 영향을 계산해 보세요.";
+    else v.innerHTML="<b>양호</b> — 다만 라벨 추가는 덧셈이 아니라 곱셈이라는 점을 기억하세요.";
+  }
+  ["k1","k2","k3","k4","k5"].forEach(function(id){ var e=$("#"+id); if(e) e.addEventListener("input",cardCalc); });
+  ["k6","k7"].forEach(function(id){ var e=$("#"+id); if(e) e.addEventListener("change",cardCalc); });
+  cardCalc();
+
+  /* ── 손익분기 ── */
+  function bep(){
+    var tb_=+$("#b1").value||0, price=+$("#b2").value||0, infra=+$("#b3").value||0,
+        ratio=+$("#b4").value/100, wage=+$("#b5").value||0;
+    var saas=tb_*price, own=infra+ratio*wage;
+    $("#bo1").textContent=fmt(saas)+"만원";
+    $("#bo2").textContent=fmt(own)+"만원";
+    var bepTb = price>0 ? own/price : 0;
+    $("#bo3").textContent=bepTb.toFixed(1)+"TB";
+    var v=$("#bverdict");
+    if(saas>own*1.5) v.innerHTML="<b>자체 운영이 유리한 구간</b> — 다만 마이그레이션 비용, 장애 시 책임, 인력 이탈 위험을 함께 계산하세요. 듀얼 라이트로 한 달 검증 후 판단하는 것이 안전합니다.";
+    else if(own>saas*1.5) v.innerHTML="<b>SaaS가 유리한 구간</b> — 자체 구축보다 카디널리티·보존 최적화로 단가를 낮추는 편이 효율적입니다.";
+    else v.innerHTML="<b>비슷한 구간</b> — 비용만으로는 결정할 수 없습니다. 데이터 주권 요구, 고객사 규정, 팀의 운영 역량으로 판단하세요.";
+  }
+  ["b1","b2","b3","b4","b5"].forEach(function(id){ var e=$("#"+id); if(e) e.addEventListener("input",bep); });
+  bep();
+
+  $$("#cl input").forEach(function(box){
+    var k="aiops7-cl-"+box.dataset.k;
+    if(store(k)==="1") box.checked=true;
+    box.addEventListener("change",function(){ store(k, box.checked?"1":"0"); });
+  });
+
+  var QZ=[
+    {q:"1. 메트릭 비용을 결정하는 주된 요인은?",
+     o:["데이터 포인트의 바이트 크기","활성 시계열 수(카디널리티)","스크레이프 주기","대시보드 개수"],
+     a:1, e:"라벨 값의 곱으로 시계열이 늘어납니다. 라벨 하나 추가는 덧셈이 아니라 곱셈입니다."},
+    {q:"2. 절감 프로젝트의 올바른 첫 단계는?",
+     o:["보존 기간을 절반으로 줄인다","무엇이 실제로 조회되는지 측정한다","샘플링률을 1%로 낮춘다","DEBUG 로그를 끈다"],
+     a:1, e:"측정 없이 줄이면 필요한 것부터 사라집니다. 대시보드·알림·질의 로그와 수집 목록을 대조하는 것이 출발점입니다."},
+    {q:"3. 운영 DEBUG 로그를 끄기 전에 먼저 만들어야 하는 것은?",
+     o:["더 큰 저장소","동적 로그 레벨 상향 수단","새 대시보드","알림 규칙"],
+     a:1, e:"필요할 때 몇 분간 레벨을 올릴 수 있으면 상시 DEBUG 수집이 필요 없어집니다. 대개 가장 큰 절감이 여기서 나옵니다."},
+    {q:"4. 트레이스를 강하게 샘플링해도 지표 정확도를 지키는 방법은?",
+     o:["샘플링을 포기한다","모든 스팬에서 RED 메트릭을 먼저 파생해 저장한다","대시보드를 줄인다","보존 기간을 늘린다"],
+     a:1, e:"정확한 통계는 메트릭으로, 상세 조사는 대표 샘플로 나누면 됩니다. 이 구성이 없으면 샘플링을 올릴 때마다 지표가 흔들립니다."},
+    {q:"5. 절감 결과와 함께 반드시 보고해야 하는 지표는?",
+     o:["대시보드 수","데이터 부족으로 조사가 막힌 횟수","수집 에이전트 버전","쿼리 응답 시간"],
+     a:1, e:"가시성이 훼손되지 않았다는 근거가 있어야 절감이 유지됩니다. 없으면 다음 장애 한 번으로 프로젝트 전체가 부정됩니다."}
+  ];
+  var qwrap=$("#qwrap"), qres=$("#qres"), done={};
+  QZ.forEach(function(item,qi){
+    var d=document.createElement("div"); d.className="q";
+    var p=document.createElement("p"); p.textContent=item.q; d.appendChild(p);
+    var o=document.createElement("div"); o.className="opts";
+    item.o.forEach(function(txt,oi){
+      var b=document.createElement("button"); b.className="opt"; b.type="button"; b.textContent=txt;
+      b.setAttribute("aria-pressed","false");
+      b.addEventListener("click",function(){
+        if(done[qi]!==undefined) return;
+        done[qi]=(oi===item.a);
+        $$(".opt",o).forEach(function(x,xi){ if(xi===item.a) x.setAttribute("aria-pressed","true"); });
+        if(oi!==item.a){ b.classList.add("wrong"); b.setAttribute("aria-pressed","true"); }
+        var ex=document.createElement("div"); ex.className="result show"; ex.style.marginTop="10px";
+        ex.innerHTML=(oi===item.a?"<b>정답</b> — ":"<b>오답</b> — ")+item.e;
+        d.appendChild(ex); tally();
+      });
+      o.appendChild(b);
+    });
+    d.appendChild(o); qwrap.appendChild(d);
+  });
+  function tally(){
+    var ks=Object.keys(done); if(ks.length<QZ.length) return;
+    var r=0; ks.forEach(function(k){ if(done[k]) r++; });
+    qres.innerHTML="<b>"+r+" / "+QZ.length+" 정답</b> — "+
+      (r>=4?"핵심을 잘 잡았습니다. 9장의 0~30일 항목부터 시작해 보세요."
+           :"틀린 문항의 해당 장을 다시 확인해 보세요.");
+    qres.classList.add("show");
+  }
+})();
+</script>
+</body>
+</html>

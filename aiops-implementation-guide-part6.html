@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AIOps 시스템 구현 가이드 6편 — 예측과 이상탐지 심화</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── 토큰 ───────────────────────────────────────────── */
+:root{
+  --bg:#0E1526; --bg2:#131C31; --surface:#182340; --surface2:#1E2B4D;
+  --line:#2A3A61; --line-soft:#223052;
+  --text:#E7EBF7; --muted:#93A0C2; --dim:#6E7CA3;
+  --teal:#5FD2BE;   /* 1계층: 신호 수집 */
+  --amber:#F0A55C;  /* 3계층: 이벤트·경보 */
+  --violet:#A88BF5; /* 5계층: AI 추론 */
+  --rose:#F27D8B;   /* 위험·안티패턴 */
+  --ok:#6FCF97;
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --radius:14px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EAEEF8; --surface:#FFFFFF; --surface2:#F1F4FB;
+  --line:#D6DDEF; --line-soft:#E4E9F5;
+  --text:#16203A; --muted:#55628A; --dim:#7B87A8;
+  --teal:#0E8F7C; --amber:#B4661A; --violet:#6640D4; --rose:#C43B54; --ok:#1C8B4F;
+  --shadow:0 8px 24px rgba(20,32,64,.10);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:calc(64px + env(safe-area-inset-top,0px))}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-weight:400;font-size:16.5px;line-height:1.78;
+  -webkit-text-size-adjust:100%;
+  overflow-x:hidden;
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+.wrap{max-width:768px;margin:0 auto;padding:0 18px}
+p{margin:0 0 1.05em}
+a{color:var(--teal);text-underline-offset:3px}
+code,pre,kbd{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+hr{border:0;border-top:1px solid var(--line-soft);margin:34px 0}
+
+/* ── 상단 바 ─────────────────────────────────────────── */
+.rail{
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:50;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line-soft);
+}
+.rail-in{display:flex;align-items:center;gap:10px;height:56px}
+.rail-title{font-size:13.5px;font-weight:600;color:var(--muted);flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.btn-ghost{
+  appearance:none;background:var(--surface);border:1px solid var(--line);
+  color:var(--text);border-radius:10px;padding:7px 11px;font:inherit;font-size:13px;
+  cursor:pointer;line-height:1.2;white-space:nowrap;
+}
+.btn-ghost:hover{border-color:var(--teal)}
+.btn-ghost:focus-visible,a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible{
+  outline:2px solid var(--teal);outline-offset:2px}
+#bar{height:2px;background:var(--teal);width:0%;transition:width .12s linear}
+
+/* ── 목차 드로어 ─────────────────────────────────────── */
+#toc{
+  position:fixed;inset:0;z-index:60;background:color-mix(in srgb,var(--bg) 96%,transparent);
+  padding:calc(18px + env(safe-area-inset-top,0px)) 18px calc(24px + env(safe-area-inset-bottom,0px));
+  overflow-y:auto;display:none;
+}
+#toc.open{display:block}
+#toc h3{margin:6px 0 16px;font-size:15px;color:var(--muted);font-weight:600}
+#toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+#toc li{counter-increment:t;border-bottom:1px solid var(--line-soft)}
+#toc a{display:flex;gap:12px;padding:12px 2px;color:var(--text);text-decoration:none;font-size:15px}
+#toc a::before{content:counter(t,decimal-leading-zero);color:var(--dim);
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;padding-top:4px}
+#toc a:hover{color:var(--teal)}
+.toc-close{position:sticky;top:0;float:right}
+
+/* ── 히어로 ──────────────────────────────────────────── */
+.hero{padding:44px 0 30px;border-bottom:1px solid var(--line-soft)}
+.hero-kicker{font-size:12.5px;color:var(--teal);font-family:"IBM Plex Mono",monospace;margin-bottom:14px}
+.hero h1{
+  font-size:clamp(30px,8.6vw,46px);line-height:1.16;letter-spacing:-.035em;
+  font-weight:700;margin:0 0 16px;
+}
+.hero h1 .l2{display:block;color:var(--muted);font-weight:300}
+.hero-sub{color:var(--muted);font-size:16px;max-width:60ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.meta span{font-size:12px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
+
+/* 알림 폭풍 데모 */
+.storm{margin:26px 0 8px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.storm-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.storm-label{font-size:12.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace}
+.chips{display:flex;flex-wrap:wrap;gap:5px;min-height:96px;align-content:flex-start}
+.chip{
+  font-size:10.5px;font-family:"IBM Plex Mono",monospace;padding:3px 7px;border-radius:6px;
+  background:color-mix(in srgb,var(--amber) 16%,transparent);color:var(--amber);
+  border:1px solid color-mix(in srgb,var(--amber) 34%,transparent);
+  transition:opacity .5s ease,transform .5s ease;
+}
+.storm.solved .chip{opacity:0;transform:translateY(-6px) scale(.9)}
+.incident{
+  display:none;border-left:3px solid var(--violet);background:var(--surface2);
+  border-radius:8px;padding:12px 14px;font-size:14px
+}
+.storm.solved .incident{display:block;animation:pop .45s ease}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.incident b{color:var(--violet)}
+.incident .rc{color:var(--muted);font-size:13px;display:block;margin-top:6px}
+.btn{
+  appearance:none;border:0;border-radius:10px;padding:9px 14px;font:inherit;font-size:13.5px;
+  font-weight:600;cursor:pointer;background:var(--teal);color:#08131F;
+}
+:root[data-theme="light"] .btn{color:#fff}
+.btn:hover{filter:brightness(1.08)}
+
+/* ── 챕터 ────────────────────────────────────────────── */
+.chap{padding:46px 0 10px;border-top:1px solid var(--line-soft)}
+.chap:first-of-type{border-top:0}
+.chap-no{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--dim);margin-bottom:8px}
+.chap h2{font-size:clamp(23px,5.6vw,30px);line-height:1.28;letter-spacing:-.025em;
+  font-weight:700;margin:0 0 6px}
+.chap-lead{color:var(--muted);font-size:15.5px;margin:10px 0 24px}
+h3{font-size:19px;line-height:1.4;letter-spacing:-.015em;font-weight:600;margin:34px 0 10px}
+h4{font-size:16px;font-weight:600;margin:24px 0 8px;color:var(--text)}
+ul,ol{margin:0 0 1.1em;padding-left:1.25em}
+li{margin:.3em 0}
+li::marker{color:var(--dim)}
+strong{font-weight:600}
+.key{color:var(--teal);font-weight:600}
+
+/* 카드·박스 */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 17px;margin:18px 0}
+.card h4{margin-top:0}
+.note{border-left:3px solid var(--teal);background:var(--surface2);border-radius:0 10px 10px 0;
+  padding:14px 16px;margin:18px 0;font-size:15px}
+.note.amber{border-color:var(--amber)}
+.note.violet{border-color:var(--violet)}
+.note.rose{border-color:var(--rose)}
+.note.ok{border-color:var(--ok)}
+.note .nt{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px;
+  font-family:"IBM Plex Mono",monospace;color:var(--teal)}
+.note.amber .nt{color:var(--amber)} .note.violet .nt{color:var(--violet)}
+.note.rose .nt{color:var(--rose)} .note.ok .nt{color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+
+/* 용어 */
+details.term{border:1px solid var(--line);border-radius:10px;margin:10px 0;background:var(--surface)}
+details.term summary{cursor:pointer;padding:11px 14px;font-size:14.5px;font-weight:500;list-style:none}
+details.term summary::-webkit-details-marker{display:none}
+details.term summary::before{content:"＋";color:var(--teal);margin-right:9px;font-size:13px}
+details.term[open] summary::before{content:"－"}
+details.term .body{padding:0 14px 14px;font-size:14.5px;color:var(--muted)}
+details.term .body b{color:var(--text)}
+
+/* 코드 */
+.codewrap{position:relative;margin:18px 0}
+.codewrap .cap{font-size:12px;color:var(--dim);font-family:"IBM Plex Mono",monospace;margin-bottom:6px}
+pre{
+  margin:0;background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:14px 14px;overflow-x:auto;font-size:12.6px;line-height:1.7;color:var(--text)
+}
+pre .c{color:var(--dim)}       /* 주석 */
+pre .k{color:var(--violet)}    /* 키 */
+pre .s{color:var(--teal)}      /* 값 */
+pre .n{color:var(--amber)}     /* 숫자·강조 */
+.copy{position:absolute;top:26px;right:8px;font-size:11px;padding:4px 8px;border-radius:7px;
+  background:var(--surface);border:1px solid var(--line);color:var(--muted);cursor:pointer}
+.copy:hover{color:var(--teal);border-color:var(--teal)}
+code.i{background:var(--surface2);border:1px solid var(--line-soft);border-radius:5px;
+  padding:1px 5px;font-size:13px;color:var(--text)}
+
+/* 표 */
+.tablewrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:14px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{background:var(--surface2);font-weight:600;font-size:13px;color:var(--muted);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+
+/* 계층 다이어그램 */
+.layers{margin:22px 0;display:flex;flex-direction:column;gap:8px}
+.layer{
+  display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;
+  background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--lc,var(--teal));
+  border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;font:inherit;color:var(--text);
+  width:100%;
+}
+.layer:hover{border-color:var(--lc,var(--teal))}
+.layer .ix{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--lc,var(--teal));padding-top:3px}
+.layer .tt{display:block;font-weight:600;font-size:15px;line-height:1.45}
+.layer .ds{display:block;font-size:13.5px;color:var(--muted);margin-top:2px;line-height:1.55}
+.layer .more{display:none;margin-top:10px;font-size:14px;color:var(--muted);
+  border-top:1px dashed var(--line);padding-top:10px}
+.layer.open .more{display:block}
+.layer .more ul{margin:6px 0 0;padding-left:1.1em}
+
+/* 자가진단·계산기·퀴즈 공통 */
+.tool{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:17px;margin:22px 0;box-shadow:var(--shadow)}
+.tool h4{margin:0 0 4px;font-size:16px}
+.tool .hint{font-size:13px;color:var(--dim);margin-bottom:14px}
+.q{margin:14px 0}
+.q p{font-size:14.5px;margin:0 0 8px;font-weight:500}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{font-size:13px;padding:7px 11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--muted);cursor:pointer;font-family:inherit}
+.opt[aria-pressed="true"]{border-color:var(--teal);color:var(--teal);
+  background:color-mix(in srgb,var(--teal) 14%,transparent)}
+.opt.wrong[aria-pressed="true"]{border-color:var(--rose);color:var(--rose);
+  background:color-mix(in srgb,var(--rose) 14%,transparent)}
+.result{margin-top:14px;padding:13px 15px;border-radius:10px;background:var(--surface2);
+  border:1px solid var(--line);font-size:14.5px;display:none}
+.result.show{display:block}
+.result b{color:var(--teal)}
+.field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+.field label{font-size:14px;color:var(--muted);flex:1}
+.field input{
+  width:110px;background:var(--bg2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:7px 9px;font:inherit;font-size:14px;text-align:right;
+  font-family:"IBM Plex Mono",monospace
+}
+.out{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.out div{flex:1 1 140px;background:var(--surface2);border:1px solid var(--line);
+  border-radius:10px;padding:12px 13px}
+.out .v{font-size:23px;font-weight:700;letter-spacing:-.02em;color:var(--teal);
+  font-family:"IBM Plex Mono",monospace;line-height:1.2}
+.out .l{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* 체크리스트 */
+.check{list-style:none;padding:0;margin:14px 0}
+.check li{margin:0;border-bottom:1px solid var(--line-soft)}
+.check label{display:flex;gap:11px;align-items:flex-start;padding:10px 2px;cursor:pointer;font-size:14.5px}
+.check input{margin-top:5px;accent-color:var(--teal);width:16px;height:16px;flex:none}
+.check input:checked + span{color:var(--dim);text-decoration:line-through}
+
+/* 시나리오 */
+.flow{list-style:none;padding:0;margin:14px 0;counter-reset:f}
+.flow li{counter-increment:f;position:relative;display:block;
+  padding:9px 0 9px 38px;border-bottom:1px dashed var(--line-soft);font-size:14.5px}
+.flow li::before{content:counter(f);position:absolute;left:0;top:11px;
+  width:22px;height:22px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  color:var(--violet);border:1px solid var(--line);border-radius:6px;
+  display:flex;align-items:center;justify-content:center}
+.flow li:last-child{border-bottom:0}
+
+footer{padding:50px 0 70px;border-top:1px solid var(--line-soft);margin-top:40px;
+  color:var(--dim);font-size:13.5px}
+footer a{color:var(--muted)}
+.slider{margin:14px 0}
+.slider label{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted);margin-bottom:5px}
+.slider label b{color:var(--text);font-family:"IBM Plex Mono",monospace;font-size:13px}
+.slider input[type=range]{width:100%;accent-color:var(--teal)}
+.gauge{height:10px;border-radius:999px;background:var(--bg2);border:1px solid var(--line);overflow:hidden;margin-top:6px}
+.gauge i{display:block;height:100%;background:var(--teal);width:0%;transition:width .15s ease}
+.verdict{margin-top:12px;font-size:14.5px}
+.verdict b{font-family:inherit}
+.path{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;
+  font-family:"IBM Plex Mono",monospace;color:var(--muted);margin:14px 0}
+.path span{border:1px solid var(--line);border-radius:7px;padding:4px 8px;background:var(--surface)}
+.path em{font-style:normal;color:var(--dim)}
+.tree{font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:1.85;color:var(--muted);
+  background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:14px;overflow-x:auto;margin:18px 0}
+.tree b{color:var(--teal);font-weight:400}
+/* 좁은 화면: 표를 카드형으로 쌓아 가독성 확보 */
+@media (max-width:640px){
+  .tablewrap{border:0;overflow-x:visible;background:transparent}
+  table{min-width:0;width:100%;display:block;font-size:14px}
+  thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  tbody{display:block}
+  tbody tr{display:block;border:1px solid var(--line);border-radius:12px;
+    background:var(--surface);margin-bottom:10px;overflow:hidden}
+  tbody tr:last-child{margin-bottom:0}
+  tbody td{display:block;padding:9px 13px;border-bottom:1px solid var(--line-soft)}
+  tbody tr td:last-child{border-bottom:0}
+  tbody td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11.5px;
+    font-weight:600;line-height:1.5;margin-bottom:3px;word-break:keep-all}
+  tbody td:first-child{background:var(--surface2)}
+  tbody td:first-child>*,tbody td:first-child{font-weight:600}
+}
+.pill{display:inline-block;font-size:11.5px;font-family:"IBM Plex Mono",monospace;
+  padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:6px}
+.pill.on{border-color:var(--teal);color:var(--teal)}
+.seg{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.seg button{font-size:13px;padding:7px 11px;border-radius:9px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--muted);cursor:pointer;font-family:inherit}
+.seg button[aria-pressed="true"]{border-color:var(--teal);color:var(--teal);
+  background:color-mix(in srgb,var(--teal) 14%,transparent)}
+.matrix{display:flex;flex-direction:column;gap:8px;margin:18px 0}
+.mrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.mrow .nm{font-size:14.5px}
+.mrow .nm small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.tag{font-size:11.5px;font-family:"IBM Plex Mono",monospace;padding:3px 9px;border-radius:999px;
+  border:1px solid var(--line);white-space:nowrap}
+.tag.block{border-color:var(--ok);color:var(--ok)}
+.tag.pass{border-color:var(--rose);color:var(--rose)}
+.toggles{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.toggles label{display:flex;gap:11px;align-items:flex-start;font-size:14px;cursor:pointer;
+  background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.toggles input{margin-top:4px;accent-color:var(--teal);width:16px;height:16px;flex:none}
+.toggles span small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.chartbox{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:12px;margin:14px 0}
+.chartbox svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.upbtn{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));
+  z-index:40;border-radius:999px;padding:10px 13px;font-size:12px;display:none}
+.upbtn.show{display:block}
+</style>
+</head>
+<body>
+<header class="rail">
+  <div class="wrap rail-in">
+    <button class="btn-ghost" id="tocBtn" aria-expanded="false">목차</button>
+    <div class="rail-title">AIOps 구현 가이드 6편 · 예측과 이상탐지</div>
+    <button class="btn-ghost" id="themeBtn" aria-label="테마 전환">라이트</button>
+  </div>
+  <div id="bar"></div>
+</header>
+
+<nav id="toc" aria-label="목차">
+  <div class="wrap">
+    <button class="btn-ghost toc-close" id="tocClose">닫기</button>
+    <h3>목차</h3>
+    <ol id="tocList"></ol>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<section class="hero">
+  <div class="hero-kicker">신입·초보 클라우드 엔지니어를 위한 기술 강의 · 2026년판 · 6편</div>
+  <h1>예측과 이상탐지 심화<span class="l2">숫자가 이상하다는 것을 어떻게 아는가</span></h1>
+  <p class="hero-sub">1편에서 "ML은 나중"이라며 미뤄둔 계층입니다. 이제 제대로 다룹니다.
+  <b>왜 정확도 99% 탐지기가 쓸모없는지</b>부터 시작해, 통계 기반 기준선, 예측 기반 경보,
+  2026년의 시계열 파운데이션 모델, 그리고 라벨이 없는 현실에서의 평가까지.</p>
+
+  <div class="path">
+    <span>기저율 이해</span><em>→</em><span>신호 성질</span><em>→</em><span>통계 기준선</span><em>→</em>
+    <span>예측 기반</span><em>→</em><span>TSFM</span><em>→</em><span>알림화</span><em>→</em><span>평가·운영</span>
+  </div>
+
+  <div class="meta">
+    <span>예상 학습 85분</span><span>대화형 탐지 실험 포함</span><span>TSFM 2026 지형</span><span>1~2편을 전제로 함</span>
+  </div>
+
+  <div class="note amber" style="margin-top:26px">
+    <span class="nt">먼저 인정할 것</span>
+    <p>대부분의 조직에서 <b>이상탐지 ML은 SLO 알림보다 가치가 작습니다.</b> 그럼에도 이 편이 필요한 이유는,
+    SLO로 못 잡는 영역(용량 포화, 서서히 새는 문제, 사용자 영향 이전의 조짐)이 분명히 있기 때문입니다.
+    순서를 지키는 것이 이 편의 핵심 메시지입니다.</p>
+  </div>
+</section>
+
+<!-- 1 -->
+<section class="chap" id="c1">
+  <div class="chap-no">CHAPTER 01</div>
+  <h2>정확도 99% 탐지기가 쓸모없는 이유</h2>
+  <p class="chap-lead">이상탐지를 처음 도입하는 팀이 거의 예외 없이 부딪히는 수학적 현실입니다.</p>
+
+  <h3>기저율의 문제</h3>
+  <p>시계열 하나를 1분 간격으로 본다면 하루에 1,440개의 판정이 생깁니다.
+  시계열이 500개면 하루 72만 번입니다. 진짜 이상은 하루 한두 번일까요.
+  이 <b>극단적인 불균형</b> 때문에, 오탐률이 아주 낮아도 알림 수는 감당 불가가 됩니다.</p>
+
+  <div class="tool" id="base">
+    <h4>오탐 계산기</h4>
+    <p class="hint">탐지기 성능을 넣으면, 실제로 담당자가 받게 될 알림 수와 그중 진짜 비율을 계산합니다.</p>
+    <div class="field"><label for="n1">감시 대상 시계열 수</label><input id="n1" type="number" value="300" min="1"></div>
+    <div class="field"><label for="n2">판정 주기 (분)</label><input id="n2" type="number" value="5" min="1"></div>
+    <div class="field"><label for="n3">하루 실제 이상 건수</label><input id="n3" type="number" value="3" min="0"></div>
+    <div class="slider">
+      <label for="n4">재현율(진짜 이상을 잡는 비율) <b id="v4">90%</b></label>
+      <input id="n4" type="range" min="50" max="100" value="90" step="1">
+    </div>
+    <div class="slider">
+      <label for="n5">오탐률(정상을 이상이라 할 확률) <b id="v5">0.10%</b></label>
+      <input id="n5" type="range" min="1" max="200" value="10" step="1">
+    </div>
+    <div class="out">
+      <div><div class="v" id="o1">–</div><div class="l">하루 알림 수</div></div>
+      <div><div class="v" id="o2">–</div><div class="l">그중 진짜</div></div>
+      <div><div class="v" id="o3">–</div><div class="l">정밀도(PPV)</div></div>
+    </div>
+    <div class="result show" id="bverdict" style="margin-top:14px"></div>
+  </div>
+
+  <p>슬라이더를 움직여 보면 알 수 있습니다. <b>오탐률을 0.01% 수준까지 낮춰야</b> 겨우 쓸 만해집니다.
+  이것이 "정확도"라는 단어가 이 분야에서 무의미한 이유이고, 이상탐지를 <b>개별 시계열이 아니라
+  서비스·사건 단위로</b> 집계해야 하는 이유이기도 합니다.</p>
+
+  <h3>그래서 취하는 전략</h3>
+  <ul>
+    <li><b>대상 축소</b> — 모든 지표가 아니라 사용자 영향과 연결된 소수 지표만 탐지 대상으로. 보통 서비스당 5~10개면 충분합니다.</li>
+    <li><b>집계 후 알림</b> — 개별 포인트가 아니라 "연속 N회" 또는 "한 서비스에서 동시에 여러 지표"일 때만 사건화합니다.</li>
+    <li><b>상관분석과 결합</b> — 2편의 사건 병합을 거치면 탐지 100건이 사건 3건이 됩니다. 이상탐지의 오탐은 파이프라인 뒷단에서도 흡수됩니다.</li>
+    <li><b>심각도 분리</b> — 모든 이상이 사람을 깨울 필요는 없습니다. 대부분은 "기록하고 아침에 본다"로 충분합니다.</li>
+  </ul>
+
+  <div class="note violet">
+    <span class="nt">용어 정리</span>
+    <p><b>재현율(Recall)</b>은 실제 이상 중 잡아낸 비율, <b>정밀도(Precision)</b>는 울린 알림 중 진짜인 비율입니다.
+    운영에서 담당자가 체감하는 것은 정밀도이고, 놓친 장애로 드러나는 것은 재현율입니다.
+    둘은 상충하므로 <b>어느 쪽을 얼마나 포기할지 미리 정해두는 것</b>이 설계의 출발점입니다.</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="chap" id="c2">
+  <div class="chap-no">CHAPTER 02</div>
+  <h2>신호를 먼저 이해하기</h2>
+  <p class="chap-lead">모델을 고르기 전에 데이터의 성질을 알아야 합니다. 이 단계를 건너뛴 탐지기는 거의 항상 계절성에서 무너집니다.</p>
+
+  <h3>지표 유형별 성질</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>유형</th><th>예</th><th>특징</th><th>탐지 시 주의</th></tr></thead>
+    <tbody>
+      <tr><td>카운터 비율</td><td>초당 요청 수, 에러 수</td><td>강한 일·주 주기</td><td>계절성 제거 필수. 절대 임계치는 거의 무용</td></tr>
+      <tr><td>비율(ratio)</td><td>에러율, 성공률</td><td>트래픽이 적으면 분모가 작아 튐</td><td>최소 요청 수 조건을 함께 걸기</td></tr>
+      <tr><td>지연 분위수</td><td>p50·p95·p99</td><td>꼬리가 두꺼움. 정규분포 가정이 깨짐</td><td>평균±3σ 방식 금지. 분위수와 강건 통계 사용</td></tr>
+      <tr><td>포화 지표</td><td>디스크 사용률, 커넥션 풀</td><td>단조 증가 후 한계 도달</td><td>임계치보다 <b>도달 시점 예측</b>이 유용</td></tr>
+      <tr><td>게이지</td><td>메모리, 큐 길이</td><td>재시작 시 급락(계단)</td><td>재시작을 이상으로 오인하지 않게 처리</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>탐지 전에 확인할 데이터 품질 다섯 가지</h3>
+  <ul>
+    <li><b>결측</b> — 수집 실패로 생긴 공백을 0으로 채우면 "급락"이 만들어집니다. 결측과 0은 다릅니다.</li>
+    <li><b>재시작·재배포</b> — 카운터 리셋과 파드 교체는 정상 사건입니다. 변경 이력(2편 changes)과 대조해 제외하세요.</li>
+    <li><b>시계열 수명</b> — 파드 교체로 새 시계열이 계속 생깁니다. 학습에는 <b>집계된 상위 수준 시계열</b>을 쓰세요.</li>
+    <li><b>샘플링 간격 불균일</b> — 스크레이프 지연으로 간격이 흔들리면 일부 모델이 오작동합니다.</li>
+    <li><b>이력 길이</b> — 주간 계절성을 학습하려면 최소 수 주, 안정적으로는 두세 달의 이력이 필요합니다.</li>
+  </ul>
+
+  <div class="note rose">
+    <span class="nt">가장 흔한 실패</span>
+    <p>월요일 아침마다, 배포 직후마다, 월말 정산 배치마다 오탐이 발생하는 탐지기.
+    원인은 모델이 나빠서가 아니라 <b>주기와 알려진 이벤트를 반영하지 않아서</b>입니다.
+    공휴일·이벤트 달력을 데이터로 갖고 있으면 오탐이 크게 줄어듭니다.</p>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="chap" id="c3">
+  <div class="chap-no">CHAPTER 03</div>
+  <h2>무엇을 쓸지 정하기</h2>
+  <p class="chap-lead">복잡한 방법이 항상 나은 것은 아닙니다. 순서대로 올라가되, 각 단계에서 멈출 수 있는지 먼저 확인하세요.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>방법</th><th>쓸 조건</th><th>비용</th><th>설명 가능성</th></tr></thead>
+    <tbody>
+      <tr><td>정적 임계치</td><td>물리적 한계가 명확(디스크 95%, 인증서 만료)</td><td>거의 0</td><td>완전</td></tr>
+      <tr><td>SLO 번레이트</td><td>사용자 영향이 있는 지표 — <b>가장 우선</b></td><td>낮음</td><td>완전</td></tr>
+      <tr><td>강건 통계 기준선</td><td>주기성이 있고 임계치가 안 먹는 지표</td><td>낮음</td><td>높음</td></tr>
+      <tr><td>예측 기반</td><td>추세·포화 시점이 중요한 지표</td><td>중간</td><td>중간</td></tr>
+      <tr><td>시계열 파운데이션 모델</td><td>시계열이 매우 많고 개별 튜닝이 불가능할 때</td><td>높음(GPU)</td><td>낮음</td></tr>
+      <tr><td>다변량·딥러닝</td><td>위 방법들로 명확히 부족함이 입증됐을 때</td><td>매우 높음</td><td>매우 낮음</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="tool" id="pick">
+    <h4>탐지 방식 선택</h4>
+    <p class="hint">지표 하나를 떠올리고 답해 보세요.</p>
+    <div id="pqs"></div>
+    <div class="result" id="pres"></div>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">멈출 줄 아는 것이 실력</span>
+    <p>SLO 번레이트로 80%가 해결되고, 강건 통계 기준선으로 15%가 더 해결됩니다.
+    남은 5%를 위해 GPU와 모델 운영 부담을 지는 것이 타당한지는 조직마다 다릅니다.
+    <b>파운데이션 모델을 도입할 때는 "무엇이 부족해서"를 문서로 남기세요.</b></p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="chap" id="c4">
+  <div class="chap-no">CHAPTER 04</div>
+  <h2>통계 기준선 — 가장 가성비 높은 탐지</h2>
+  <p class="chap-lead">코드 수십 줄과 며칠간의 이력만 있으면 됩니다. 그리고 대부분의 상황에서 이것으로 충분합니다.</p>
+
+  <h3>왜 평균±3σ를 쓰면 안 되는가</h3>
+  <p>운영 지표는 정규분포가 아닙니다. 꼬리가 두껍고, 과거의 장애가 평균과 표준편차를 오염시킵니다.
+  장애가 한 번 있었던 지표는 σ가 커져서 <b>다음 장애를 못 잡습니다.</b>
+  그래서 실무에서는 <b>중앙값과 MAD(중앙값 절대편차)</b> 같은 강건 통계를 씁니다.</p>
+
+  <div class="codewrap">
+    <div class="cap">강건 기준선 — 시간대별 프로파일 + MAD</div>
+<pre><code><span class="k">import</span> numpy <span class="k">as</span> np
+
+<span class="k">def</span> seasonal_baseline(history: np.ndarray, period: int = <span class="n">24</span>):
+    <span class="s">"""history: 시간 단위 값 배열(최근 N주). period: 계절 주기(시간)"""</span>
+    <span class="c"># 같은 시간대끼리 묶어 중앙값을 구한다 (요일 구분이 필요하면 168로)</span>
+    by_phase = [history[i::period] <span class="k">for</span> i <span class="k">in</span> <span class="k">range</span>(period)]
+    med = np.array([np.median(p) <span class="k">for</span> p <span class="k">in</span> by_phase])
+
+    <span class="c"># MAD: 이상치에 끌려가지 않는 산포 추정치</span>
+    mad = np.array([np.median(np.<span class="k">abs</span>(p - np.median(p))) <span class="k">for</span> p <span class="k">in</span> by_phase])
+    <span class="c"># 정규분포 기준 표준편차 환산 계수. 0이 되면 탐지가 폭주하므로 하한을 둔다</span>
+    sigma = np.maximum(mad * <span class="n">1.4826</span>, med * <span class="n">0.02</span> + <span class="n">1e-9</span>)
+    <span class="k">return</span> med, sigma
+
+<span class="k">def</span> score(value: float, phase: int, med, sigma) -&gt; float:
+    <span class="k">return</span> (value - med[phase]) / sigma[phase]      <span class="c"># 강건 z-score</span>
+
+<span class="c"># 알림 조건 예: z &gt; 4 가 3회 연속 (단발 스파이크를 걸러낸다)</span>
+</code></pre>
+  </div>
+
+  <h3>직접 확인해 보기</h3>
+  <p>아래는 일주일치 요청량(시간 단위)입니다. 두 개의 진짜 이상이 숨어 있습니다.
+  하나는 <b>한낮의 급증</b>, 다른 하나는 <b>새벽의 이상 증가</b>입니다.
+  새벽 이상은 절대값이 한낮 정상값보다 낮기 때문에, 정적 임계치로는 원리적으로 잡을 수 없습니다.</p>
+
+  <div class="tool" id="lab">
+    <h4>탐지 방식 비교 실험</h4>
+    <div class="seg" id="mode">
+      <button type="button" data-m="static" aria-pressed="true">정적 임계치</button>
+      <button type="button" data-m="season" aria-pressed="false">계절 기준선 + MAD</button>
+    </div>
+    <div class="chartbox">
+      <svg id="chart" viewBox="0 0 700 240" preserveAspectRatio="xMidYMid meet" role="img"
+           aria-label="일주일치 요청량 시계열과 탐지 경계"></svg>
+      <div class="legend">
+        <span><i style="background:var(--teal)"></i>관측값</span>
+        <span><i style="background:var(--violet)"></i>기준선·임계</span>
+        <span><i style="background:var(--rose)"></i>탐지된 지점</span>
+        <span><i style="background:var(--amber)"></i>실제 이상 위치</span>
+      </div>
+    </div>
+    <div class="slider" id="thWrap">
+      <label for="th">임계값 <b id="thv">150</b></label>
+      <input id="th" type="range" min="90" max="200" value="150" step="2">
+    </div>
+    <div class="slider" id="kWrap" style="display:none">
+      <label for="kk">민감도 (강건 z 임계) <b id="kv">4.0</b></label>
+      <input id="kk" type="range" min="15" max="80" value="40" step="1">
+    </div>
+    <div class="result show" id="labres"></div>
+  </div>
+
+  <div class="note violet">
+    <span class="nt">실험에서 확인할 것</span>
+    <p>정적 임계치를 낮춰 새벽 이상을 잡으려 하면 <b>한낮 정상 구간이 통째로 알림</b>이 됩니다.
+    계절 기준선은 같은 시간대끼리 비교하므로 둘 다 잡으면서 오탐이 적습니다.
+    이 차이가 실무에서 알림 수백 건의 차이를 만듭니다.</p>
+  </div>
+
+  <h3>변화점 탐지 — 다른 종류의 이상</h3>
+  <p>스파이크가 아니라 <b>수준이 바뀌는</b> 이상도 있습니다. 배포 후 지연이 20ms에서 35ms로 올라가 그대로 유지되는 경우,
+  스파이크 탐지기는 아무것도 못 잡습니다. 이때는 변화점 탐지를 씁니다.</p>
+  <ul>
+    <li><b>CUSUM</b> — 누적합이 임계를 넘으면 수준 변화로 판정. 구현이 단순하고 온라인 처리에 적합합니다.</li>
+    <li><b>이전 창 vs 현재 창 비교</b> — 최근 1시간과 직전 24시간의 분포를 비교(예: 분위수 차이). 직관적이고 설명하기 쉽습니다.</li>
+    <li><b>배포 전후 비교</b> — 변경 이력이 있으므로, 배포 시각을 기준으로 전후를 비교하면 <b>회귀 탐지</b>가 됩니다. 이 방식이 실무에서 가장 유용합니다.</li>
+  </ul>
+
+  <div class="codewrap">
+    <div class="cap">배포 회귀 탐지 — 변경 이력과 결합</div>
+<pre><code><span class="k">async def</span> detect_deploy_regression(service: str, deploy_at, scope):
+    <span class="c"># 배포 직후 안정화 시간을 건너뛴다(웜업·캐시 미스 구간)</span>
+    after  = <span class="k">await</span> scope.promql(<span class="s">f'quantile_over_time(0.95, latency{{service="{service}"}}[30m])'</span>,
+                                at=deploy_at + timedelta(minutes=<span class="n">10</span>))
+    <span class="c"># 비교 대상은 '직전'이 아니라 '지난주 같은 시간대'가 더 안전하다</span>
+    before = <span class="k">await</span> scope.promql(<span class="s">f'quantile_over_time(0.95, latency{{service="{service}"}}[30m])'</span>,
+                                at=deploy_at - timedelta(days=<span class="n">7</span>))
+
+    ratio = after / <span class="k">max</span>(before, <span class="n">1e-9</span>)
+    <span class="k">if</span> ratio &gt; <span class="n">1.3</span>:          <span class="c"># 30% 이상 악화</span>
+        <span class="k">return</span> Finding(kind=<span class="s">"deploy_regression"</span>, service=service,
+                       evidence={<span class="s">"before"</span>: before, <span class="s">"after"</span>: after, <span class="s">"ratio"</span>: ratio},
+                       confidence=<span class="s">"high"</span> <span class="k">if</span> ratio &gt; <span class="n">2</span> <span class="k">else</span> <span class="s">"medium"</span>)
+</code></pre>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="chap" id="c5">
+  <div class="chap-no">CHAPTER 05</div>
+  <h2>예측 기반 — 터지기 전에 알기</h2>
+  <p class="chap-lead">이상탐지가 "지금 이상한가"를 묻는다면, 예측은 "이대로면 언제 문제가 되는가"를 묻습니다. 운영 가치는 후자가 더 큽니다.</p>
+
+  <h3>두 가지 용도</h3>
+  <ul>
+    <li><b>포화 시점 예측</b> — 디스크, 커넥션 풀, IP 대역, 인증서, 쿼터. "4시간 뒤 가득 참"을 알면 새벽 호출이 업무시간 작업이 됩니다.</li>
+    <li><b>예측 구간 이탈 탐지</b> — 다음 값의 예측 구간을 만들고, 관측값이 벗어나면 이상으로 판정합니다. 계절 기준선의 일반화된 형태입니다.</li>
+  </ul>
+
+  <div class="codewrap">
+    <div class="cap">포화 시점 추정 — 단순하지만 매우 유용</div>
+<pre><code><span class="c"># PromQL만으로도 상당 부분 가능하다. 먼저 이것부터 시도할 것</span>
+<span class="c"># 6시간 추세로 볼 때 4시간 내 디스크가 가득 차는가</span>
+predict_linear(node_filesystem_avail_bytes{mountpoint=<span class="s">"/var"</span>}[<span class="n">6h</span>], <span class="n">4</span>*<span class="n">3600</span>) &lt; <span class="n">0</span>
+
+<span class="c"># 실무 보정: 단조 증가가 아닌 톱니 패턴(로그 회전)에서는 선형 추세가 왜곡된다</span>
+<span class="c"># → 최근 저점들의 추세를 쓰거나, 회전 주기보다 긴 창(24h)을 사용한다</span>
+predict_linear(min_over_time(node_filesystem_avail_bytes[<span class="n">1h</span>])[<span class="n">24h</span>:<span class="n">1h</span>], <span class="n">12</span>*<span class="n">3600</span>) &lt; <span class="n">0</span>
+</code></pre>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">가장 저평가된 알림</span>
+    <p>"디스크가 95%입니다"(지금 당장 대응)와 "이 추세면 내일 오전 10시에 가득 찹니다"(계획적 대응)는
+    담당자의 삶의 질이 완전히 다릅니다. <b>포화형 지표는 전부 예측 기반으로 바꾸는 것</b>을 권합니다.
+    구현 비용은 PromQL 한 줄 수준인데 효과는 큽니다.</p>
+  </div>
+
+  <h3>예측 구간을 알림으로 쓸 때</h3>
+  <ul>
+    <li><b>점 예측이 아니라 구간</b>을 써야 합니다. 예측값 하나와 비교하면 정상 변동도 전부 이상이 됩니다.</li>
+    <li><b>구간 폭이 시간대별로 달라야</b> 합니다. 새벽은 변동이 작고 낮은 큽니다. 고정 폭은 한쪽에서 반드시 실패합니다.</li>
+    <li><b>예측이 틀리는 구간을 알아야</b> 합니다. 프로모션·이벤트처럼 알려진 급증은 예측에 넣거나 탐지에서 제외합니다.</li>
+    <li><b>수평선 길이에 주의</b> — 짧은 예측은 정확하지만 대응 시간이 없고, 긴 예측은 불확실합니다. 운영 경보는 보통 1~24시간 범위가 실용적입니다.</li>
+  </ul>
+</section>
+
+<!-- 6 -->
+<section class="chap" id="c6">
+  <div class="chap-no">CHAPTER 06</div>
+  <h2>시계열 파운데이션 모델 — 2026년의 새 선택지</h2>
+  <p class="chap-lead">지난 2년 사이 가장 크게 바뀐 부분입니다. 시계열마다 모델을 학습시키던 일이, 모델을 고르는 일로 바뀌었습니다.</p>
+
+  <h3>무엇이 달라졌나</h3>
+  <p>대규모 시계열 코퍼스로 사전학습된 모델들이 <b>제로샷</b>으로, 즉 처음 보는 시계열에 대해 별도 학습 없이 예측을 내놓습니다.
+  관측 플랫폼처럼 시계열이 수만 개인 환경에서는 이 점이 결정적입니다. 시계열마다 모델을 만들고 재학습하는 운영이 불가능하기 때문입니다.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>모델</th><th>출처·성격</th><th>특징</th></tr></thead>
+    <tbody>
+      <tr><td>Chronos / Chronos-2</td><td>Amazon</td><td>값을 토큰으로 양자화해 언어모델처럼 예측. 2에서 다변량·공변량 지원 추가. Bolt 변형은 분위수 예측을 한 번에 내어 훨씬 빠름</td></tr>
+      <tr><td>TimesFM</td><td>Google</td><td>디코더 전용, 패치 기반. 구글 내부 운영에서 검증. 비교적 긴 수평선까지 안정적</td></tr>
+      <tr><td>Moirai / Moirai-2</td><td>Salesforce</td><td>다변량과 불규칙 샘플링에 강함. 공변량 지원</td></tr>
+      <tr><td>Toto</td><td>Datadog</td><td>인프라 모니터링 지표로 사전학습. 고빈도·단기 예측에 강점</td></tr>
+      <tr><td>MOMENT 등 인코더형</td><td>연구 진영</td><td>재구성 오차를 이상 점수로 쓰는 방식. 예측보다 이상탐지에 적합한 구조</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>벤치마크를 읽을 때 주의할 점</h3>
+  <p>공개 평가들이 일관되게 보여주는 것은 <b>해상도에 따라 순위가 바뀐다</b>는 점입니다.
+  쿠버네티스 파드 지표를 대상으로 한 평가에서는 1분 해상도에서 인프라 지표로 학습된 모델이 크게 앞섰고,
+  1시간 해상도에서는 다른 모델이 앞섰습니다. 즉 <span class="key">"어떤 모델이 최고인가"라는 질문은 성립하지 않습니다.</span>
+  자기 환경의 해상도·지표 종류·수평선으로 직접 평가해야 합니다.</p>
+
+  <h3>이상탐지에 쓰는 방법</h3>
+  <ol class="flow">
+    <li>최근 컨텍스트(예: 512 포인트)를 모델에 넣어 다음 구간의 <b>분위수 예측</b>을 받는다</li>
+    <li>관측값이 상위/하위 분위(예: p1~p99) 밖이면 이상 후보로 표시한다</li>
+    <li>연속 N회 또는 동일 서비스 복수 지표에서 발생할 때만 사건화한다(1장의 기저율 대응)</li>
+    <li>변경 이력·점검 창과 대조해 알려진 원인을 제외한다</li>
+  </ol>
+
+  <div class="note amber">
+    <span class="nt">도입 전 확인할 현실적 제약</span>
+    <p><b>①</b> 대부분 모델이 규칙적 샘플링을 가정합니다. 간격이 불규칙하면 그 자체를 신호로 오해합니다.<br>
+    <b>②</b> 학습된 최대 예측 길이를 넘어가면 성능이 떨어집니다. 자기 수평선으로 검증 후 확정하세요.<br>
+    <b>③</b> 이력이 아주 짧은 새 시계열은 콜드 스타트 문제가 있습니다.<br>
+    <b>④</b> GPU 비용과 추론 지연이 생깁니다. 수만 시계열을 1분 주기로 돌리는 것은 현실적이지 않습니다.</p>
+  </div>
+
+  <h3>현실적인 운영 방식</h3>
+  <ul>
+    <li><b>계층 나누기</b> — 전체 시계열은 통계 기준선으로, <b>핵심 지표 수백 개만</b> 파운데이션 모델로.</li>
+    <li><b>주기 낮추기</b> — 1분마다가 아니라 5~15분 주기로 예측을 갱신하고, 그 사이는 예측 구간을 재사용합니다.</li>
+    <li><b>배치 추론</b> — 시계열을 묶어 한 번에 추론하면 GPU 효율이 크게 올라갑니다.</li>
+    <li><b>앙상블·보정</b> — 제로샷 예측은 편향과 분산이 있습니다. 잔차를 보정하거나 통계 방법과 결합하면 실전 성능이 좋아진다는 보고가 많습니다.</li>
+    <li><b>폴백</b> — 모델 서버가 죽어도 통계 기준선으로 계속 탐지되어야 합니다. 3편의 신뢰성 원칙과 같습니다.</li>
+  </ul>
+
+  <div class="tool" id="tsfm">
+    <h4>TSFM 적용 범위 계산기</h4>
+    <p class="hint">몇 개의 시계열에, 얼마나 자주 돌릴 수 있는지 감을 잡아 봅니다.</p>
+    <div class="field"><label for="t1">대상 시계열 수</label><input id="t1" type="number" value="500" min="1"></div>
+    <div class="field"><label for="t2">예측 갱신 주기 (분)</label><input id="t2" type="number" value="10" min="1"></div>
+    <div class="field"><label for="t3">배치당 시계열 수</label><input id="t3" type="number" value="64" min="1"></div>
+    <div class="field"><label for="t4">배치 1회 추론 시간 (초)</label><input id="t4" type="number" value="1.5" min="0.1" step="0.1"></div>
+    <div class="out">
+      <div><div class="v" id="to1">–</div><div class="l">주기당 필요 시간</div></div>
+      <div><div class="v" id="to2">–</div><div class="l">GPU 점유율</div></div>
+      <div><div class="v" id="to3">–</div><div class="l">일 추론 횟수</div></div>
+    </div>
+    <div class="result show" id="tverdict" style="margin-top:14px"></div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="chap" id="c7">
+  <div class="chap-no">CHAPTER 07</div>
+  <h2>점수를 알림으로 바꾸기</h2>
+  <p class="chap-lead">탐지기는 점수를 냅니다. 알림은 사람을 깨웁니다. 이 사이에 있는 변환 규칙이 실제 체감 품질을 결정합니다.</p>
+
+  <h3>변환 규칙 여섯 가지</h3>
+  <ul>
+    <li><b>지속 시간 조건</b> — "z &gt; 4가 3회 연속". 단발 스파이크의 대부분은 수집 지연이나 일시적 부하입니다.</li>
+    <li><b>히스테리시스</b> — 발생 임계와 해제 임계를 다르게(예: 발생 4, 해제 2.5). 경계에서 깜빡이는 알림을 막습니다.</li>
+    <li><b>최소 볼륨 조건</b> — 요청이 시간당 10건인 서비스의 에러율 50%는 5건입니다. 분모 조건을 함께 거세요.</li>
+    <li><b>알려진 이벤트 억제</b> — 배포 직후 N분, 점검 창, 고객사 이벤트 기간.</li>
+    <li><b>서비스 단위 집계</b> — 같은 서비스의 여러 지표가 동시에 이상하면 하나의 사건으로. 2편 상관분석의 입력이 됩니다.</li>
+    <li><b>심각도 매핑</b> — 이상 점수의 크기와 영향 범위로 심각도를 정합니다. 모든 이상이 critical이면 아무것도 critical이 아닙니다.</li>
+  </ul>
+
+  <div class="codewrap">
+    <div class="cap">app/detect/emit.py — 점수 → 사건</div>
+<pre><code>FIRE, CLEAR = <span class="n">4.0</span>, <span class="n">2.5</span>          <span class="c"># 히스테리시스</span>
+NEED_CONSECUTIVE = <span class="n">3</span>
+
+<span class="k">def</span> update(state: SeriesState, z: float, ctx: Context) -&gt; Event | <span class="k">None</span>:
+    <span class="c"># 알려진 이벤트 구간에서는 점수를 계산하되 알림은 내지 않는다(기록은 남김)</span>
+    suppressed = ctx.in_deploy_window <span class="k">or</span> ctx.in_maintenance
+
+    state.streak = state.streak + <span class="n">1</span> <span class="k">if</span> <span class="k">abs</span>(z) &gt; FIRE <span class="k">else</span> <span class="n">0</span>
+
+    <span class="k">if not</span> state.firing <span class="k">and</span> state.streak &gt;= NEED_CONSECUTIVE <span class="k">and not</span> suppressed:
+        state.firing = <span class="k">True</span>
+        <span class="k">return</span> Event(kind=<span class="s">"anomaly"</span>, severity=severity_of(z, ctx), z=z,
+                     <span class="c"># 근거를 함께 실어야 2편 에이전트가 활용할 수 있다</span>
+                     baseline=state.baseline, observed=state.last,
+                     phase=state.phase, window=state.window)
+
+    <span class="k">if</span> state.firing <span class="k">and</span> <span class="k">abs</span>(z) &lt; CLEAR:
+        state.firing = <span class="k">False</span>
+        <span class="k">return</span> Event(kind=<span class="s">"anomaly_resolved"</span>)
+    <span class="k">return</span> <span class="k">None</span>
+
+<span class="k">def</span> severity_of(z, ctx):
+    <span class="k">if</span> ctx.user_facing <span class="k">and</span> <span class="k">abs</span>(z) &gt; <span class="n">8</span>: <span class="k">return</span> <span class="s">"critical"</span>
+    <span class="k">if</span> ctx.user_facing:              <span class="k">return</span> <span class="s">"high"</span>
+    <span class="k">return</span> <span class="s">"warning"</span>                  <span class="c"># 내부 지표 이상은 기본적으로 깨우지 않는다</span>
+</code></pre>
+  </div>
+
+  <div class="note violet">
+    <span class="nt">이상탐지 알림에는 맥락을 함께 실으세요</span>
+    <p>"anomaly detected on metric X"만 오는 알림은 담당자가 아무것도 할 수 없습니다.
+    최소한 <b>관측값, 기준선, 벗어난 정도, 같은 시간대의 지난주 값, 최근 변경</b>이 함께 와야 합니다.
+    이 정보는 2편 에이전트의 조사 출발점이 되기도 합니다.</p>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="chap" id="c8">
+  <div class="chap-no">CHAPTER 08</div>
+  <h2>평가 — 라벨이 없는 현실에서</h2>
+  <p class="chap-lead">"정답 데이터가 없어서 평가를 못 한다"는 말은 사실이 아닙니다. 약한 라벨은 이미 쌓여 있습니다.</p>
+
+  <h3>어디서 라벨을 얻는가</h3>
+  <ul>
+    <li><b>사건 기록</b> — 2편의 incidents 테이블. 사건 발생 시각과 영향 서비스가 곧 라벨입니다.</li>
+    <li><b>사람 피드백</b> — "유용함/노이즈" 버튼. 정밀도를 직접 측정하는 유일한 수단입니다.</li>
+    <li><b>포스트모템</b> — "우리가 X시간 늦게 알았다"는 기록이 재현율의 근거가 됩니다.</li>
+    <li><b>합성 주입</b> — 스테이징에서 인위적 부하·장애를 만들어 탐지 여부를 확인합니다.</li>
+  </ul>
+
+  <h3>시간 허용 오차를 둔 평가</h3>
+  <p>이상탐지 평가는 일반 분류와 다릅니다. <b>정확한 포인트가 아니라 사건 구간을 맞히면 성공</b>으로 봐야 합니다.
+  장애가 03:10에 시작됐는데 탐지가 03:13이면 실무적으로 성공입니다.</p>
+
+  <div class="codewrap">
+    <div class="cap">evals/detect_eval.py — 구간 기반 평가</div>
+<pre><code>TOLERANCE = timedelta(minutes=<span class="n">10</span>)
+
+<span class="k">def</span> evaluate(detections, incidents):
+    matched, late = <span class="k">set</span>(), []
+    <span class="k">for</span> inc <span class="k">in</span> incidents:
+        <span class="c"># 사건 시작 전후 허용 구간 안에 탐지가 있으면 성공</span>
+        hits = [d <span class="k">for</span> d <span class="k">in</span> detections
+                <span class="k">if</span> d.service == inc.service
+                <span class="k">and</span> inc.opened_at - TOLERANCE &lt;= d.at &lt;= inc.opened_at + TOLERANCE]
+        <span class="k">if</span> hits:
+            matched.add(inc.id)
+            late.append((<span class="k">min</span>(h.at <span class="k">for</span> h <span class="k">in</span> hits) - inc.opened_at).total_seconds())
+
+    recall = <span class="k">len</span>(matched) / <span class="k">max</span>(<span class="k">len</span>(incidents), <span class="n">1</span>)
+    <span class="c"># 어떤 사건에도 매칭되지 않은 탐지 = 오탐 후보(진짜 조기탐지일 수도 있으므로 검토 필요)</span>
+    unmatched = [d <span class="k">for</span> d <span class="k">in</span> detections <span class="k">if not</span> near_any(d, incidents, TOLERANCE)]
+    <span class="k">return</span> {
+        <span class="s">"recall"</span>: recall,
+        <span class="s">"alerts_per_day"</span>: <span class="k">len</span>(detections) / days_covered,
+        <span class="s">"unmatched_ratio"</span>: <span class="k">len</span>(unmatched) / <span class="k">max</span>(<span class="k">len</span>(detections), <span class="n">1</span>),
+        <span class="s">"median_lead_sec"</span>: np.median(late) <span class="k">if</span> late <span class="k">else</span> <span class="k">None</span>,   <span class="c"># 음수면 조기 탐지</span>
+    }
+</code></pre>
+  </div>
+
+  <p>주목할 지표는 <b>median_lead</b>입니다. 사건보다 먼저 탐지했다면 음수가 되고, 이것이 이상탐지의 진짜 가치입니다.
+  "사건과 동시에 울리는 탐지기"는 이미 알고 있는 것을 반복할 뿐입니다.</p>
+
+  <h3>섀도 모드 운영</h3>
+  <ol class="flow">
+    <li>새 탐지 규칙·모델은 알림을 보내지 않고 <b>기록만</b> 2~4주</li>
+    <li>주간으로 "이 기간 탐지 수"와 "실제 사건 매칭"을 확인</li>
+    <li>하루 알림 수가 목표치(예: 담당자 1인당 5건) 이하로 떨어지면 활성화</li>
+    <li>활성화 후 첫 2주는 피드백 수집을 집중적으로</li>
+  </ol>
+
+  <div class="note rose">
+    <span class="nt">하지 말아야 할 평가</span>
+    <p>공개 이상탐지 벤치마크 점수로 운영 도입을 결정하지 마세요. 데이터 성격이 다르고,
+    많은 벤치마크가 실제 운영 조건(계절성, 배포 이벤트, 극단적 불균형)을 반영하지 않습니다.
+    <b>자기 환경의 지난 3개월 데이터로 재생 평가</b>하는 것이 유일하게 믿을 만한 방법입니다.</p>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="chap" id="c9">
+  <div class="chap-no">CHAPTER 09</div>
+  <h2>운영 — 드리프트와 비용</h2>
+  <p class="chap-lead">탐지기는 만든 날이 가장 정확합니다. 그 뒤로는 관리 대상이 됩니다.</p>
+
+  <h3>드리프트가 생기는 이유</h3>
+  <ul>
+    <li><b>정상의 변화</b> — 트래픽 성장, 아키텍처 변경, 캐시 도입으로 기준선 자체가 달라집니다.</li>
+    <li><b>지표 의미 변화</b> — 같은 이름의 지표가 다른 것을 재게 되는 경우(계측 코드 변경).</li>
+    <li><b>장애의 학습</b> — 롤링 윈도로 기준선을 갱신하면, 장애 상태가 점점 정상으로 편입됩니다.</li>
+  </ul>
+  <p>마지막 항목이 특히 위험합니다. 만성적으로 느린 서비스가 기준선에 흡수되어 <b>더 이상 아무것도 탐지되지 않는</b> 상태가 됩니다.
+  방지책은 기준선 학습 시 <b>사건 구간을 제외</b>하는 것입니다. 2편의 사건 기록이 여기서도 쓰입니다.</p>
+
+  <div class="codewrap">
+    <div class="cap">기준선 학습에서 장애 구간 제외</div>
+<pre><code><span class="k">async def</span> fit_baseline(series: str, scope, weeks: int = <span class="n">4</span>):
+    hist = <span class="k">await</span> scope.fetch_series(series, weeks=weeks)
+
+    <span class="c"># 확인된 사건 구간은 '정상'의 정의에서 빼야 한다</span>
+    bad = <span class="k">await</span> scope.sql(<span class="s">"""
+        SELECT opened_at, coalesce(closed_at, opened_at + interval '1 hour')
+        FROM incidents WHERE tenant = :tenant AND opened_at &gt; now() - :w
+    """</span>, {<span class="s">"w"</span>: timedelta(weeks=weeks)})
+
+    clean = [p <span class="k">for</span> p <span class="k">in</span> hist <span class="k">if not</span> any(s &lt;= p.at &lt;= e <span class="k">for</span> s, e <span class="k">in</span> bad)]
+
+    <span class="c"># 데이터가 너무 많이 빠졌다면 학습하지 말고 경고 — 조용한 실패 방지</span>
+    <span class="k">if</span> <span class="k">len</span>(clean) &lt; <span class="n">0.7</span> * <span class="k">len</span>(hist):
+        metrics.baseline_skipped.labels(series).inc()
+        <span class="k">raise</span> InsufficientCleanHistory(series)
+
+    <span class="k">return</span> seasonal_baseline(np.array([p.value <span class="k">for</span> p <span class="k">in</span> clean]))
+</code></pre>
+  </div>
+
+  <h3>운영 지표</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>지표</th><th>의미</th><th>나쁠 때</th></tr></thead>
+    <tbody>
+      <tr><td>탐지기당 일 알림 수</td><td>노이즈 부담</td><td>담당자 1인당 5건을 넘으면 신뢰를 잃기 시작</td></tr>
+      <tr><td>미매칭 탐지 비율</td><td>사건과 연결되지 않은 탐지</td><td>높으면 임계 상향 또는 대상 축소</td></tr>
+      <tr><td>중앙값 리드타임</td><td>사건보다 얼마나 먼저 알렸나</td><td>0에 가까우면 가치가 낮음</td></tr>
+      <tr><td>기준선 갱신 실패 수</td><td>데이터 부족·품질 문제</td><td>조용히 옛 기준선을 쓰고 있을 수 있음</td></tr>
+      <tr><td>탐지 대상 커버리지</td><td>핵심 지표 중 탐지가 붙은 비율</td><td>낮으면 사각지대</td></tr>
+      <tr><td>추론 비용·지연</td><td>TSFM 사용 시</td><td>주기를 못 지키면 탐지가 밀림</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note ok">
+    <span class="nt">탐지기도 관측 대상</span>
+    <p>기준선 갱신이 조용히 실패하면 탐지기는 <b>계속 동작하는 것처럼 보이지만</b> 낡은 기준으로 판단합니다.
+    갱신 시각, 학습에 쓰인 데이터 양, 마지막 탐지 시각을 지표로 내보내고 알림을 거세요.
+    5편의 "자기 자신을 관측하기"와 같은 원칙입니다.</p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="chap" id="c10">
+  <div class="chap-no">CHAPTER 10</div>
+  <h2>예측을 운영에 쓰기</h2>
+  <p class="chap-lead">탐지를 넘어, 예측 결과 자체를 의사결정에 넣는 단계입니다.</p>
+
+  <h3>네 가지 활용</h3>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>용도</th><th>방법</th><th>주의</th></tr></thead>
+    <tbody>
+      <tr><td>용량 계획</td><td>월 단위 추세로 노드·스토리지 증설 시점 산출</td><td>비선형 성장(신규 고객사 온보딩)을 별도 반영</td></tr>
+      <tr><td>선제적 스케일</td><td>수 시간 앞 부하 예측으로 사전 워밍</td><td>예측 실패 시 비용만 증가. 상한과 폴백 필수</td></tr>
+      <tr><td>비용 예측</td><td>수집량·토큰 사용량 추세로 월말 비용 추정</td><td>4편의 테넌트별 집계와 결합하면 고객사 리포트로 직결</td></tr>
+      <tr><td>작업 창 추천</td><td>과거 부하 패턴에서 가장 한산한 시간대 제안</td><td>고객사 업무 시간·정책과 교차 확인</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note amber">
+    <span class="nt">예측을 자동조치와 연결할 때</span>
+    <p>예측 기반 자동 스케일은 매력적이지만, <b>틀린 예측이 비용 또는 장애로 직결</b>됩니다.
+    2편의 액션 등급으로 보면 스케일 아웃은 가역·저위험(B), 스케일 인은 위험(C 이상)입니다.
+    <b>늘리는 것은 자동, 줄이는 것은 보수적으로</b>가 안전한 기본값입니다.</p>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="chap" id="c11">
+  <div class="chap-no">CHAPTER 11</div>
+  <h2>정리 — 도입 순서와 점검</h2>
+  <p class="chap-lead">이 편의 내용을 실제로 적용하는 순서입니다.</p>
+
+  <h3>단계별 도입</h3>
+  <ol class="flow">
+    <li><b>1단계</b> — 포화형 지표를 전부 예측 기반 경보로 전환(PromQL 수준). 가장 싸고 효과가 즉시 보입니다</li>
+    <li><b>2단계</b> — 핵심 서비스 지표에 계절 기준선 탐지 도입, 섀도 모드 2주</li>
+    <li><b>3단계</b> — 배포 전후 비교 기반 회귀 탐지 추가(변경 이력과 결합)</li>
+    <li><b>4단계</b> — 탐지 결과를 사건 파이프라인에 연결하고 에이전트 조사 입력으로 사용</li>
+    <li><b>5단계</b> — 필요성이 입증되면 파운데이션 모델을 핵심 지표에 한정 적용</li>
+  </ol>
+
+  <h3>안티패턴 6선</h3>
+  <ol>
+    <li><b>모든 지표에 탐지 적용</b> — 기저율이 알림 수를 감당 불가로 만듭니다.</li>
+    <li><b>평균±3σ</b> — 꼬리가 두꺼운 운영 지표에서 오탐과 미탐을 동시에 만듭니다.</li>
+    <li><b>계절성 무시</b> — 월요일 아침마다 울리는 탐지기는 결국 무시됩니다.</li>
+    <li><b>장애 구간을 기준선에 포함</b> — 만성 문제가 정상으로 학습됩니다.</li>
+    <li><b>벤치마크 점수로 도입 결정</b> — 자기 데이터로 재생 평가가 유일한 근거입니다.</li>
+    <li><b>탐지 결과를 알림으로 직행</b> — 지속 조건·히스테리시스·집계 없이 보내면 노이즈가 됩니다.</li>
+  </ol>
+
+  <div class="tool">
+    <h4>이상탐지 점검 체크리스트</h4>
+    <ul class="check" id="cl">
+      <li><label><input type="checkbox" data-k="d1"><span>SLO 번레이트 알림을 먼저 도입했다</span></label></li>
+      <li><label><input type="checkbox" data-k="d2"><span>탐지 대상 지표를 핵심 소수로 한정했다</span></label></li>
+      <li><label><input type="checkbox" data-k="d3"><span>포화형 지표는 예측 기반 경보로 바꿨다</span></label></li>
+      <li><label><input type="checkbox" data-k="d4"><span>평균±표준편차 대신 중앙값·MAD를 쓴다</span></label></li>
+      <li><label><input type="checkbox" data-k="d5"><span>시간대·요일 계절성을 반영한다</span></label></li>
+      <li><label><input type="checkbox" data-k="d6"><span>결측과 0을 구분해 처리한다</span></label></li>
+      <li><label><input type="checkbox" data-k="d7"><span>재시작·배포로 인한 변화를 제외한다</span></label></li>
+      <li><label><input type="checkbox" data-k="d8"><span>기준선 학습에서 사건 구간을 제외한다</span></label></li>
+      <li><label><input type="checkbox" data-k="d9"><span>지속 시간 조건과 히스테리시스가 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="d10"><span>비율 지표에 최소 볼륨 조건이 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="d11"><span>탐지 알림에 기준선·관측값·최근 변경이 함께 실린다</span></label></li>
+      <li><label><input type="checkbox" data-k="d12"><span>새 탐지기는 섀도 모드를 거친다</span></label></li>
+      <li><label><input type="checkbox" data-k="d13"><span>사건 기록 기반으로 재현율·리드타임을 측정한다</span></label></li>
+      <li><label><input type="checkbox" data-k="d14"><span>기준선 갱신 실패에 알림이 걸려 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="d15"><span>파운데이션 모델 도입 시 폴백 경로가 있다</span></label></li>
+      <li><label><input type="checkbox" data-k="d16"><span>예측 기반 스케일 인은 보수적으로 설정했다</span></label></li>
+    </ul>
+  </div>
+
+  <div class="tool" id="quiz">
+    <h4>확인 문제</h4>
+    <p class="hint">6편 내용 기준 5문항입니다.</p>
+    <div id="qwrap"></div>
+    <div class="result" id="qres"></div>
+  </div>
+
+  <div class="note violet">
+    <span class="nt">이 편의 한 문장</span>
+    <p><span class="key">이상탐지의 어려움은 모델이 아니라 기저율에 있습니다.</span>
+    대상을 좁히고, 계절성을 반영하고, 집계해서 사건으로 만들고, 사건 기록으로 평가하세요.
+    이 네 가지를 하면 단순한 통계로도 충분히 좋고, 하지 않으면 어떤 최신 모델도 노이즈 생성기가 됩니다.</p>
+  </div>
+</section>
+
+<footer>
+  <p>AIOps 시스템 구현 가이드 6편 · 2026년 9월 기준. 시계열 파운데이션 모델 생태계는 빠르게 바뀌므로,
+  모델 선택 전 최신 벤치마크와 자체 데이터 평가를 함께 확인하세요.</p>
+  <p>참고: <a href="https://prometheus.io/docs/prometheus/latest/querying/functions/" target="_blank" rel="noopener">PromQL 함수 문서</a> ·
+  <a href="https://github.com/amazon-science/chronos-forecasting" target="_blank" rel="noopener">Chronos</a> ·
+  <a href="https://github.com/google-research/timesfm" target="_blank" rel="noopener">TimesFM</a> ·
+  <a href="https://github.com/SalesforceAIResearch/uni2ts" target="_blank" rel="noopener">Moirai</a></p>
+</footer>
+
+</main>
+
+<button class="btn-ghost upbtn" id="up">맨 위로</button>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(s,r){return (r||document).querySelector(s);};
+  var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+  function store(k,v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k,v);}catch(e){ return null; } }
+
+  var root=document.documentElement, tb=$("#themeBtn");
+  function setTheme(t){ root.setAttribute("data-theme",t); tb.textContent=(t==="dark"?"라이트":"다크"); store("aiops-theme",t); }
+  setTheme(store("aiops-theme")==="light"?"light":"dark");
+  tb.addEventListener("click",function(){ setTheme(root.getAttribute("data-theme")==="dark"?"light":"dark"); });
+
+  var toc=$("#toc"), list=$("#tocList");
+  $$(".chap").forEach(function(sec){
+    var h=$("h2",sec); if(!h) return;
+    var li=document.createElement("li"), a=document.createElement("a");
+    a.href="#"+sec.id; a.textContent=h.textContent; li.appendChild(a); list.appendChild(li);
+  });
+  function closeToc(){ toc.classList.remove("open"); $("#tocBtn").setAttribute("aria-expanded","false"); document.body.style.overflow=""; }
+  $("#tocBtn").addEventListener("click",function(){ toc.classList.add("open"); this.setAttribute("aria-expanded","true"); document.body.style.overflow="hidden"; });
+  $("#tocClose").addEventListener("click",closeToc);
+  list.addEventListener("click",function(e){ if(e.target.tagName==="A") closeToc(); });
+  document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeToc(); });
+
+  var bar=$("#bar"), up=$("#up"), tick=false;
+  function onScroll(){
+    var h=document.documentElement.scrollHeight-window.innerHeight;
+    bar.style.width=Math.min(100,Math.max(0,h>0?(window.scrollY/h)*100:0))+"%";
+    up.classList.toggle("show",window.scrollY>1200); tick=false;
+  }
+  window.addEventListener("scroll",function(){ if(!tick){tick=true;requestAnimationFrame(onScroll);} },{passive:true});
+  onScroll();
+  up.addEventListener("click",function(){ window.scrollTo({top:0,behavior:"smooth"}); });
+
+  $$(".codewrap").forEach(function(w){
+    var b=document.createElement("button"); b.className="copy"; b.type="button"; b.textContent="복사";
+    b.addEventListener("click",function(){
+      var txt=$("pre",w).innerText;
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(function(){ b.textContent="복사됨"; setTimeout(function(){b.textContent="복사";},1600); })
+        .catch(function(){ b.textContent="복사 실패"; setTimeout(function(){b.textContent="복사";},1600); });
+      } else { b.textContent="복사 불가"; setTimeout(function(){b.textContent="복사";},1600); }
+    });
+    w.appendChild(b);
+  });
+
+  $$("table").forEach(function(t){
+    var hs=$$("thead th",t).map(function(th){return th.textContent.trim();});
+    if(!hs.length) return;
+    $$("tbody tr",t).forEach(function(tr){
+      Array.prototype.forEach.call(tr.children,function(td,i){
+        if(!td.hasAttribute("data-label")) td.setAttribute("data-label", hs[i]||"");
+      });
+    });
+  });
+
+  /* ── 오탐 계산기 ── */
+  function baseCalc(){
+    var series=+$("#n1").value||0, period=+$("#n2").value||1,
+        real=+$("#n3").value||0, rec=+$("#n4").value/100, fpr=+$("#n5").value/10000;
+    $("#v4").textContent=Math.round(rec*100)+"%";
+    $("#v5").textContent=(fpr*100).toFixed(2)+"%";
+    var judgments=series*(1440/period);
+    var tp=real*rec, fp=Math.max(0,judgments-real)*fpr, alerts=tp+fp;
+    var ppv= alerts>0 ? tp/alerts*100 : 0;
+    $("#o1").textContent=Math.round(alerts).toLocaleString()+"건";
+    $("#o2").textContent=tp.toFixed(1)+"건";
+    $("#o3").textContent=ppv.toFixed(1)+"%";
+    var v=$("#bverdict");
+    if(ppv>=50) v.innerHTML="<b>운용 가능</b> — 알림 절반 이상이 진짜입니다. 다만 하루 알림 수가 담당자 수용량 안인지도 함께 보세요.";
+    else if(ppv>=10) v.innerHTML="<b>경계 구간</b> — 상관분석으로 사건 단위 집계를 하면 쓸 만해질 수 있습니다. 개별 알림으로 보내면 신뢰를 잃습니다.";
+    else v.innerHTML="<b>이대로는 노이즈</b> — 대상 시계열을 줄이거나, 연속 발생 조건으로 오탐률을 실질적으로 낮춰야 합니다.";
+  }
+  ["n1","n2","n3","n4","n5"].forEach(function(id){ var e=$("#"+id); if(e) e.addEventListener("input",baseCalc); });
+  baseCalc();
+
+  /* ── 탐지 방식 선택 ── */
+  var PQ=[
+    {q:"1. 이 지표는 사용자 영향과 직접 연결되나요?",o:[["그렇다(에러율·지연 등)",3],["간접적이다",1],["내부 지표다",0]]},
+    {q:"2. 물리적 상한이 있고 채워지면 장애인가요?",o:[["그렇다(디스크·풀·쿼터)",3],["아니다",0]]},
+    {q:"3. 시간대·요일에 따라 값이 크게 달라지나요?",o:[["매우 그렇다",2],["조금 그렇다",1],["거의 일정하다",0]]}
+  ];
+  var pA={}, pqs=$("#pqs"), pres=$("#pres");
+  PQ.forEach(function(item,qi){
+    var d=document.createElement("div"); d.className="q";
+    var p=document.createElement("p"); p.textContent=item.q; d.appendChild(p);
+    var o=document.createElement("div"); o.className="opts";
+    item.o.forEach(function(pair){
+      var b=document.createElement("button"); b.className="opt"; b.type="button";
+      b.textContent=pair[0]; b.setAttribute("aria-pressed","false");
+      b.addEventListener("click",function(){
+        $$(".opt",o).forEach(function(x){x.setAttribute("aria-pressed","false");});
+        b.setAttribute("aria-pressed","true"); pA[qi]=pair[1]; pick();
+      });
+      o.appendChild(b);
+    });
+    d.appendChild(o); pqs.appendChild(d);
+  });
+  function pick(){
+    var ks=Object.keys(pA); if(ks.length<PQ.length) return;
+    var msg;
+    if(pA[1]===3) msg="<b>예측 기반 경보</b> — 포화형 지표입니다. predict_linear 수준으로 먼저 구현하고, 톱니 패턴이면 최근 저점 추세를 쓰세요(5장).";
+    else if(pA[0]===3) msg="<b>SLO 번레이트가 1순위</b> — 사용자 영향 지표는 이상탐지보다 SLO 알림이 먼저입니다. 그 뒤에 보조로 계절 기준선을 얹으세요.";
+    else if(pA[2]>=1) msg="<b>계절 기준선 + MAD</b> — 시간대별 중앙값과 MAD로 강건 z-score를 쓰세요(4장). 대부분 여기서 충분합니다.";
+    else msg="<b>정적 임계치로 충분</b> — 값이 일정한 내부 지표에 모델을 붙일 이유가 없습니다. 임계치와 지속 조건이면 됩니다.";
+    pres.innerHTML=msg; pres.classList.add("show");
+  }
+
+  /* ── 탐지 비교 실험 ── */
+  function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+    var t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296; }; }
+  var N=168, TRUE_ANOM=[86,123], data=[];
+  (function gen(){
+    var rng=mulberry32(7);
+    for(var i=0;i<N;i++){
+      var hour=i%24, day=Math.floor(i/24);
+      var v=110 + 40*Math.sin(((hour-8)/24)*2*Math.PI) + 4*Math.sin(day) + (rng()-0.5)*9;
+      if(i===TRUE_ANOM[0]) v+=65;      // 한낮 급증
+      if(i===TRUE_ANOM[1]) v+=45;      // 새벽 이상 증가(절대값은 낮음)
+      data.push(v);
+    }
+  })();
+  var med=[], sig=[];
+  (function fit(){
+    for(var h=0;h<24;h++){
+      var arr=[]; for(var i=h;i<N;i+=24) arr.push(data[i]);
+      arr.sort(function(a,b){return a-b;});
+      var m=arr[Math.floor(arr.length/2)];
+      var dev=arr.map(function(x){return Math.abs(x-m);}).sort(function(a,b){return a-b;});
+      var mad=dev[Math.floor(dev.length/2)];
+      med.push(m); sig.push(Math.max(mad*1.4826, m*0.02, 1));
+    }
+  })();
+
+  var mode="static";
+  $$("#mode button").forEach(function(b){
+    b.addEventListener("click",function(){
+      $$("#mode button").forEach(function(x){x.setAttribute("aria-pressed","false");});
+      b.setAttribute("aria-pressed","true"); mode=b.dataset.m;
+      $("#thWrap").style.display = mode==="static" ? "" : "none";
+      $("#kWrap").style.display  = mode==="static" ? "none" : "";
+      draw();
+    });
+  });
+  $("#th").addEventListener("input",draw);
+  $("#kk").addEventListener("input",draw);
+
+  var W=700,H=240,L=38,R=10,T=14,B=26, VMIN=40, VMAX=235;
+  function px(i){ return L + (i/(N-1))*(W-L-R); }
+  function py(v){ return T + (1-(v-VMIN)/(VMAX-VMIN))*(H-T-B); }
+  function draw(){
+    var th=+$("#th").value, k=+$("#kk").value/10;
+    $("#thv").textContent=th; $("#kv").textContent=k.toFixed(1);
+    var hits=[], parts=[];
+
+    // 격자 · 일자 구분
+    for(var d=1;d<7;d++){
+      parts.push('<line x1="'+px(d*24)+'" y1="'+T+'" x2="'+px(d*24)+'" y2="'+py(VMIN)+
+                 '" stroke="var(--line-soft)" stroke-width="1"/>');
+      parts.push('<text x="'+(px(d*24-12))+'" y="'+(H-8)+'" fill="var(--dim)" font-size="10" text-anchor="middle">'+d+'일차</text>');
+    }
+    // 경계
+    if(mode==="static"){
+      parts.push('<line x1="'+L+'" y1="'+py(th)+'" x2="'+(W-R)+'" y2="'+py(th)+
+                 '" stroke="var(--violet)" stroke-width="2" stroke-dasharray="5 4"/>');
+    } else {
+      var up=[], lo=[];
+      for(var i=0;i<N;i++){
+        var h=i%24;
+        up.push(px(i)+","+py(Math.min(VMAX, med[h]+k*sig[h])));
+        lo.push(px(i)+","+py(Math.max(VMIN, med[h]-k*sig[h])));
+      }
+      parts.push('<polygon points="'+up.join(" ")+" "+lo.reverse().join(" ")+
+                 '" fill="var(--violet)" fill-opacity="0.16" stroke="none"/>');
+      var mline=[]; for(var j=0;j<N;j++) mline.push(px(j)+","+py(med[j%24]));
+      parts.push('<polyline points="'+mline.join(" ")+'" fill="none" stroke="var(--violet)" stroke-width="1.5" stroke-dasharray="4 3"/>');
+    }
+    // 실제 이상 위치 표시
+    TRUE_ANOM.forEach(function(i){
+      parts.push('<line x1="'+px(i)+'" y1="'+T+'" x2="'+px(i)+'" y2="'+py(VMIN)+
+                 '" stroke="var(--amber)" stroke-width="1.5" stroke-dasharray="2 3" opacity="0.8"/>');
+    });
+    // 관측 시계열
+    var pts=[]; for(var n=0;n<N;n++) pts.push(px(n)+","+py(data[n]));
+    parts.push('<polyline points="'+pts.join(" ")+'" fill="none" stroke="var(--teal)" stroke-width="1.8"/>');
+    // 탐지
+    for(var m=0;m<N;m++){
+      var fire = mode==="static" ? data[m]>th
+               : Math.abs((data[m]-med[m%24])/sig[m%24]) > k;
+      if(fire){ hits.push(m);
+        parts.push('<circle cx="'+px(m)+'" cy="'+py(data[m])+'" r="3.2" fill="var(--rose)"/>'); }
+    }
+    // y축 눈금
+    [50,100,150,200].forEach(function(v){
+      parts.push('<text x="'+(L-6)+'" y="'+(py(v)+3)+'" fill="var(--dim)" font-size="10" text-anchor="end">'+v+'</text>');
+    });
+    $("#chart").innerHTML=parts.join("");
+
+    var found=TRUE_ANOM.filter(function(i){ return hits.indexOf(i)>-1; }).length;
+    var fp=hits.length-found;
+    var msg="탐지 지점 <b>"+hits.length+"개</b> · 진짜 이상 <b>"+found+"/2</b> 탐지 · 오탐 <b>"+fp+"개</b><br>";
+    if(mode==="static"){
+      if(found===2 && fp<=2) msg+="<span style='color:var(--muted);font-size:13px'>드문 균형점입니다. 다만 트래픽이 10%만 늘어도 이 임계는 무너집니다.</span>";
+      else if(found<2 && fp===0) msg+="<span style='color:var(--muted);font-size:13px'>새벽 이상은 절대값이 낮아 임계치로는 잡히지 않습니다. 임계를 낮춰 보세요.</span>";
+      else msg+="<span style='color:var(--muted);font-size:13px'>임계를 낮추면 한낮 정상 구간이 통째로 알림이 됩니다. 이것이 정적 임계의 구조적 한계입니다.</span>";
+    } else {
+      if(found===2 && fp<=1) msg+="<span style='color:var(--muted);font-size:13px'>같은 시간대끼리 비교하므로 두 이상을 모두 잡으면서 오탐이 거의 없습니다.</span>";
+      else if(found<2) msg+="<span style='color:var(--muted);font-size:13px'>민감도를 낮추면(z 임계 하향) 더 잡지만 오탐이 늘어납니다.</span>";
+      else msg+="<span style='color:var(--muted);font-size:13px'>민감도를 높이면(z 임계 상향) 오탐이 줄어듭니다. 실무 시작값은 4 전후입니다.</span>";
+    }
+    $("#labres").innerHTML=msg;
+  }
+  draw();
+
+  /* ── TSFM 범위 계산기 ── */
+  function tsfm(){
+    var s=+$("#t1").value||1, per=+$("#t2").value||1, bs=+$("#t3").value||1, sec=+$("#t4").value||0.1;
+    var batches=Math.ceil(s/bs), time=batches*sec, util=time/(per*60)*100;
+    $("#to1").textContent=time.toFixed(1)+"초";
+    $("#to2").textContent=util.toFixed(1)+"%";
+    $("#to3").textContent=Math.round(batches*(1440/per)).toLocaleString()+"회";
+    var v=$("#tverdict");
+    if(util<=30) v.innerHTML="<b>여유 있음</b> — 대상 시계열을 늘리거나 갱신 주기를 줄일 수 있습니다.";
+    else if(util<=70) v.innerHTML="<b>적정</b> — 다만 피크 시 지연이 생길 수 있으니 큐와 폴백(통계 기준선)을 두세요.";
+    else v.innerHTML="<b>과부하</b> — 주기를 늘리거나, 대상을 핵심 지표로 좁히거나, 배치 크기를 키우세요. 이 상태면 탐지가 밀립니다.";
+  }
+  ["t1","t2","t3","t4"].forEach(function(id){ var e=$("#"+id); if(e) e.addEventListener("input",tsfm); });
+  tsfm();
+
+  $$("#cl input").forEach(function(box){
+    var k="aiops6-cl-"+box.dataset.k;
+    if(store(k)==="1") box.checked=true;
+    box.addEventListener("change",function(){ store(k, box.checked?"1":"0"); });
+  });
+
+  var QZ=[
+    {q:"1. 이상탐지에서 '정확도'가 무의미한 이유는?",
+     o:["모델이 복잡해서","정상 대비 이상이 극단적으로 드물어 낮은 오탐률도 많은 알림이 되기 때문","라벨이 없어서","시계열이 길어서"],
+     a:1, e:"시계열 300개를 5분마다 보면 하루 8만 번 판정합니다. 오탐률 0.1%면 오탐만 80여 건입니다."},
+    {q:"2. 지연 p95 지표에 평균±3σ를 쓰면 안 되는 이유는?",
+     o:["계산이 느려서","꼬리가 두꺼워 정규분포 가정이 깨지고, 과거 장애가 σ를 키워 다음 장애를 놓치기 때문","메모리를 많이 써서","Prometheus가 지원하지 않아서"],
+     a:1, e:"그래서 중앙값과 MAD 같은 강건 통계를 씁니다. 이상치에 끌려가지 않는 산포 추정이 필요합니다."},
+    {q:"3. 새벽의 이상 증가를 정적 임계치로 잡기 어려운 이유는?",
+     o:["데이터가 없어서","절대값이 한낮 정상값보다 낮아, 잡으려면 한낮이 통째로 오탐이 되기 때문","새벽에는 수집이 멈춰서","임계치가 정수만 지원해서"],
+     a:1, e:"같은 시간대끼리 비교하는 계절 기준선이 필요한 대표적 사례입니다."},
+    {q:"4. 기준선을 롤링 윈도로 갱신할 때 주의할 점은?",
+     o:["계산량이 늘어난다","장애 구간이 정상으로 학습되어 만성 문제를 못 잡게 된다","메모리 누수가 생긴다","계절성이 사라진다"],
+     a:1, e:"사건 기록을 이용해 장애 구간을 학습에서 제외해야 합니다. 제외 후 데이터가 너무 적으면 학습을 건너뛰고 경고하세요."},
+    {q:"5. 시계열 파운데이션 모델을 도입할 때 옳은 접근은?",
+     o:["공개 벤치마크 1위 모델을 고른다","모든 시계열에 적용한다","자기 환경의 해상도·지표로 직접 평가하고 핵심 지표에 한정 적용한다","통계 기준선을 모두 제거한다"],
+     a:2, e:"해상도에 따라 모델 순위가 뒤바뀝니다. 또한 폴백으로 통계 기준선을 남겨두어야 모델 서버 장애 시에도 탐지가 유지됩니다."}
+  ];
+  var qwrap=$("#qwrap"), qres=$("#qres"), done={};
+  QZ.forEach(function(item,qi){
+    var d=document.createElement("div"); d.className="q";
+    var p=document.createElement("p"); p.textContent=item.q; d.appendChild(p);
+    var o=document.createElement("div"); o.className="opts";
+    item.o.forEach(function(txt,oi){
+      var b=document.createElement("button"); b.className="opt"; b.type="button"; b.textContent=txt;
+      b.setAttribute("aria-pressed","false");
+      b.addEventListener("click",function(){
+        if(done[qi]!==undefined) return;
+        done[qi]=(oi===item.a);
+        $$(".opt",o).forEach(function(x,xi){ if(xi===item.a) x.setAttribute("aria-pressed","true"); });
+        if(oi!==item.a){ b.classList.add("wrong"); b.setAttribute("aria-pressed","true"); }
+        var ex=document.createElement("div"); ex.className="result show"; ex.style.marginTop="10px";
+        ex.innerHTML=(oi===item.a?"<b>정답</b> — ":"<b>오답</b> — ")+item.e;
+        d.appendChild(ex); tally();
+      });
+      o.appendChild(b);
+    });
+    d.appendChild(o); qwrap.appendChild(d);
+  });
+  function tally(){
+    var ks=Object.keys(done); if(ks.length<QZ.length) return;
+    var r=0; ks.forEach(function(k){ if(done[k]) r++; });
+    qres.innerHTML="<b>"+r+" / "+QZ.length+" 정답</b> — "+
+      (r>=4?"핵심을 잘 잡았습니다. 11장의 도입 순서 1단계부터 시작해 보세요."
+           :"틀린 문항의 해당 장을 다시 확인해 보세요.");
+    qres.classList.add("show");
+  }
+})();
+</script>
+</body>
+</html>
