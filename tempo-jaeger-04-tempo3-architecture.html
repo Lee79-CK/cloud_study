@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4편 · Tempo 3.0 아키텍처 해부 | Tempo와 Jaeger로 배우는 분산 트레이싱 백엔드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1530; --surface:#162043; --surface2:#1D2A55; --line:#2C3A6C;
+  --text:#E7EAF6; --muted:#9CA6CE; --faint:#6E78A3;
+  --accent:#8FA8FF; --accent-ink:#0E1530;
+  --c1:#2EC4B6; --c2:#F4B942; --c3:#FF6B8B; --c4:#A897FF; --c5:#4CC9F0; --c6:#A7D96B;
+  --jaeger:#4CC9F0; --tempo:#FF9F43;
+  --ok:#5BD69A; --warn:#F4B942; --err:#FF6B8B;
+  --code-bg:#0A1026;
+  --radius-lg:18px; --radius:12px; --radius-sm:7px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FB; --surface:#FFFFFF; --surface2:#E9EDF8; --line:#D3DAEE;
+  --text:#17203E; --muted:#56608A; --faint:#8790B3;
+  --accent:#3553D6; --accent-ink:#FFFFFF;
+  --c1:#118F84; --c2:#B87B06; --c3:#D0385D; --c4:#6A58DB; --c5:#1690B8; --c6:#5E9630;
+  --jaeger:#1690B8; --tempo:#D46A10;
+  --ok:#1D9A5E; --warn:#B87B06; --err:#D0385D;
+  --code-bg:#EEF1FA;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 24px);scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word;transition:background .3s,color .3s}
+a{color:var(--accent)}
+img,svg{max-width:100%}
+code,.mono{font-family:var(--mono);font-size:.88em}
+:not(pre)>code{background:var(--surface2);padding:.1em .4em;border-radius:5px;border:1px solid var(--line)}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:14px;line-height:1.6;margin:18px 0}
+button{font-family:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;padding:28px 18px 28px 24px;border-right:1px solid var(--line);background:var(--surface)}
+.side .brand{font-weight:700;font-size:15px;line-height:1.4;margin-bottom:4px}
+.side .sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.toc{list-style:none;margin:0;padding:0;counter-reset:toc}
+.toc li{counter-increment:toc}
+.toc a{display:flex;gap:10px;align-items:baseline;padding:7px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:14px;line-height:1.45}
+.toc a::before{content:counter(toc);font-family:var(--mono);font-size:12px;color:var(--faint);min-width:16px}
+.toc a:hover{background:var(--surface2);color:var(--text)}
+.toc a.active{background:var(--surface2);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.side-foot{margin-top:24px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.theme-btn{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px}
+.theme-btn:hover{border-color:var(--accent)}
+
+main{min-width:0;padding:0 clamp(18px,4vw,56px) 80px}
+.col{max-width:820px;margin:0 auto}
+section.chap{padding-top:72px}
+.chap-head{display:flex;gap:16px;align-items:flex-start;margin-bottom:10px}
+.chap-num{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:17px;background:var(--surface2);border:1px solid var(--line);color:var(--accent)}
+h2{font-size:clamp(24px,3vw,31px);line-height:1.3;margin:2px 0 0;letter-spacing:-.01em}
+h3{font-size:20px;line-height:1.4;margin:36px 0 10px}
+h4{font-size:17px;margin:22px 0 6px}
+p{margin:12px 0}
+.lead{font-size:18.5px;color:var(--muted);line-height:1.7}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:10px 0}
+ul.plain li{margin:6px 0}
+
+/* ---------- hero ---------- */
+.hero{padding-top:56px}
+.series{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.pill b{color:var(--text);font-weight:600}
+.pill .dot{width:8px;height:8px;border-radius:50%}
+.hero h1{font-size:clamp(32px,5vw,52px);line-height:1.18;letter-spacing:-.025em;margin:0 0 16px;font-weight:700}
+.hero h1 span.l2{display:block;color:var(--muted);font-weight:500;font-size:.62em;letter-spacing:-.01em;margin-top:10px}
+
+.wf{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 18px 14px;margin:28px 0 8px;overflow:hidden}
+.wf-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}
+.wf-title{font-weight:600;font-size:15px}
+.wf-title .mono{color:var(--muted);font-weight:400;margin-left:6px;font-size:12.5px}
+.wf-scroll{overflow-x:auto}
+.wf-grid{min-width:660px}
+.wf-axis{display:grid;grid-template-columns:270px 1fr;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:6px}
+.wf-axis .ticks{position:relative;height:16px}
+.wf-axis .ticks span{position:absolute;transform:translateX(-50%)}
+.wf-axis .ticks span:first-child{transform:none}
+.wf-axis .ticks span:last-child{transform:translateX(-100%)}
+.wf-row{display:grid;grid-template-columns:270px 1fr;align-items:center;min-height:30px;border-radius:7px;cursor:pointer;position:relative}
+.wf-row:hover{background:var(--surface2)}
+.wf-row.sel{background:var(--surface2);box-shadow:inset 0 0 0 1px var(--accent)}
+.wf-row.dim{opacity:.35}
+.wf-label{display:flex;align-items:center;gap:7px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:10px}
+.wf-label .svc{width:9px;height:9px;border-radius:3px;flex:none}
+.wf-label .op{overflow:hidden;text-overflow:ellipsis}
+.wf-label .svcname{color:var(--muted);font-size:12px}
+.wf-track{position:relative;height:30px;background-image:linear-gradient(to right,var(--line) 1px,transparent 1px);background-size:25% 100%}
+.wf-bar{position:absolute;top:8px;height:14px;border-radius:4px;transform-origin:left center}
+.wf-bar.err{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.28) 0 5px,transparent 5px 10px)}
+.wf-dur{position:absolute;top:6px;font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+.hero .wf-bar{animation:grow .7s cubic-bezier(.2,.8,.2,1) both}
+@keyframes grow{from{transform:scaleX(0);opacity:.3}to{transform:scaleX(1);opacity:1}}
+.cap{font-size:13.5px;color:var(--muted);margin-top:6px}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:14px;line-height:1.3}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.btn-row{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+
+/* ---------- callouts ---------- */
+.note{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--surface);border-radius:10px;padding:14px 18px;margin:20px 0}
+.note.tip{border-left-color:var(--c6)}
+.note.warn{border-left-color:var(--warn)}
+.note.link{border-left-color:var(--c4)}
+.note .nt{font-weight:700;font-size:14.5px;margin-bottom:2px}
+.note p{margin:6px 0}
+.term{border-bottom:1px dashed var(--faint);cursor:help}
+
+/* ---------- span detail ---------- */
+.explorer{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.detail{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;font-size:14.5px}
+.detail h4{margin:0 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:4px 14px;font-size:13.5px}
+.kv dt{color:var(--muted);word-break:break-all}
+.kv dd{margin:0;font-family:var(--mono);font-size:12.8px;word-break:break-all}
+.badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:600;font-family:var(--mono);border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}
+.badge.err{color:var(--err);border-color:var(--err)}
+.badge.unset{color:var(--muted)}
+.story{margin-top:10px;padding:12px 14px;border-radius:10px;background:var(--surface2);font-size:14.5px;display:none}
+.story.show{display:block}
+
+/* ---------- traceparent ---------- */
+.tp{font-family:var(--mono);font-size:clamp(12px,1.8vw,16px);background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:16px;overflow-x:auto;white-space:nowrap}
+.tp .seg{padding:2px 3px;border-radius:4px;cursor:pointer;transition:background .2s}
+.tp .seg:hover,.tp .seg.hl{background:var(--surface2)}
+.tp .s-v{color:var(--c4)} .tp .s-t{color:var(--c2)} .tp .s-p{color:var(--c1)} .tp .s-f{color:var(--c3)}
+.tp-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:12px}
+.tp-legend div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13.5px;cursor:pointer}
+.tp-legend div.hl{border-color:var(--accent)}
+.tp-legend b{display:block;font-family:var(--mono);font-size:13px}
+
+/* ---------- pipeline ---------- */
+.pipe{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.pipe svg{display:block;width:100%;height:auto}
+.pipe .node rect{fill:var(--surface2);stroke:var(--line);stroke-width:1.5;transition:all .3s}
+.pipe .node text{fill:var(--text);font-family:var(--font);font-size:13px}
+.pipe .node .small{fill:var(--muted);font-size:11px}
+.pipe .node.on rect{stroke:var(--accent);stroke-width:2.5}
+.pipe .edge{stroke:var(--line);stroke-width:2;fill:none}
+.pipe .edge.on{stroke:var(--accent)}
+.pipe .pkt{fill:var(--c2)}
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 8px}
+.steps button{flex:1 1 90px;padding:8px 6px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:13px}
+.steps button.on{color:var(--text);border-color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}
+.step-body{min-height:120px;padding:12px 4px 0}
+.step-body h4{margin:0 0 4px}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-top:18px}
+.tabs button{padding:10px 16px;border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--text);border-bottom-color:var(--tabc,var(--accent));font-weight:600}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel .role-lead{font-size:17px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.two>div{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface)}
+.two>div.j{border-top:3px solid var(--jaeger)}
+.two>div.t{border-top:3px solid var(--tempo)}
+.two h5{margin:0 0 6px;font-size:14.5px}
+.two p,.two li{font-size:14.5px}
+.two ul{margin:6px 0;padding-left:1.1em}
+
+/* ---------- timeline ---------- */
+.tl{position:relative;margin:24px 0;padding-left:0;list-style:none}
+.tl::before{content:"";position:absolute;left:66px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;display:grid;grid-template-columns:56px 1fr;gap:26px;margin-bottom:6px}
+.tl .yr{font-family:var(--mono);font-weight:600;font-size:14px;text-align:right;padding-top:10px;color:var(--muted)}
+.tl .ev{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;position:relative}
+.tl .ev::before{content:"";position:absolute;left:-17px;top:16px;width:10px;height:10px;border-radius:50%;background:var(--evc,var(--faint));box-shadow:0 0 0 4px var(--bg)}
+.tl .ev b{font-size:15px}
+.tl .ev .more{display:none;font-size:14.5px;color:var(--muted);margin-top:6px}
+.tl .ev.open .more{display:block}
+.tl .ev .tag{font-size:12px;color:var(--muted);margin-left:6px}
+
+/* ---------- analogy + sim ---------- */
+.analogy{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+.analogy>div{border-radius:var(--radius);padding:16px 18px;background:var(--surface);border:1px solid var(--line)}
+.analogy .ic{font-size:30px;line-height:1}
+.analogy h4{margin:8px 0 4px}
+.qpick{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.qpick button{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;font-size:14.5px}
+.qpick button .mono{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.qpick button.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.simcols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.simcol{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface)}
+.simcol.j{border-top:3px solid var(--jaeger)}
+.simcol.t{border-top:3px solid var(--tempo)}
+.simcol h5{margin:0 0 8px;font-size:14.5px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.simcol ol{margin:0;padding-left:1.3em;font-size:14px}
+.simcol ol li{margin:6px 0;opacity:.25;transition:opacity .35s}
+.simcol ol li.show{opacity:1}
+.verdict{font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.verdict.fast{color:var(--ok);border-color:var(--ok)}
+.verdict.mid{color:var(--warn);border-color:var(--warn)}
+.verdict.pre{color:var(--c4);border-color:var(--c4)}
+.simnote{font-size:14.5px;margin-top:12px;padding:12px 14px;border-radius:10px;background:var(--surface2);display:none}
+.simnote.show{display:block}
+
+/* ---------- table ---------- */
+.tbl-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:14.5px}
+th,td{padding:11px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+thead th{background:var(--surface2);font-size:14px}
+tbody th{font-weight:600;color:var(--muted);width:130px;background:var(--surface)}
+td{background:var(--surface)}
+th.jh{box-shadow:inset 0 3px 0 var(--jaeger)}
+th.th{box-shadow:inset 0 3px 0 var(--tempo)}
+
+/* ---------- map ---------- */
+.map{display:flex;flex-direction:column;gap:8px;margin:18px 0}
+.layer{display:grid;grid-template-columns:130px 1fr;gap:12px;align-items:stretch}
+.layer .ln{font-size:13px;color:var(--muted);padding:10px 0;line-height:1.4}
+.layer .chips{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px dashed var(--line);border-radius:10px}
+.chip{padding:6px 11px;border-radius:8px;font-size:13.5px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.chip.j{border-color:var(--jaeger)}
+.chip.t{border-color:var(--tempo)}
+.chip.o{border-color:var(--c4)}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.mapinfo{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface);min-height:92px;font-size:14.5px}
+.mapinfo .ep{display:inline-block;margin-top:6px;font-size:12.5px;padding:2px 9px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+
+/* ---------- scenarios ---------- */
+.scen{display:flex;flex-direction:column;gap:10px;margin:18px 0}
+details.sc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.sc summary{cursor:pointer;padding:14px 16px;list-style:none;display:flex;gap:12px;align-items:flex-start}
+details.sc summary::-webkit-details-marker{display:none}
+details.sc summary .q{font-weight:600}
+details.sc summary .who{display:block;font-size:13px;color:var(--muted);font-weight:400}
+details.sc summary .ico{flex:none;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:17px;background:var(--surface2)}
+details.sc[open] summary{border-bottom:1px solid var(--line)}
+details.sc .body{padding:10px 18px 14px 62px;font-size:14.8px}
+details.sc .body ol{padding-left:1.2em;margin:6px 0}
+
+/* ---------- glossary ---------- */
+.gsearch{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:15px;font-family:inherit}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:14px}
+.gitem{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface);font-size:14px}
+.gitem b{display:block;font-size:15px}
+.gitem .en{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.gitem p{margin:6px 0 0}
+.gempty{color:var(--muted);font-size:14.5px;margin-top:12px;display:none}
+
+/* ---------- quiz ---------- */
+.qz{border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;background:var(--surface);margin:12px 0}
+.qz .qq{font-weight:600;margin-bottom:10px}
+.qz .opts{display:flex;flex-direction:column;gap:6px}
+.qz .opts button{text-align:left;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:14.5px}
+.qz .opts button.right{border-color:var(--ok);box-shadow:inset 3px 0 0 var(--ok)}
+.qz .opts button.wrong{border-color:var(--err);box-shadow:inset 3px 0 0 var(--err)}
+.qz .opts button:disabled{cursor:default}
+.qz .ex{display:none;margin-top:10px;font-size:14.5px;color:var(--muted)}
+.qz .ex.show{display:block}
+.score{font-weight:600;padding:12px 16px;border-radius:10px;background:var(--surface2);border:1px solid var(--line)}
+
+/* ---------- summary ---------- */
+.sum{counter-reset:s;list-style:none;padding:0;margin:18px 0}
+.sum li{counter-increment:s;display:grid;grid-template-columns:34px 1fr;gap:10px;margin:10px 0}
+.sum li::before{content:counter(s);font-family:var(--mono);font-weight:600;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--surface2);color:var(--accent);font-size:13px;margin-top:2px}
+.next{border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px 22px;background:var(--surface);margin-top:26px}
+.next .k{font-size:13px;color:var(--muted)}
+.next h3{margin:4px 0 8px}
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+
+/* ---------- mobile ---------- */
+.mbar{display:none}
+@media (max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .side{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);z-index:40;transform:translateX(-102%);transition:transform .25s;padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
+  .side.open{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)}
+  .mbar{display:flex;position:sticky;top:env(safe-area-inset-top,0px);z-index:30;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+}
+@media (max-width:720px){
+  body{font-size:16px}
+  .wf-row,.wf-axis{grid-template-columns:170px 1fr}
+  .wf-grid{min-width:540px}
+  .wf-label{font-size:12px}
+  .two,.analogy,.simcols{grid-template-columns:1fr}
+  .layer{grid-template-columns:1fr;gap:4px}
+  .layer .ln{padding:4px 0 0}
+  .kv{grid-template-columns:110px minmax(0,1fr)}
+  details.sc .body{padding-left:18px}
+  .tl::before{left:50px}
+  .tl li{grid-template-columns:42px 1fr;gap:24px}
+  .tl .yr{font-size:12.5px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+
+
+
+/* ================= episode 2 additions ================= */
+/* role switcher (hero) */
+.rs{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:28px 0 8px}
+.rs-roles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.rs-roles button{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:14px;font-family:var(--mono)}
+.rs-roles button.on{background:var(--jaeger);color:var(--accent-ink);border-color:var(--jaeger);font-weight:600}
+:root[data-theme="light"] .rs-roles button.on{color:#fff}
+.bin{border:2px solid var(--jaeger);border-radius:14px;padding:14px;position:relative;background:linear-gradient(180deg,color-mix(in srgb,var(--jaeger) 7%,transparent),transparent 60%)}
+.bin-tag{position:absolute;top:-12px;left:16px;background:var(--surface);padding:0 8px;font-family:var(--mono);font-size:13px;color:var(--jaeger);font-weight:600}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start}
+.lane h5{margin:0 0 6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.lane .arrow{display:none}
+.comp{display:block;width:100%;text-align:left;margin:0 0 6px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);font-family:var(--mono);font-size:12.5px;color:var(--text);transition:opacity .25s,border-color .25s,box-shadow .25s;cursor:pointer}
+.comp.off{opacity:.28}
+.comp.on{border-color:var(--jaeger);box-shadow:inset 3px 0 0 var(--jaeger)}
+.comp.jg{position:relative;padding-right:22px}
+.comp.jg::after{content:"J";position:absolute;right:8px;top:7px;font-size:10.5px;color:var(--jaeger);font-weight:700}
+.ext-row{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+.ext-row h5{margin:0 0 6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.ext-row .exts{display:flex;flex-wrap:wrap;gap:6px}
+.ext-row .comp{width:auto;margin:0}
+.rs-out{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:12px;margin-top:14px}
+.rs-out pre{margin:0;font-size:12.5px;max-height:320px}
+.rs-desc{font-size:14.5px;background:var(--surface2);border-radius:10px;padding:12px 14px}
+.rs-desc .ports{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.port{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface)}
+.comp-info{margin-top:10px;font-size:14px;color:var(--muted);min-height:22px}
+.comp-info b{color:var(--text);font-family:var(--mono);font-weight:600}
+
+/* before / after */
+.ba-toggle{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:12px 0}
+.ba-toggle button{padding:8px 16px;border:0;background:var(--surface);color:var(--muted);cursor:pointer;font-size:14px}
+.ba-toggle button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.ba{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.ba svg{display:block;width:100%;height:auto}
+.ba svg .box{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+.ba svg .box.hl{stroke:var(--jaeger);stroke-width:2.5}
+.ba svg .box.gone{stroke:var(--err);stroke-dasharray:5 4}
+.ba svg text{fill:var(--text);font-family:var(--font);font-size:13px}
+.ba svg text.sm{fill:var(--muted);font-size:11px}
+.ba svg .ln{stroke:var(--faint);stroke-width:1.8;fill:none}
+.ba-cap{font-size:14.5px;margin-top:10px}
+
+/* component hub */
+.hub{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:14px;align-items:start}
+.hub-list{display:flex;flex-direction:column;gap:8px}
+.hub-list button{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.hub-list button .k{display:block;font-family:var(--mono);font-size:14px;font-weight:600}
+.hub-list button .t{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.hub-list button.on{border-color:var(--jaeger);box-shadow:inset 3px 0 0 var(--jaeger)}
+.hub-detail{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;font-size:14.8px}
+.hub-detail h4{margin:0 0 4px;font-family:var(--mono)}
+.hub-detail pre{font-size:12.5px;margin:12px 0 4px}
+.kind{display:inline-block;font-size:12px;padding:1px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);margin-left:6px;font-family:var(--font);font-weight:500}
+
+/* annotated yaml */
+.ay{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;align-items:start}
+.ay-code{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:12px 0;font-family:var(--mono);font-size:12.8px;line-height:1.62;overflow-x:auto}
+.ay-code .blk{display:block;padding:0 16px;border-left:3px solid transparent;cursor:pointer;white-space:pre}
+.ay-code .blk:hover{background:var(--surface2)}
+.ay-code .blk.on{background:var(--surface2);border-left-color:var(--accent)}
+.ay-code .k{color:var(--c5)} .ay-code .v{color:var(--c2)} .ay-code .c{color:var(--faint)} .ay-code .n{color:var(--c3);font-weight:600}
+.ay-code .n.glow{background:color-mix(in srgb,var(--c3) 28%,transparent);border-radius:4px;outline:1px solid var(--c3)}
+.ay-side{position:sticky;top:20px}
+.ay-exp{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;font-size:14.8px;min-height:180px}
+.ay-exp h4{margin:0 0 6px}
+
+/* traffic simulator */
+.sim{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 18px;margin-bottom:14px}
+.ctrl label{font-size:13.5px;color:var(--muted);display:block}
+.ctrl label b{color:var(--text);font-family:var(--mono);font-weight:600}
+.ctrl input[type=range]{width:100%;accent-color:var(--accent)}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chart{border:1px solid var(--line);border-radius:10px;padding:10px 10px 6px;background:var(--surface2)}
+.chart h5{margin:0 0 4px;font-size:13.5px}
+.chart svg{display:block;width:100%;height:auto}
+.chart .ax{stroke:var(--line)}
+.chart .lin{stroke:var(--faint);fill:none;stroke-width:1.6;stroke-dasharray:4 3}
+.chart .sto{stroke:var(--jaeger);fill:none;stroke-width:2.2}
+.chart .drop{fill:var(--err);opacity:.75}
+.chart .lag{fill:var(--warn);opacity:.35;stroke:var(--warn);stroke-width:1.5}
+.chart .cap{stroke:var(--ok);stroke-dasharray:2 3;stroke-width:1.2}
+.chart text{fill:var(--muted);font-size:10px;font-family:var(--mono)}
+.stat{font-size:14px;margin-top:6px}
+.stat b{font-family:var(--mono)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+
+/* wizard */
+.wiz{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.wq{margin-bottom:14px}
+.wq .ql{font-weight:600;font-size:15px;margin-bottom:6px}
+.wq .opts{display:flex;flex-wrap:wrap;gap:6px}
+.wq .opts button{padding:8px 13px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:14px}
+.wq .opts button.on{border-color:var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:600}
+.wres{border-top:1px dashed var(--line);padding-top:14px;font-size:15px}
+.wres .pick{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--jaeger)}
+.wres .why{margin:6px 0}
+.wres .caveat{font-size:14px;color:var(--muted)}
+
+/* checklist */
+.chk{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.chk label{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.8px}
+.chk input{width:18px;height:18px;margin-top:4px;accent-color:var(--ok)}
+.chk label.done{border-color:var(--ok)}
+.chk label .st{font-weight:600}
+.chk label .sd{display:block;color:var(--muted);font-size:14px;margin-top:2px}
+.prog{height:8px;border-radius:99px;background:var(--surface2);overflow:hidden;border:1px solid var(--line)}
+.prog i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.progt{font-size:13.5px;color:var(--muted);margin-top:6px}
+
+/* port filter */
+.pf{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pf button{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;font-size:13px}
+.pf button.on{color:var(--text);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+tr.hide{display:none}
+td.mono,th.mono{font-family:var(--mono);font-size:13.5px}
+
+/* size tiers */
+.tiers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+.tier{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface);font-size:14.5px}
+.tier h4{margin:0 0 2px}
+.tier .sz{font-size:12.5px;color:var(--muted)}
+.tier ul{padding-left:1.1em;margin:8px 0 0}
+.tier ul li{margin:4px 0}
+.tier:nth-child(1){border-top:3px solid var(--c6)}
+.tier:nth-child(2){border-top:3px solid var(--c2)}
+.tier:nth-child(3){border-top:3px solid var(--c3)}
+
+@media (max-width:900px){
+  .rs-out,.hub,.ay{grid-template-columns:1fr}
+  .ay-side{position:static}
+}
+@media (max-width:720px){
+  .lanes{grid-template-columns:1fr}
+  .charts,.tiers{grid-template-columns:1fr}
+}
+
+
+
+/* ================= episode 3 additions ================= */
+/* terminal hero */
+.term{background:#070B1C;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;margin:28px 0 8px;color:#DDE3F8}
+:root[data-theme="light"] .term{background:#141A33}
+.term-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.08)}
+.term-bar i{width:11px;height:11px;border-radius:50%;display:inline-block}
+.term-tabs{display:flex;gap:4px;margin-left:12px;flex-wrap:wrap}
+.term-tabs button{background:none;border:1px solid transparent;color:#9AA4CC;padding:4px 10px;border-radius:7px;cursor:pointer;font-size:12.5px;font-family:var(--mono)}
+.term-tabs button.on{border-color:rgba(255,255,255,.18);color:#fff;background:rgba(255,255,255,.06)}
+.term-body{padding:14px 18px 16px;font-family:var(--mono);font-size:13px;line-height:1.7;min-height:180px;white-space:pre-wrap;word-break:break-all}
+.term-body .pr{color:#5BD69A}
+.term-body .cm{color:#E7EAF6}
+.term-body .out{color:#9AA4CC}
+.term-body .ok{color:#5BD69A}
+.term-body .hl{color:#F4B942}
+.term-body .caret{display:inline-block;width:8px;height:15px;background:#E7EAF6;vertical-align:-2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.term-foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid rgba(255,255,255,.08);font-size:12.5px;color:#9AA4CC}
+.term-foot .btn{background:rgba(255,255,255,.06);color:#E7EAF6;border-color:rgba(255,255,255,.14);font-size:12.5px;padding:6px 11px}
+
+/* file tabs */
+.files{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--code-bg);margin:16px 0}
+.ftabs{display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid var(--line);background:var(--surface)}
+.ftabs button{padding:10px 14px;border:0;border-right:1px solid var(--line);background:none;color:var(--muted);font-family:var(--mono);font-size:12.8px;cursor:pointer}
+.ftabs button.on{color:var(--text);background:var(--code-bg);box-shadow:inset 0 2px 0 var(--accent)}
+.fbody{position:relative}
+.fbody pre{margin:0;border:0;border-radius:0;max-height:460px;font-size:12.6px}
+.fnote{padding:10px 16px;border-top:1px solid var(--line);font-size:13.5px;color:var(--muted);background:var(--surface)}
+.fact{position:absolute;top:10px;right:12px;display:flex;gap:6px}
+.fact .btn{padding:5px 10px;font-size:12px}
+pre .k{color:var(--c5)} pre .c{color:var(--faint)} pre .n{color:var(--c3);font-weight:600}
+
+/* jaeger ui mock */
+.ui{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:var(--surface);margin:16px 0}
+.ui-nav{display:flex;align-items:center;gap:2px;padding:0 10px;background:#11163A;color:#C8CEEB;flex-wrap:wrap}
+:root[data-theme="light"] .ui-nav{background:#1E2552}
+.ui-nav .logo{font-weight:700;color:#fff;padding:10px 10px 10px 4px;font-size:14px}
+.ui-nav button{background:none;border:0;color:#AEB6DE;padding:11px 12px;cursor:pointer;font-size:13.5px;border-bottom:2px solid transparent}
+.ui-nav button.on{color:#fff;border-bottom-color:var(--jaeger)}
+.ui-body{padding:16px}
+.ui-hint{font-size:13.5px;color:var(--muted);margin-bottom:12px}
+.srch{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px}
+.sform{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface2);font-size:13px}
+.sform label{display:block;color:var(--muted);margin:8px 0 3px;font-size:12px}
+.sform label:first-child{margin-top:0}
+.sform .fld{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-family:var(--mono);font-size:12.3px;color:var(--text)}
+.sform .btn{width:100%;justify-content:center;margin-top:12px}
+.scat{border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--surface2)}
+.scat svg{display:block;width:100%;height:auto}
+.scat text{fill:var(--muted);font-size:10px;font-family:var(--mono)}
+.scat circle{cursor:pointer;transition:r .15s}
+.rlist{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.rrow{display:grid;grid-template-columns:1fr auto;gap:10px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;background:var(--surface);cursor:pointer}
+.rrow.sel{border-color:var(--accent)}
+.rrow .m{font-family:var(--mono);color:var(--muted);font-size:12px}
+.rrow .err{color:var(--err);font-weight:600}
+.cp-toggle{display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:10px;flex-wrap:wrap}
+.wf-bar .cpseg{position:absolute;top:5px;height:4px;background:#0B1030;border-radius:2px}
+:root[data-theme="light"] .wf-bar .cpseg{background:#0B1030}
+.wf-bar{overflow:visible}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cmp .tr{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface2);font-size:13px}
+.cmp .tr h5{margin:0 0 6px;font-size:13.5px}
+.cmp .node{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:5px;margin:3px 0;border:1px solid var(--line);background:var(--surface)}
+.cmp .node.add{border-color:var(--ok);color:var(--ok)}
+.cmp .node.chg{border-color:var(--warn);color:var(--warn)}
+.dag svg{display:block;width:100%;height:auto;max-height:300px}
+.dag .dn rect{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+.dag .dn text{fill:var(--text);font-size:12px;font-family:var(--mono)}
+.dag .de{stroke:var(--faint);stroke-width:1.5;fill:none;marker-end:url(#arr)}
+.dag .dl{fill:var(--muted);font-size:10.5px;font-family:var(--mono)}
+.mon table{min-width:560px}
+.mon th button{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0}
+.mon th button::after{content:" ↕";color:var(--faint)}
+.mon .ibar{height:8px;border-radius:4px;background:var(--c4);display:block}
+.mon td.num{font-family:var(--mono);font-size:13px}
+
+/* calculators */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.calc-out{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.calc-out div{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.calc-out b{display:block;font-family:var(--mono);font-size:19px;color:var(--text)}
+.calc-out span{font-size:12.5px;color:var(--muted)}
+.calc-note{font-size:13.5px;color:var(--muted);margin-top:10px}
+.sb-row{display:grid;grid-template-columns:160px 90px minmax(0,1fr) 90px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.sb-row:last-child{border-bottom:0}
+.sb-row .svc{font-family:var(--mono)}
+.sb-row .rps{color:var(--muted);font-family:var(--mono);font-size:12.5px}
+.sb-row input{width:100%;accent-color:var(--accent)}
+.sb-row .pv{font-family:var(--mono);text-align:right}
+.sb-head{font-size:12px;color:var(--muted)}
+
+/* metrics flow */
+.mflow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-items:stretch;margin:16px 0}
+.mflow>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);font-size:13px;position:relative}
+.mflow>div b{display:block;font-size:14px;margin-bottom:4px}
+.mflow code{font-size:11.5px;word-break:break-all}
+.mflow .bad{border-color:var(--err)}
+.mflow .good{border-color:var(--ok)}
+
+@media (max-width:900px){.srch{grid-template-columns:1fr}.mflow{grid-template-columns:1fr 1fr}}
+@media (max-width:720px){.cmp{grid-template-columns:1fr}.sb-row{grid-template-columns:1fr 1fr}.mflow{grid-template-columns:1fr}}
+
+
+
+/* ================= episode 4 additions ================= */
+.hero .pill .dot.t{background:var(--tempo)}
+.arch{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px;margin:26px 0 8px}
+.arch-ctl{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin-bottom:10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg button{padding:7px 14px;border:0;background:var(--surface);color:var(--muted);cursor:pointer;font-size:13.5px}
+.seg button.on{background:var(--tempo);color:#1A1206;font-weight:600}
+.arch svg{display:block;width:100%;height:auto}
+.an rect{fill:var(--surface2);stroke:var(--line);stroke-width:1.5;transition:all .3s}
+.an text{fill:var(--text);font-family:var(--font);font-size:13px;pointer-events:none}
+.an text.sm{fill:var(--muted);font-size:10.5px}
+.an{cursor:pointer;transition:opacity .3s}
+.an:hover rect{stroke:var(--tempo)}
+.an.sel rect{stroke:var(--tempo);stroke-width:2.5}
+.an.off{opacity:.12;pointer-events:none}
+.an.new rect{stroke-dasharray:0}
+.ae{fill:none;stroke:var(--faint);stroke-width:1.8;transition:opacity .3s,stroke .3s}
+.ae.off{opacity:0}
+.ae.dim{opacity:.18}
+.ae.flow{stroke-dasharray:6 6;animation:flow 1.1s linear infinite}
+.ae.w.flow{stroke:var(--tempo)}
+.ae.r.flow{stroke:var(--jaeger)}
+.ae.b.flow{stroke:var(--c4)}
+@keyframes flow{to{stroke-dashoffset:-24}}
+.mono-box{fill:none;stroke:var(--tempo);stroke-dasharray:5 5;stroke-width:1.5;transition:opacity .3s}
+.mono-lbl{fill:var(--tempo);font-size:12px;font-family:var(--mono)}
+.arch-info{margin-top:10px;background:var(--surface2);border-radius:10px;padding:12px 14px;font-size:14.3px;min-height:96px}
+.arch-info h4{margin:0 0 4px;font-family:var(--mono)}
+.arch-info .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tagp{font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
+.legend2{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--muted)}
+.legend2 i{display:inline-block;width:18px;height:3px;border-radius:2px;vertical-align:middle;margin-right:5px}
+
+/* flush crash sim */
+.crash{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.fl{display:flex;flex-direction:column;gap:6px;margin:6px 0 12px}
+.fl .st{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);font-size:14px;transition:all .25s}
+.fl .st .no{font-family:var(--mono);color:var(--muted)}
+.fl .st.done{border-color:var(--ok)}
+.fl .st.done .no{color:var(--ok)}
+.fl .st.fail{border-color:var(--err);opacity:.55;border-style:dashed}
+.fl .cbtn{font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid var(--err);color:var(--err);background:none;cursor:pointer}
+.fl .cbtn:hover{background:color-mix(in srgb,var(--err) 12%,transparent)}
+.crash-out{background:var(--surface2);border-radius:10px;padding:12px 14px;font-size:14.3px;min-height:80px}
+.bucket{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.bucket span{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface)}
+.bucket span.vis{border-color:var(--ok);color:var(--ok)}
+.bucket span.inv{border-style:dashed;color:var(--muted)}
+.bucket span.old{text-decoration:line-through;color:var(--muted)}
+
+/* trace lifecycle */
+.life{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0}
+.life>div{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface);font-size:13.5px;position:relative}
+.life>div b{display:block;font-size:14.5px;margin-bottom:4px}
+.life>div .q{display:inline-block;margin-top:6px;font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+.life>div:nth-child(1){border-top:3px solid var(--c6)}
+.life>div:nth-child(2){border-top:3px solid var(--c2)}
+.life>div:nth-child(3){border-top:3px solid var(--c5)}
+.life>div:nth-child(4){border-top:3px solid var(--c4)}
+
+/* partition ring */
+.pr{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:12px 0}
+.pcell{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface2);font-size:13px;transition:all .3s}
+.pcell b{font-family:var(--mono);font-size:14px}
+.pcell .stt{display:inline-block;margin-left:6px;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:999px;border:1px solid}
+.pcell.active .stt{color:var(--ok);border-color:var(--ok)}
+.pcell.pending .stt{color:var(--warn);border-color:var(--warn)}
+.pcell.inactive .stt{color:var(--c4);border-color:var(--c4)}
+.pcell.lost{border-color:var(--err)}
+.pcell.lost .stt{color:var(--err);border-color:var(--err)}
+.pcell .own{margin-top:6px;color:var(--muted);font-family:var(--mono);font-size:11.5px;line-height:1.5}
+.pcell .io{margin-top:4px;font-size:12px}
+.pr-log{background:var(--surface2);border-radius:10px;padding:12px 14px;font-size:14px;min-height:60px}
+
+/* time split */
+.ts{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.tsbar{display:flex;height:40px;border-radius:9px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px}
+.tsbar div{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;transition:flex-basis .4s}
+.tsbar .o{background:color-mix(in srgb,var(--tempo) 35%,var(--surface2));}
+.tsbar .l{background:color-mix(in srgb,var(--c6) 40%,var(--surface2));}
+.tsbar .x{background:repeating-linear-gradient(45deg,var(--surface2) 0 6px,var(--surface) 6px 12px);color:var(--muted)}
+.tsax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* bloom demo */
+.bl{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.blks{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:6px;margin:12px 0}
+.blk{border:1px solid var(--line);border-radius:8px;padding:8px 4px;text-align:center;font-family:var(--mono);font-size:11.5px;background:var(--surface2);transition:all .3s}
+.blk small{display:block;color:var(--muted);font-size:10px}
+.blk.no{opacity:.25}
+.blk.maybe{border-color:var(--warn);box-shadow:inset 0 -3px 0 var(--warn)}
+.blk.fp{border-color:var(--faint);border-style:dashed}
+.blk.hit{border-color:var(--ok);box-shadow:inset 0 -3px 0 var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface2))}
+.bl-out{background:var(--surface2);border-radius:10px;padding:12px 14px;font-size:14px;min-height:64px}
+
+/* parquet columns */
+.pq{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.pqcols{display:flex;gap:4px;align-items:flex-end;height:170px;margin:14px 0 4px;overflow-x:auto;padding-bottom:4px}
+.pqc{flex:1 0 54px;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;height:100%}
+.pqc i{display:block;border-radius:6px 6px 0 0;background:var(--surface2);border:1px solid var(--line);border-bottom:0;transition:all .3s}
+.pqc.read i{background:var(--tempo);border-color:var(--tempo)}
+.pqc.ded i{background-image:repeating-linear-gradient(135deg,transparent 0 5px,rgba(255,255,255,.18) 5px 10px)}
+.pqc span{font-family:var(--mono);font-size:10.5px;color:var(--muted);text-align:center;margin-top:4px;line-height:1.25;word-break:break-all;min-height:28px}
+.pqc.read span{color:var(--text);font-weight:600}
+.pq-out{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:14px}
+.meter{flex:1 1 220px;height:12px;border-radius:99px;background:var(--surface2);overflow:hidden;border:1px solid var(--line)}
+.meter i{display:block;height:100%;background:var(--tempo);transition:width .4s}
+.sw{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer}
+.sw input{accent-color:var(--tempo);width:18px;height:18px}
+
+@media (max-width:720px){.life{grid-template-columns:1fr 1fr}.blks{grid-template-columns:repeat(5,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<div class="mbar"><button class="btn" id="menuBtn" aria-label="목차 열기">☰ 목차</button><span>4편 · Tempo 3.0 아키텍처</span><button class="btn" data-theme-toggle aria-label="테마 전환">◐</button></div>
+<div class="shell">
+<aside class="side" id="side">
+  <div class="brand">Tempo와 Jaeger로 배우는<br>분산 트레이싱 백엔드</div>
+  <div class="sub">4편 / 전 8편 · Tempo 3.0 아키텍처 해부</div>
+  <ol class="toc" id="toc">
+    <li><a href="#goals">Tempo의 설계 목표</a></li>
+    <li><a href="#change">2.x에서 3.0으로</a></li>
+    <li><a href="#write">쓰기 경로 따라가기</a></li>
+    <li><a href="#live">live-store와 파티션 링</a></li>
+    <li><a href="#read">읽기 경로 따라가기</a></li>
+    <li><a href="#block">블록 속 들여다보기</a></li>
+    <li><a href="#backend">백엔드 스케줄러와 워커</a></li>
+    <li><a href="#modes">배포 모드와 확장</a></li>
+    <li><a href="#cost">RF3에서 RF1로, 비용 계산</a></li>
+    <li><a href="#upgrade">2.x 사용자가 알아 둘 것</a></li>
+    <li><a href="#glossary">용어 사전</a></li>
+    <li><a href="#quiz">확인 퀴즈</a></li>
+    <li><a href="#wrap">정리와 다음 편</a></li>
+  </ol>
+  <div class="side-foot">
+    <a href="tempo-jaeger-00-index.html" style="font-weight:600">← 시리즈 목차로</a><br>
+    기준: Grafana Tempo 3.0.3 (2026년 9월)<br>이전 편: 3편 Jaeger 구축·운영 실전
+    <br><button class="theme-btn" data-theme-toggle><span data-theme-label>라이트 테마로 보기</span></button>
+  </div>
+</aside>
+
+<main>
+<div class="col">
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="series">
+    <span class="pill"><b>4편</b> / 8편</span>
+    <span class="pill"><span class="dot t"></span>Tempo 트랙 1/3</span>
+    <span class="pill">기준: Tempo 3.0.3</span>
+  </div>
+  <h1>Tempo 3.0 아키텍처 해부<span class="l2">쓰는 길과 읽는 길을 완전히 떼어 놓다</span></h1>
+  <p class="lead">Tempo 3.0은 2.x의 핵심 부품이던 ingester를 없애고, 쓰기와 읽기를 서로 다른 부품이 맡도록 다시 설계했습니다. 아래 구성도에서 <b>경로</b>를 바꿔 데이터가 흐르는 길을 보고, <b>배포 모드</b>를 바꿔 Kafka가 있을 때와 없을 때를 비교해 보세요. 부품을 클릭하면 역할이 나옵니다.</p>
+
+  <div class="arch" aria-label="Tempo 3.0 구성도">
+    <div class="arch-ctl">
+      <div class="seg" id="pathSeg" role="tablist"><button data-p="all" class="on">전체</button><button data-p="w">쓰기 경로</button><button data-p="r">읽기 경로</button><button data-p="b">관리 작업</button></div>
+      <div class="seg" id="modeSeg" role="tablist"><button data-m="micro" class="on">microservices</button><button data-m="mono">monolithic</button></div>
+    </div>
+    <svg viewBox="0 0 930 350" id="archSvg" role="img" aria-label="Tempo 부품과 데이터 흐름"></svg>
+    <div class="legend2"><span><i style="background:var(--tempo)"></i>쓰기</span><span><i style="background:var(--jaeger)"></i>읽기</span><span><i style="background:var(--c4)"></i>압축·보존 관리</span></div>
+    <div class="arch-info" id="archInfo" aria-live="polite"></div>
+  </div>
+  <p class="cap">구성도는 공식 문서의 3.0 아키텍처를 단순화한 것입니다. monolithic 모드에서 점선 상자 안의 부품은 모두 <code>tempo -target=all</code> 한 프로세스 안에서 돕니다.</p>
+</header>
+
+<!-- ================= 1. GOALS ================= -->
+<section class="chap" id="goals">
+  <div class="chap-head"><div class="chap-num">1</div><h2>Tempo의 설계 목표</h2></div>
+  <p>1편에서 Tempo를 "물류창고 방식"으로 소개했습니다. 색인을 만들지 않고, 싼 객체 스토리지에 트레이스를 차곡차곡 쌓아 두는 설계입니다. Tempo의 일은 결국 두 가지입니다. 스팬을 받아 <b>Parquet 열 구조로 정리해 객체 스토리지에 넣는 것</b>, 그리고 <b>Trace ID나 TraceQL 조건으로 꺼내 주는 것</b>입니다. 3.0은 이 두 일을 네 가지 목표에 맞춰 다시 짰습니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>목표</th><th>어떻게 이루나</th><th>MSP에게 의미</th></tr></thead>
+    <tbody>
+      <tr><th>싼 저장</th><td>모든 트레이스 데이터를 객체 스토리지(S3, GCS, Azure Blob)에 저장</td><td>보존 기간을 늘려도 비용 증가가 완만함. 3편의 OpenSearch 계산과 비교해 볼 만함</td></tr>
+      <tr><th>독립 확장</th><td>microservices 모드에서 쓰기 경로와 읽기 경로를 분리</td><td>조회 폭주가 수집을 멈추지 않고, 수집 폭주가 조회를 느리게 하지 않음</td></tr>
+      <tr><th>추가 복제 없는 내구성</th><td>Kafka 호환 큐를 WAL로 사용. Kafka가 받았다고 확인하면 데이터는 안전하므로 복제 계수 1(RF1)로 운영</td><td>2.x 대비 객체 스토리지 사용량이 크게 줄어듦 (9장)</td></tr>
+      <tr><th>효율적인 속성 조회</th><td>열 지향 형식인 Parquet으로 블록 저장. 필요한 열만 읽음</td><td>색인 없이도 TraceQL 검색이 실용적인 속도를 냄 (6장)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note link">
+    <div class="nt">WAL이 뭐였더라</div>
+    <p>WAL(Write-Ahead Log, 선행 기록 로그)은 "본 작업을 하기 전에 일단 안전한 곳에 적어 두는" 기록입니다. 도중에 프로세스가 죽어도 이 기록을 다시 읽어 복구할 수 있습니다. Tempo 3.0에서는 Kafka가 클러스터 전체의 WAL 역할을 맡습니다. 2편에서 Jaeger가 Kafka를 "유실 대신 지연을 택하는 완충 장치"로 선택 사항으로 두었다면, Tempo 3.0 microservices 모드에서 Kafka는 <b>필수 뼈대</b>입니다.</p>
+  </div>
+</section>
+
+<!-- ================= 2. CHANGE ================= -->
+<section class="chap" id="change">
+  <div class="chap-head"><div class="chap-num">2</div><h2>2.x에서 3.0으로</h2></div>
+  <p>인터넷의 Tempo 자료 대부분은 2.x 구조를 설명합니다. 무엇이 바뀌었는지 먼저 비교해 두면 옛 자료를 걸러 읽을 수 있습니다.</p>
+  <div class="ba-toggle" role="tablist"><button id="baV2">2.x (ingester 구조)</button><button id="baV3" class="on">3.0 (분리 구조)</button></div>
+  <div class="ba">
+    <svg viewBox="0 0 820 250" id="baSvg" role="img" aria-label="Tempo 2.x와 3.0 구성 비교"><g id="baG"></g></svg>
+    <div class="ba-cap" id="baCap"></div>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>2.x의 부품·개념</th><th>3.0에서</th></tr></thead>
+    <tbody>
+      <tr><th>ingester</th><td><b>완전히 제거.</b> 최근 데이터 조회는 live-store가, 블록 만들기는 block-builder가 나눠 맡음</td></tr>
+      <tr><th>compactor</th><td><b>제거.</b> backend scheduler(작업 배정)와 backend worker(작업 실행)가 압축·보존을 맡음</td></tr>
+      <tr><th>복제 계수 3 (RF3)</th><td>RF1. 같은 데이터를 세 번 쓰는 대신 Kafka의 내구성에 기댐</td></tr>
+      <tr><th>scalable single binary 모드</th><td>제거. monolithic과 microservices 두 모드만 남음</td></tr>
+      <tr><th>metrics-generator가 distributor에서 직접 받음</th><td>microservices 모드에서는 Kafka에서 독립적으로 소비</td></tr>
+      <tr><th>vParquet3 블록, v2 블록 인코딩</th><td>제거. vParquet4가 기본, vParquet5는 선택(운영 가능 등급)</td></tr>
+      <tr><th>OpenCensus 수신</th><td>제거. OTLP로 이전</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note">
+    <div class="nt">Project Rhythm이라는 이름을 보면</div>
+    <p>이 새 구조는 개발 중에 "Project Rhythm"이라 불렸고 2.9·2.10에서 실험 기능으로 먼저 나왔습니다. 3.0에서는 기본값이자 <b>유일한</b> 수집 경로가 되었습니다. 2.9·2.10 시절 "Rhythm을 켜는 방법" 글은 이제 설정 이름이 달라졌을 수 있으니 3.0 문서와 대조하세요.</p>
+  </div>
+</section>
+
+<!-- ================= 3. WRITE ================= -->
+<section class="chap" id="write">
+  <div class="chap-head"><div class="chap-num">3</div><h2>쓰기 경로 따라가기</h2></div>
+  <p>microservices 모드에서 스팬 하나가 객체 스토리지에 도착하기까지의 여정입니다. 단계를 눌러 보세요.</p>
+  <div class="steps" id="wSteps"></div>
+  <div class="step-body" id="wBody" style="min-height:150px"></div>
+
+  <h3>block-builder의 "하드 컷"</h3>
+  <p>block-builder는 정해진 주기(<code>consume_cycle_duration</code>, 기본 5분)마다 Kafka에서 읽은 스팬을 블록으로 만듭니다. 주기가 끝나면 트레이스가 끝났든 말든 <b>무조건 잘라서</b> 블록을 만듭니다. 그래서 두 주기에 걸친 트레이스는 서로 다른 블록에 나뉘어 저장됩니다. block-builder는 "트레이스가 끝났다"는 개념 자체가 없고, 조각을 합치는 일은 조회할 때 querier가 합니다. 1편에서 "트레이스에는 끝이라는 개념이 없다"고 한 것과 같은 이야기입니다.</p>
+
+  <h3>블록을 안전하게 올리는 순서</h3>
+  <p>block-builder가 블록을 객체 스토리지에 올리다 죽으면 어떻게 될까요? Tempo는 파일을 올리는 <b>순서</b>와 <b>결정적 블록 ID</b>로 이 문제를 풉니다. 블록 ID는 파티션, 테넌트, Kafka 오프셋 범위로 계산되므로 같은 데이터로 다시 만들면 같은 ID가 나옵니다. 각 단계의 "여기서 죽기" 버튼을 눌러 결과를 확인해 보세요.</p>
+  <div class="crash">
+    <div class="fl" id="flush"></div>
+    <div class="crash-out" id="crashOut"></div>
+    <div class="btn-row"><button class="btn" id="flushOk">정상 완료까지 진행</button><button class="btn" id="flushReset">처음으로</button></div>
+  </div>
+  <div class="note tip">
+    <div class="nt">중복 스팬도 알아서 걸러 냅니다</div>
+    <p>다시 읽기(rewind) 때문에 같은 스팬이 두 번 들어올 수 있어서, block-builder는 블록을 만들 때 트레이스 안에서 <b>span ID와 span kind</b>로 중복을 제거합니다. 제거된 수는 <code>tempo_block_builder_spans_deduped_total</code> 메트릭으로 확인합니다.</p>
+  </div>
+</section>
+
+<!-- ================= 4. LIVE ================= -->
+<section class="chap" id="live">
+  <div class="chap-head"><div class="chap-num">4</div><h2>live-store와 파티션 링</h2></div>
+  <p>block-builder가 블록을 올리기까지는 몇 분이 걸립니다. 그 사이에 들어온 트레이스는 객체 스토리지에 없으니, 방금 난 장애의 트레이스를 보려면 다른 곳이 필요합니다. 그 빈틈을 채우는 것이 <b>live-store</b>입니다. Kafka에서 block-builder와 <b>따로</b> 읽어 최근 트레이스를 메모리와 로컬 디스크에 들고 있다가 조회에 답합니다.</p>
+  <h3>live-store 안에서 트레이스가 거치는 단계</h3>
+  <div class="life">
+    <div><b>1. 활성</b>스팬이 계속 들어오는 중. 메모리에 트레이스 단위로 모음<span class="q">Trace ID 조회 가능</span></div>
+    <div><b>2. 유휴</b><code>max_trace_idle</code>(기본 10초) 동안 새 스팬이 없으면 유휴 상태로 전환<span class="q">WAL로 내려쓸 차례</span></div>
+    <div><b>3. 로컬 WAL</b>Parquet 형식으로 로컬 디스크에 기록<span class="q">TraceQL 검색 가능</span></div>
+    <div><b>4. 완료 블록</b>WAL을 블록으로 자름. <code>complete_block_timeout</code>(기본 20분) 동안 보관 후 정리<span class="q">이후엔 객체 스토리지에서 조회</span></div>
+  </div>
+  <div class="note">
+    <div class="nt">오래 걸리는 트레이스가 조각나 보인다면</div>
+    <p>배치 작업처럼 스팬 사이 간격이 10초를 넘는 트레이스는 live-store에서 여러 조각으로 내려써질 수 있습니다. <code>max_trace_idle</code>을 늘리면 한 번에 모일 가능성이 커지지만 메모리 사용량도 늘어납니다. 조각이 나뉘어도 조회할 때 합쳐지므로 데이터가 사라지는 것은 아닙니다.</p>
+  </div>
+
+  <h3>파티션 링: 누가 어느 파티션을 맡는가</h3>
+  <p>Tempo는 Kafka 파티션과 1:1로 대응하는 <b>Tempo 파티션</b>을 따로 관리합니다. 이 목록과 상태를 담은 것이 파티션 링이고, memberlist(gossip 프로토콜)로 클러스터 전체에 퍼집니다. 파티션마다 <b>가용 영역(zone)당 live-store 하나</b>가 주인입니다. distributor는 링을 보고 active 파티션에만 쓰고, querier는 파티션마다 live-store 하나에서만 답을 받으면 됩니다. 아래에서 확장·축소 시나리오를 눌러 보세요.</p>
+  <div class="pr">
+    <div class="btn-row" id="prBtns" style="margin-top:0"></div>
+    <div class="pgrid" id="pgrid"></div>
+    <div class="pr-log" id="prLog" aria-live="polite"></div>
+  </div>
+  <div class="note warn">
+    <div class="nt">3.0의 새 기본값: 틀린 답보다 오류가 낫다</div>
+    <p>live-store가 Kafka를 따라잡지 못해 밀려 있는데(lag) 그 시간대를 조회하면 결과가 빠질 수 있습니다. 3.0부터 <code>live_store.fail_on_high_lag</code>가 기본으로 켜져서 이럴 때 <b>불완전한 결과 대신 오류</b>를 돌려줍니다. 같은 이유로 <code>query_frontend.query_end_cutoff</code> 기본값이 30초가 되어 가장 최근 30초는 조회에서 뺍니다. 고객사에서 "방금 보낸 트레이스가 안 보여요", "조회가 가끔 오류 나요"라는 문의가 오면 이 두 설정과 <code>tempo_live_store_lagged_requests_total</code> 메트릭을 먼저 확인하세요.</p>
+  </div>
+</section>
+
+<!-- ================= 5. READ ================= -->
+<section class="chap" id="read">
+  <div class="chap-head"><div class="chap-num">5</div><h2>읽기 경로 따라가기</h2></div>
+  <p>조회 요청은 <b>query-frontend</b>가 받아 잘게 나눈 뒤(샤딩) <b>querier</b>들에게 나눠 줍니다. querier는 최근 데이터는 live-store에, 오래된 데이터는 객체 스토리지에 물어보고, query-frontend가 결과를 합쳐 돌려줍니다. 여기서 핵심은 <b>시간 범위에 따라 묻는 곳이 달라진다</b>는 점입니다.</p>
+  <div class="ts">
+    <div class="btn-row" id="tsBtns" style="margin-top:0"></div>
+    <label style="font-size:13.5px;color:var(--muted);display:block;max-width:420px">객체 스토리지에 쌓이는 블록 양: <b id="tsRateV" style="color:var(--text);font-family:var(--mono)"></b> GB/시간<input type="range" id="tsRate" min="1" max="200" step="1" value="20" style="width:100%;accent-color:var(--tempo)"></label>
+    <div class="tsbar" id="tsBar"></div>
+    <div class="tsax" id="tsAx"></div>
+    <div class="calc-out" id="tsOut"></div>
+    <p class="calc-note" id="tsNote"></p>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>설정</th><th>기본값</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><th><code>query_backend_after</code></th><td>15m</td><td>이보다 최근 구간은 live-store에서만, 이보다 오래된 구간은 객체 스토리지에서만 검색</td></tr>
+      <tr><th><code>query_end_cutoff</code></th><td>30s (3.0부터)</td><td>가장 최근 이 시간만큼은 결과가 불완전할 수 있어 조회에서 제외</td></tr>
+      <tr><th><code>target_bytes_per_job</code></th><td>약 100MB</td><td>작업 하나가 맡을 데이터 크기. 작을수록 병렬성은 높고 오버헤드도 큼</td></tr>
+      <tr><th><code>concurrent_jobs</code></th><td>2000</td><td>쿼리 하나가 동시에 큐에 올릴 수 있는 작업 수. 한 테넌트의 큰 쿼리가 클러스터를 독차지하지 않게 함</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Trace ID로 찾을 때: 블룸 필터의 역할</h3>
+  <p>색인이 없는데 Trace ID 하나를 어떻게 빨리 찾을까요? 블록마다 붙은 <b>블룸 필터</b>가 "이 블록에는 그 ID가 확실히 없다"를 아주 싸게 알려 주기 때문입니다. 블룸 필터는 "없다"는 틀리지 않지만 "있을 수도"는 가끔 틀립니다(거짓 양성). 단계 버튼으로 querier의 동작을 따라가 보세요.</p>
+  <div class="bl">
+    <div class="blks" id="blks"></div>
+    <div class="bl-out" id="blOut" aria-live="polite"></div>
+    <div class="btn-row"><button class="btn primary" id="blNext">다음 단계</button><button class="btn" id="blReset">처음으로</button></div>
+  </div>
+</section>
+
+<!-- ================= 6. BLOCK ================= -->
+<section class="chap" id="block">
+  <div class="chap-head"><div class="chap-num">6</div><h2>블록 속 들여다보기</h2></div>
+  <p>블록은 객체 스토리지의 <code>&lt;테넌트ID&gt;/&lt;블록ID&gt;/</code> 폴더 하나입니다. 안에는 이런 파일이 있습니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>파일</th><th>역할</th></tr></thead>
+    <tbody>
+      <tr><th><code>meta.json</code></th><td>블록 ID, 테넌트, 시작·종료 시각, 트레이스 수, <code>replaces</code>. <b>이 파일이 생겨야 블록이 조회 대상이 됨</b></td></tr>
+      <tr><th><code>data.parquet</code></th><td>스팬 데이터 본체 (열 지향)</td></tr>
+      <tr><th>블룸 필터</th><td>Trace ID가 이 블록에 없는지 빠르게 판별</td></tr>
+      <tr><th>인덱스</th><td>Trace ID가 <code>data.parquet</code>의 어느 row group에 있는지 알려 줌</td></tr>
+      <tr><th><code>nocompact.flg</code></th><td>업로드 중 압축 작업이 건드리지 못하게 하는 임시 표시</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>열 지향이 검색을 빠르게 하는 원리</h3>
+  <p>Parquet 파일에서는 한 행이 스팬 하나이고, 필드마다 열이 따로 저장됩니다. 쿼리를 골라 보면 어떤 열을 읽어야 하는지 표시됩니다. <b>주황색</b>이 읽는 열이고 막대 높이는 열의 상대적 크기입니다(개념을 위한 가상 값이며, 실제 스키마는 더 깊게 중첩되어 있습니다).</p>
+  <div class="pq">
+    <div class="qpick" id="pqQ"></div>
+    <label class="sw"><input type="checkbox" id="pqDed"> <code>span.http.route</code>를 전용 열(dedicated column)로 지정</label>
+    <div class="pqcols" id="pqCols"></div>
+    <div class="pq-out"><span>읽는 양</span><div class="meter"><i id="pqMeter"></i></div><b id="pqPct" style="font-family:var(--mono)"></b></div>
+    <p class="calc-note" id="pqNote"></p>
+  </div>
+  <p>일부 필드만 자기 열을 가집니다. Trace ID, 스팬 이름, 상태, 소요 시간 같은 <b>고유 필드</b>와 리소스의 <code>service.name</code> 등입니다. 나머지 속성은 모두 범용 <code>Attrs</code> 열에 키-값 쌍으로 들어가서, 그 속성으로 검색하면 큰 열을 훑어야 합니다. 그래서 자주 검색하는 속성을 <b>전용 열</b>로 빼 두는 것이 Tempo 검색 튜닝의 첫 번째 수단입니다.</p>
+<pre>storage:
+  trace:
+    block:
+      version: vParquet4              # 3.0 기본값
+      parquet_dedicated_columns:      # live-store, block-builder 모두 이 설정을 사용
+        - name: http.route
+          type: string
+          scope: span
+        - name: k8s.namespace.name
+          type: string
+          scope: resource</pre>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>블록 형식</th><th>3.0에서의 상태</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><th>vParquet3</th><td>제거 (2.10에서 사용 중단 예고)</td><td>3.0으로 올리기 전에 해당 블록이 보존 기간을 지나 사라졌는지 확인</td></tr>
+      <tr><th>vParquet4</th><td><b>기본값</b></td><td>전용 열 지정 가능</td></tr>
+      <tr><th>vParquet5</th><td>운영 가능, 선택 사항</td><td>범위(scope)당 전용 문자열 열이 20개로 늘었고, 이벤트 범위 열·배열 전용 열 등을 지원. 켜면 새 블록만 v5로 쓰고 기존 v4 블록은 그대로 읽음</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note tip">
+    <div class="nt">어떤 속성을 전용 열로 뺄까</div>
+    <p><code>tempo-cli analyse blocks</code> 명령이 실제 블록을 분석해 크기가 크고 자주 쓰이는 속성과 적절한 전용 열 개수를 추천해 줍니다. 5편 TraceQL과 6편 운영 편에서 직접 써 봅니다.</p>
+  </div>
+</section>
+
+<!-- ================= 7. BACKEND ================= -->
+<section class="chap" id="backend">
+  <div class="chap-head"><div class="chap-num">7</div><h2>백엔드 스케줄러와 워커</h2></div>
+  <p>block-builder는 5분마다 테넌트·파티션별로 작은 블록을 만들어 냅니다. 작은 블록이 수만 개 쌓이면 조회할 때 열어 볼 파일이 너무 많아집니다. 그래서 작은 블록을 큰 블록으로 합치고(압축), 오래된 블록을 지우는(보존) 관리 작업이 필요합니다. 3.0에서는 이 일을 두 부품이 나눠 맡습니다.</p>
+  <div class="two">
+    <div><h5>backend scheduler (1개)</h5><ul><li>할 일(job)을 만들고 워커에게 배정</li><li>작업 진행 상황을 한곳에서 추적하고, 실패한 작업은 자동으로 다시 배정</li><li><b>한 번에 하나만</b> 실행해야 하는 싱글턴</li><li><code>/status/backendscheduler</code>에서 작업 현황 확인</li></ul></div>
+    <div><h5>backend worker (여러 개)</h5><ul><li>상태를 갖지 않는 작업 실행기</li><li>스케줄러에게 작업을 받아 실행하고 결과를 보고</li><li>블록 목록(blocklist) 갱신도 분담</li><li>블록이 많아 압축이 밀리면 워커를 늘림</li></ul></div>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>작업 종류</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><th>compaction</th><td>작은 블록을 큰 블록으로 합쳐 조회 시 열어 볼 블록 수를 줄임</td></tr>
+      <tr><th>retention</th><td>보존 기간(<code>compaction.block_retention</code>, 기본 336h = 14일)이 지난 블록 삭제</td></tr>
+      <tr><th>redaction (3.0 신규)</th><td>개인정보가 담긴 트레이스를 보존 기간을 기다리지 않고 블록을 다시 써서 제거. <code>tempo-cli redact</code>로 요청</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">
+    <div class="nt">MSP 관점: 삭제 요청 대응</div>
+    <p>고객사에서 "특정 사용자의 개인정보가 트레이스에 찍혔으니 지워 달라"는 요청이 오면, 2.x에서는 보존 기간이 끝나기를 기다리거나 블록을 직접 다뤄야 했습니다. 3.0의 redaction 작업으로 대응 절차를 표준화할 수 있습니다. 물론 가장 좋은 방법은 수집 단계에서 애초에 넣지 않는 것입니다(3편 10장).</p>
+  </div>
+</section>
+
+<!-- ================= 8. MODES ================= -->
+<section class="chap" id="modes">
+  <div class="chap-head"><div class="chap-num">8</div><h2>배포 모드와 확장</h2></div>
+  <p>모든 부품은 <code>tempo</code> 바이너리 하나에 들어 있고, <code>-target</code> 값이 그 프로세스에서 어떤 부품을 돌릴지 정합니다. Jaeger v2가 설정 파일로 역할을 정했다면, Tempo는 target으로 정합니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th></th><th>monolithic (<code>-target=all</code>, 기본값)</th><th>microservices (부품별 target)</th></tr></thead>
+    <tbody>
+      <tr><th>Kafka</th><td>필요 없음. distributor가 같은 프로세스의 live-store로 바로 전달</td><td><b>필수</b> (Apache Kafka, Redpanda, WarpStream 등 Kafka 호환)</td></tr>
+      <tr><th>블록 만들기</th><td>live-store가 직접 객체 스토리지로 내려씀</td><td>block-builder</td></tr>
+      <tr><th>잘 맞는 곳</th><td>시작 단계, 개발 환경, 적거나 중간 정도의 트래픽</td><td>운영 환경(공식 권장), 대용량, 고가용성</td></tr>
+      <tr><th>한계</th><td>부품이 자원을 공유해 조회 폭주가 수집에 영향. 대용량에서 메모리 부족 위험</td><td>부품 수가 많고 Kafka 운영 부담이 추가됨</td></tr>
+    </tbody>
+  </table></div>
+  <h3>부품별 확장 방법 (공식 가이드)</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>부품</th><th>확장 방식</th><th>기준</th></tr></thead>
+    <tbody>
+      <tr><th>distributor</th><td>수평</td><td>상태 없음. 수집량에 따라</td></tr>
+      <tr><th>block-builder</th><td>수평</td><td><b>Kafka 파티션 수가 상한.</b> 데이터 양에 따라</td></tr>
+      <tr><th>live-store</th><td>수평</td><td><b>Kafka 파티션 수가 상한.</b> 최근 데이터 조회량과 메모리에 따라</td></tr>
+      <tr><th>query-frontend</th><td>수직</td><td>2개로 유지하고 CPU·메모리를 키움</td></tr>
+      <tr><th>querier</th><td>수평</td><td>조회 동시성과 지연 목표에 따라</td></tr>
+      <tr><th>backend worker</th><td>수평</td><td>블록 수와 압축 지연에 따라</td></tr>
+      <tr><th>metrics-generator</th><td>수평</td><td>트레이스 양과 생성하는 시계열 수에 따라</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">
+    <div class="nt">Kafka 파티션 수는 처음부터 넉넉하게</div>
+    <p>block-builder와 live-store는 파티션 수보다 많이 늘릴 수 없습니다. 파티션을 나중에 늘릴 수는 있지만 live-store 확장 절차(4장의 pending → active)와 맞물려 번거롭습니다. 고객사 트래픽 성장 예측을 반영해 처음부터 여유 있게 잡으세요. 파티션 설계와 실제 배포는 6편에서 다룹니다.</p>
+  </div>
+</section>
+
+<!-- ================= 9. COST ================= -->
+<section class="chap" id="cost">
+  <div class="chap-head"><div class="chap-num">9</div><h2>RF3에서 RF1로, 비용 계산</h2></div>
+  <p>2.x는 ingester 세 곳에 같은 데이터를 복제(RF3)했고, 각 ingester가 블록을 만들어 올렸기 때문에 객체 스토리지에 <b>2~2.5배</b>의 중복 데이터가 생겼습니다(압축이 일부 합쳐 주지만 완전하지는 않았습니다). 3.0은 트레이스를 ID 기준으로 Kafka 파티션 하나에만 보내고, 블록은 <b>정확히 한 번</b> 만듭니다. 차이를 계산해 보세요.</p>
+  <div class="calc">
+    <div class="ctrl">
+      <label>하루에 쌓이는 블록 데이터(중복 제외): <b id="kDay"></b> GB<input type="range" id="iKDay" min="10" max="3000" step="10" value="200"></label>
+      <label>보존 기간: <b id="kRet"></b>일<input type="range" id="iKRet" min="1" max="90" step="1" value="14"></label>
+      <label>2.x 중복 배율: <b id="kDup"></b>배<input type="range" id="iKDup" min="2" max="2.5" step="0.05" value="2.25"></label>
+      <label>객체 스토리지 단가(예시): <b id="kPrice"></b> USD/GB·월<input type="range" id="iKPrice" min="0.01" max="0.05" step="0.001" value="0.025"></label>
+    </div>
+    <div class="calc-out" id="kOut"></div>
+    <div class="calc-note">단가는 예시입니다. 실제 요금은 클라우드, 리전, 스토리지 등급, 요청(API 호출) 비용에 따라 달라집니다. 3.0은 대신 Kafka 클러스터 비용이 새로 생기므로(보존 기간은 보통 수 시간~하루로 짧음) 두 비용을 함께 비교하세요.</div>
+  </div>
+</section>
+
+<!-- ================= 10. UPGRADE ================= -->
+<section class="chap" id="upgrade">
+  <div class="chap-head"><div class="chap-num">10</div><h2>2.x 사용자가 알아 둘 것</h2></div>
+  <p>실제 이행 절차는 6편에서 실습합니다. 여기서는 "옛 설정이 왜 안 먹히는지" 판단할 수 있도록 큰 변화만 정리합니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>변화</th><th>증상·대응</th></tr></thead>
+    <tbody>
+      <tr><th>설정 절 제거</th><td><code>ingester</code>, <code>ingester_client</code>, <code>compactor</code>, <code>metrics_generator_client</code>가 없어짐. <code>tempo-cli migrate config</code>로 자동 변환</td></tr>
+      <tr><th>옛 overrides 형식 거부</th><td>평평한(범위 없는) overrides가 있으면 <b>기동하지 않음</b>. <code>tempo-cli migrate overrides-config</code>로 변환</td></tr>
+      <tr><th>블록·WAL 설정 통합</th><td>block-builder와 live-store는 항상 <code>storage.trace.block</code> 설정을 사용</td></tr>
+      <tr><th>조회 설정 변경</th><td><code>query_ingesters_until</code> 제거 → <code>query_backend_after</code></td></tr>
+      <tr><th>재시도 힌트 기본 켜짐</th><td>distributor가 자원 부족 시 클라이언트에 5초 뒤 재시도 힌트를 보냄</td></tr>
+      <tr><th>TraceQL 배열 비교</th><td>배열 속성에 대한 <code>!=</code>는 "NOT IN", <code>!~</code>는 "하나도 일치하지 않음"으로 의미가 바뀜. 5편에서 자세히</td></tr>
+      <tr><th>대시보드·경보</th><td>ingester·compactor 기반 패널과 경보를 제거하고 live-store·block-builder·backend 지표로 교체</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ================= 11. GLOSSARY ================= -->
+<section class="chap" id="glossary">
+  <div class="chap-head"><div class="chap-num">11</div><h2>용어 사전</h2></div>
+  <p>4편에서 새로 등장한 용어입니다.</p>
+  <input class="gsearch" id="gsearch" type="search" placeholder="예: live-store, 하드 컷, RF1" aria-label="용어 검색">
+  <div class="glist" id="glist"></div>
+  <div class="gempty" id="gempty">검색어와 맞는 용어가 없습니다. 다른 표현(영문 등)으로 찾아보세요.</div>
+</section>
+
+<!-- ================= 12. QUIZ ================= -->
+<section class="chap" id="quiz">
+  <div class="chap-head"><div class="chap-num">12</div><h2>확인 퀴즈</h2></div>
+  <p>답을 고르면 바로 해설이 나옵니다.</p>
+  <div id="quizBox"></div>
+  <div class="score" id="score"></div>
+  <div class="btn-row"><button class="btn" id="quizReset">퀴즈 다시 풀기</button></div>
+</section>
+
+<!-- ================= 13. WRAP ================= -->
+<section class="chap" id="wrap">
+  <div class="chap-head"><div class="chap-num">13</div><h2>정리와 다음 편</h2></div>
+  <ol class="sum">
+    <li><div>Tempo 3.0은 ingester와 compactor를 없애고 <b>쓰기(distributor → Kafka → block-builder)</b>와 <b>읽기(query-frontend → querier → live-store·객체 스토리지)</b>를 분리했습니다.</div></li>
+    <li><div>Kafka가 WAL 역할을 하므로 <b>RF1</b>로 운영하며, 트레이스는 ID 기준으로 한 파티션에 모이고 블록은 정확히 한 번 만들어집니다.</div></li>
+    <li><div>block-builder는 주기마다 <b>하드 컷</b>으로 블록을 만들고, 올리는 순서와 결정적 블록 ID 덕분에 도중에 죽어도 유실·중복이 없습니다.</div></li>
+    <li><div>최근 15분은 <b>live-store</b>, 그 이전은 <b>객체 스토리지</b>에서 찾습니다. Trace ID는 블룸 필터로, 속성 검색은 Parquet 열 읽기로 풀고, 자주 찾는 속성은 <b>전용 열</b>로 빼 둡니다.</div></li>
+    <li><div>monolithic은 Kafka 없이 한 프로세스, microservices는 Kafka 위에서 부품별 확장. block-builder와 live-store는 <b>Kafka 파티션 수가 상한</b>입니다.</div></li>
+  </ol>
+  <div class="next">
+    <div class="k">다음 편</div>
+    <h3>5편 · TraceQL 완전 정복</h3>
+    <p>6장에서 본 "어떤 열을 읽느냐"가 곧 TraceQL 쿼리 비용입니다. 스팬 조건과 스팬셋, 부모·자식·형제 관계로 찾는 구조 연산자, 집계, 그리고 3.0에서 GA가 된 TraceQL metrics(rate, quantile_over_time, 비교 연산자)까지 직접 쿼리를 입력하며 익힙니다. 3.0에서 바뀐 배열 비교 규칙도 함께 다룹니다.</p>
+  </div>
+  <footer>
+    Tempo와 Jaeger로 배우는 분산 트레이싱 백엔드 · 4편 / 8편<br>
+    기준: Grafana Tempo 3.0.3 공식 문서와 릴리스 노트, 저장소 예제 (2026년 9월). 3.1은 이 글을 쓰는 시점에 릴리스 후보 단계입니다. 기본값은 버전에 따라 바뀔 수 있으니 적용 전 해당 버전의 설정 문서를 확인하세요.
+  </footer>
+</section>
+
+</div>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- theme / nav ---------- */
+const root=document.documentElement;
+function applyTheme(t){root.setAttribute("data-theme",t);$$("[data-theme-label]").forEach(el=>el.textContent=t==="dark"?"라이트 테마로 보기":"다크 테마로 보기");}
+let saved=null;try{saved=localStorage.getItem("trace-lecture-theme")}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+$$("[data-theme-toggle]").forEach(b=>b.addEventListener("click",()=>{const n=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(n);try{localStorage.setItem("trace-lecture-theme",n)}catch(e){}}));
+const side=$("#side");
+$("#menuBtn").addEventListener("click",()=>side.classList.toggle("open"));
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>side.classList.remove("open")));
+document.addEventListener("click",e=>{if(side.classList.contains("open")&&!side.contains(e.target)&&e.target.id!=="menuBtn")side.classList.remove("open")});
+const tocLinks=$$("#toc a"),secs=$$("section.chap");
+function syncToc(){const y=innerHeight*.35;let id=null;secs.forEach(s=>{if(s.getBoundingClientRect().top<y)id=s.id});tocLinks.forEach(l=>l.classList.toggle("active",id!==null&&l.getAttribute("href")==="#"+id))}
+let tk=false;addEventListener("scroll",()=>{if(!tk){tk=true;requestAnimationFrame(()=>{syncToc();tk=false})}},{passive:true});syncToc();
+
+/* ---------- hero architecture ---------- */
+const NODES=[
+ {id:"app",x:20,y:60,l:"앱 · Collector",s:"OTLP 전송",m:"both",h:"트레이싱 파이프라인",d:"OTel SDK나 OTel Collector, Grafana Alloy가 OTLP로 스팬을 보냅니다. Tempo는 Jaeger·Zipkin 형식도 받지만 OTLP gRPC를 권장합니다.",t:["OTel 시리즈 7~9편"]},
+ {id:"dist",x:200,y:60,l:"distributor",s:"검증 · 샤딩",m:"both",h:"distributor",d:"쓰기 경로의 입구. 테넌트별 수집량 제한을 검사하고, microservices 모드에서는 Trace ID를 해시해 파티션 링의 active 파티션 중 하나로 Kafka에 씁니다. Kafka가 받았다고 확인해야 클라이언트에 성공을 돌려줍니다. monolithic 모드에서는 같은 프로세스의 live-store와 metrics-generator에 바로 넘깁니다.",t:["상태 없음 · 수평 확장","tempo_discarded_spans_total"]},
+ {id:"kafka",x:380,y:60,l:"Kafka",s:"WAL 역할",m:"micro",h:"Kafka 호환 큐",d:"distributor와 뒤쪽 부품들 사이의 내구성 있는 선행 기록 로그입니다. 여기에 기록되면 데이터는 안전하므로 Tempo는 쓰기 경로에서 따로 복제하지 않고 RF1로 동작합니다. Apache Kafka, Redpanda, WarpStream 같은 Kafka 호환 시스템을 씁니다.",t:["microservices 모드 전용","파티션 수 = block-builder·live-store 상한"]},
+ {id:"live",x:580,y:10,l:"live-store",s:"최근 데이터",m:"both",h:"live-store",d:"최근 트레이스를 메모리와 로컬 WAL에 들고 있다가, 블록이 객체 스토리지에 올라가기 전의 빈틈 동안 조회에 답합니다. 파티션마다 가용 영역당 하나가 주인이며, 한 영역이 죽어도 다른 영역이 답합니다. monolithic 모드에서는 블록을 객체 스토리지에 직접 내려쓰는 일도 맡습니다.",t:["읽기 경로 부품","Kafka 파티션 수가 상한","zone-aware 고가용성"]},
+ {id:"bb",x:580,y:92,l:"block-builder",s:"블록 만들기",m:"micro",h:"block-builder",d:"Kafka에서 읽은 스팬을 주기(기본 5분)마다 테넌트·파티션별 Parquet 블록으로 만들어 객체 스토리지에 올리고 오프셋을 커밋합니다. 트레이스가 끝났는지 따지지 않고 주기마다 자르는 '하드 컷' 방식입니다.",t:["microservices 모드 전용","정적 파티션 할당"]},
+ {id:"mg",x:580,y:174,l:"metrics-generator",s:"선택 부품",m:"both",h:"metrics-generator",d:"트레이스에서 RED 메트릭과 서비스 그래프를 만들어 Prometheus·Mimir로 remote write 합니다. 3편 Jaeger의 spanmetrics 커넥터와 같은 역할이며 6편에서 자세히 다룹니다.",t:["선택 사항","카디널리티 관리 필요"]},
+ {id:"obj",x:770,y:92,l:"객체 스토리지",s:"S3 · GCS · Azure",m:"both",h:"객체 스토리지",d:"모든 트레이스의 장기 저장소입니다. 블록은 <테넌트>/<블록ID>/ 폴더에 meta.json, data.parquet, 블룸 필터, 인덱스로 저장됩니다. MinIO 같은 S3 호환 저장소도 쓸 수 있고, 로컬 파일 시스템은 개발용입니다.",t:["테넌트별 폴더로 분리","보존: 기본 14일"]},
+ {id:"prom",x:770,y:250,l:"Prometheus · Mimir",s:"메트릭 저장",m:"both",h:"메트릭 저장소",d:"metrics-generator가 만든 메트릭을 받는 곳입니다. Tempo의 일부가 아니라 외부 시스템입니다.",t:["외부 시스템"]},
+ {id:"graf",x:20,y:290,l:"Grafana",s:"TraceQL",m:"both",h:"Grafana",d:"Tempo에는 자체 UI가 없어 Grafana의 Tempo 데이터 소스로 조회합니다. HTTP API(기본 3200 포트)를 직접 호출하거나 tempo-cli, MCP 서버로 조회할 수도 있습니다.",t:["5·7편"]},
+ {id:"qf",x:200,y:290,l:"query-frontend",s:"샤딩 · 병합",m:"both",h:"query-frontend",d:"조회의 입구. 쿼리를 시간 범위와 데이터 양에 따라 작은 작업(job)으로 쪼개 테넌트별 큐에 올리고, querier가 돌려준 부분 결과를 합칩니다. 결과 개수 제한이 있는 검색은 충분히 모이면 남은 작업을 취소합니다.",t:["수직 확장 · 2개 유지"]},
+ {id:"q",x:380,y:290,l:"querier",s:"작업 실행",m:"both",h:"querier",d:"query-frontend가 준 작업을 실행합니다. 최근 구간은 live-store에 gRPC로 묻고, 오래된 구간은 객체 스토리지의 블록을 직접 읽습니다. 여러 블록에 나뉜 트레이스 조각을 합치는 것도 querier의 일입니다.",t:["수평 확장"]},
+ {id:"bs",x:580,y:290,l:"backend",s:"scheduler · worker",m:"both",h:"backend scheduler · worker",d:"2.x의 compactor를 대체합니다. scheduler(1개)가 압축·보존·삭제(redaction) 작업을 만들어 배정하고, worker(여러 개)가 실행합니다. 실패한 작업은 자동으로 다시 배정됩니다.",t:["scheduler는 싱글턴","worker는 수평 확장"]}
+];
+const EDGES=[
+ ["w1","M160 82 L200 82","w","both"],["w2","M340 82 L380 82","w","micro"],
+ ["w3","M520 82 C550 82 550 32 580 32","w","micro"],["w4","M520 82 C550 82 550 114 580 114","w","micro"],["w5","M520 82 C550 82 550 196 580 196","w","micro"],
+ ["w6","M720 114 L770 114","w","micro"],["w7","M720 196 C745 196 745 272 770 272","w","both"],
+ ["m1","M340 82 C460 82 460 32 580 32","w","mono"],["m2","M340 82 C460 82 460 196 580 196","w","mono"],["m3","M720 32 C745 32 745 114 770 114","w","mono"],
+ ["r1","M160 312 L200 312","r","both"],["r2","M340 312 L380 312","r","both"],
+ ["r3","M450 290 C450 250 545 250 545 200 L545 90 C545 70 600 70 600 54","r","both"],
+ ["r4","M500 290 C500 255 820 255 820 136","r","both"],
+ ["b1","M700 290 C700 240 860 240 860 136","b","both"]
+];
+let arch={mode:"micro",path:"all",sel:"dist"};
+function renderArch(){
+  const svg=$("#archSvg");
+  let h=`<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--faint)"/></marker></defs>`;
+  h+=`<rect class="mono-box" x="188" y="2" width="546" height="344" rx="14" style="opacity:${arch.mode==="mono"?1:0}"/><text class="mono-lbl" x="200" y="341" style="opacity:${arch.mode==="mono"?1:0}">tempo -target=all (한 프로세스)</text>`;
+  EDGES.forEach(([id,d,t,m])=>{
+    const vis=m==="both"||m===arch.mode;
+    const act=arch.path==="all"||arch.path===t;
+    const cls=`ae ${t} ${!vis?"off":act?(reduce?"":"flow"):"dim"}`;
+    h+=`<path id="${id}" class="${cls}" d="${d}" marker-end="url(#ah)"/>`;
+  });
+  NODES.forEach(n=>{
+    const vis=n.m==="both"||n.m===arch.mode;
+    h+=`<g class="an ${vis?"":"off"} ${arch.sel===n.id?"sel":""}" data-id="${n.id}" tabindex="${vis?0:-1}" role="button" aria-label="${esc(n.l)}"><rect x="${n.x}" y="${n.y}" width="140" height="44" rx="10"/><text x="${n.x+70}" y="${n.y+19}" text-anchor="middle">${esc(n.l)}</text><text class="sm" x="${n.x+70}" y="${n.y+35}" text-anchor="middle">${esc(n.s)}</text></g>`;
+  });
+  svg.innerHTML=h;
+  $$("#pathSeg button").forEach(b=>b.classList.toggle("on",b.dataset.p===arch.path));
+  $$("#modeSeg button").forEach(b=>b.classList.toggle("on",b.dataset.m===arch.mode));
+  const n=NODES.find(x=>x.id===arch.sel);
+  const modeNote=n.m==="micro"?(arch.mode==="mono"?" <b>(monolithic 모드에서는 쓰지 않는 부품입니다.)</b>":""):"";
+  $("#archInfo").innerHTML=`<h4>${esc(n.h)}</h4><div>${esc(n.d)}${modeNote}</div><div class="tags">${n.t.map(t=>`<span class="tagp">${esc(t)}</span>`).join("")}</div>`;
+}
+$("#archSvg").addEventListener("click",e=>{const g=e.target.closest(".an");if(g){arch.sel=g.dataset.id;renderArch()}});
+$("#archSvg").addEventListener("keydown",e=>{if(e.key==="Enter"){const g=e.target.closest(".an");if(g){arch.sel=g.dataset.id;renderArch()}}});
+$("#pathSeg").addEventListener("click",e=>{const b=e.target.closest("button");if(b){arch.path=b.dataset.p;renderArch()}});
+$("#modeSeg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;arch.mode=b.dataset.m;const n=NODES.find(x=>x.id===arch.sel);if(n.m==="micro"&&arch.mode==="mono")arch.sel="live";renderArch()});
+renderArch();
+
+/* ---------- ch2 before/after ---------- */
+const BA={
+ v2:{b:[[10,100,130,48,"distributor","",""],[210,30,130,44,"ingester","복제 1/3",""],[210,102,130,44,"ingester","복제 2/3",""],[210,174,130,44,"ingester","복제 3/3",""],[430,100,150,48,"객체 스토리지","같은 데이터 블록 ×3","gone"],[650,100,150,48,"compactor","중복 정리 · 압축",""],[10,190,130,44,"metrics-gen","distributor에서 수신",""]],
+   l:["M140 124 C175 124 175 52 210 52","M140 124 L210 124","M140 124 C175 124 175 196 210 196","M340 52 C385 52 385 124 430 124","M340 124 L430 124","M340 196 C385 196 385 124 430 124","M580 124 L650 124","M75 148 L75 190"],
+   t:"2.x: ingester가 같은 데이터를 세 번 받아 각자 블록을 만듦",
+   c:"distributor가 스팬을 ingester 세 곳에 복제(RF3)하고, 각 ingester가 블록을 만들어 올렸습니다. 그래서 객체 스토리지에는 같은 데이터가 2~2.5배로 쌓였고, compactor가 뒤에서 중복을 정리해야 했습니다. ingester는 최근 데이터 조회까지 맡아서 쓰기와 읽기가 한 부품에 얽혀 있었습니다."},
+ v3:{b:[[10,100,130,48,"distributor","",""],[200,100,120,48,"Kafka","WAL · RF1",""],[400,30,150,44,"live-store","최근 데이터 조회","hl"],[400,102,150,44,"block-builder","블록 한 번만 생성","hl"],[400,174,150,44,"metrics-gen","Kafka에서 소비",""],[620,100,170,48,"객체 스토리지","블록 ×1",""],[620,190,170,44,"backend","scheduler · worker","hl"]],
+   l:["M140 124 L200 124","M320 124 C360 124 360 52 400 52","M320 124 L400 124","M320 124 C360 124 360 196 400 196","M550 124 L620 124","M705 190 L705 148"],
+   t:"3.0: 쓰기(block-builder)와 읽기(live-store)를 서로 다른 부품이 맡음",
+   c:"distributor는 Kafka에 한 번만 씁니다. live-store와 block-builder는 Kafka에서 <b>각자</b> 읽으므로 서로 영향을 주지 않습니다. 블록은 정확히 한 번 만들어지고, compactor 대신 backend scheduler·worker가 작업 단위로 압축과 보존을 처리합니다. 파란 테두리가 새로 생긴 부품입니다."}
+};
+function renderBA(k){
+  const d=BA[k];$("#baV2").classList.toggle("on",k==="v2");$("#baV3").classList.toggle("on",k==="v3");
+  let h=`<text x="10" y="18" style="font-weight:600">${d.t}</text>`;
+  d.l.forEach(p=>h+=`<path class="ln" d="${p}"/>`);
+  d.b.forEach(b=>h+=`<rect class="box ${b[6]}" x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="10"/><text x="${b[0]+b[2]/2}" y="${b[1]+(b[5]?b[3]/2-2:b[3]/2+5)}" text-anchor="middle">${b[4]}</text>${b[5]?`<text class="sm" x="${b[0]+b[2]/2}" y="${b[1]+b[3]/2+14}" text-anchor="middle">${b[5]}</text>`:""}`);
+  $("#baG").innerHTML=h;$("#baCap").innerHTML=d.c;
+}
+$("#baV2").addEventListener("click",()=>renderBA("v2"));$("#baV3").addEventListener("click",()=>renderBA("v3"));renderBA("v3");
+
+/* ---------- ch3 write steps ---------- */
+const WS=[
+ {n:"수신·검증",h:"1. distributor가 받고 검사한다",b:"distributor는 OTel Collector의 receiver 계층을 그대로 써서 OTLP(gRPC·HTTP), Jaeger, Zipkin, Kafka 형식을 받습니다. 받자마자 테넌트별 <b>수집량 제한</b>(초당 바이트, 순간 허용량)을 검사하고, 넘으면 <code>RATE_LIMITED</code> 오류를 돌려주며 <code>tempo_discarded_spans_total</code>의 <code>reason</code> 레이블로 기록합니다. 3.0부터는 자원이 부족할 때 클라이언트에 \"5초 뒤 다시 보내라\"는 재시도 힌트도 기본으로 보냅니다."},
+ {n:"샤딩",h:"2. Trace ID로 파티션을 고른다",b:"Trace ID를 해시해서 파티션을 고릅니다. 그래서 <b>같은 트레이스의 스팬은 모두 같은 파티션</b>으로 갑니다. 덕분에 block-builder는 한 주기 안에서 트레이스의 스팬을 한데 모아 블록을 만들 수 있고, live-store는 다른 파티션과 협의 없이 완전한 트레이스를 돌려줄 수 있습니다. 어느 파티션이 쓰기 가능한지는 Kafka가 아니라 Tempo의 <b>파티션 링</b>을 보고 판단합니다(4장)."},
+ {n:"Kafka 확인",h:"3. Kafka가 받았다고 할 때까지 기다린다",b:"distributor는 Kafka가 기록을 확인(ack)한 뒤에야 클라이언트에 성공을 돌려줍니다. 즉 앱이나 Collector가 성공 응답을 받았다면 그 스팬은 이미 <b>안전하게 저장된 것</b>입니다. 뒤쪽 부품이 재시작 중이거나 느려도 데이터는 Kafka에서 기다립니다."},
+ {n:"각자 소비",h:"4. 뒤쪽 부품들이 각자 읽어 간다",b:"<b>live-store</b>(최근 데이터 조회용), <b>block-builder</b>(장기 저장용), <b>metrics-generator</b>(선택, 메트릭 생성용)가 Kafka에서 <b>서로 독립적으로</b> 읽습니다. 한 부품이 밀리거나 죽어도 다른 부품은 영향을 받지 않습니다. 부품끼리는 데이터를 직접 주고받지 않고, Kafka가 쓰기 경로의 연결망 역할을 합니다."},
+ {n:"블록 업로드",h:"5. block-builder가 블록을 올리고 커밋한다",b:"block-builder는 주기마다 마지막으로 커밋한 오프셋으로 되감은 뒤, 정해진 시간 경계까지 읽은 스팬을 테넌트별로 모아 로컬 디스크에 Parquet 블록을 만들고, 객체 스토리지에 올린 다음 Kafka 오프셋을 커밋합니다. 로컬 디스크는 한 주기 동안 맡은 모든 파티션·테넌트의 데이터를 담을 만큼 잡아야 합니다."}
+];
+$("#wSteps").innerHTML=WS.map((s,i)=>`<button data-i="${i}">${i+1}. ${s.n}</button>`).join("");
+function showW(i){$$("#wSteps button").forEach((b,j)=>b.classList.toggle("on",j===i));$("#wBody").innerHTML=`<h4>${WS[i].h}</h4><p>${WS[i].b}</p>`}
+$("#wSteps").addEventListener("click",e=>{const b=e.target.closest("button");if(b)showW(+b.dataset.i)});showW(0);
+
+/* ---------- ch3 flush crash sim ---------- */
+const FL=["블룸 필터 · 인덱스 업로드","data.parquet 업로드","nocompact.flg 업로드 (압축 금지 표시)","meta.json 업로드 → 이 순간 블록이 공개됨","Kafka 오프셋 커밋"];
+const FILES=["bloom·index","data.parquet","nocompact.flg","meta.json"];
+function renderFlush(done,crashAt,outcome){
+  $("#flush").innerHTML=FL.map((f,i)=>`<div class="st ${i<done?"done":""} ${crashAt===i?"fail":""}"><span class="no">${i+1}</span><span>${f}</span><button class="cbtn" data-i="${i}">여기서 죽기</button></div>`).join("");
+  $("#crashOut").innerHTML=outcome;
+}
+const BID="blk-7f3a…(P3·offset 1200-1850)";
+function bucket(files,cls,extra){return `<div class="bucket">${files.map(f=>`<span class="${cls}">${esc(BID.split("…")[0])}/${f}</span>`).join("")}${extra||""}</div>`}
+function crash(i){
+  const up=FILES.slice(0,Math.min(i,4));
+  if(i<=3){
+    renderFlush(i,i,`<b style="color:var(--err)">${i+1}단계 도중 block-builder가 죽었습니다.</b> 객체 스토리지에는 이런 파일이 남아 있습니다.${up.length?bucket(up,"inv"):' <span class="muted">(아직 아무 파일도 없음)</span>'}
+    <p style="margin:10px 0 0"><b>meta.json이 없으므로 이 블록은 조회에 보이지 않습니다.</b> 재시작하면 마지막으로 커밋한 오프셋(1200)으로 되감아 같은 데이터를 다시 읽고, 파티션·테넌트·오프셋 범위로 계산한 <b>같은 블록 ID</b>를 만들어 반쯤 올라간 파일을 덮어씁니다. 결과: 유실 없음, 중복 없음.</p>`);
+  } else {
+    renderFlush(4,4,`<b style="color:var(--err)">meta.json까지 올렸는데 오프셋 커밋 전에 죽었습니다.</b> 블록은 이미 공개되어 조회에 쓰이고 있습니다.${bucket(FILES,"vis")}
+    <p style="margin:10px 0 0">재시작하면 오프셋 1200부터 다시 읽어 같은 블록을 또 만들게 됩니다. block-builder는 기존 블록이 있음을 알아채고 <b>다음 ID</b>로 새 블록을 만들면서 meta.json의 <code>replaces</code> 필드에 옛 블록 ID를 적습니다. 새 블록이 보이는 순간 읽기 경로는 옛 블록을 무시합니다.</p>
+    <div class="bucket"><span class="old">${esc(BID.split("…")[0])} (대체됨)</span><span class="vis">blk-7f3b (replaces: blk-7f3a)</span></div><p style="margin:8px 0 0">결과: 유실 없음, 중복 없음. <code>nocompact.flg</code> 덕분에 이 사이에 backend worker가 곧 대체될 블록을 압축하는 일도 없습니다.</p>`);
+  }
+}
+$("#flush").addEventListener("click",e=>{const b=e.target.closest(".cbtn");if(b)crash(+b.dataset.i)});
+$("#flushOk").addEventListener("click",()=>renderFlush(5,-1,`<b style="color:var(--ok)">정상 완료.</b> 다섯 단계가 모두 끝나면 주기를 마무리하며 <code>nocompact.flg</code>를 지웁니다. 이제 backend worker가 이 블록을 다른 작은 블록과 합칠 수 있습니다.${bucket(["bloom·index","data.parquet","meta.json"],"vis")}`));
+$("#flushReset").addEventListener("click",()=>renderFlush(0,-1,`각 단계의 <b>여기서 죽기</b> 버튼을 눌러 block-builder가 그 시점에 죽으면 어떻게 되는지 확인해 보세요.`));
+renderFlush(0,-1,`각 단계의 <b>여기서 죽기</b> 버튼을 눌러 block-builder가 그 시점에 죽으면 어떻게 되는지 확인해 보세요.`);
+
+/* ---------- ch4 partition ring ---------- */
+let PR;
+function prInit(){PR={parts:[0,1,2].map(i=>({id:i,st:"active",a:"up",b:"up"})),zoneA:"up"};prLog("파티션 P0~P2가 active 상태입니다. 각 파티션은 zone-a와 zone-b의 live-store가 하나씩 맡고 있습니다. 시나리오 버튼을 눌러 보세요.")}
+function prLog(t){PR.log=t}
+const PRB=[
+ ["scaleUp","확장: live-store 한 쌍 추가"],["inact","축소 1단계: P3를 inactive로"],["remove","축소 2단계: P3 제거"],["zoneFail","zone-a 장애"],["bad","잘못된 축소: P2의 zone-b live-store를 바로 제거"],["reset","초기화"]
+];
+$("#prBtns").innerHTML=PRB.map(b=>`<button class="btn" data-k="${b[0]}">${b[1]}</button>`).join("");
+function renderPR(){
+  $("#pgrid").innerHTML=PR.parts.map(p=>{
+    const aUp=p.a==="up"&&PR.zoneA==="up",bUp=p.b==="up";
+    const readable=(p.st==="active"||p.st==="inactive")&&(aUp||bUp);
+    const lost=(p.st!=="pending")&&!aUp&&!bUp;
+    const write=p.st==="active"?"쓰기 ✔":"쓰기 ✘";
+    const read=p.st==="pending"?"읽기 ✘":readable?"읽기 ✔":"읽기 ✘ (최근 데이터 일시 불가)";
+    return `<div class="pcell ${lost?"lost":p.st}"><b>P${p.id}</b><span class="stt">${lost?"주인 없음":p.st}</span>
+    <div class="own">zone-a: live-store-a-${p.id} ${aUp?"🟢":"🔴"}<br>zone-b: live-store-b-${p.id} ${bUp?"🟢":(p.b==="gone"?"⚪ 제거됨":"🔴")}</div><div class="io">${write} · ${read}</div></div>`}).join("");
+  $("#prLog").innerHTML=PR.log;
+}
+let prTimer=null;
+$("#prBtns").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;const k=b.dataset.k;clearTimeout(prTimer);
+  const p3=PR.parts.find(p=>p.id===3);
+  if(k==="reset")prInit();
+  else if(k==="scaleUp"){
+    if(p3){prLog("P3가 이미 있습니다. 초기화 후 다시 해 보세요.")}
+    else{PR.parts.push({id:3,st:"pending",a:"up",b:"up"});prLog("새 live-store가 링에 P3를 <b>pending</b> 상태로 만들었습니다. 아직 아무도 쓰거나 읽지 않습니다. 모든 영역의 주인이 등록되고 대기 시간이 지나기를 기다리는 중입니다. (대응하는 Kafka 파티션이 먼저 있어야 합니다.)");
+      prTimer=setTimeout(()=>{const q=PR.parts.find(p=>p.id===3);if(q&&q.st==="pending"){q.st="active";prLog("zone-a와 zone-b의 주인이 모두 등록되고 대기 시간이 지나 P3가 <b>active</b>가 되었습니다. 이제 distributor가 P3에도 씁니다. block-builder도 정해진 규칙에 따라 새 파티션을 맡습니다.");renderPR()}},1800)}
+  }
+  else if(k==="inact"){
+    if(!p3||p3.st==="pending"){prLog("먼저 확장으로 P3를 active로 만들어 주세요.")}
+    else{p3.st="inactive";prLog("P3가 <b>inactive</b>(읽기 전용)가 되었습니다. distributor는 더 이상 P3에 쓰지 않지만 querier는 계속 읽습니다. 이제 block-builder가 P3의 남은 데이터를 모두 객체 스토리지로 올리고, querier가 P3의 최근 데이터를 live-store에 물을 필요가 없어질 때까지 기다립니다.")}
+  }
+  else if(k==="remove"){
+    if(!p3){prLog("제거할 P3가 없습니다.")}
+    else if(p3.st!=="inactive"){prLog("<b style='color:var(--err)'>P3가 아직 "+p3.st+" 상태입니다.</b> inactive로 바꾸고 데이터가 객체 스토리지로 옮겨질 때까지 기다린 뒤 제거해야 합니다.")}
+    else{PR.parts=PR.parts.filter(p=>p.id!==3);prLog("충분히 기다린 뒤 P3와 그 live-store들을 제거했습니다. 데이터는 이미 객체 스토리지에 있으므로 조회 결과는 달라지지 않습니다. 올바른 축소 절차입니다.")}
+  }
+  else if(k==="zoneFail"){
+    PR.zoneA=PR.zoneA==="up"?"down":"up";
+    prLog(PR.zoneA==="down"?"zone-a의 live-store가 모두 멈췄습니다. 그래도 querier는 <b>파티션마다 live-store 하나의 응답만 있으면</b> 되므로(읽기 정족수 1) zone-b가 모든 파티션에 답합니다. 중복 제거 같은 추가 비용 없이 고가용성을 얻는 구조입니다. 다시 누르면 복구됩니다.":"zone-a가 복구되었습니다. 복구된 live-store는 마지막 커밋 오프셋부터 Kafka를 다시 읽어 메모리 상태를 되살립니다.")
+  }
+  else if(k==="bad"){
+    const p2=PR.parts.find(p=>p.id===2);p2.b="gone";
+    prLog(PR.zoneA==="up"?"P2의 zone-b live-store를 inactive 절차 없이 제거했습니다. zone-a가 살아 있어서 이번엔 버텼지만, 이 상태에서 zone-a까지 문제가 생기면 P2의 최근 데이터는 <b>다른 live-store가 넘겨받을 때까지 조회되지 않습니다</b>. zone-a 장애 버튼을 눌러 확인해 보세요.":"zone-a가 멈춘 상태에서 P2의 zone-b live-store까지 절차 없이 제거했습니다. <b style='color:var(--err)'>P2를 맡은 live-store가 하나도 없어 최근 데이터가 일시적으로 조회되지 않습니다.</b> 데이터 자체는 Kafka에 남아 있어 사라지지는 않습니다.")
+  }
+  renderPR();
+});
+prInit();renderPR();
+
+/* ---------- ch5 time split ---------- */
+const RANGES=[["최근 10분",600],["최근 1시간",3600],["최근 24시간",86400],["최근 7일",604800]];
+let tsR=1;
+$("#tsBtns").innerHTML=RANGES.map((r,i)=>`<button class="btn" data-i="${i}">${r[0]}</button>`).join("");
+const hm=s=>s>=86400?fmt(s/86400,s%86400?1:0)+"일":s>=3600?fmt(s/3600,s%3600?1:0)+"시간":s>=60?fmt(s/60)+"분":s+"초";
+function renderTS(){
+  $$("#tsBtns button").forEach((b,j)=>b.classList.toggle("on",j===tsR));
+  const R=RANGES[tsR][1],QBA=900,CUT=30,rate=+$("#tsRate").value;$("#tsRateV").textContent=rate;
+  const ex=Math.min(CUT,R),live=Math.max(0,Math.min(R,QBA)-CUT),back=Math.max(0,R-QBA);
+  const segs=[["o",back,"객체 스토리지"],["l",live,"live-store"],["x",ex,"제외"]].filter(s=>s[1]>0);
+  const tot=segs.reduce((a,s)=>a+s[1],0);
+  $("#tsBar").innerHTML=segs.map(s=>`<div class="${s[0]}" style="flex:0 0 ${Math.max(s[1]/tot*100,s[0]==="x"?6:12)}%">${s[2]}</div>`).join("");
+  $("#tsAx").innerHTML=`<span>${hm(R)} 전</span><span>지금</span>`;
+  const jobs=Math.max(back?1:0,Math.ceil(back/3600*rate/0.1));const waves=Math.ceil(jobs/2000);
+  $("#tsOut").innerHTML=`<div><b>${back?hm(back):"없음"}</b><span>객체 스토리지에서 블록을 읽는 구간</span></div><div><b>${live?hm(live):"없음"}</b><span>live-store에 묻는 구간</span></div><div><b>${hm(ex)}</b><span>결과에서 빼는 가장 최근 구간</span></div><div><b>${fmt(jobs)}개</b><span>객체 스토리지 구간의 예상 작업 수</span></div>`;
+  $("#tsNote").innerHTML=back===0?"15분보다 짧은 범위는 객체 스토리지를 전혀 읽지 않습니다. 방금 일어난 장애를 볼 때 조회가 빠른 이유입니다.":`작업 수는 "읽을 데이터 ÷ 작업당 약 100MB"로 어림한 값입니다. 쿼리 하나는 동시에 최대 2,000개 작업만 큐에 올리므로 이 쿼리는 약 <b>${waves}번</b>에 나눠 처리됩니다. 긴 기간을 넓은 조건으로 검색하면 느린 이유가 여기에 있고, 5편에서 조건을 좁혀 읽는 양을 줄이는 법을 배웁니다.`;
+}
+$("#tsBtns").addEventListener("click",e=>{const b=e.target.closest("button");if(b){tsR=+b.dataset.i;renderTS()}});
+$("#tsRate").addEventListener("input",renderTS);renderTS();
+
+/* ---------- ch5 bloom demo ---------- */
+const BLK=Array.from({length:10},(_,i)=>({id:"b"+String(i+1).padStart(2,"0"),t:`10:${String(i*5).padStart(2,"0")}`}));
+let blStep=0;
+const BLS=[
+ ()=>`Trace ID <code>4bf92f35…0e4736</code>을 찾습니다. 검색 범위에 블록 10개가 있습니다(블록마다 5분 주기). 범위에 최근 15분이 포함되면 live-store에도 동시에 묻습니다.`,
+ ()=>`<b>1단계 · 블룸 필터 확인.</b> 블록마다 작은 블룸 필터를 확인합니다. 7개 블록은 "확실히 없음"이라 더 볼 필요가 없습니다. <b>b03, b06, b07</b> 세 개만 "있을 수도 있음"입니다.`,
+ ()=>`<b>2단계 · 인덱스로 위치 확인.</b> 후보 세 블록의 인덱스를 봅니다. b03은 블룸 필터의 <b>거짓 양성</b>이었고 실제로는 없습니다. b06과 b07에는 있으며, 인덱스가 알려 준 <b>row group 하나씩만</b> 읽습니다. 파일 전체를 읽지 않습니다.`,
+ ()=>`<b>3단계 · 조각 합치기.</b> 트레이스가 10:25~10:35에 걸쳐 진행되어 block-builder의 하드 컷으로 b06과 b07에 나뉘어 있었습니다. querier가 두 조각을 합쳐 완전한 트레이스를 돌려줍니다. 이후 backend worker가 두 블록을 하나로 압축하면 다음 조회는 더 가벼워집니다.`
+];
+function renderBL(){
+  $("#blks").innerHTML=BLK.map((b,i)=>{let c="";const id=b.id;
+    if(blStep>=1)c=(["b03","b06","b07"].includes(id))?"maybe":"no";
+    if(blStep>=2){if(id==="b03")c="fp no";if(id==="b06"||id==="b07")c="hit"}
+    return `<div class="blk ${c}">${id}<small>${b.t}</small></div>`}).join("");
+  $("#blOut").innerHTML=BLS[blStep]();$("#blNext").disabled=blStep>=3;
+}
+$("#blNext").addEventListener("click",()=>{if(blStep<3){blStep++;renderBL()}});
+$("#blReset").addEventListener("click",()=>{blStep=0;renderBL()});renderBL();
+
+/* ---------- ch6 parquet ---------- */
+const COLS=[["TraceID",8,"i"],["SpanID",6,"i"],["ParentID",6,"i"],["Name",5,"i"],["Kind",1,"i"],["Status",1,"i"],["Duration",4,"i"],["StartTime",4,"i"],["service.name",1.5,"i"],["Resource Attrs",18,"g"],["Span Attrs",38,"g"],["span.http.route",3,"d"]];
+const RES=["TraceID","SpanID","StartTime","Duration"];
+const PQ=[
+ {q:'{ resource.service.name = "payment-service" }',r:["service.name"],n:"<code>service.name</code>은 자기 열이 있는 고유 필드입니다. 작고 압축도 잘 되는 열 하나만 훑으면 되어 아주 쌉니다. 나머지는 결과를 만들기 위한 최소한의 열입니다."},
+ {q:'{ span.http.route = "/v1/charge" }',r:["Span Attrs"],rd:["span.http.route"],n:""},
+ {q:"{ duration > 500ms && status = error }",r:["Duration","Status"],n:"소요 시간과 상태는 모두 고유 필드라 작은 열 두 개만 읽습니다. 이런 조건을 먼저 걸면 검색 비용이 크게 줄어듭니다."},
+ {q:"Trace ID 조회",all:1,n:"Trace ID 조회는 모든 열을 읽지만, 블룸 필터와 인덱스로 찾은 <b>row group 하나</b>만 읽습니다. 열 방향이 아니라 행 방향으로 범위를 좁히는 방식입니다."}
+];
+let pqI=1;
+$("#pqQ").innerHTML=PQ.map((p,i)=>`<button data-i="${i}">${esc(p.q)}</button>`).join("");
+function renderPQ(){
+  const ded=$("#pqDed").checked,p=PQ[pqI];
+  $$("#pqQ button").forEach((b,j)=>b.classList.toggle("on",j===pqI));
+  const cols=COLS.filter(c=>c[2]!=="d"||ded).map(c=>c[0]==="Span Attrs"&&ded?[c[0],35,c[2]]:c);
+  const max=Math.max(...cols.map(c=>c[1]));
+  let need=p.all?cols.map(c=>c[0]):[...RES,...(p.rd&&ded?p.rd:p.r)];
+  const tot=cols.reduce((a,c)=>a+c[1],0),read=cols.filter(c=>need.includes(c[0])).reduce((a,c)=>a+c[1],0);
+  $("#pqCols").innerHTML=cols.map(c=>`<div class="pqc ${need.includes(c[0])?"read":""} ${c[2]==="d"?"ded":""}"><i style="height:${Math.max(c[1]/max*100,4)}%"></i><span>${esc(c[0])}</span></div>`).join("");
+  const pct=p.all?100:read/tot*100;$("#pqMeter").style.width=pct+"%";$("#pqPct").textContent=p.all?"모든 열 × row group 1개":fmt(pct,0)+"%";
+  let n=p.n;
+  if(pqI===1)n=ded?"<code>http.route</code>를 전용 열로 뺐더니 작은 열 하나만 읽으면 됩니다. 읽는 양이 크게 줄었습니다. 전용 열 설정은 <b>설정 이후에 만들어지는 블록</b>부터 적용됩니다.":"<code>http.route</code>는 고유 필드가 아니라서 모든 속성이 섞인 큰 <code>Span Attrs</code> 열을 훑어야 합니다. 위의 체크 상자를 켜서 전용 열로 빼 보세요.";
+  $("#pqNote").innerHTML=n;
+}
+$("#pqQ").addEventListener("click",e=>{const b=e.target.closest("button");if(b){pqI=+b.dataset.i;renderPQ()}});
+$("#pqDed").addEventListener("change",renderPQ);renderPQ();
+
+/* ---------- ch9 cost ---------- */
+function cost(){
+  const d=+$("#iKDay").value,r=+$("#iKRet").value,dup=+$("#iKDup").value,pr=+$("#iKPrice").value;
+  $("#kDay").textContent=fmt(d);$("#kRet").textContent=r;$("#kDup").textContent=dup.toFixed(2);$("#kPrice").textContent=pr.toFixed(3);
+  const s3=d*r,s2=s3*dup;const tb=x=>x>=1024?fmt(x/1024,2)+" TB":fmt(x)+" GB";
+  $("#kOut").innerHTML=`<div><b>${tb(s3)}</b><span>3.0 저장량 (RF1)</span></div><div><b>${tb(s2)}</b><span>2.x 저장량 (중복 포함)</span></div><div><b>${tb(s2-s3)}</b><span>줄어드는 양</span></div><div><b>$${fmt(s3*pr)}</b><span>3.0 월 저장 비용</span></div><div><b>$${fmt(s2*pr)}</b><span>2.x 월 저장 비용</span></div>`;
+}
+["#iKDay","#iKRet","#iKDup","#iKPrice"].forEach(s=>$(s).addEventListener("input",cost));cost();
+
+/* ---------- glossary ---------- */
+const G=[
+ ["distributor","Distributor","쓰기 경로의 입구. 수집량 제한 검사 후 Trace ID로 파티션을 골라 Kafka에 씁니다."],
+ ["Kafka 호환 큐","Kafka-compatible queue","microservices 모드에서 WAL 역할을 하는 내구성 있는 큐. Kafka, Redpanda, WarpStream 등."],
+ ["block-builder","Block-builder","Kafka에서 읽어 주기마다 Parquet 블록을 만들어 객체 스토리지에 올리는 부품."],
+ ["live-store","Live-store","최근 트레이스를 메모리·로컬 WAL에 들고 조회에 답하는 부품. 3.0에서 새로 생김."],
+ ["query-frontend","Query frontend","조회를 작업으로 쪼개 큐에 올리고 결과를 합치는 조회 입구."],
+ ["querier","Querier","작업을 실행해 live-store와 객체 스토리지에서 데이터를 가져오는 부품."],
+ ["backend scheduler","Backend scheduler","압축·보존·삭제 작업을 만들고 배정하는 싱글턴 부품. compactor 대체."],
+ ["backend worker","Backend worker","scheduler에게 받은 작업을 실행하는 상태 없는 부품."],
+ ["ingester","Ingester (2.x)","2.x에서 스팬을 복제받아 블록을 만들고 최근 조회를 맡던 부품. 3.0에서 제거."],
+ ["RF1 · RF3","Replication factor","데이터를 몇 곳에 복제하느냐. 2.x는 RF3, 3.0은 Kafka 내구성 덕분에 RF1."],
+ ["Project Rhythm","Project Rhythm","3.0 새 구조의 개발명. 2.9·2.10에서 실험 기능으로 먼저 공개."],
+ ["하드 컷","Hard cut","block-builder가 트레이스 완료 여부와 무관하게 주기마다 블록을 자르는 방식."],
+ ["결정적 블록 ID","Deterministic block ID","파티션·테넌트·오프셋 범위로 계산해 같은 데이터면 같은 ID가 나오는 블록 ID."],
+ ["replaces","replaces field","meta.json에서 이 블록이 대체하는 옛 블록을 적는 필드. 중복 조회 방지."],
+ ["nocompact.flg","No-compact flag","업로드 중인 블록을 압축하지 못하게 하는 임시 파일."],
+ ["파티션 링","Partition ring","Tempo 파티션 목록·상태·주인을 담아 memberlist로 공유하는 구조."],
+ ["pending · active · inactive","Partition states","파티션 상태. 준비 중, 정상(읽기·쓰기), 읽기 전용(축소 준비)."],
+ ["memberlist","Memberlist","gossip 프로토콜로 클러스터 상태를 퍼뜨리는 라이브러리."],
+ ["zone-aware","Zone-aware live-stores","가용 영역마다 live-store를 두어 한 영역이 죽어도 조회가 되게 하는 구성."],
+ ["읽기 정족수 1","Read quorum of 1","파티션마다 live-store 하나의 응답만 있으면 되는 조회 규칙."],
+ ["max_trace_idle","Trace idle period","새 스팬이 없으면 트레이스를 유휴로 보고 WAL로 내려쓰기까지의 시간(기본 10초)."],
+ ["query_backend_after","Query backend after","이보다 오래된 구간은 객체 스토리지에서, 최근 구간은 live-store에서 찾는 기준(기본 15분)."],
+ ["query_end_cutoff","Query end cutoff","결과가 불완전할 수 있는 가장 최근 구간을 조회에서 빼는 시간(3.0 기본 30초)."],
+ ["fail_on_high_lag","Fail on high lag","live-store가 밀려 있으면 불완전한 결과 대신 오류를 돌려주는 설정(3.0 기본 켜짐)."],
+ ["row group","Row group","Parquet 파일 안의 행 묶음. 인덱스가 Trace ID의 row group 위치를 알려 줍니다."],
+ ["고유 필드","Intrinsic field","Trace ID, 이름, 상태, 소요 시간처럼 자기 열을 가진 필드."],
+ ["전용 열","Dedicated column","범용 Attrs 대신 자기 열을 갖도록 지정한 속성. 검색이 빨라집니다."],
+ ["vParquet4 · 5","Block format versions","블록 형식 버전. 3.0 기본은 v4, v5는 선택 사항."],
+ ["redaction","Trace redaction","보존 기간을 기다리지 않고 블록을 다시 써서 민감한 트레이스를 지우는 3.0 기능."],
+ ["target","-target","tempo 바이너리에서 어떤 부품을 돌릴지 정하는 값. all은 monolithic."]
+];
+function renderG(f){const k=(f||"").trim().toLowerCase();const it=G.filter(g=>!k||g.join(" ").toLowerCase().includes(k));
+  $("#glist").innerHTML=it.map(g=>`<div class="gitem"><b>${esc(g[0])}</b><span class="en">${esc(g[1])}</span><p>${esc(g[2])}</p></div>`).join("");$("#gempty").style.display=it.length?"none":"block"}
+renderG("");$("#gsearch").addEventListener("input",e=>renderG(e.target.value));
+
+/* ---------- quiz ---------- */
+const QZ=[
+ {q:"Tempo 3.0에서 제거된 부품 두 가지는?",o:["distributor와 querier","ingester와 compactor","live-store와 block-builder","query-frontend와 Kafka"],a:1,x:"ingester의 일은 live-store(최근 조회)와 block-builder(블록 생성)가, compactor의 일은 backend scheduler·worker가 나눠 맡습니다."},
+ {q:"3.0이 복제 계수 1(RF1)로도 데이터를 잃지 않는 이유는?",o:["객체 스토리지가 자동 복제해서","Kafka가 기록을 확인한 뒤에야 클라이언트에 성공을 돌려주기 때문","querier가 복제해서","블룸 필터가 복구해 줘서"],a:1,x:"Kafka가 클러스터의 WAL 역할을 합니다. 확인을 받은 데이터는 뒤쪽 부품이 죽어도 Kafka에 남아 있습니다."},
+ {q:"같은 트레이스의 스팬이 같은 Kafka 파티션으로 가는 이유는?",o:["distributor가 Trace ID를 해시해 파티션을 고르기 때문","Kafka가 무작위로 보내서","서비스 이름으로 나눠서","시간 순서대로 보내서"],a:0,x:"Trace ID 해시 기반 샤딩 덕분에 block-builder는 트레이스를 한데 모아 블록을 만들고, live-store는 완전한 트레이스를 돌려줄 수 있습니다."},
+ {q:"block-builder가 meta.json을 올리기 직전에 죽었습니다. 결과는?",o:["블록이 영구 유실된다","블록이 두 번 조회된다","블록이 보이지 않은 상태였으므로 재시작 후 같은 ID로 덮어써 문제없다","관리자가 수동 복구해야 한다"],a:2,x:"meta.json이 생겨야 블록이 공개됩니다. 재시작하면 커밋된 오프셋부터 다시 읽고 결정적 ID로 같은 블록을 덮어씁니다."},
+ {q:"기본 설정에서 '최근 10분' 검색은 어디를 조회하나요?",o:["객체 스토리지만","live-store만 (가장 최근 30초 제외)","둘 다 전체 구간","metrics-generator"],a:1,x:"query_backend_after(15분)보다 최근 구간은 live-store에서만 찾습니다. 3.0부터 query_end_cutoff 30초는 제외됩니다."},
+ {q:"{ span.http.route = \"/pay\" } 검색이 느립니다. 가장 효과적인 저장 구조 개선은?",o:["블룸 필터를 끈다","http.route를 전용 열(dedicated column)로 지정한다","보존 기간을 늘린다","RF를 3으로 올린다"],a:1,x:"고유 필드가 아닌 속성은 큰 범용 Attrs 열을 훑어야 합니다. 전용 열로 빼면 작은 열 하나만 읽습니다."},
+ {q:"live-store를 줄일 때 올바른 순서는?",o:["바로 Pod를 삭제한다","파티션을 inactive로 바꾸고 데이터가 객체 스토리지로 옮겨질 때까지 기다린 뒤 제거한다","Kafka 파티션부터 삭제한다","파티션을 pending으로 바꾼다"],a:1,x:"inactive는 읽기 전용 상태입니다. 쓰기가 멈추고 block-builder가 남은 데이터를 올린 뒤에 제거해야 최근 데이터 공백이 생기지 않습니다."},
+ {q:"microservices 모드에서 block-builder와 live-store를 늘릴 수 있는 상한은?",o:["노드 수","Kafka 파티션 수","테넌트 수","querier 수"],a:1,x:"둘 다 파티션 단위로 일을 나누므로 파티션 수보다 많이 늘려도 남는 인스턴스는 놉니다. 파티션 수를 처음부터 넉넉히 잡아야 합니다."}
+];
+let ans=0,cor=0;
+function renderQuiz(){ans=0;cor=0;$("#quizBox").innerHTML=QZ.map((z,i)=>`<div class="qz" data-i="${i}"><div class="qq">Q${i+1}. ${esc(z.q)}</div><div class="opts">${z.o.map((o,j)=>`<button data-j="${j}">${esc(o)}</button>`).join("")}</div><div class="ex">${esc(z.x)}</div></div>`).join("");upd()}
+function upd(){$("#score").textContent=`${ans} / ${QZ.length} 문항 풀이 · 정답 ${cor}`+(ans===QZ.length?(cor===QZ.length?" · 완벽합니다. 5편 TraceQL로 넘어가도 좋습니다.":" · 틀린 문항의 해설을 다시 읽어 보세요."):"")}
+$("#quizBox").addEventListener("click",e=>{const b=e.target.closest(".opts button");if(!b)return;const box=b.closest(".qz"),z=QZ[+box.dataset.i],j=+b.dataset.j;if(box.dataset.done)return;box.dataset.done=1;ans++;
+  $$("button",box).forEach((x,k)=>{x.disabled=true;if(k===z.a)x.classList.add("right")});if(j===z.a)cor++;else b.classList.add("wrong");$(".ex",box).classList.add("show");upd()});
+$("#quizReset").addEventListener("click",renderQuiz);renderQuiz();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>2편 · Jaeger v2 아키텍처 해부 | Tempo와 Jaeger로 배우는 분산 트레이싱 백엔드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1530; --surface:#162043; --surface2:#1D2A55; --line:#2C3A6C;
+  --text:#E7EAF6; --muted:#9CA6CE; --faint:#6E78A3;
+  --accent:#8FA8FF; --accent-ink:#0E1530;
+  --c1:#2EC4B6; --c2:#F4B942; --c3:#FF6B8B; --c4:#A897FF; --c5:#4CC9F0; --c6:#A7D96B;
+  --jaeger:#4CC9F0; --tempo:#FF9F43;
+  --ok:#5BD69A; --warn:#F4B942; --err:#FF6B8B;
+  --code-bg:#0A1026;
+  --radius-lg:18px; --radius:12px; --radius-sm:7px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FB; --surface:#FFFFFF; --surface2:#E9EDF8; --line:#D3DAEE;
+  --text:#17203E; --muted:#56608A; --faint:#8790B3;
+  --accent:#3553D6; --accent-ink:#FFFFFF;
+  --c1:#118F84; --c2:#B87B06; --c3:#D0385D; --c4:#6A58DB; --c5:#1690B8; --c6:#5E9630;
+  --jaeger:#1690B8; --tempo:#D46A10;
+  --ok:#1D9A5E; --warn:#B87B06; --err:#D0385D;
+  --code-bg:#EEF1FA;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 24px);scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word;transition:background .3s,color .3s}
+a{color:var(--accent)}
+img,svg{max-width:100%}
+code,.mono{font-family:var(--mono);font-size:.88em}
+:not(pre)>code{background:var(--surface2);padding:.1em .4em;border-radius:5px;border:1px solid var(--line)}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:14px;line-height:1.6;margin:18px 0}
+button{font-family:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;padding:28px 18px 28px 24px;border-right:1px solid var(--line);background:var(--surface)}
+.side .brand{font-weight:700;font-size:15px;line-height:1.4;margin-bottom:4px}
+.side .sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.toc{list-style:none;margin:0;padding:0;counter-reset:toc}
+.toc li{counter-increment:toc}
+.toc a{display:flex;gap:10px;align-items:baseline;padding:7px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:14px;line-height:1.45}
+.toc a::before{content:counter(toc);font-family:var(--mono);font-size:12px;color:var(--faint);min-width:16px}
+.toc a:hover{background:var(--surface2);color:var(--text)}
+.toc a.active{background:var(--surface2);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.side-foot{margin-top:24px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.theme-btn{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px}
+.theme-btn:hover{border-color:var(--accent)}
+
+main{min-width:0;padding:0 clamp(18px,4vw,56px) 80px}
+.col{max-width:820px;margin:0 auto}
+section.chap{padding-top:72px}
+.chap-head{display:flex;gap:16px;align-items:flex-start;margin-bottom:10px}
+.chap-num{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:17px;background:var(--surface2);border:1px solid var(--line);color:var(--accent)}
+h2{font-size:clamp(24px,3vw,31px);line-height:1.3;margin:2px 0 0;letter-spacing:-.01em}
+h3{font-size:20px;line-height:1.4;margin:36px 0 10px}
+h4{font-size:17px;margin:22px 0 6px}
+p{margin:12px 0}
+.lead{font-size:18.5px;color:var(--muted);line-height:1.7}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:10px 0}
+ul.plain li{margin:6px 0}
+
+/* ---------- hero ---------- */
+.hero{padding-top:56px}
+.series{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:18px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.pill b{color:var(--text);font-weight:600}
+.pill .dot{width:8px;height:8px;border-radius:50%}
+.hero h1{font-size:clamp(32px,5vw,52px);line-height:1.18;letter-spacing:-.025em;margin:0 0 16px;font-weight:700}
+.hero h1 span.l2{display:block;color:var(--muted);font-weight:500;font-size:.62em;letter-spacing:-.01em;margin-top:10px}
+
+.wf{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 18px 14px;margin:28px 0 8px;overflow:hidden}
+.wf-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px}
+.wf-title{font-weight:600;font-size:15px}
+.wf-title .mono{color:var(--muted);font-weight:400;margin-left:6px;font-size:12.5px}
+.wf-scroll{overflow-x:auto}
+.wf-grid{min-width:660px}
+.wf-axis{display:grid;grid-template-columns:270px 1fr;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:6px}
+.wf-axis .ticks{position:relative;height:16px}
+.wf-axis .ticks span{position:absolute;transform:translateX(-50%)}
+.wf-axis .ticks span:first-child{transform:none}
+.wf-axis .ticks span:last-child{transform:translateX(-100%)}
+.wf-row{display:grid;grid-template-columns:270px 1fr;align-items:center;min-height:30px;border-radius:7px;cursor:pointer;position:relative}
+.wf-row:hover{background:var(--surface2)}
+.wf-row.sel{background:var(--surface2);box-shadow:inset 0 0 0 1px var(--accent)}
+.wf-row.dim{opacity:.35}
+.wf-label{display:flex;align-items:center;gap:7px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:10px}
+.wf-label .svc{width:9px;height:9px;border-radius:3px;flex:none}
+.wf-label .op{overflow:hidden;text-overflow:ellipsis}
+.wf-label .svcname{color:var(--muted);font-size:12px}
+.wf-track{position:relative;height:30px;background-image:linear-gradient(to right,var(--line) 1px,transparent 1px);background-size:25% 100%}
+.wf-bar{position:absolute;top:8px;height:14px;border-radius:4px;transform-origin:left center}
+.wf-bar.err{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.28) 0 5px,transparent 5px 10px)}
+.wf-dur{position:absolute;top:6px;font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+.hero .wf-bar{animation:grow .7s cubic-bezier(.2,.8,.2,1) both}
+@keyframes grow{from{transform:scaleX(0);opacity:.3}to{transform:scaleX(1);opacity:1}}
+.cap{font-size:13.5px;color:var(--muted);margin-top:6px}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:14px;line-height:1.3}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.btn-row{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+
+/* ---------- callouts ---------- */
+.note{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--surface);border-radius:10px;padding:14px 18px;margin:20px 0}
+.note.tip{border-left-color:var(--c6)}
+.note.warn{border-left-color:var(--warn)}
+.note.link{border-left-color:var(--c4)}
+.note .nt{font-weight:700;font-size:14.5px;margin-bottom:2px}
+.note p{margin:6px 0}
+.term{border-bottom:1px dashed var(--faint);cursor:help}
+
+/* ---------- span detail ---------- */
+.explorer{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.detail{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;font-size:14.5px}
+.detail h4{margin:0 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:4px 14px;font-size:13.5px}
+.kv dt{color:var(--muted);word-break:break-all}
+.kv dd{margin:0;font-family:var(--mono);font-size:12.8px;word-break:break-all}
+.badge{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:600;font-family:var(--mono);border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}
+.badge.err{color:var(--err);border-color:var(--err)}
+.badge.unset{color:var(--muted)}
+.story{margin-top:10px;padding:12px 14px;border-radius:10px;background:var(--surface2);font-size:14.5px;display:none}
+.story.show{display:block}
+
+/* ---------- traceparent ---------- */
+.tp{font-family:var(--mono);font-size:clamp(12px,1.8vw,16px);background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:16px;overflow-x:auto;white-space:nowrap}
+.tp .seg{padding:2px 3px;border-radius:4px;cursor:pointer;transition:background .2s}
+.tp .seg:hover,.tp .seg.hl{background:var(--surface2)}
+.tp .s-v{color:var(--c4)} .tp .s-t{color:var(--c2)} .tp .s-p{color:var(--c1)} .tp .s-f{color:var(--c3)}
+.tp-legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:12px}
+.tp-legend div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13.5px;cursor:pointer}
+.tp-legend div.hl{border-color:var(--accent)}
+.tp-legend b{display:block;font-family:var(--mono);font-size:13px}
+
+/* ---------- pipeline ---------- */
+.pipe{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.pipe svg{display:block;width:100%;height:auto}
+.pipe .node rect{fill:var(--surface2);stroke:var(--line);stroke-width:1.5;transition:all .3s}
+.pipe .node text{fill:var(--text);font-family:var(--font);font-size:13px}
+.pipe .node .small{fill:var(--muted);font-size:11px}
+.pipe .node.on rect{stroke:var(--accent);stroke-width:2.5}
+.pipe .edge{stroke:var(--line);stroke-width:2;fill:none}
+.pipe .edge.on{stroke:var(--accent)}
+.pipe .pkt{fill:var(--c2)}
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 8px}
+.steps button{flex:1 1 90px;padding:8px 6px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:13px}
+.steps button.on{color:var(--text);border-color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}
+.step-body{min-height:120px;padding:12px 4px 0}
+.step-body h4{margin:0 0 4px}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-top:18px}
+.tabs button{padding:10px 16px;border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--text);border-bottom-color:var(--tabc,var(--accent));font-weight:600}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel .role-lead{font-size:17px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.two>div{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface)}
+.two>div.j{border-top:3px solid var(--jaeger)}
+.two>div.t{border-top:3px solid var(--tempo)}
+.two h5{margin:0 0 6px;font-size:14.5px}
+.two p,.two li{font-size:14.5px}
+.two ul{margin:6px 0;padding-left:1.1em}
+
+/* ---------- timeline ---------- */
+.tl{position:relative;margin:24px 0;padding-left:0;list-style:none}
+.tl::before{content:"";position:absolute;left:66px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;display:grid;grid-template-columns:56px 1fr;gap:26px;margin-bottom:6px}
+.tl .yr{font-family:var(--mono);font-weight:600;font-size:14px;text-align:right;padding-top:10px;color:var(--muted)}
+.tl .ev{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer;position:relative}
+.tl .ev::before{content:"";position:absolute;left:-17px;top:16px;width:10px;height:10px;border-radius:50%;background:var(--evc,var(--faint));box-shadow:0 0 0 4px var(--bg)}
+.tl .ev b{font-size:15px}
+.tl .ev .more{display:none;font-size:14.5px;color:var(--muted);margin-top:6px}
+.tl .ev.open .more{display:block}
+.tl .ev .tag{font-size:12px;color:var(--muted);margin-left:6px}
+
+/* ---------- analogy + sim ---------- */
+.analogy{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+.analogy>div{border-radius:var(--radius);padding:16px 18px;background:var(--surface);border:1px solid var(--line)}
+.analogy .ic{font-size:30px;line-height:1}
+.analogy h4{margin:8px 0 4px}
+.qpick{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.qpick button{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;font-size:14.5px}
+.qpick button .mono{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+.qpick button.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.simcols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.simcol{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface)}
+.simcol.j{border-top:3px solid var(--jaeger)}
+.simcol.t{border-top:3px solid var(--tempo)}
+.simcol h5{margin:0 0 8px;font-size:14.5px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.simcol ol{margin:0;padding-left:1.3em;font-size:14px}
+.simcol ol li{margin:6px 0;opacity:.25;transition:opacity .35s}
+.simcol ol li.show{opacity:1}
+.verdict{font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.verdict.fast{color:var(--ok);border-color:var(--ok)}
+.verdict.mid{color:var(--warn);border-color:var(--warn)}
+.verdict.pre{color:var(--c4);border-color:var(--c4)}
+.simnote{font-size:14.5px;margin-top:12px;padding:12px 14px;border-radius:10px;background:var(--surface2);display:none}
+.simnote.show{display:block}
+
+/* ---------- table ---------- */
+.tbl-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:14.5px}
+th,td{padding:11px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+thead th{background:var(--surface2);font-size:14px}
+tbody th{font-weight:600;color:var(--muted);width:130px;background:var(--surface)}
+td{background:var(--surface)}
+th.jh{box-shadow:inset 0 3px 0 var(--jaeger)}
+th.th{box-shadow:inset 0 3px 0 var(--tempo)}
+
+/* ---------- map ---------- */
+.map{display:flex;flex-direction:column;gap:8px;margin:18px 0}
+.layer{display:grid;grid-template-columns:130px 1fr;gap:12px;align-items:stretch}
+.layer .ln{font-size:13px;color:var(--muted);padding:10px 0;line-height:1.4}
+.layer .chips{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px dashed var(--line);border-radius:10px}
+.chip{padding:6px 11px;border-radius:8px;font-size:13.5px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.chip.j{border-color:var(--jaeger)}
+.chip.t{border-color:var(--tempo)}
+.chip.o{border-color:var(--c4)}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.mapinfo{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface);min-height:92px;font-size:14.5px}
+.mapinfo .ep{display:inline-block;margin-top:6px;font-size:12.5px;padding:2px 9px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+
+/* ---------- scenarios ---------- */
+.scen{display:flex;flex-direction:column;gap:10px;margin:18px 0}
+details.sc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.sc summary{cursor:pointer;padding:14px 16px;list-style:none;display:flex;gap:12px;align-items:flex-start}
+details.sc summary::-webkit-details-marker{display:none}
+details.sc summary .q{font-weight:600}
+details.sc summary .who{display:block;font-size:13px;color:var(--muted);font-weight:400}
+details.sc summary .ico{flex:none;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:17px;background:var(--surface2)}
+details.sc[open] summary{border-bottom:1px solid var(--line)}
+details.sc .body{padding:10px 18px 14px 62px;font-size:14.8px}
+details.sc .body ol{padding-left:1.2em;margin:6px 0}
+
+/* ---------- glossary ---------- */
+.gsearch{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:15px;font-family:inherit}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:14px}
+.gitem{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface);font-size:14px}
+.gitem b{display:block;font-size:15px}
+.gitem .en{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.gitem p{margin:6px 0 0}
+.gempty{color:var(--muted);font-size:14.5px;margin-top:12px;display:none}
+
+/* ---------- quiz ---------- */
+.qz{border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;background:var(--surface);margin:12px 0}
+.qz .qq{font-weight:600;margin-bottom:10px}
+.qz .opts{display:flex;flex-direction:column;gap:6px}
+.qz .opts button{text-align:left;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:14.5px}
+.qz .opts button.right{border-color:var(--ok);box-shadow:inset 3px 0 0 var(--ok)}
+.qz .opts button.wrong{border-color:var(--err);box-shadow:inset 3px 0 0 var(--err)}
+.qz .opts button:disabled{cursor:default}
+.qz .ex{display:none;margin-top:10px;font-size:14.5px;color:var(--muted)}
+.qz .ex.show{display:block}
+.score{font-weight:600;padding:12px 16px;border-radius:10px;background:var(--surface2);border:1px solid var(--line)}
+
+/* ---------- summary ---------- */
+.sum{counter-reset:s;list-style:none;padding:0;margin:18px 0}
+.sum li{counter-increment:s;display:grid;grid-template-columns:34px 1fr;gap:10px;margin:10px 0}
+.sum li::before{content:counter(s);font-family:var(--mono);font-weight:600;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--surface2);color:var(--accent);font-size:13px;margin-top:2px}
+.next{border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px 22px;background:var(--surface);margin-top:26px}
+.next .k{font-size:13px;color:var(--muted)}
+.next h3{margin:4px 0 8px}
+footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+
+/* ---------- mobile ---------- */
+.mbar{display:none}
+@media (max-width:980px){
+  .shell{grid-template-columns:1fr}
+  .side{position:fixed;inset:0 auto 0 0;width:min(300px,86vw);z-index:40;transform:translateX(-102%);transition:transform .25s;padding-top:calc(env(safe-area-inset-top,0px) + 24px)}
+  .side.open{transform:none;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)}
+  .mbar{display:flex;position:sticky;top:env(safe-area-inset-top,0px);z-index:30;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+}
+@media (max-width:720px){
+  body{font-size:16px}
+  .wf-row,.wf-axis{grid-template-columns:170px 1fr}
+  .wf-grid{min-width:540px}
+  .wf-label{font-size:12px}
+  .two,.analogy,.simcols{grid-template-columns:1fr}
+  .layer{grid-template-columns:1fr;gap:4px}
+  .layer .ln{padding:4px 0 0}
+  .kv{grid-template-columns:110px minmax(0,1fr)}
+  details.sc .body{padding-left:18px}
+  .tl::before{left:50px}
+  .tl li{grid-template-columns:42px 1fr;gap:24px}
+  .tl .yr{font-size:12.5px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+
+
+
+/* ================= episode 2 additions ================= */
+/* role switcher (hero) */
+.rs{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:28px 0 8px}
+.rs-roles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.rs-roles button{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);cursor:pointer;font-size:14px;font-family:var(--mono)}
+.rs-roles button.on{background:var(--jaeger);color:var(--accent-ink);border-color:var(--jaeger);font-weight:600}
+:root[data-theme="light"] .rs-roles button.on{color:#fff}
+.bin{border:2px solid var(--jaeger);border-radius:14px;padding:14px;position:relative;background:linear-gradient(180deg,color-mix(in srgb,var(--jaeger) 7%,transparent),transparent 60%)}
+.bin-tag{position:absolute;top:-12px;left:16px;background:var(--surface);padding:0 8px;font-family:var(--mono);font-size:13px;color:var(--jaeger);font-weight:600}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start}
+.lane h5{margin:0 0 6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.lane .arrow{display:none}
+.comp{display:block;width:100%;text-align:left;margin:0 0 6px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);font-family:var(--mono);font-size:12.5px;color:var(--text);transition:opacity .25s,border-color .25s,box-shadow .25s;cursor:pointer}
+.comp.off{opacity:.28}
+.comp.on{border-color:var(--jaeger);box-shadow:inset 3px 0 0 var(--jaeger)}
+.comp.jg{position:relative;padding-right:22px}
+.comp.jg::after{content:"J";position:absolute;right:8px;top:7px;font-size:10.5px;color:var(--jaeger);font-weight:700}
+.ext-row{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+.ext-row h5{margin:0 0 6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.ext-row .exts{display:flex;flex-wrap:wrap;gap:6px}
+.ext-row .comp{width:auto;margin:0}
+.rs-out{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:12px;margin-top:14px}
+.rs-out pre{margin:0;font-size:12.5px;max-height:320px}
+.rs-desc{font-size:14.5px;background:var(--surface2);border-radius:10px;padding:12px 14px}
+.rs-desc .ports{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.port{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface)}
+.comp-info{margin-top:10px;font-size:14px;color:var(--muted);min-height:22px}
+.comp-info b{color:var(--text);font-family:var(--mono);font-weight:600}
+
+/* before / after */
+.ba-toggle{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:12px 0}
+.ba-toggle button{padding:8px 16px;border:0;background:var(--surface);color:var(--muted);cursor:pointer;font-size:14px}
+.ba-toggle button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.ba{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:16px}
+.ba svg{display:block;width:100%;height:auto}
+.ba svg .box{fill:var(--surface2);stroke:var(--line);stroke-width:1.5}
+.ba svg .box.hl{stroke:var(--jaeger);stroke-width:2.5}
+.ba svg .box.gone{stroke:var(--err);stroke-dasharray:5 4}
+.ba svg text{fill:var(--text);font-family:var(--font);font-size:13px}
+.ba svg text.sm{fill:var(--muted);font-size:11px}
+.ba svg .ln{stroke:var(--faint);stroke-width:1.8;fill:none}
+.ba-cap{font-size:14.5px;margin-top:10px}
+
+/* component hub */
+.hub{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:14px;align-items:start}
+.hub-list{display:flex;flex-direction:column;gap:8px}
+.hub-list button{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.hub-list button .k{display:block;font-family:var(--mono);font-size:14px;font-weight:600}
+.hub-list button .t{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.hub-list button.on{border-color:var(--jaeger);box-shadow:inset 3px 0 0 var(--jaeger)}
+.hub-detail{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;font-size:14.8px}
+.hub-detail h4{margin:0 0 4px;font-family:var(--mono)}
+.hub-detail pre{font-size:12.5px;margin:12px 0 4px}
+.kind{display:inline-block;font-size:12px;padding:1px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted);margin-left:6px;font-family:var(--font);font-weight:500}
+
+/* annotated yaml */
+.ay{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;align-items:start}
+.ay-code{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:12px 0;font-family:var(--mono);font-size:12.8px;line-height:1.62;overflow-x:auto}
+.ay-code .blk{display:block;padding:0 16px;border-left:3px solid transparent;cursor:pointer;white-space:pre}
+.ay-code .blk:hover{background:var(--surface2)}
+.ay-code .blk.on{background:var(--surface2);border-left-color:var(--accent)}
+.ay-code .k{color:var(--c5)} .ay-code .v{color:var(--c2)} .ay-code .c{color:var(--faint)} .ay-code .n{color:var(--c3);font-weight:600}
+.ay-code .n.glow{background:color-mix(in srgb,var(--c3) 28%,transparent);border-radius:4px;outline:1px solid var(--c3)}
+.ay-side{position:sticky;top:20px}
+.ay-exp{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;font-size:14.8px;min-height:180px}
+.ay-exp h4{margin:0 0 6px}
+
+/* traffic simulator */
+.sim{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 18px;margin-bottom:14px}
+.ctrl label{font-size:13.5px;color:var(--muted);display:block}
+.ctrl label b{color:var(--text);font-family:var(--mono);font-weight:600}
+.ctrl input[type=range]{width:100%;accent-color:var(--accent)}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chart{border:1px solid var(--line);border-radius:10px;padding:10px 10px 6px;background:var(--surface2)}
+.chart h5{margin:0 0 4px;font-size:13.5px}
+.chart svg{display:block;width:100%;height:auto}
+.chart .ax{stroke:var(--line)}
+.chart .lin{stroke:var(--faint);fill:none;stroke-width:1.6;stroke-dasharray:4 3}
+.chart .sto{stroke:var(--jaeger);fill:none;stroke-width:2.2}
+.chart .drop{fill:var(--err);opacity:.75}
+.chart .lag{fill:var(--warn);opacity:.35;stroke:var(--warn);stroke-width:1.5}
+.chart .cap{stroke:var(--ok);stroke-dasharray:2 3;stroke-width:1.2}
+.chart text{fill:var(--muted);font-size:10px;font-family:var(--mono)}
+.stat{font-size:14px;margin-top:6px}
+.stat b{font-family:var(--mono)}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+
+/* wizard */
+.wiz{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.wq{margin-bottom:14px}
+.wq .ql{font-weight:600;font-size:15px;margin-bottom:6px}
+.wq .opts{display:flex;flex-wrap:wrap;gap:6px}
+.wq .opts button{padding:8px 13px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;font-size:14px}
+.wq .opts button.on{border-color:var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:600}
+.wres{border-top:1px dashed var(--line);padding-top:14px;font-size:15px}
+.wres .pick{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--jaeger)}
+.wres .why{margin:6px 0}
+.wres .caveat{font-size:14px;color:var(--muted)}
+
+/* checklist */
+.chk{display:flex;flex-direction:column;gap:8px;margin:14px 0}
+.chk label{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.8px}
+.chk input{width:18px;height:18px;margin-top:4px;accent-color:var(--ok)}
+.chk label.done{border-color:var(--ok)}
+.chk label .st{font-weight:600}
+.chk label .sd{display:block;color:var(--muted);font-size:14px;margin-top:2px}
+.prog{height:8px;border-radius:99px;background:var(--surface2);overflow:hidden;border:1px solid var(--line)}
+.prog i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.progt{font-size:13.5px;color:var(--muted);margin-top:6px}
+
+/* port filter */
+.pf{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.pf button{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;font-size:13px}
+.pf button.on{color:var(--text);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+tr.hide{display:none}
+td.mono,th.mono{font-family:var(--mono);font-size:13.5px}
+
+/* size tiers */
+.tiers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+.tier{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface);font-size:14.5px}
+.tier h4{margin:0 0 2px}
+.tier .sz{font-size:12.5px;color:var(--muted)}
+.tier ul{padding-left:1.1em;margin:8px 0 0}
+.tier ul li{margin:4px 0}
+.tier:nth-child(1){border-top:3px solid var(--c6)}
+.tier:nth-child(2){border-top:3px solid var(--c2)}
+.tier:nth-child(3){border-top:3px solid var(--c3)}
+
+@media (max-width:900px){
+  .rs-out,.hub,.ay{grid-template-columns:1fr}
+  .ay-side{position:static}
+}
+@media (max-width:720px){
+  .lanes{grid-template-columns:1fr}
+  .charts,.tiers{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="mbar"><button class="btn" id="menuBtn" aria-label="목차 열기">☰ 목차</button><span>2편 · Jaeger v2 아키텍처</span><button class="btn" data-theme-toggle aria-label="테마 전환">◐</button></div>
+<div class="shell">
+<aside class="side" id="side">
+  <div class="brand">Tempo와 Jaeger로 배우는<br>분산 트레이싱 백엔드</div>
+  <div class="sub">2편 / 전 8편 · Jaeger v2 아키텍처 해부</div>
+  <ol class="toc" id="toc">
+    <li><a href="#change">v1에서 v2로, 무엇이 바뀌었나</a></li>
+    <li><a href="#otel">OTel Collector 문법 복습</a></li>
+    <li><a href="#parts">Jaeger 고유 부품 다섯 가지</a></li>
+    <li><a href="#yaml">설정 파일 한 줄씩 읽기</a></li>
+    <li><a href="#topo">배포 토폴로지와 Kafka</a></li>
+    <li><a href="#storage">저장소 고르기</a></li>
+    <li><a href="#ports">포트와 엔드포인트 지도</a></li>
+    <li><a href="#migrate">v1에서 옮겨 오기</a></li>
+    <li><a href="#msp">MSP 규모별 설계</a></li>
+    <li><a href="#glossary">용어 사전</a></li>
+    <li><a href="#quiz">확인 퀴즈</a></li>
+    <li><a href="#wrap">정리와 다음 편</a></li>
+  </ol>
+  <div class="side-foot">
+    <a href="tempo-jaeger-00-index.html" style="font-weight:600">← 시리즈 목차로</a><br>
+    기준 버전: Jaeger v2.21 (2026년 9월 최신)<br>이전 편: 1편 트레이스 백엔드의 역할과 전체 지도
+    <br><button class="theme-btn" data-theme-toggle><span data-theme-label>라이트 테마로 보기</span></button>
+  </div>
+</aside>
+
+<main>
+<div class="col">
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="series">
+    <span class="pill"><b>2편</b> / 8편</span>
+    <span class="pill"><span class="dot" style="background:var(--jaeger)"></span>Jaeger 트랙 1/2</span>
+    <span class="pill">기준: Jaeger v2.21</span>
+  </div>
+  <h1>Jaeger v2 아키텍처 해부<span class="l2">바이너리는 하나, 역할은 설정 파일이 정한다</span></h1>
+  <p class="lead">Jaeger v2에는 <code>jaeger</code>라는 실행 파일이 딱 하나 있습니다. 같은 파일이 어떤 설정을 읽느냐에 따라 수집기도, 조회 서버도, Kafka 소비자도 됩니다. 아래에서 역할을 바꿔 가며 <b>안에서 어떤 부품이 켜지고 꺼지는지</b> 직접 확인해 보세요.</p>
+
+  <div class="rs" aria-label="Jaeger 역할 전환기">
+    <div class="rs-roles" id="rsRoles" role="tablist"></div>
+    <div class="bin">
+      <span class="bin-tag">jaeger --config config.yaml</span>
+      <div class="lanes">
+        <div class="lane"><h5>Receivers · 받기</h5><div id="lnR"></div></div>
+        <div class="lane"><h5>Processors · 가공</h5><div id="lnP"></div></div>
+        <div class="lane"><h5>Exporters · 내보내기</h5><div id="lnE"></div></div>
+      </div>
+      <div class="ext-row"><h5>Extensions · 파이프라인 밖의 기능</h5><div class="exts" id="lnX"></div></div>
+    </div>
+    <div class="comp-info" id="compInfo">부품을 클릭하면 한 줄 설명이 나옵니다. 오른쪽 위 <b>J</b> 표시는 Jaeger가 직접 만든 부품입니다.</div>
+    <div class="rs-out">
+      <pre id="rsYaml"></pre>
+      <div class="rs-desc" id="rsDesc"></div>
+    </div>
+  </div>
+  <p class="cap">흐릿한 부품은 이 역할에서 쓰지 않는 것입니다. 부품 목록은 공식 바이너리에 포함된 것 중 대표적인 것만 추렸습니다.</p>
+</header>
+
+<!-- ================= 1. CHANGE ================= -->
+<section class="chap" id="change">
+  <div class="chap-head"><div class="chap-num">1</div><h2>v1에서 v2로, 무엇이 바뀌었나</h2></div>
+  <p>1편에서 "Jaeger v2는 OTel Collector 위에 다시 만들어졌다"고 했습니다. 실제로 무엇이 달라졌는지 구성도로 비교해 보겠습니다. 버튼으로 v1과 v2를 번갈아 보세요.</p>
+  <div class="ba-toggle" role="tablist"><button id="baV1">v1 (지원 종료)</button><button id="baV2" class="on">v2 (현재)</button></div>
+  <div class="ba">
+    <svg viewBox="0 0 820 235" id="baSvg" role="img" aria-label="Jaeger v1과 v2 구성 비교">
+      <g class="ln">
+        <path class="ln" d="M130 115 L170 115"/><path class="ln" d="M290 115 L330 115"/><path class="ln" d="M460 115 L510 115"/><path class="ln" d="M630 115 L670 115"/>
+        <path class="ln" d="M395 140 L395 175"/><path class="ln" d="M460 196 L510 196"/><path class="ln" d="M570 175 L570 140"/>
+      </g>
+      <g id="baG"></g>
+    </svg>
+    <div class="ba-cap" id="baCap"></div>
+  </div>
+
+  <h3>한눈에 보는 변경 사항</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>구분</th><th>v1</th><th>v2</th></tr></thead>
+    <tbody>
+      <tr><th>실행 파일</th><td>agent, collector, query, ingester, all-in-one 등 역할별 바이너리</td><td><code>jaeger</code> 하나. 설정에서 켠 부품이 역할을 결정</td></tr>
+      <tr><th>설정 방식</th><td>명령행 플래그와 환경 변수 (<code>SPAN_STORAGE_TYPE</code> 등)</td><td>YAML 설정 파일만 사용. 필요하면 YAML 안에서 <code>${env:변수}</code>로 참조</td></tr>
+      <tr><th>설정 문법</th><td>Jaeger 고유</td><td>OpenTelemetry Collector와 같은 문법</td></tr>
+      <tr><th>앱 계측</th><td>Jaeger 전용 클라이언트 라이브러리</td><td>OpenTelemetry SDK (OTLP로 전송)</td></tr>
+      <tr><th>호스트 agent</th><td>jaeger-agent (UDP로 받아 collector에 전달)</td><td>OTel Collector를 agent로 쓰는 것을 권장</td></tr>
+      <tr><th>내부 데이터 모델</th><td>Jaeger 고유 모델</td><td>OTLP 데이터 모델 중심</td></tr>
+      <tr><th>기능 확장</th><td>Jaeger 코드를 고쳐야 함</td><td>Collector 생태계의 receiver·processor를 그대로 조합, 필요하면 커스텀 빌드</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note">
+    <div class="nt">왜 굳이 다시 만들었을까</div>
+    <p>v1 시절에도 많은 조직이 앞단에 OTel Collector를 두고 그 뒤에 Jaeger collector를 두었습니다. 두 프로그램이 받고, 모으고, 보내는 거의 같은 일을 이중으로 한 셈입니다. v2는 "어차피 같은 일이라면 Collector 프레임워크를 그대로 쓰고, Jaeger만의 기능(저장소 연결, 조회 API, UI, 샘플링 서버)만 부품으로 얹자"는 결정입니다. 그 덕분에 tail sampling, 속성 가공, Kafka 연결 같은 기능을 Jaeger가 따로 구현하지 않고 Collector 생태계에서 가져다 씁니다.</p>
+  </div>
+</section>
+
+<!-- ================= 2. OTEL ================= -->
+<section class="chap" id="otel">
+  <div class="chap-head"><div class="chap-num">2</div><h2>OTel Collector 문법 30초 복습</h2></div>
+  <p>Jaeger v2 설정 파일은 OTel Collector 설정 파일과 문법이 같습니다. 자세한 내용은 OTel 시리즈 7편에서 다뤘으니, 여기서는 Jaeger를 읽는 데 필요한 뼈대만 짚습니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>구성 요소</th><th>하는 일</th><th>Jaeger에서의 대표 예</th></tr></thead>
+    <tbody>
+      <tr><th>receivers</th><td>데이터를 받는 입구</td><td><code>otlp</code>, <code>jaeger</code>, <code>zipkin</code>, <code>kafka</code>, <code>nop</code></td></tr>
+      <tr><th>processors</th><td>받은 데이터를 가공 (묶기, 거르기, 샘플링)</td><td><code>batch</code>, <code>memory_limiter</code>, <code>tail_sampling</code>, <code>attributes</code>, <code>adaptive_sampling</code></td></tr>
+      <tr><th>exporters</th><td>데이터를 내보내는 출구</td><td><code>jaeger_storage_exporter</code>, <code>kafka</code>, <code>otlp</code>, <code>nop</code></td></tr>
+      <tr><th>connectors</th><td>한 파이프라인의 출구를 다른 파이프라인의 입구로 연결</td><td><code>spanmetrics</code> (스팬 → 메트릭, 3편 SPM에서 사용)</td></tr>
+      <tr><th>extensions</th><td>데이터 흐름과 별개로 돌아가는 부가 기능</td><td><code>jaeger_storage</code>, <code>jaeger_query</code>, <code>remote_sampling</code>, <code>healthcheckv2</code></td></tr>
+      <tr><th>service</th><td>위에서 정의한 것 중 <b>실제로 켤 것</b>을 고르고 파이프라인으로 연결</td><td><code>service.extensions</code>, <code>service.pipelines.traces</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">
+    <div class="nt">초보자가 가장 많이 하는 실수</div>
+    <p>아래쪽에 부품을 정의만 하고 <code>service</code> 절에 적지 않으면 그 부품은 <b>동작하지 않습니다.</b> 오류도 없이 조용히 무시되는 경우가 많아서, "설정했는데 왜 안 되지?"의 1순위 원인입니다. 부품을 추가했다면 반드시 <code>service.pipelines</code>나 <code>service.extensions</code>에도 이름을 적었는지 확인하세요.</p>
+  </div>
+  <p>여기서 핵심 질문이 하나 생깁니다. Collector는 원래 <b>데이터를 받아 보내는</b> 도구인데, Jaeger는 <b>저장된 데이터를 읽어서 보여 주는</b> 일도 해야 합니다. 읽기는 파이프라인 흐름에 들어맞지 않습니다. 그래서 Jaeger는 읽기 기능을 <b>extension</b>으로 만들었고, 쓰기(exporter)와 읽기(extension)가 같은 저장소 설정을 공유하도록 저장소 허브를 따로 두었습니다. 이것이 다음 장의 주제입니다.</p>
+</section>
+
+<!-- ================= 3. PARTS ================= -->
+<section class="chap" id="parts">
+  <div class="chap-head"><div class="chap-num">3</div><h2>Jaeger 고유 부품 다섯 가지</h2></div>
+  <p>Jaeger 바이너리에는 OTel 공식 부품에 더해 Jaeger가 직접 만든 부품이 들어 있습니다. 이 다섯 가지만 알면 어떤 Jaeger 설정 파일도 읽을 수 있습니다. 왼쪽 목록에서 하나씩 눌러 보세요.</p>
+  <div class="hub">
+    <div class="hub-list" id="hubList"></div>
+    <div class="hub-detail" id="hubDetail" aria-live="polite"></div>
+  </div>
+  <div class="note tip">
+    <div class="nt">부품 관계를 한 문장으로</div>
+    <p><code>jaeger_storage</code>가 저장소에 <b>이름표</b>를 붙여 등록하면, 쓰는 쪽(<code>jaeger_storage_exporter</code>)과 읽는 쪽(<code>jaeger_query</code>)과 샘플링 쪽(<code>remote_sampling</code>의 adaptive 모드)이 모두 그 이름표로 같은 저장소를 가리킵니다.</p>
+  </div>
+</section>
+
+<!-- ================= 4. YAML ================= -->
+<section class="chap" id="yaml">
+  <div class="chap-head"><div class="chap-num">4</div><h2>설정 파일 한 줄씩 읽기</h2></div>
+  <p>아래는 OpenSearch를 저장소로 쓰면서 수집과 조회를 한 프로세스에서 하는 설정입니다. 공식 예제(<code>config-opensearch.yaml</code>)를 바탕으로 운영에서 자주 추가하는 항목을 넣어 정리했습니다. <b>코드 블록을 클릭</b>하면 그 부분의 의미가 오른쪽에 나옵니다.</p>
+  <div class="btn-row"><button class="btn" id="glowBtn">이름표 연결 추적</button><button class="btn" id="yamlCopy">설정 복사</button></div>
+  <div class="ay">
+    <div class="ay-code" id="ayCode" aria-label="주석이 달린 Jaeger 설정 파일"></div>
+    <div class="ay-side"><div class="ay-exp" id="ayExp" aria-live="polite"></div></div>
+  </div>
+  <div class="note">
+    <div class="nt">실행은 이렇게</div>
+    <p>컨테이너로 실행할 때는 설정 파일을 컨테이너 안에 넣고 <code>--config</code>로 경로를 알려 줍니다. 설정 파일 없이 실행하면 바이너리에 내장된 all-in-one 설정(메모리 저장소)으로 뜹니다.</p>
+<pre>docker run --rm --name jaeger \
+  -e OS_URL=http://opensearch:9200 \
+  -p 4317:4317 -p 4318:4318 -p 16686:16686 -p 13133:13133 \
+  -v $(pwd)/config.yaml:/jaeger/config.yaml \
+  jaegertracing/jaeger:2.21.0 \
+  --config /jaeger/config.yaml</pre>
+    <p>설정 파일을 고치지 않고 값 하나만 바꾸고 싶다면 <code>--set=receivers.otlp.protocols.grpc.endpoint=0.0.0.0:4317</code>처럼 덮어쓸 수도 있습니다. 내장 all-in-one 설정을 빠르게 조정할 때 편리합니다.</p>
+  </div>
+</section>
+
+<!-- ================= 5. TOPOLOGY ================= -->
+<section class="chap" id="topo">
+  <div class="chap-head"><div class="chap-num">5</div><h2>배포 토폴로지와 Kafka</h2></div>
+  <p>역할을 어떻게 조합해 배치하느냐가 토폴로지입니다. 공식 문서가 꼽는 확장형 구성은 두 가지이고, 여기에 OTel Collector를 앞에 두는 방식이 더해집니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>구성</th><th>흐름</th><th>장점</th><th>주의점</th></tr></thead>
+    <tbody>
+      <tr><th>all-in-one</th><td>jaeger (수집+조회) → 저장소</td><td>가장 단순. 외부 저장소를 쓰면 여러 대로 늘릴 수도 있음</td><td>읽기와 쓰기를 따로 늘리거나 따로 보안 정책을 걸기 어려움</td></tr>
+      <tr><th>직접 저장<br><span class="muted" style="font-weight:400">direct to storage</span></th><td>collector → 저장소 ← query</td><td>읽기·쓰기를 독립적으로 확장, 조회 서버만 사내망에 두는 식의 분리 가능</td><td>저장소가 평균뿐 아니라 <b>최대 트래픽까지</b> 받아 내야 함</td></tr>
+      <tr><th>Kafka 경유<br><span class="muted" style="font-weight:400">via Kafka</span></th><td>collector → Kafka → ingester → 저장소 ← query</td><td>트래픽 급증을 Kafka가 흡수해 유실 방지, ingester는 여러 대로 부하 분산</td><td>Kafka 클러스터 운영 부담, 데이터가 조회되기까지 지연 발생 가능</td></tr>
+      <tr><th>OTel Collector 앞단</th><td>앱 → OTel Collector(agent·gateway) → Jaeger</td><td>메트릭·로그와 수집 경로 통합, 파드 정보 부착, tail sampling 샤딩</td><td>데이터를 한 번 더 풀고 묶는 비용</td></tr>
+    </tbody>
+  </table></div>
+  <p>Jaeger 역할들은 상태를 저장하지 않으므로(stateless) 여러 인스턴스를 나란히 띄울 수 있습니다. 모든 상태는 저장소에 있습니다. 그렇다면 Kafka는 언제 필요할까요? 직접 확인해 봅시다.</p>
+
+  <h3>트래픽 급증 시뮬레이터</h3>
+  <p>평소 유입량과 급증 배율을 바꿔 보세요. 저장소는 초당 일정량까지만 쓸 수 있고, collector에는 짧은 급증을 버티는 메모리 큐가 있습니다. 숫자는 개념 이해를 위한 가상 값입니다.</p>
+  <div class="sim">
+    <div class="ctrl">
+      <label>평소 유입량: <b id="vBase"></b> 스팬/초<input type="range" id="sBase" min="5000" max="28000" step="1000" value="15000"></label>
+      <label>급증 배율: <b id="vMul"></b><input type="range" id="sMul" min="1" max="4" step="0.25" value="2.5"></label>
+      <label>급증 지속: <b id="vDur"></b>초<input type="range" id="sDur" min="5" max="60" step="5" value="45"></label>
+      <label>collector 메모리 큐: <b id="vQ"></b> 스팬<input type="range" id="sQ" min="100000" max="1000000" step="50000" value="300000"></label>
+    </div>
+    <div class="charts">
+      <div class="chart"><h5>직접 저장</h5><svg id="cDirect" viewBox="0 0 320 150"></svg><div class="stat" id="stDirect"></div></div>
+      <div class="chart"><h5>Kafka 경유 <span class="muted" style="font-weight:400;font-size:12px">주황 영역은 대기량 (별도 축)</span></h5><svg id="cKafka" viewBox="0 0 320 150"></svg><div class="stat" id="stKafka"></div></div>
+    </div>
+    <div class="legend"><span><i style="background:var(--faint)"></i>유입량</span><span><i style="background:var(--jaeger)"></i>저장량</span><span><i style="background:var(--ok)"></i>저장소 쓰기 한계 (30,000/초)</span><span><i style="background:var(--err)"></i>유실</span><span><i style="background:var(--warn)"></i>Kafka에 쌓인 대기량(lag)</span></div>
+  </div>
+  <div class="note tip">
+    <div class="nt">시뮬레이터에서 읽어야 할 것</div>
+    <p>급증이 짧으면 collector 큐만으로 충분합니다. 급증이 길어져 큐가 넘치면, 직접 저장 구성은 <b>그 순간부터 스팬을 버립니다.</b> Kafka 경유 구성은 버리지 않고 쌓아 두었다가 급증이 끝난 뒤 따라잡습니다. 대신 쌓인 만큼 <b>화면에 늦게 보입니다.</b> 즉 Kafka는 "유실 대신 지연"을 택하는 장치입니다. 장애 순간의 트레이스가 가장 중요한데 그 순간에 트래픽이 가장 몰린다는 점을 떠올리면, 대형 고객사에서 Kafka를 두는 이유가 보입니다.</p>
+  </div>
+  <div class="note">
+    <div class="nt">Kafka 구성의 설정 포인트</div>
+    <p>collector 쪽은 저장소 exporter 대신 <code>kafka</code> exporter를, ingester 쪽은 <code>kafka</code> receiver를 씁니다. 두 쪽의 <b>토픽 이름과 인코딩</b>(<code>otlp_proto</code> 등)이 반드시 같아야 합니다. ingester를 여러 대 띄우면 Kafka 파티션 단위로 부하가 자동 분산되므로, ingester 수보다 파티션 수가 적으면 남는 ingester는 놉니다.</p>
+<pre>collector:  receivers [otlp] → processors [batch] → exporters [kafka]
+ingester :  receivers [kafka] → processors [batch] → exporters [jaeger_storage_exporter]
+query    :  receivers [nop]   → exporters [nop]      + extensions [jaeger_storage, jaeger_query]</pre>
+  </div>
+</section>
+
+<!-- ================= 6. STORAGE ================= -->
+<section class="chap" id="storage">
+  <div class="chap-head"><div class="chap-num">6</div><h2>저장소 고르기</h2></div>
+  <p>Jaeger는 저장소를 직접 만들지 않고 기존 데이터베이스에 붙습니다. 공식 문서는 Cassandra, Elasticsearch, OpenSearch를 주요 분산 저장소로 꼽고, 대규모 운영에는 Cassandra보다 <b>OpenSearch(또는 Elasticsearch)</b>를 권장합니다.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>저장소</th><th>성격</th><th>잘 맞는 곳</th><th>주의점</th></tr></thead>
+    <tbody>
+      <tr><th>memory</th><td>프로세스 메모리</td><td>개발, 데모, 설정 테스트</td><td>재시작하면 전부 사라짐</td></tr>
+      <tr><th>Badger</th><td>내장형 로컬 키-값 저장소</td><td>단일 노드 운영, 소규모 고객사</td><td>인스턴스 1대에 묶여 수평 확장 불가</td></tr>
+      <tr><th>OpenSearch<br>Elasticsearch</th><td>검색 엔진</td><td>대부분의 운영 환경, 태그 기반 자유 검색, Kibana·Dashboards로 직접 분석</td><td>인덱스 수명 관리(롤오버·ILM·정리 작업) 설계 필요. ES는 7.x·8.x 지원</td></tr>
+      <tr><th>Cassandra</th><td>분산 키-값 DB</td><td>이미 Cassandra를 운영하는 조직, ID 조회 위주</td><td>검색을 Jaeger가 대신 구현해 제약이 있고, 태그마다 색인 쓰기가 추가됨. 장점은 TTL로 보존 관리가 쉬움</td></tr>
+      <tr><th>ClickHouse</th><td>열 지향 분석 DB</td><td>대량 데이터 분석, 이미 ClickHouse를 운영하는 조직</td><td><b>실험적 기능.</b> <code>storage.clickhouse</code> 기능 게이트로 켜야 하고 스키마가 바뀔 수 있음</td></tr>
+      <tr><th>원격 gRPC</th><td>외부 저장소 플러그인</td><td>공식 지원 외 저장소 연결 (예: 커뮤니티 PostgreSQL 구현)</td><td>플러그인의 성숙도와 유지 보수를 직접 확인해야 함</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">
+    <div class="nt">ClickHouse는 아직 실험 단계입니다</div>
+    <p>ClickHouse는 v2.18에 추가되었지만 <b>기능 게이트 뒤에 있는 실험적(experimental) 백엔드</b>입니다. v2.21 문서 기준으로도 실험 단계이므로 운영 도입 전에는 검증 환경에서 충분히 시험하고, 버전 업그레이드 때 스키마 변경 공지를 반드시 확인하세요.</p>
+  </div>
+
+  <h3>왜 공식 권장이 Cassandra가 아니라 OpenSearch일까</h3>
+  <p>Cassandra는 단건 쓰기가 빠르지만 키-값 저장소라서 "서비스가 payment이고 태그가 X인 트레이스" 같은 검색을 스스로 못 합니다. 그래서 Jaeger가 서비스명·오퍼레이션명·태그마다 <b>별도 색인 레코드를 추가로 써서</b> 검색을 흉내 냅니다. 스팬 하나를 쓰는데 실제로는 여러 번 쓰는 셈(쓰기 증폭)이라 전체 처리량은 OpenSearch와 비슷해지고, 검색 결과가 일관되지 않을 수 있습니다. OpenSearch는 스팬 하나를 한 번 쓰면 색인은 OpenSearch 내부에서 처리합니다. 반면 보존 기간 관리는 Cassandra의 TTL이 훨씬 간단합니다.</p>
+
+  <h3>우리 고객사엔 무엇을? 저장소 선택 도우미</h3>
+  <div class="wiz" id="wiz"></div>
+
+  <h3>보관용 저장소(archive)라는 장치</h3>
+  <p>주 저장소는 보통 1~2주 정도로 짧게 보관해 비용을 아낍니다. 그런데 장애 보고서에 첨부할 트레이스는 몇 달 보관해야 할 때가 있습니다. Jaeger는 <b>보관용 저장소</b>를 따로 지정할 수 있고, Jaeger UI에서 사람이 직접 "보관" 버튼을 누른 트레이스만 그곳에 복사됩니다. 자동으로 쌓이지 않으니 보존 기간을 길게 잡아도 부담이 적습니다. 4장 설정 예제의 <code>traces_archive</code>가 바로 이것입니다.</p>
+</section>
+
+<!-- ================= 7. PORTS ================= -->
+<section class="chap" id="ports">
+  <div class="chap-head"><div class="chap-num">7</div><h2>포트와 엔드포인트 지도</h2></div>
+  <p>방화벽, 보안 그룹, Kubernetes Service·NetworkPolicy를 설정할 때 필요한 포트입니다. 기본값이며 설정에서 바꿀 수 있습니다. 역할별로 걸러 보세요.</p>
+  <div class="pf" id="pf"></div>
+  <div class="tbl-wrap"><table id="portTbl">
+    <thead><tr><th class="mono">포트</th><th>프로토콜</th><th>용도</th><th>여는 부품</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <div class="note warn">
+    <div class="nt">UDP 6831·6832가 아직 보인다면</div>
+    <p>v1 시절 Jaeger 클라이언트가 agent로 보내던 포트입니다. v2의 <code>jaeger</code> receiver가 받아 줄 수는 있지만, 이 포트로 들어오는 트래픽이 있다는 것은 <b>아직 옛 클라이언트 라이브러리를 쓰는 앱이 있다</b>는 신호입니다. 마이그레이션 대상 목록에 올려 두세요.</p>
+  </div>
+</section>
+
+<!-- ================= 8. MIGRATE ================= -->
+<section class="chap" id="migrate">
+  <div class="chap-head"><div class="chap-num">8</div><h2>v1에서 옮겨 오기</h2></div>
+  <p>인수인계 받은 고객사 환경에 v1이 남아 있는 경우가 적지 않습니다. v1은 2025년 말에 지원이 끝났고, v2.14(2026년 1월)부터는 v1 방식의 query·collector·ingester 이미지가 더 이상 배포되지 않습니다. 공식 이전 안내는 Jaeger 문서의 Migration 페이지에서 링크된 가이드를 기준으로 하고, 아래는 MSP 현장에서 쓰기 좋게 순서를 정리한 체크리스트입니다. 진행하면서 체크해 보세요.</p>
+  <div class="prog"><i id="progBar"></i></div>
+  <div class="progt" id="progTxt"></div>
+  <div class="chk" id="chk"></div>
+
+  <h3>설정 옮기기 대응표</h3>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>v1에서 쓰던 것</th><th>v2에서는</th></tr></thead>
+    <tbody>
+      <tr><th>jaeger-agent (DaemonSet·사이드카)</th><td>OTel Collector를 agent로 배치하거나, SDK가 collector로 직접 OTLP 전송</td></tr>
+      <tr><th><code>SPAN_STORAGE_TYPE</code>, <code>ES_SERVER_URLS</code> 등 환경 변수</th><td><code>extensions.jaeger_storage.backends.&lt;이름&gt;.&lt;종류&gt;</code> YAML. 값은 <code>${env:...}</code>로 주입 가능</td></tr>
+      <tr><th>샘플링 전략 파일 플래그</th><td><code>remote_sampling.file.path</code></td></tr>
+      <tr><th>적응형 샘플링 설정</th><td><code>remote_sampling.adaptive</code> + <code>adaptive_sampling</code> processor</td></tr>
+      <tr><th>SPM용 메트릭 저장소 설정</th><td><code>jaeger_storage.metric_backends</code> + <code>jaeger_query.storage.metrics</code></td></tr>
+      <tr><th>관리 포트의 헬스 체크·메트릭</th><td>헬스 체크 13133 (<code>healthcheckv2</code>), 자체 메트릭 8888 (<code>service.telemetry</code>)</td></tr>
+      <tr><th>이미지 <code>jaegertracing/all-in-one</code> 등</th><td><code>jaegertracing/jaeger</code> 하나</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note tip">
+    <div class="nt">저장소 데이터는 어떻게 되나요?</div>
+    <p>v2도 같은 종류의 저장소(ES/OpenSearch, Cassandra 등)에 붙으므로 보통은 기존 저장소를 그대로 연결하는 방식으로 옮깁니다. 공식 Cassandra 예제의 keyspace 이름이 <code>jaeger_v1_dc1</code>인 것도 그 흔적입니다. 다만 인덱스 접두사(<code>index_prefix</code>)나 롤오버 설정이 v1과 달라지면 옛 데이터가 조회되지 않을 수 있으니, <b>병행 운영 기간에 과거 트레이스가 v2 UI에서 보이는지</b> 반드시 확인하세요.</p>
+  </div>
+</section>
+
+<!-- ================= 9. MSP ================= -->
+<section class="chap" id="msp">
+  <div class="chap-head"><div class="chap-num">9</div><h2>MSP 규모별 설계</h2></div>
+  <p>지금까지의 내용을 고객사 규모에 맞춰 조립하면 이렇습니다. 구체적인 배포와 튜닝은 3편에서 실습합니다.</p>
+  <div class="tiers">
+    <div class="tier"><h4>소규모·PoC</h4><div class="sz">서비스 수십 개 이하, 트래픽 적음</div>
+      <ul><li>all-in-one 한 대</li><li>저장소: Badger (데이터 유지) 또는 memory (데모)</li><li>백업·보존 기간은 디스크 용량으로 관리</li><li>확장이 필요해지면 저장소부터 교체</li></ul></div>
+    <div class="tier"><h4>중규모 운영</h4><div class="sz">서비스 수십~수백 개</div>
+      <ul><li>collector와 query 분리</li><li>저장소: OpenSearch (ILM으로 보존 관리)</li><li>앞단에 OTel Collector (파드 정보 부착·민감 정보 제거)</li><li>보관용 저장소 분리</li></ul></div>
+    <div class="tier"><h4>대규모·다중 고객</h4><div class="sz">트래픽 급증이 잦고 유실이 치명적</div>
+      <ul><li>OTel Collector gateway (tail sampling)</li><li>collector → Kafka → ingester 여러 대</li><li>OpenSearch 클러스터 + 보관용 저장소</li><li>query는 인증 프록시 뒤에 별도 배치</li></ul></div>
+  </div>
+  <div class="note warn">
+    <div class="nt">보안: Jaeger UI에는 로그인 기능이 없습니다</div>
+    <p>query 역할의 UI와 API는 기본적으로 인증 없이 열립니다. 트레이스에는 URL, 사용자 ID, 내부 호스트명 같은 민감한 정보가 담기기 쉬우므로 인터넷이나 넓은 사내망에 그대로 노출하면 안 됩니다. 앞단에 OAuth2 Proxy 같은 인증 프록시를 두고 사내 IdP와 연결하는 방식이 일반적입니다. OIDC 연동 원리는 이 강의 시리즈의 OAuth/OIDC 강의를 참고하세요. 수집 포트(4317/4318)도 TLS와 접근 제어를 적용하는 것이 좋습니다.</p>
+  </div>
+  <div class="note link">
+    <div class="nt">AIOps와의 연결 고리</div>
+    <p>v2.21에 내장된 all-in-one 설정에는 <code>jaeger_query</code> 아래에 AI 에이전트용 MCP 엔드포인트(<code>/api/ai/mcp/</code>)를 켜는 항목이 들어 있습니다. LLM 에이전트가 트레이스를 조회 도구로 쓰게 하는 흐름이 Jaeger 쪽에서도 공식화되고 있다는 뜻입니다. 새로 추가된 기능이라 세부 동작은 버전마다 바뀔 수 있으며, 활용법은 7편에서 다룹니다.</p>
+  </div>
+</section>
+
+<!-- ================= 10. GLOSSARY ================= -->
+<section class="chap" id="glossary">
+  <div class="chap-head"><div class="chap-num">10</div><h2>용어 사전</h2></div>
+  <p>2편에서 새로 등장한 용어입니다. 1편 용어는 1편 용어 사전을 참고하세요.</p>
+  <input class="gsearch" id="gsearch" type="search" placeholder="예: extension, 롤오버, ingester" aria-label="용어 검색">
+  <div class="glist" id="glist"></div>
+  <div class="gempty" id="gempty">검색어와 맞는 용어가 없습니다. 다른 표현(영문 등)으로 찾아보세요.</div>
+</section>
+
+<!-- ================= 11. QUIZ ================= -->
+<section class="chap" id="quiz">
+  <div class="chap-head"><div class="chap-num">11</div><h2>확인 퀴즈</h2></div>
+  <p>답을 고르면 바로 해설이 나옵니다.</p>
+  <div id="quizBox"></div>
+  <div class="score" id="score"></div>
+  <div class="btn-row"><button class="btn" id="quizReset">퀴즈 다시 풀기</button></div>
+</section>
+
+<!-- ================= 12. WRAP ================= -->
+<section class="chap" id="wrap">
+  <div class="chap-head"><div class="chap-num">12</div><h2>정리와 다음 편</h2></div>
+  <ol class="sum">
+    <li><div>Jaeger v2는 <b>OTel Collector의 배포판</b>입니다. 실행 파일은 <code>jaeger</code> 하나이고, YAML 설정에서 켠 부품이 collector·query·ingester·all-in-one 역할을 결정합니다.</div></li>
+    <li><div>Jaeger 고유 부품은 <code>jaeger_storage</code>(저장소 허브), <code>jaeger_storage_exporter</code>(쓰기), <code>jaeger_query</code>(조회·UI), <code>remote_sampling</code>(샘플링 전략 서버), <code>adaptive_sampling</code>(확률 자동 계산) 다섯 가지입니다.</div></li>
+    <li><div>저장소는 <b>이름표</b>로 연결됩니다. 이름이 한 곳이라도 어긋나면 기동에 실패하거나 엉뚱한 곳을 읽습니다. 부품은 <code>service</code> 절에 적어야 켜집니다.</div></li>
+    <li><div>직접 저장은 단순하지만 급증 때 유실 위험이 있고, Kafka 경유는 <b>유실 대신 지연</b>을 택합니다.</div></li>
+    <li><div>운영 저장소는 공식 권장대로 <b>OpenSearch/Elasticsearch</b>가 기본값이고, Badger는 단일 노드, ClickHouse는 아직 실험 단계입니다. UI에는 인증이 없으니 반드시 프록시 뒤에 두세요.</div></li>
+  </ol>
+  <div class="next">
+    <div class="k">다음 편</div>
+    <h3>3편 · Jaeger 구축·운영 실전</h3>
+    <p>Docker Compose로 Jaeger와 OpenSearch를 띄우고 Kubernetes(Helm·OpenTelemetry Operator)로 옮겨 갑니다. 인덱스 롤오버와 ILM으로 보존 기간을 관리하고, 원격·적응형 샘플링을 설정하고, Jaeger UI의 타임라인·트레이스 비교·Critical Path를 읽는 법과 spanmetrics 커넥터로 서비스 성능 모니터링(Monitor 탭)을 켜는 방법까지 실습합니다.</p>
+  </div>
+  <footer>
+    Tempo와 Jaeger로 배우는 분산 트레이싱 백엔드 · 2편 / 8편<br>
+    기준: Jaeger v2.21 공식 문서와 저장소 예제 설정 (2026년 9월). 설정 항목은 버전에 따라 바뀔 수 있으니 적용 전 해당 버전의 예제 설정(<code>cmd/jaeger/config-*.yaml</code>)과 <code>config.go</code>를 확인하세요.
+  </footer>
+</section>
+
+</div>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=n=>Math.round(n).toLocaleString("ko-KR");
+
+/* ---------- theme / nav ---------- */
+const root=document.documentElement;
+function applyTheme(t){root.setAttribute("data-theme",t);$$("[data-theme-label]").forEach(el=>el.textContent=t==="dark"?"라이트 테마로 보기":"다크 테마로 보기");}
+let saved=null;try{saved=localStorage.getItem("trace-lecture-theme")}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+$$("[data-theme-toggle]").forEach(b=>b.addEventListener("click",()=>{const n=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(n);try{localStorage.setItem("trace-lecture-theme",n)}catch(e){}}));
+const side=$("#side");
+$("#menuBtn").addEventListener("click",()=>side.classList.toggle("open"));
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>side.classList.remove("open")));
+document.addEventListener("click",e=>{if(side.classList.contains("open")&&!side.contains(e.target)&&e.target.id!=="menuBtn")side.classList.remove("open")});
+const tocLinks=$$("#toc a"),secs=$$("section.chap");
+function syncToc(){const y=innerHeight*.35;let id=null;secs.forEach(s=>{if(s.getBoundingClientRect().top<y)id=s.id});tocLinks.forEach(l=>l.classList.toggle("active",id!==null&&l.getAttribute("href")==="#"+id))}
+let tk=false;addEventListener("scroll",()=>{if(!tk){tk=true;requestAnimationFrame(()=>{syncToc();tk=false})}},{passive:true});syncToc();
+
+/* ---------- yaml colorizer ---------- */
+function colorYaml(txt,names){
+  return txt.split("\n").map(line=>{
+    let h=esc(line);
+    const m=h.match(/(^|\s)#/);
+    let com="";
+    if(m){const ci=m.index+m[1].length;com=`<span class="c">${h.slice(ci)}</span>`;h=h.slice(0,ci)}
+    (names||[]).forEach(n=>{h=h.replace(new RegExp("\\b"+n+"\\b","g"),`<span class="n">${n}</span>`)});
+    h=h.replace(/^(\s*-?\s*)([A-Za-z_][\w.\-]*)(:)/,'$1<span class="k">$2</span>$3');
+    return h+com;
+  }).join("\n");
+}
+
+/* ---------- hero: role switcher ---------- */
+const COMP={
+ R:[["otlp","OTLP(gRPC 4317, HTTP 4318)로 스팬을 받습니다. v2의 기본 입구입니다.",0],
+    ["jaeger","v1 Jaeger 클라이언트·agent가 보내던 형식(gRPC·Thrift)을 받습니다. 이전 기간의 호환용입니다.",0],
+    ["zipkin","Zipkin v1·v2 형식을 받습니다 (9411).",0],
+    ["kafka","Kafka 토픽에서 스팬을 읽습니다. ingester 역할의 입구입니다.",0],
+    ["nop","아무것도 받지 않는 빈 입구. 조회 전용 역할처럼 파이프라인이 필요 없을 때 형식을 채우는 용도입니다.",0]],
+ P:[["memory_limiter","메모리 사용량이 한계에 가까워지면 받기를 늦추거나 거부해 프로세스가 죽지 않게 합니다 (back-pressure).",0],
+    ["batch","스팬을 묶어서 한 번에 보냅니다. 저장소 쓰기 효율을 높입니다.",0],
+    ["tail_sampling","트레이스가 끝난 뒤 에러·지연 여부 등을 보고 남길지 정합니다. 한 트레이스의 스팬이 같은 인스턴스로 모여야 합니다.",0],
+    ["adaptive_sampling","관찰한 트래픽을 바탕으로 서비스·엔드포인트별 샘플링 확률을 자동 계산합니다.",1]],
+ E:[["jaeger_storage_exporter","jaeger_storage에 이름표로 등록된 저장소에 스팬을 씁니다.",1],
+    ["kafka","스팬을 Kafka 토픽으로 보냅니다. Kafka 경유 구성의 collector 출구입니다.",0],
+    ["otlp","다른 OTLP 수신처(다른 Collector, Tempo 등)로 전달합니다.",0],
+    ["nop","아무 데도 보내지 않는 빈 출구입니다.",0]],
+ X:[["jaeger_storage","저장소 허브. 저장소 연결 정보를 이름표로 등록해 다른 부품이 함께 쓰게 합니다.",1],
+    ["jaeger_query","조회 API(HTTP 16686, gRPC 16685)와 Jaeger UI를 제공합니다.",1],
+    ["remote_sampling","SDK가 샘플링 전략을 받아 가는 엔드포인트(HTTP 5778, gRPC 5779)를 엽니다.",1],
+    ["healthcheckv2","헬스 체크 엔드포인트(13133)를 엽니다. Kubernetes probe가 여기를 봅니다.",0]]
+};
+const ROLES=[
+ {k:"all-in-one",on:["R:otlp","R:jaeger","R:zipkin","P:batch","E:jaeger_storage_exporter","X:jaeger_storage","X:jaeger_query","X:remote_sampling","X:healthcheckv2"],
+  y:`service:\n  extensions: [jaeger_storage, jaeger_query,\n               remote_sampling, healthcheckv2]\n  pipelines:\n    traces:\n      receivers: [otlp, jaeger, zipkin]\n      processors: [batch]\n      exporters: [jaeger_storage_exporter]`,
+  d:"수집과 조회를 한 프로세스에서. 설정 파일 없이 실행하면 이 구성이 메모리 저장소로 뜹니다. 개발·PoC에 좋고, 외부 저장소를 붙이면 운영에도 쓸 수 있습니다.",
+  p:["4317","4318","14250","14268","6831/udp","6832/udp","9411","16686","16685","5778","13133"]},
+ {k:"collector",on:["R:otlp","P:memory_limiter","P:batch","E:jaeger_storage_exporter","X:jaeger_storage","X:healthcheckv2"],
+  y:`service:\n  extensions: [jaeger_storage, healthcheckv2]\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [memory_limiter, batch]\n      exporters: [jaeger_storage_exporter]`,
+  d:"받아서 저장소에 쓰기만 합니다. 조회 기능이 없으니 UI 포트가 열리지 않습니다. 쓰기 트래픽에 맞춰 대수를 늘립니다. 필요하면 tail_sampling이나 adaptive_sampling을 여기에 추가합니다.",
+  p:["4317","4318","13133","8888"]},
+ {k:"collector → Kafka",on:["R:otlp","P:memory_limiter","P:batch","E:kafka","X:healthcheckv2"],
+  y:`service:\n  extensions: [healthcheckv2]\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [memory_limiter, batch]\n      exporters: [kafka]`,
+  d:"Kafka 경유 구성의 앞단. 저장소를 전혀 모르므로 jaeger_storage도 필요 없습니다. 저장소가 느려져도 이 층은 영향을 받지 않습니다.",
+  p:["4317","4318","13133","8888"]},
+ {k:"ingester",on:["R:kafka","P:batch","E:jaeger_storage_exporter","X:jaeger_storage","X:healthcheckv2"],
+  y:`service:\n  extensions: [jaeger_storage, healthcheckv2]\n  pipelines:\n    traces:\n      receivers: [kafka]\n      processors: [batch]\n      exporters: [jaeger_storage_exporter]`,
+  d:"Kafka에서 읽어 저장소에 씁니다. collector와 구조가 같고 입구만 kafka receiver로 바뀐 형태입니다. 외부에서 들어오는 수집 포트가 없습니다.",
+  p:["13133","8888"]},
+ {k:"query",on:["R:nop","E:nop","X:jaeger_storage","X:jaeger_query","X:healthcheckv2"],
+  y:`service:\n  extensions: [jaeger_storage, jaeger_query,\n               healthcheckv2]\n  pipelines:\n    traces:\n      receivers: [nop]\n      exporters: [nop]`,
+  d:"저장소를 읽어 UI와 API를 제공합니다. Collector 문법상 파이프라인이 하나는 있어야 해서 nop 입구·출구로 형식만 채웁니다. 인증 프록시 뒤에 두는 역할입니다.",
+  p:["16686","16685","13133","8888"]}
+];
+function renderRole(i){
+  const r=ROLES[i];
+  $$("#rsRoles button").forEach((b,j)=>{b.classList.toggle("on",j===i);b.setAttribute("aria-selected",j===i)});
+  [["R","#lnR"],["P","#lnP"],["E","#lnE"],["X","#lnX"]].forEach(([g,sel])=>{
+    $(sel).innerHTML=COMP[g].map(c=>{const on=r.on.includes(g+":"+c[0]);return `<button class="comp ${on?"on":"off"} ${c[2]?"jg":""}" data-g="${g}" data-n="${c[0]}">${c[0]}</button>`}).join("");
+  });
+  $("#rsYaml").innerHTML=colorYaml(r.y);
+  $("#rsDesc").innerHTML=`<b>${esc(r.k)}</b><p style="margin:6px 0 0">${r.d}</p><div class="ports">${r.p.map(p=>`<span class="port">${p}</span>`).join("")}</div>`;
+}
+$("#rsRoles").innerHTML=ROLES.map((r,i)=>`<button role="tab" data-i="${i}">${esc(r.k)}</button>`).join("");
+$("#rsRoles").addEventListener("click",e=>{const b=e.target.closest("button");if(b)renderRole(+b.dataset.i)});
+$(".bin").addEventListener("click",e=>{const b=e.target.closest(".comp");if(!b)return;const c=COMP[b.dataset.g].find(x=>x[0]===b.dataset.n);$("#compInfo").innerHTML=`<b>${esc(c[0])}</b> ${c[2]?"(Jaeger 제작) ":""}— ${esc(c[1])}`});
+renderRole(0);
+
+/* ---------- ch1 before/after ---------- */
+const BA={
+ v1:{boxes:[[10,90,120,50,"App","jaeger-client",""],[170,90,120,50,"jaeger-agent","UDP 6831","gone"],[330,90,130,50,"jaeger-collector","전용 바이너리",""],[510,90,120,50,"저장소","ES · Cassandra",""],[670,90,130,50,"jaeger-query","UI 16686",""],[330,175,130,42,"Kafka","",""],[510,175,120,42,"jaeger-ingester","",""]],
+   t:"바이너리 5종 (agent · collector · query · ingester · all-in-one)",
+   c:"v1은 역할마다 별도 실행 파일과 전용 클라이언트 라이브러리를 썼습니다. 빨간 점선의 <b>jaeger-agent</b>는 v2에서 사라진 부품입니다. 설정은 명령행 플래그와 환경 변수로 했습니다."},
+ v2:{boxes:[[10,90,120,50,"App","OTel SDK",""],[170,90,120,50,"OTel Collector","agent (선택)",""],[330,90,130,50,"jaeger","role: collector","hl"],[510,90,120,50,"저장소","OpenSearch 등",""],[670,90,130,50,"jaeger","role: query","hl"],[330,175,130,42,"Kafka","(선택)",""],[510,175,120,42,"jaeger","role: ingester","hl"]],
+   t:"바이너리 1종 (jaeger) + YAML 설정 파일",
+   c:"파란 테두리는 모두 <b>같은 jaeger 실행 파일</b>입니다. 설정만 다릅니다. 앱은 OTel SDK로 계측하고, 노드 단위 agent가 필요하면 표준 OTel Collector를 씁니다. collector와 query를 합치면 all-in-one이 됩니다."}
+};
+function renderBA(k){
+  const d=BA[k];
+  $("#baV1").classList.toggle("on",k==="v1");$("#baV2").classList.toggle("on",k==="v2");
+  $("#baG").innerHTML=`<text x="10" y="40" style="font-weight:600">${d.t}</text>`+d.boxes.map(b=>`<rect class="box ${b[6]}" x="${b[0]}" y="${b[1]}" width="${b[2]}" height="${b[3]}" rx="10"/><text x="${b[0]+b[2]/2}" y="${b[1]+(b[5]?b[3]/2-2:b[3]/2+5)}" text-anchor="middle">${b[4]}</text>${b[5]?`<text class="sm" x="${b[0]+b[2]/2}" y="${b[1]+b[3]/2+14}" text-anchor="middle">${b[5]}</text>`:""}`).join("");
+  $("#baCap").innerHTML=d.c;
+}
+$("#baV1").addEventListener("click",()=>renderBA("v1"));$("#baV2").addEventListener("click",()=>renderBA("v2"));
+renderBA("v2");
+
+/* ---------- ch3 hub ---------- */
+const HUB=[
+ {k:"jaeger_storage",kind:"extension",t:"저장소 허브",
+  b:`<p>모든 저장소 연결 정보를 한곳에 모으고 <b>이름표</b>를 붙입니다. Collector의 일반적인 방식은 목적지마다 exporter를 따로 두는 것이지만, Jaeger는 쓰기뿐 아니라 <b>읽기</b>도 해야 하므로 쓰는 부품과 읽는 부품이 같은 저장소 설정을 공유할 장치가 필요했습니다.</p><ul class="plain"><li><code>backends</code>: 트레이스 저장소 목록</li><li><code>metric_backends</code>: 서비스 성능 모니터링(SPM)용 메트릭 저장소 목록 (Prometheus 호환 서버, OpenSearch/ES 등)</li><li>이름은 자유롭게 짓되, 다른 부품에서 그대로 참조해야 합니다.</li></ul>`,
+  y:`jaeger_storage:\n  backends:\n    main_store:\n      opensearch:\n        server_urls: ["http://opensearch:9200"]\n  metric_backends:\n    prom:\n      prometheus:\n        endpoint: http://prometheus:9090`},
+ {k:"jaeger_storage_exporter",kind:"exporter",t:"저장소에 쓰기",
+  b:`<p>파이프라인의 출구입니다. 저장소별 exporter를 따로 만들지 않고, <code>jaeger_storage</code>에 등록된 이름 하나만 받아 그곳에 씁니다. 저장소를 OpenSearch에서 Cassandra로 바꿔도 이 부분은 이름만 그대로면 고칠 필요가 없습니다.</p><p>내부 큐(<code>queue</code>)가 있어 저장소가 잠깐 느려지는 순간을 버팁니다. 큐가 가득 차면 스팬이 버려지므로 5장 시뮬레이터에서 본 상황이 여기서 일어납니다.</p>`,
+  y:`jaeger_storage_exporter:\n  trace_storage: main_store\n  queue:\n    num_consumers: 10\n    queue_size: 100`},
+ {k:"jaeger_query",kind:"extension",t:"조회 API와 UI",
+  b:`<p>HTTP(16686)로 Jaeger UI와 조회 API를, gRPC(16685)로 조회 API를 제공합니다. 파이프라인 밖에서 독립적으로 돌아가며 <code>storage</code> 절에서 읽을 저장소를 이름표로 지정합니다.</p><ul class="plain"><li><code>traces</code>: 주 저장소, <code>traces_archive</code>: 보관용 저장소, <code>metrics</code>: SPM 메트릭 저장소</li><li><code>base_path</code>: <code>/jaeger</code>처럼 경로 접두사 아래에서 서비스할 때</li><li><b>시계 오차 보정</b>: 서버마다 시계가 조금씩 달라 자식 스팬이 부모보다 먼저 시작한 것처럼 보이는 문제를 인과 관계로 보정합니다. <code>max_clock_skew_adjust</code>로 보정 한도를 정하고 <code>0s</code>면 끕니다.</li></ul>`,
+  y:`jaeger_query:\n  storage:\n    traces: main_store\n    traces_archive: archive_store\n  base_path: /\n  max_clock_skew_adjust: 30s\n  http:\n    endpoint: 0.0.0.0:16686\n  grpc:\n    endpoint: 0.0.0.0:16685`},
+ {k:"remote_sampling",kind:"extension",t:"샘플링 전략 서버",
+  b:`<p>앱의 SDK가 "나는 몇 %를 기록해야 하지?"를 물어보는 엔드포인트를 엽니다(HTTP 5778, gRPC 5779). 앱을 재배포하지 않고 중앙에서 샘플링 비율을 바꿀 수 있다는 것이 핵심입니다.</p><ul class="plain"><li><code>file</code>: 사람이 정한 전략 파일을 제공 (서비스·오퍼레이션별 비율)</li><li><code>adaptive</code>: 아래 adaptive_sampling이 계산한 확률을 제공. 계산 결과는 <code>sampling_store</code>로 지정한 저장소에 두어 여러 인스턴스가 공유합니다.</li></ul><p>OTel Collector도 이 원격 샘플링 프로토콜을 지원해서, 앞단 Collector가 요청을 Jaeger로 대신 전달할 수 있습니다.</p>`,
+  y:`remote_sampling:\n  file:\n    path: /etc/jaeger/sampling.json\n  # 또는 adaptive:\n  #   sampling_store: main_store\n  #   initial_sampling_probability: 0.1\n  http:\n    endpoint: 0.0.0.0:5778\n  grpc:\n    endpoint: 0.0.0.0:5779`},
+ {k:"adaptive_sampling",kind:"processor",t:"샘플링 확률 자동 계산",
+  b:`<p>Jaeger가 받은 모든 트레이스를 관찰하면서, 서비스·엔드포인트별로 <b>초당 목표 트레이스 수</b>를 맞추도록 확률을 계속 조정합니다. 트래픽이 많은 엔드포인트는 낮은 비율로, 드문 엔드포인트는 높은 비율로 기록되어 "드문 요청은 하나도 안 남는" 문제를 줄입니다.</p><p>파이프라인 안의 processor이면서 결과는 remote_sampling이 제공하므로 두 부품을 함께 켭니다. 설정과 효과는 3편에서 실습합니다.</p>`,
+  y:`processors:\n  adaptive_sampling:\n\nextensions:\n  remote_sampling:\n    adaptive:\n      sampling_store: main_store\n      target_samples_per_second: 1.0`}
+];
+$("#hubList").innerHTML=HUB.map((h,i)=>`<button data-i="${i}"><span class="k">${h.k}</span><span class="t">${h.kind} · ${h.t}</span></button>`).join("");
+function showHub(i){const h=HUB[i];$$("#hubList button").forEach((b,j)=>b.classList.toggle("on",j===i));
+  $("#hubDetail").innerHTML=`<h4>${h.k}<span class="kind">${h.kind}</span></h4>${h.b}<pre>${colorYaml(h.y,["main_store","archive_store"])}</pre>`;}
+$("#hubList").addEventListener("click",e=>{const b=e.target.closest("button");if(b)showHub(+b.dataset.i)});
+showHub(0);
+
+/* ---------- ch4 annotated yaml ---------- */
+const AY=[
+ {id:"svc",y:`service:\n  extensions: [jaeger_storage, jaeger_query,\n               healthcheckv2]`,
+  h:"service.extensions: 켤 확장 기능",e:"아래 <code>extensions:</code> 절에 정의한 것 중 <b>실제로 켤 것</b>입니다. 여기에 없으면 정의가 있어도 동작하지 않습니다. 저장소를 읽는 jaeger_query가 켜져 있으니 이 프로세스는 조회 역할도 합니다."},
+ {id:"pipe",y:`  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [memory_limiter, batch]\n      exporters: [jaeger_storage_exporter]`,
+  h:"service.pipelines: 데이터가 흐르는 길",e:"트레이스 파이프라인 하나를 정의합니다. OTLP로 받아서 → 메모리 보호 → 묶기 → 저장소 쓰기. processor는 <b>적힌 순서대로</b> 실행되므로 memory_limiter를 맨 앞에 두는 것이 권장 패턴입니다. 수집 역할을 담당하는 부분입니다."},
+ {id:"tele",y:`  telemetry:\n    metrics:\n      readers:\n        - pull:\n            exporter:\n              prometheus:\n                host: 0.0.0.0\n                port: 8888`,
+  h:"service.telemetry: Jaeger 자신의 메트릭",e:"Jaeger 프로세스 자체의 메트릭(받은 스팬 수, 거부·유실된 스팬 수, 큐 길이 등)을 8888 포트에서 Prometheus 형식으로 노출합니다. 운영자가 반드시 수집해야 할 메트릭이고, 3편에서 어떤 지표를 경보로 걸지 다룹니다."},
+ {id:"stor",y:`\nextensions:\n  jaeger_storage:\n    backends:\n      main_store:\n        opensearch:\n          server_urls: ["\${env:OS_URL}"]\n          indices:\n            index_prefix: "jaeger-main"\n      archive_store:\n        opensearch:\n          server_urls: ["\${env:OS_URL}"]\n          indices:\n            index_prefix: "jaeger-archive"`,
+  h:"jaeger_storage: 저장소 두 개에 이름표 붙이기",e:"<code>main_store</code>(주 저장소)와 <code>archive_store</code>(보관용)를 등록합니다. 같은 OpenSearch 클러스터를 쓰되 <code>index_prefix</code>로 인덱스를 나눴습니다. 주소는 <code>${env:OS_URL}</code>로 환경 변수에서 가져오므로 고객사마다 설정 파일을 복제할 필요가 없습니다. <b>이름표 연결 추적</b> 버튼을 눌러 이 이름이 어디서 쓰이는지 확인해 보세요."},
+ {id:"qry",y:`  jaeger_query:\n    storage:\n      traces: main_store\n      traces_archive: archive_store\n    http:\n      endpoint: 0.0.0.0:16686\n    grpc:\n      endpoint: 0.0.0.0:16685`,
+  h:"jaeger_query: 어디를 읽어 보여 줄지",e:"UI와 조회 API가 읽을 저장소를 이름표로 지정합니다. <code>traces_archive</code>를 지정해야 UI에 보관 버튼이 동작합니다. <code>0.0.0.0</code>은 모든 네트워크 인터페이스에서 받겠다는 뜻이며, 컨테이너 안에서는 이렇게 해야 밖에서 접속됩니다. 대신 인증이 없으므로 네트워크 정책이나 프록시로 막아야 합니다."},
+ {id:"hc",y:`  healthcheckv2:\n    use_v2: true\n    http:\n      endpoint: 0.0.0.0:13133`,
+  h:"healthcheckv2: 살아 있는지 알려 주기",e:"Kubernetes의 liveness·readiness probe, 로드밸런서 헬스 체크가 호출하는 엔드포인트입니다. v1에서 관리 포트로 하던 헬스 체크가 이쪽으로 옮겨 왔으므로 마이그레이션할 때 probe 설정을 꼭 바꿔야 합니다."},
+ {id:"rcv",y:`\nreceivers:\n  otlp:\n    protocols:\n      grpc:\n        endpoint: 0.0.0.0:4317\n      http:\n        endpoint: 0.0.0.0:4318`,
+  h:"receivers.otlp: 입구 정의",e:"OTLP gRPC(4317)와 HTTP(4318)를 엽니다. v1 클라이언트가 남아 있다면 여기에 <code>jaeger</code> receiver를 추가하고 파이프라인의 receivers 목록에도 넣어 줍니다."},
+ {id:"prc",y:`\nprocessors:\n  memory_limiter:\n    check_interval: 1s\n    limit_percentage: 80\n    spike_limit_percentage: 20\n  batch: {}`,
+  h:"processors: 보호 장치와 묶음",e:"<code>memory_limiter</code>는 컨테이너 메모리 한도의 80%에 가까워지면 새 데이터를 거부해 OOM으로 죽는 것을 막습니다. 거부된 데이터는 보내는 쪽(SDK·Collector)이 재시도할 수 있습니다. <code>batch</code>는 기본값으로 묶어 보냅니다."},
+ {id:"exp",y:`\nexporters:\n  jaeger_storage_exporter:\n    trace_storage: main_store`,
+  h:"exporters: 출구는 이름표 하나",e:"<code>main_store</code>라는 이름만 알면 됩니다. 저장소 종류나 주소는 jaeger_storage가 알고 있습니다. 여기 이름을 오타 내면 Jaeger는 시작 단계에서 오류를 내고 멈춥니다. 조용히 다른 곳에 쓰지 않는다는 점은 다행입니다."}
+];
+const NAMES=["main_store","archive_store"];
+$("#ayCode").innerHTML=AY.map(b=>`<span class="blk" data-id="${b.id}" tabindex="0">${colorYaml(b.y,NAMES)}</span>`).join("");
+function showAy(id){const b=AY.find(x=>x.id===id);$$("#ayCode .blk").forEach(x=>x.classList.toggle("on",x.dataset.id===id));$("#ayExp").innerHTML=`<h4>${b.h}</h4><p>${b.e}</p>`}
+$("#ayCode").addEventListener("click",e=>{const b=e.target.closest(".blk");if(b)showAy(b.dataset.id)});
+$("#ayCode").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList.contains("blk"))showAy(e.target.dataset.id)});
+showAy("svc");
+let glow=false;
+$("#glowBtn").addEventListener("click",()=>{glow=!glow;$$("#ayCode .n").forEach(n=>n.classList.toggle("glow",glow));$("#glowBtn").classList.toggle("on",glow);
+  if(glow){$("#ayExp").innerHTML=`<h4>이름표 연결 추적</h4><p><code>main_store</code>는 세 곳에 나옵니다: 정의(jaeger_storage.backends), 읽기(jaeger_query.storage.traces), 쓰기(jaeger_storage_exporter.trace_storage). <code>archive_store</code>는 정의와 보관용 읽기 두 곳입니다.</p><p>저장소를 바꿀 때는 <b>정의 한 곳만</b> 고치면 되고, 이름을 바꿀 때는 <b>모든 곳</b>을 함께 고쳐야 합니다.</p>`;$$("#ayCode .blk").forEach(x=>x.classList.remove("on"))}
+  else showAy("stor");});
+$("#yamlCopy").addEventListener("click",()=>{const t=AY.map(b=>b.y).join("\n");
+  const done=()=>{$("#yamlCopy").textContent="복사됨";setTimeout(()=>$("#yamlCopy").textContent="설정 복사",1500)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done).catch(()=>fallback(t,done))}else fallback(t,done)});
+function fallback(t,cb){const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");cb()}catch(e){}ta.remove()}
+
+/* ---------- ch5 simulator ---------- */
+const CAP=30000,T=120,S0=20;
+function simulate(base,mul,dur,Q){
+  const inn=[],dS=[],dDrop=[],kS=[],kLag=[];let q=0,drop=0,lag=0,maxLag=0,catchT=null,firstDrop=null;
+  for(let t=0;t<T;t++){
+    const x=base*((t>=S0&&t<S0+dur)?mul:1);inn.push(x);
+    let avail=x+q,wr=Math.min(CAP,avail);q=avail-wr;let dr=0;if(q>Q){dr=q-Q;q=Q;if(firstDrop===null)firstDrop=t}drop+=dr;dS.push(wr);dDrop.push(dr);
+    let la=x+lag,kw=Math.min(CAP,la);lag=la-kw;kS.push(kw);kLag.push(lag);if(lag>maxLag)maxLag=lag;
+    if(t>=S0+dur&&catchT===null&&lag===0&&maxLag>0)catchT=t-(S0+dur);
+  }
+  return {inn,dS,dDrop,kS,kLag,drop,maxLag,catchT,firstDrop};
+}
+function chart(svg,inn,sto,extra,kind,maxLagScale){
+  const W=320,H=150,L=30,R=6,Tp=8,B=18,pw=W-L-R,ph=H-Tp-B,ymax=Math.max(CAP*1.1,...inn)*1.05;
+  const X=t=>L+t/(T-1)*pw,Y=v=>Tp+ph-(v/ymax)*ph;
+  const path=a=>a.map((v,t)=>`${t?"L":"M"}${X(t).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+  let h=`<line class="ax" x1="${L}" y1="${Tp+ph}" x2="${W-R}" y2="${Tp+ph}"/><line class="ax" x1="${L}" y1="${Tp}" x2="${L}" y2="${Tp+ph}"/>`;
+  h+=`<line class="cap" x1="${L}" x2="${W-R}" y1="${Y(CAP)}" y2="${Y(CAP)}"/>`;
+  if(kind==="drop"){extra.forEach((v,t)=>{if(v>0){const hh=Math.max(1.5,(v/ymax)*ph);h+=`<rect class="drop" x="${X(t)-1}" y="${Tp+ph-hh}" width="2.4" height="${hh}"/>`}})}
+  else{const lm=maxLagScale||1;const LY=v=>Tp+ph-(v/lm)*ph*.9;h+=`<path class="lag" d="${extra.map((v,t)=>`${t?"L":"M"}${X(t).toFixed(1)} ${LY(v).toFixed(1)}`).join(" ")} L${X(T-1)} ${Tp+ph} L${L} ${Tp+ph}Z"/>`}
+  h+=`<path class="lin" d="${path(inn)}"/><path class="sto" d="${path(sto)}"/>`;
+  h+=`<text x="${L-4}" y="${Y(CAP)+3}" text-anchor="end">30k</text><text x="${L}" y="${H-4}">0s</text><text x="${W-R}" y="${H-4}" text-anchor="end">${T}s</text>`;
+  svg.innerHTML=h;
+}
+function runSim(){
+  const base=+$("#sBase").value,mul=+$("#sMul").value,dur=+$("#sDur").value,Q=+$("#sQ").value;
+  $("#vBase").textContent=fmt(base);$("#vMul").textContent=mul+"배 ("+fmt(base*mul)+"/초)";$("#vDur").textContent=dur;$("#vQ").textContent=fmt(Q);
+  const r=simulate(base,mul,dur,Q);
+  chart($("#cDirect"),r.inn,r.dS,r.dDrop,"drop");
+  chart($("#cKafka"),r.inn,r.kS,r.kLag,"lag",r.maxLag);
+  $("#stDirect").innerHTML=r.drop>0?`유실: <b style="color:var(--err)">${fmt(r.drop)}</b> 스팬 <span class="muted">(급증 시작 ${r.firstDrop-S0}초 뒤부터 큐 초과)</span>`:`유실 없음 <span class="muted">(큐가 급증을 흡수)</span>`;
+  $("#stKafka").innerHTML=r.maxLag>0?`유실 0 · 최대 대기 <b style="color:var(--warn)">${fmt(r.maxLag)}</b> 스팬 · ${r.catchT!==null?`급증 종료 후 <b>${r.catchT}초</b>에 따라잡음`:`<b>${T}초 안에 못 따라잡음</b>`}`:`유실 0 · 대기 없음 <span class="muted">(저장소가 모두 소화)</span>`;
+}
+["#sBase","#sMul","#sDur","#sQ"].forEach(s=>$(s).addEventListener("input",runSim));runSim();
+
+/* ---------- ch6 wizard ---------- */
+const WQ=[
+ {k:"env",q:"어떤 환경인가요?",o:[["dev","개발·데모·PoC"],["prod","운영"]]},
+ {k:"size",q:"트레이스 양과 확장 필요성은?",o:[["s","작음 (서버 1대로 충분)"],["l","중간 이상 (여러 대로 늘릴 수 있어야 함)"]]},
+ {k:"have",q:"고객사가 이미 운영 중인 저장소가 있나요?",o:[["os","OpenSearch / Elasticsearch"],["cas","Cassandra"],["ch","ClickHouse"],["none","없음"]]},
+ {k:"search",q:"조회 패턴은?",o:[["tag","태그·조건 검색이 중요"],["id","주로 Trace ID로 조회"]]}
+];
+const W={};
+function wizResult(){
+  if(!W.env)return `<span class="muted">위 질문에 답하면 추천이 나옵니다.</span>`;
+  let p,why,cav="";
+  if(W.env==="dev"){p="memory 또는 Badger";why="데모·설정 시험이면 memory가 가장 간단합니다. 재시작 후에도 데이터를 남겨야 하면 Badger를 쓰세요.";cav="memory는 재시작하면 데이터가 모두 사라집니다.";}
+  else if(!W.size){return `<span class="muted">규모 질문에도 답해 주세요.</span>`}
+  else if(W.size==="s"&&(!W.have||W.have==="none")){p="Badger (all-in-one)";why="서버 한 대로 충분하고 별도 DB 운영 인력이 없다면, 외부 저장소 없이 Jaeger에 내장된 Badger가 운영 부담이 가장 적습니다.";cav="수평 확장이 불가능하므로 성장이 예상되면 처음부터 OpenSearch를 고려하세요. 디스크 백업 정책도 따로 필요합니다.";}
+  else if(W.have==="cas"&&W.search==="id"){p="Cassandra";why="이미 운영 중인 Cassandra가 있고 주로 ID로 조회한다면 재사용이 합리적입니다. TTL로 보존 기간 관리가 간단합니다.";cav="태그 검색 기능에 제약이 있고 결과가 일관되지 않을 수 있습니다. 검색 요구가 늘면 OpenSearch 전환을 검토하세요.";}
+  else if(W.have==="ch"){p="ClickHouse (실험적)";why="ClickHouse 운영 역량이 있다면 열 지향 저장 구조로 대량 데이터를 효율적으로 다룰 수 있습니다.";cav="현재 실험 단계로 storage.clickhouse 기능 게이트가 필요하고 스키마가 바뀔 수 있습니다. 검증 환경에서 먼저 운영해 보고, 운영 고객사에는 OpenSearch를 기본으로 두는 편이 안전합니다.";}
+  else if(W.have==="cas"&&W.search!=="id"){p="OpenSearch";why="Cassandra가 있더라도 태그 검색이 중요하다면 공식 권장인 OpenSearch가 맞습니다. Cassandra 위의 검색은 Jaeger가 흉내 내는 방식이라 한계가 있습니다.";cav="OpenSearch 클러스터를 새로 운영해야 하므로 인덱스 수명 관리(ILM) 설계를 함께 준비하세요.";}
+  else{p=W.have==="os"?"기존 OpenSearch / Elasticsearch":"OpenSearch";why="공식 문서가 대규모 운영에 권장하는 저장소입니다. 태그 검색이 강력하고 Dashboards·Kibana로 직접 분석할 수도 있습니다.";cav="보존 기간은 인덱스 롤오버와 ILM으로 관리해야 합니다(3편 실습). Elasticsearch는 7.x·8.x를 지원합니다. 기존 클러스터를 공유한다면 다른 서비스 부하와의 격리도 검토하세요.";}
+  return `<div class="muted" style="font-size:13px">추천 저장소</div><div class="pick">${p}</div><p class="why">${why}</p><p class="caveat">주의: ${cav}</p>`;
+}
+function renderWiz(){
+  $("#wiz").innerHTML=WQ.map(q=>`<div class="wq"><div class="ql">${q.q}</div><div class="opts">${q.o.map(o=>`<button data-k="${q.k}" data-v="${o[0]}" class="${W[q.k]===o[0]?"on":""}">${o[1]}</button>`).join("")}</div></div>`).join("")+`<div class="wres">${wizResult()}</div>`;
+}
+$("#wiz").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;W[b.dataset.k]=b.dataset.v;renderWiz()});
+renderWiz();
+
+/* ---------- ch7 ports ---------- */
+const PORTS=[
+ ["4317","TCP (gRPC)","OTLP 스팬 수신","otlp receiver","ingest"],
+ ["4318","TCP (HTTP)","OTLP 스팬 수신","otlp receiver","ingest"],
+ ["14250","TCP (gRPC)","Jaeger 형식 수신 (v1 호환)","jaeger receiver","ingest"],
+ ["14268","TCP (HTTP)","Jaeger Thrift 수신 (v1 호환)","jaeger receiver","ingest"],
+ ["6831","UDP","Thrift compact (v1 agent·클라이언트 호환)","jaeger receiver","ingest"],
+ ["6832","UDP","Thrift binary (v1 호환)","jaeger receiver","ingest"],
+ ["9411","TCP (HTTP)","Zipkin 형식 수신","zipkin receiver","ingest"],
+ ["16686","TCP (HTTP)","Jaeger UI와 HTTP 조회 API","jaeger_query","query"],
+ ["16685","TCP (gRPC)","gRPC 조회 API","jaeger_query","query"],
+ ["5778","TCP (HTTP)","원격 샘플링 전략 제공","remote_sampling","sampling"],
+ ["5779","TCP (gRPC)","원격 샘플링 전략 제공","remote_sampling","sampling"],
+ ["13133","TCP (HTTP)","헬스 체크 (probe용)","healthcheckv2","admin"],
+ ["8888","TCP (HTTP)","Jaeger 자체 메트릭 (Prometheus 형식)","service.telemetry","admin"],
+ ["27777","TCP (HTTP)","Go expvar 프로세스 지표","expvar","admin"]
+];
+const PF=[["all","전체"],["ingest","수집 (collector)"],["query","조회 (query)"],["sampling","샘플링"],["admin","관리 (모든 역할)"]];
+$("#pf").innerHTML=PF.map((f,i)=>`<button data-f="${f[0]}" class="${i?"":"on"}">${f[1]}</button>`).join("");
+$("#portTbl tbody").innerHTML=PORTS.map(p=>`<tr data-g="${p[4]}"><td class="mono">${p[0]}</td><td>${p[1]}</td><td>${p[2]}</td><td><code>${p[3]}</code></td></tr>`).join("");
+$("#pf").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;$$("#pf button").forEach(x=>x.classList.toggle("on",x===b));const f=b.dataset.f;$$("#portTbl tbody tr").forEach(r=>r.classList.toggle("hide",f!=="all"&&r.dataset.g!==f))});
+
+/* ---------- ch8 checklist ---------- */
+const CK=[
+ ["현재 구성 목록 만들기","실행 중인 v1 컴포넌트와 버전, 저장소 종류와 인덱스 접두사, 샘플링 설정, SPM 사용 여부를 표로 정리합니다."],
+ ["옛 클라이언트를 쓰는 앱 찾기","UDP 6831·6832, 14268 포트로 들어오는 트래픽을 확인해 Jaeger 클라이언트 라이브러리를 쓰는 앱을 찾고, OTel SDK 전환 계획을 고객사 개발팀과 세웁니다. 전환 전까지는 v2의 jaeger receiver로 받아 줍니다."],
+ ["jaeger-agent 대체","DaemonSet이나 사이드카로 배포된 jaeger-agent를 OTel Collector로 바꿉니다. 파드 정보 부착 같은 부가 기능도 이때 함께 설계합니다."],
+ ["설정 변환","플래그와 환경 변수를 YAML로 옮깁니다. 아래 대응표를 참고하고, 공식 예제 설정 파일을 출발점으로 쓰면 실수가 줄어듭니다."],
+ ["검증 환경에서 기존 저장소 연결","v2를 기존 저장소에 연결하고 과거 트레이스가 UI에서 조회되는지, 새 스팬이 같은 인덱스 체계로 쌓이는지 확인합니다."],
+ ["병행 운영","수집 트래픽 일부를 v2 collector로 돌리고, 8888 메트릭으로 거부·유실 스팬이 없는지 지켜봅니다."],
+ ["모니터링·probe 갱신","헬스 체크(13133)와 메트릭(8888) 위치가 바뀌었으므로 Kubernetes probe, 모니터링 수집 대상, 경보 규칙을 고칩니다."],
+ ["전환과 정리","v1 컴포넌트를 제거하고, 런북·구성도·고객사 보고 문서를 갱신합니다."]
+];
+$("#chk").innerHTML=CK.map((c,i)=>`<label><input type="checkbox" data-i="${i}"><span><span class="st">${i+1}. ${c[0]}</span><span class="sd">${c[1]}</span></span></label>`).join("");
+function updChk(){const all=$$("#chk input"),n=all.filter(x=>x.checked).length;all.forEach(x=>x.closest("label").classList.toggle("done",x.checked));$("#progBar").style.width=(n/all.length*100)+"%";$("#progTxt").textContent=`${n} / ${all.length} 단계 완료`+(n===all.length?" · 마이그레이션 준비 완료":"")}
+$("#chk").addEventListener("change",updChk);updChk();
+
+/* ---------- glossary ---------- */
+const G=[
+ ["역할","Role","같은 jaeger 바이너리가 설정에 따라 맡는 기능: collector, query, ingester, all-in-one."],
+ ["파이프라인","Pipeline","receiver → processor → exporter로 이어지는 데이터 흐름. service.pipelines에서 정의합니다."],
+ ["리시버","Receiver","데이터를 받는 입구 부품. otlp, jaeger, zipkin, kafka, nop 등."],
+ ["프로세서","Processor","받은 데이터를 가공하는 부품. 적힌 순서대로 실행됩니다."],
+ ["익스포터","Exporter","데이터를 내보내는 출구 부품."],
+ ["커넥터","Connector","한 파이프라인의 출구를 다른 파이프라인의 입구로 잇는 부품. spanmetrics가 대표적입니다."],
+ ["익스텐션","Extension","데이터 흐름과 별개로 동작하는 부가 기능. Jaeger의 조회·저장소 허브·샘플링 서버가 여기에 속합니다."],
+ ["jaeger_storage","Jaeger storage extension","저장소 연결 정보를 이름표로 등록하는 허브. 쓰기·읽기 부품이 공유합니다."],
+ ["jaeger_storage_exporter","Jaeger storage exporter","이름표로 지정한 저장소에 스팬을 쓰는 출구."],
+ ["jaeger_query","Jaeger query extension","Jaeger UI와 조회 API(16686/16685)를 제공하는 확장."],
+ ["원격 샘플링","Remote sampling","앱 SDK가 중앙 서버에서 샘플링 전략을 받아 가는 방식. 재배포 없이 비율을 바꿀 수 있습니다."],
+ ["적응형 샘플링","Adaptive sampling","관찰한 트래픽으로 엔드포인트별 샘플링 확률을 자동 조정하는 방식."],
+ ["보관용 저장소","Archive storage","사용자가 UI에서 직접 보관한 트레이스만 오래 저장하는 별도 저장소."],
+ ["기능 게이트","Feature gate","실험적 기능을 명시적으로 켜는 스위치. ClickHouse 저장소는 storage.clickhouse 게이트가 필요합니다."],
+ ["직접 저장","Direct to storage","collector가 저장소에 바로 쓰는 구성. 단순하지만 급증 시 유실 위험이 있습니다."],
+ ["인제스터","Ingester","Kafka에서 스팬을 읽어 저장소에 쓰는 역할."],
+ ["컨슈머 랙","Consumer lag","Kafka에 쌓였지만 아직 읽히지 않은 데이터량. 트레이스가 UI에 늦게 보이는 원인입니다."],
+ ["역압","Back-pressure","처리 능력을 넘을 때 보내는 쪽에 속도를 늦추라고 알리는 것. memory_limiter가 이 역할을 합니다."],
+ ["쓰기 증폭","Write amplification","데이터 하나를 저장하는데 실제 쓰기가 여러 번 일어나는 현상. Cassandra 저장소의 색인 쓰기가 예입니다."],
+ ["인덱스 롤오버","Index rollover","조건(기간·크기)에 따라 새 인덱스로 넘어가는 방식. 보존 기간 관리의 기본 도구입니다."],
+ ["ILM","Index Lifecycle Management","Elasticsearch/OpenSearch가 인덱스 생성·롤오버·삭제를 정책으로 자동 관리하는 기능."],
+ ["TTL","Time To Live","데이터가 일정 시간 뒤 자동 삭제되도록 하는 설정. Cassandra·Badger가 지원합니다."],
+ ["시계 오차","Clock skew","서버마다 시계가 달라 스팬 시간이 어긋나는 현상. jaeger_query가 인과 관계로 보정합니다."],
+ ["nop","No-op","아무 일도 하지 않는 부품. 조회 전용 역할에서 파이프라인 형식을 채우는 데 씁니다."],
+ ["커스텀 배포판","Custom distribution","OpenTelemetry Collector Builder(ocb)로 필요한 부품만 넣어 직접 빌드한 Jaeger."],
+ ["healthcheckv2","Health Check v2","헬스 체크 엔드포인트(13133)를 제공하는 확장. Kubernetes probe의 대상입니다."]
+];
+function renderG(f){const k=(f||"").trim().toLowerCase();const it=G.filter(g=>!k||g.join(" ").toLowerCase().includes(k));
+  $("#glist").innerHTML=it.map(g=>`<div class="gitem"><b>${esc(g[0])}</b><span class="en">${esc(g[1])}</span><p>${esc(g[2])}</p></div>`).join("");$("#gempty").style.display=it.length?"none":"block"}
+renderG("");$("#gsearch").addEventListener("input",e=>renderG(e.target.value));
+
+/* ---------- quiz ---------- */
+const QZ=[
+ {q:"Jaeger v2에서 collector와 query 역할을 결정하는 것은?",o:["서로 다른 실행 파일을 설치하는 것","YAML 설정 파일에서 켠 부품 구성","환경 변수 SPAN_STORAGE_TYPE","Kubernetes 레이블"],a:1,x:"v2는 jaeger 바이너리 하나입니다. 설정에서 어떤 receiver·exporter·extension을 켜느냐가 역할을 정합니다."},
+ {q:"Jaeger가 쓰기와 읽기에서 같은 저장소 설정을 공유하기 위해 만든 부품은?",o:["jaeger_query","batch processor","jaeger_storage extension","healthcheckv2"],a:2,x:"jaeger_storage가 저장소에 이름표를 붙여 등록하고, exporter와 query가 그 이름으로 참조합니다."},
+ {q:"processors에 memory_limiter를 정의했는데 효과가 없습니다. 가장 먼저 확인할 것은?",o:["OpenSearch 버전","service.pipelines.traces.processors 목록에 이름을 넣었는지","UI 포트 16686","Kafka 토픽 이름"],a:1,x:"정의만 하고 service 절에 적지 않은 부품은 동작하지 않습니다. 가장 흔한 설정 실수입니다."},
+ {q:"조회 전용(query) 역할 설정에 nop receiver와 nop exporter가 들어가는 이유는?",o:["성능을 높이기 위해","Collector 문법상 파이프라인이 하나는 있어야 해서 형식을 채우려고","보안 인증을 위해","Kafka와 연결하기 위해"],a:1,x:"조회 기능은 extension이라 파이프라인이 필요 없지만, 설정 문법상 파이프라인을 비워 둘 수 없어서 아무 일도 안 하는 부품으로 채웁니다."},
+ {q:"collector 앞에 Kafka를 두는 가장 큰 이유는?",o:["조회 속도를 높이려고","트래픽 급증 때 유실 대신 지연을 택해 데이터를 지키려고","저장소를 없애려고","UI를 켜려고"],a:1,x:"Kafka가 급증분을 버퍼링하고 ingester가 나중에 따라잡습니다. 대신 트레이스가 늦게 보일 수 있습니다."},
+ {q:"공식 문서가 대규모 운영 저장소로 Cassandra보다 권장하는 것은?",o:["Badger","memory","OpenSearch/Elasticsearch","ClickHouse"],a:2,x:"Cassandra 위의 검색은 Jaeger가 구현하는 방식이라 제약과 쓰기 증폭이 있습니다. ClickHouse는 아직 실험 단계입니다."},
+ {q:"UI에서 사람이 직접 고른 트레이스만 오래 보관하려면?",o:["주 저장소 보존 기간을 1년으로 늘린다","jaeger_query.storage.traces_archive에 보관용 저장소를 지정한다","adaptive_sampling을 켠다","nop exporter를 쓴다"],a:1,x:"보관용 저장소는 자동으로 쌓이지 않고 사용자가 보관한 트레이스만 들어가므로 긴 보존 기간을 잡아도 부담이 적습니다."},
+ {q:"v1에서 v2로 옮긴 뒤 Kubernetes probe가 실패합니다. 가장 유력한 원인은?",o:["헬스 체크 위치가 healthcheckv2 확장(기본 13133)으로 바뀐 것을 반영하지 않음","OTLP 포트가 바뀜","Trace ID 형식이 바뀜","UI가 제거됨"],a:0,x:"v1의 관리 포트에서 하던 헬스 체크가 v2에서는 healthcheckv2 확장으로 옮겨 왔습니다. probe와 모니터링 수집 대상을 함께 바꿔야 합니다."}
+];
+let ans=0,cor=0;
+function renderQuiz(){ans=0;cor=0;$("#quizBox").innerHTML=QZ.map((z,i)=>`<div class="qz" data-i="${i}"><div class="qq">Q${i+1}. ${esc(z.q)}</div><div class="opts">${z.o.map((o,j)=>`<button data-j="${j}">${esc(o)}</button>`).join("")}</div><div class="ex">${esc(z.x)}</div></div>`).join("");upd()}
+function upd(){$("#score").textContent=`${ans} / ${QZ.length} 문항 풀이 · 정답 ${cor}`+(ans===QZ.length?(cor===QZ.length?" · 완벽합니다. 3편으로 넘어가도 좋습니다.":" · 틀린 문항의 해설을 다시 읽어 보세요."):"")}
+$("#quizBox").addEventListener("click",e=>{const b=e.target.closest(".opts button");if(!b)return;const box=b.closest(".qz"),z=QZ[+box.dataset.i],j=+b.dataset.j;if(box.dataset.done)return;box.dataset.done=1;ans++;
+  $$("button",box).forEach((x,k)=>{x.disabled=true;if(k===z.a)x.classList.add("right")});if(j===z.a)cor++;else b.classList.add("wrong");$(".ex",box).classList.add("show");upd()});
+$("#quizReset").addEventListener("click",renderQuiz);renderQuiz();
+})();
+</script>
+</body>
+</html>
