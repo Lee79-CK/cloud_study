@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>8편. MVCC와 유지보수 — EDB Postgres AI Database Essentials v18</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+
+
+
+:root{
+  --bg:#0e1829; --bg2:#122036; --surface:#172641; --surface2:#1c2e4d; --line:#28406a;
+  --text:#e7edf7; --muted:#9db0cc; --faint:#6f84a6;
+  --pg:#62a2ef; --pge:#ab90f7; --epas:#2ccbb0; --ora:#f27b9e; --exam:#f5bb45; --disk:#f39a5b;
+  --ok:#4fd18b; --bad:#f07070; --code-bg:#0a1322;
+  --proc:var(--pg); --mem:var(--pge); --wal:var(--ora);
+  --radius-lg:18px; --radius:10px;
+  --font:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#f3f6fb; --bg2:#e8eef8; --surface:#ffffff; --surface2:#f1f5fb; --line:#d2ddec;
+  --text:#15233d; --muted:#4f607c; --faint:#7d8ca5;
+  --pg:#2d6cbd; --pge:#6a49d3; --epas:#0b937e; --ora:#c43d67; --exam:#a5710a; --disk:#c2621f;
+  --ok:#1b9a58; --bad:#cc3b3b; --code-bg:#eef3fa;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-behavior:smooth;scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px)}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--pg)}
+code,pre{font-family:var(--mono)}
+:focus-visible{outline:2px solid var(--exam);outline-offset:3px;border-radius:4px}
+svg{max-width:100%}
+
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.topbar-inner{display:flex;align-items:center;gap:16px;padding:10px 22px;max-width:1280px;margin:0 auto}
+.series{font-size:14px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.series b{color:var(--text);font-weight:600}
+.theme-btn{border:1px solid var(--line);background:var(--surface);color:var(--text);font:inherit;font-size:14px;padding:6px 14px;border-radius:999px;cursor:pointer}
+.theme-btn:hover{border-color:var(--pg)}
+.progress{height:3px;background:linear-gradient(90deg,var(--pg),var(--pge),var(--ora),var(--disk),var(--exam));width:0%}
+
+
+/* hero */
+.hero{max-width:1280px;margin:0 auto;padding:52px 22px 36px}
+.hero-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:40px;align-items:end;margin-bottom:26px}
+.ep-num{font-size:15px;color:var(--muted);margin:0 0 10px}
+.ep-num span{display:inline-block;background:var(--surface2);border:1px solid var(--line);border-radius:999px;padding:2px 12px;margin-right:8px;color:var(--text)}
+.hero h1{font-size:clamp(34px,5vw,56px);line-height:1.18;margin:0 0 18px;font-weight:700;letter-spacing:-.02em}
+.hero .lede{font-size:18.5px;color:var(--muted);margin:0}
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:14px}
+.hero-meta span{border:1px solid var(--line);border-radius:999px;padding:4px 12px;color:var(--muted)}
+
+/* install console (hero) */
+.console{display:grid;grid-template-columns:260px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg2)}
+.steps-nav{border-right:1px solid var(--line);padding:10px 0;display:flex;flex-direction:column}
+.steps-nav p{margin:4px 16px 8px;font-size:13.5px;color:var(--faint)}
+.steps-nav button{display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;align-items:start;font:inherit;font-size:14.5px;text-align:left;background:none;border:none;color:var(--muted);padding:9px 16px;cursor:pointer;line-height:1.45}
+.steps-nav button b{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);font-size:12.5px;color:var(--faint);font-weight:600}
+.steps-nav button:hover{background:var(--surface);color:var(--text)}
+.steps-nav button[aria-current="step"]{background:var(--surface);color:var(--text)}
+.steps-nav button[aria-current="step"] b{background:var(--epas);border-color:var(--epas);color:#062a24}
+.steps-nav button.done b{border-color:var(--epas);color:var(--epas)}
+.term-wrap{display:flex;flex-direction:column;min-width:0}
+.tty{background:#07101d;color:#d9e4f3;font-family:var(--mono);font-size:14px;line-height:1.65;padding:16px 18px;min-height:250px;overflow-x:auto;white-space:pre;border-bottom:1px solid var(--line)}
+:root[data-theme="light"] .tty{background:#0f1a2c}
+.tty .pr{color:#5fd4bd}
+.tty .out{color:#9fb0c8}
+.tty .ok{color:#6fe0a0}
+.tty .warn{color:#f5c565}
+.term-bar{display:flex;gap:6px;padding:8px 14px;background:#0a1526;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:#7f93b3;align-items:center}
+.term-bar i{width:10px;height:10px;border-radius:50%;background:#2b3d5e;display:inline-block}
+.term-bar span{margin-left:8px}
+.term-note{padding:14px 18px;background:var(--surface)}
+.term-note h3{margin:0 0 6px;font-size:17px}
+.term-note p{margin:0 0 8px;font-size:15px;color:var(--muted)}
+.term-note p:last-child{margin:0}
+.term-ctrl{display:flex;gap:8px;padding:10px 18px 14px;background:var(--surface);align-items:center}
+.term-ctrl span{margin-left:auto;font-size:13.5px;color:var(--faint)}
+
+/* layout */
+.layout{max-width:1280px;margin:0 auto;padding:0 22px 80px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding-top:8px}
+.toc p{margin:0 0 8px;color:var(--faint);font-size:13.5px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a::before{content:counter(t);color:var(--faint);min-width:1.2em;font-variant-numeric:tabular-nums}
+.toc a:hover{background:var(--surface);color:var(--text)}
+.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--pg)}
+main{min-width:0;max-width:820px}
+section{padding-top:28px;margin-bottom:36px}
+.sec-no{font-size:14px;color:var(--faint);margin:0 0 4px}
+h2.sec{font-size:clamp(26px,3.4vw,34px);line-height:1.3;margin:0 0 18px;letter-spacing:-.015em}
+h3{font-size:21px;margin:34px 0 10px;line-height:1.4}
+h4{font-size:17.5px;margin:22px 0 8px}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin-bottom:6px}
+
+.box{border-radius:var(--radius);padding:16px 18px;margin:22px 0;background:var(--surface);border:1px solid var(--line);border-left-width:5px}
+.box > strong:first-child{display:block;margin-bottom:6px;font-size:15.5px}
+.box p:last-child,.box ul:last-child{margin-bottom:0}
+.box.exam{border-left-color:var(--exam)} .box.exam > strong:first-child{color:var(--exam)}
+.box.term{border-left-color:var(--pge)} .box.term > strong:first-child{color:var(--pge)}
+.box.warn{border-left-color:var(--bad)} .box.warn > strong:first-child{color:var(--bad)}
+.box.field{border-left-color:var(--epas)} .box.field > strong:first-child{color:var(--epas)}
+.box.analogy{border-left-color:var(--disk)} .box.analogy > strong:first-child{color:var(--disk)}
+
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;overflow-x:auto;font-size:14.5px;line-height:1.6;margin:0 0 18px}
+p code,li code,td code,.box code,.arch-info code,.pd code{background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.88em}
+.cm{color:var(--faint)} .st{color:var(--epas)} .kw{color:var(--pge)}
+
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin:0 0 20px}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:15px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14.5px}
+tbody tr:last-child td{border-bottom:none}
+
+.chip{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:5px 14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--surface2);color:var(--text);border-color:var(--pg)}
+.btn{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:8px;padding:8px 16px;cursor:pointer}
+.btn:hover:not(:disabled){border-color:var(--pg)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.danger{border-color:color-mix(in srgb,var(--bad) 60%,var(--line));color:var(--bad)}
+
+
+.box{border-radius:var(--radius);padding:16px 18px;margin:22px 0;background:var(--surface);border:1px solid var(--line);border-left-width:5px}
+.box > strong:first-child{display:block;margin-bottom:6px;font-size:15.5px}
+.box p:last-child,.box ul:last-child{margin-bottom:0}
+.box.exam{border-left-color:var(--exam)} .box.exam > strong:first-child{color:var(--exam)}
+.box.term{border-left-color:var(--pge)} .box.term > strong:first-child{color:var(--pge)}
+.box.warn{border-left-color:var(--bad)} .box.warn > strong:first-child{color:var(--bad)}
+.box.field{border-left-color:var(--epas)} .box.field > strong:first-child{color:var(--epas)}
+.box.analogy{border-left-color:var(--disk)} .box.analogy > strong:first-child{color:var(--disk)}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;overflow-x:auto;font-size:14.5px;line-height:1.6;margin:0 0 18px}
+p code,li code,td code,.box code,.builder code,.sd code,.trouble code{background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.88em}
+.cm{color:var(--faint)} .st{color:var(--epas)}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin:0 0 20px}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:15px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14.5px}
+tbody tr:last-child td{border-bottom:none}
+.chip{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:5px 14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--surface2);color:var(--text);border-color:var(--epas)}
+.btn{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:8px;padding:7px 16px;cursor:pointer}
+.btn:hover:not(:disabled){border-color:var(--epas)}
+.btn:disabled{opacity:.45;cursor:default}
+.epas-only{color:var(--epas);font-weight:600}
+
+/* method cards */
+.methods{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:18px 0}
+.method{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.method h4{margin:0 0 4px;font-size:16px}
+.method p{margin:0;font-size:14.5px;color:var(--muted);line-height:1.6}
+.method.main{border-color:var(--epas);box-shadow:inset 0 3px 0 var(--epas)}
+
+/* os toggle */
+.toggle{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+
+/* builder */
+.builder{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.bgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 20px}
+.bfield > span{display:block;font-size:14.5px;font-weight:600;margin-bottom:6px}
+.bfield .opts-row{display:flex;flex-wrap:wrap;gap:6px}
+.bfield input[type=text]{width:100%;font:inherit;font-family:var(--mono);font-size:14.5px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.bout{margin-top:18px}
+.bout h4{margin:14px 0 6px;font-size:15px;color:var(--muted);font-weight:600}
+.bout pre{margin-bottom:8px;white-space:pre-wrap;word-break:break-all}
+.result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.result div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.result small{display:block;color:var(--faint);font-size:12.5px}
+.result b{font-family:var(--mono);font-size:15px}
+.notes{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.notes li{font-size:14.5px;padding:8px 12px;border-radius:8px;background:var(--surface);border-left:3px solid var(--exam);color:var(--muted)}
+.notes li.bad{border-left-color:var(--bad)}
+.notes li.good{border-left-color:var(--ok)}
+
+/* shutdown sim */
+.sd{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sd-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.sd-modes button{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;color:var(--text);cursor:pointer;line-height:1.45}
+.sd-modes button small{display:block;color:var(--faint);font-size:12.5px;font-family:var(--mono)}
+.sd-modes button span{font-weight:700;font-size:16px}
+.sd-modes button[aria-pressed="true"]{border-color:var(--c);box-shadow:inset 0 3px 0 var(--c)}
+.sd-rows{display:grid;gap:6px}
+.sd-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;background:var(--surface);border-radius:8px;padding:10px 14px;font-size:15px}
+.sd-row b{color:var(--muted);font-weight:500;font-size:14px}
+.sd-cmd{margin-top:12px}
+
+/* trouble */
+.trouble{display:grid;gap:8px;margin:16px 0}
+.trouble details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px}
+.trouble summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline}
+.trouble summary::-webkit-details-marker{display:none}
+.trouble summary code{font-size:13.5px;color:var(--bad);background:none;border:none;padding:0;white-space:normal;word-break:break-all}
+.trouble summary::after{content:"+";margin-left:auto;color:var(--muted)}
+.trouble details[open] summary::after{content:"−"}
+.trouble .tb{margin-top:10px;font-size:15px;color:var(--muted)}
+.trouble .tb p{margin:0 0 8px}
+.trouble .tb pre{margin:0}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;font-size:16px;padding:10px 14px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;gap:8px}
+.gloss details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 16px}
+.gloss summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.gloss summary::-webkit-details-marker{display:none}
+.gloss summary::after{content:"+";color:var(--muted);font-weight:400}
+.gloss details[open] summary::after{content:"−"}
+.gloss summary em{font-style:normal;font-weight:400;color:var(--muted);font-size:14px}
+.gloss details p{margin:8px 0 2px;color:var(--muted);font-size:15.5px}
+.gloss-empty{color:var(--muted);font-size:15px;display:none}
+
+/* quiz */
+.quiz{display:grid;gap:14px;margin:18px 0}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.q h4{margin:0 0 10px;font-size:16.5px;line-height:1.55}
+.q h4 small{color:var(--faint);font-weight:500;margin-right:6px}
+.opts{display:grid;gap:7px}
+.opts button{font:inherit;font-size:15px;text-align:left;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:8px;padding:9px 12px;cursor:pointer}
+.opts button:hover:not(:disabled){border-color:var(--pg)}
+.opts button:disabled{cursor:default}
+.opts button.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.opts button.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,var(--bg2))}
+.explain{margin-top:10px;font-size:15px;color:var(--muted);display:none}
+.explain.show{display:block}
+.explain b{color:var(--text)}
+.score{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);background:var(--surface2);border:1px solid var(--line);border-radius:999px;padding:8px 18px;width:max-content;max-width:100%;margin:10px 0 0 auto;font-size:15px;display:flex;gap:14px;align-items:center}
+.score button{font:inherit;font-size:14px;background:none;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:3px 12px;cursor:pointer}
+
+.next{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;margin-top:20px}
+.next h3{margin-top:0}
+footer{border-top:1px solid var(--line);padding:24px 22px 40px;text-align:center;color:var(--faint);font-size:14px}
+
+
+@media (max-width:1080px){.console{grid-template-columns:1fr}.steps-nav{border-right:none;border-bottom:1px solid var(--line);flex-direction:row;flex-wrap:wrap}.steps-nav p{width:100%}.steps-nav button{grid-template-columns:24px auto;padding:6px 10px}}
+@media (max-width:980px){
+  .hero-top{grid-template-columns:1fr;gap:12px}
+  .layout{grid-template-columns:1fr;gap:0}
+  .toc{display:none}
+  main{max-width:none}
+  .result{grid-template-columns:1fr}
+}
+@media (max-width:620px){
+  body{font-size:16px}
+  .bgrid,.sd-modes{grid-template-columns:1fr}
+  .sd-row{grid-template-columns:1fr;gap:2px}
+  .topbar-inner{padding:10px 14px}
+  .hero,.layout{padding-left:16px;padding-right:16px}
+  .steps-nav button span{display:none}
+}
+
+/* ===== 4편 추가 ===== */
+.emu{display:grid;grid-template-columns:minmax(0,1fr) 300px;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg2)}
+.emu-main{display:flex;flex-direction:column;min-width:0}
+.emu .tty{height:330px;overflow:auto;white-space:pre;min-height:0}
+.emu-input{display:flex;align-items:center;gap:8px;background:#07101d;padding:10px 18px;border-top:1px solid #1d2d48;font-family:var(--mono);font-size:14px}
+:root[data-theme="light"] .emu-input{background:#0f1a2c}
+.emu-input label{color:#5fd4bd;white-space:nowrap}
+.emu-input input{flex:1;min-width:0;background:transparent;border:none;color:#e7edf7;font:inherit;outline:none}
+.emu-input input:focus-visible{outline:none}
+.emu-input:focus-within{box-shadow:inset 0 0 0 2px var(--exam)}
+.emu-side{border-left:1px solid var(--line);padding:12px;overflow:auto;max-height:420px}
+.emu-side p{margin:0 0 8px;font-size:13.5px;color:var(--faint)}
+.emu-side .grp{margin-bottom:12px}
+.emu-side .grp b{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;font-weight:600}
+.cmdchips{display:flex;flex-wrap:wrap;gap:5px}
+.cmdchips button{font-family:var(--mono);font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:6px;padding:3px 8px;cursor:pointer}
+.cmdchips button:hover{border-color:var(--epas)}
+.emu-note{grid-column:1/-1;background:var(--surface);border-top:1px solid var(--line);padding:14px 18px;min-height:80px}
+.emu-note h3{margin:0 0 4px;font-size:16px;font-family:var(--mono)}
+.emu-note p{margin:0;font-size:15px;color:var(--muted)}
+
+.cb{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.cb-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cb-grid label{display:block;font-size:14px;font-weight:600;margin-bottom:5px}
+.cb-grid input,.cb-grid select{width:100%;font:inherit;font-family:var(--mono);font-size:14.5px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.cb-out{margin-top:14px;display:grid;gap:8px}
+.cb-item{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+.cb-item small{display:block;color:var(--faint);font-size:12.5px;margin-bottom:3px}
+.cb-item code{font-size:14px;word-break:break-all;background:none;border:none;padding:0;color:var(--text)}
+
+.sorter{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sort-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:6px}
+.sort-row code{font-size:14px;background:none;border:none;padding:0;color:var(--text);word-break:break-all}
+.sort-btns{display:flex;gap:4px;flex-wrap:wrap}
+.sort-btns button{font:inherit;font-size:12.5px;font-weight:600;border:1px solid var(--line);background:var(--bg2);color:var(--muted);border-radius:6px;padding:3px 9px;cursor:pointer}
+.sort-btns button:disabled{cursor:default}
+.sort-btns button.right{border-color:var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.sort-btns button.wrong{border-color:var(--bad);color:var(--bad)}
+.sort-exp{grid-column:1/-1;font-size:14px;color:var(--muted);display:none}
+.sort-exp.show{display:block}
+.sort-score{margin-top:10px;font-size:15px;color:var(--muted)}
+
+.iso{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.iso-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.iso-top span{font-size:14px;color:var(--muted);margin-right:4px}
+.iso-grid{display:grid;grid-template-columns:48px minmax(0,1fr) minmax(0,1fr);gap:6px;font-size:14px}
+.iso-grid .h{font-weight:600;padding:6px 10px;border-radius:6px;background:var(--surface2)}
+.iso-grid .t{font-family:var(--mono);color:var(--faint);padding:8px 4px;text-align:center}
+.iso-cell{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:13.5px;min-height:38px;white-space:pre-wrap;opacity:.28;transition:opacity .2s}
+.iso-cell.on{opacity:1}
+.iso-cell.cur{border-color:var(--exam);box-shadow:0 0 0 1px var(--exam)}
+.iso-cell .r{display:block;color:var(--epas);margin-top:2px}
+.iso-cell .x{display:block;color:var(--bad);margin-top:2px}
+.iso-cell.empty{background:transparent;border-style:dashed;opacity:.18}
+.iso-text{margin-top:12px;background:var(--surface);border-left:4px solid var(--exam);border-radius:8px;padding:12px 14px;font-size:15px;color:var(--muted);min-height:64px}
+.iso-ctrl{display:flex;gap:8px;margin-top:10px;align-items:center}
+.iso-ctrl span{margin-left:auto;font-size:13.5px;color:var(--faint)}
+
+.tabs{margin:22px 0}
+.tablist{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line)}
+.tablist button{font:inherit;font-size:15px;background:none;border:none;color:var(--muted);padding:10px 14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tablist button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--epas);font-weight:600}
+.tabpanel{background:var(--surface);border:1px solid var(--line);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:20px}
+.tabpanel[hidden]{display:none}
+.tabpanel h4{margin-top:0}
+.tabpanel pre{margin-bottom:12px}
+
+@media (max-width:1080px){.emu{grid-template-columns:1fr}.emu-side{border-left:none;border-top:1px solid var(--line);max-height:none}}
+@media (max-width:760px){.cb-grid{grid-template-columns:1fr 1fr}.iso-grid{grid-template-columns:36px minmax(0,1fr) minmax(0,1fr)}}
+@media (max-width:520px){.cb-grid{grid-template-columns:1fr}.sort-row{grid-template-columns:1fr}.emu .tty{height:260px}}
+
+.sim{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sim-text{background:var(--surface);border-radius:var(--radius);padding:14px 16px;min-height:70px;border-left:4px solid var(--exam);font-size:15px;color:var(--muted)}
+.sim-ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.sim-ctrl .count{margin-left:auto;font-size:14px;color:var(--faint);font-variant-numeric:tabular-nums}
+
+
+.field label{display:flex;justify-content:space-between;gap:10px;font-size:14.5px;margin-bottom:4px}.field label output{font-family:var(--mono);color:var(--text)}.field input[type=range]{width:100%;accent-color:var(--epas)}
+/* ===== 8편 추가 ===== */
+:root{--live:#4fd18b;--dead:#f07070;--old:#f5bb45}
+:root[data-theme="light"]{--live:#1b9a58;--dead:#cc3b3b;--old:#a5710a}
+.mv{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.mv-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}
+.mv-head h2{margin:0;font-size:16px;font-weight:600}
+.mv-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted)}
+.mv-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:middle}
+.mv-sql{font-family:var(--mono);font-size:14px;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:12px;white-space:pre-wrap;color:var(--epas);min-height:44px}
+.mv-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px}
+.page8{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.page8 h5{margin:0 0 8px;font-size:13px;color:var(--faint);font-family:var(--mono);font-weight:500}
+.slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.slot{border:2px dashed var(--line);border-radius:10px;min-height:118px;padding:8px 10px;font-family:var(--mono);font-size:12.5px;position:relative;transition:border-color .2s, background .2s}
+.slot.live{border:2px solid var(--live);background:color-mix(in srgb,var(--live) 9%,transparent)}
+.slot.dead{border:2px solid var(--dead);background:color-mix(in srgb,var(--dead) 9%,transparent)}
+.slot.oldvis{border:2px solid var(--old);background:color-mix(in srgb,var(--old) 10%,transparent)}
+.slot.pending{border:2px solid var(--pg);background:color-mix(in srgb,var(--pg) 9%,transparent)}
+.slot .ct{color:var(--faint);font-size:11.5px}
+.slot .dat{font-size:14px;color:var(--text);margin:4px 0;font-weight:600}
+.slot .x{display:grid;grid-template-columns:42px 1fr;gap:1px 4px}
+.slot .x span:nth-child(odd){color:var(--faint)}
+.slot .st{position:absolute;right:8px;top:8px;font-size:11px;font-family:var(--font);font-weight:600;border-radius:999px;padding:0 8px}
+.slot.live .st{color:var(--live);border:1px solid var(--live)}
+.slot.dead .st{color:var(--dead);border:1px solid var(--dead)}
+.slot.oldvis .st{color:var(--old);border:1px solid var(--old)}
+.slot.pending .st{color:var(--pg);border:1px solid var(--pg)}
+.slot.empty .st{color:var(--faint)}
+.viewers{display:grid;gap:8px}
+.viewer{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.viewer h5{margin:0 0 6px;font-size:13.5px}
+.viewer pre{margin:0;font-size:12.5px;min-height:62px}
+.viewer.off{opacity:.45}
+.mv-text{margin-top:12px;background:var(--surface);border-left:4px solid var(--exam);border-radius:8px;padding:12px 14px;font-size:15px;color:var(--muted);min-height:66px}
+.mv-text b{color:var(--text)}
+
+.av{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.av-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px}
+.av-out{margin-top:14px;background:var(--surface);border-radius:8px;padding:12px 14px;border-left:4px solid var(--epas)}
+.av-bar{position:relative;height:26px;background:var(--line);border-radius:6px;margin:10px 0 4px;overflow:hidden}
+.av-bar .fill{position:absolute;left:0;top:0;bottom:0;background:var(--dead);opacity:.75}
+.av-bar .th{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--exam)}
+.av-bar .th2{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--pg)}
+.av-axis{display:flex;justify-content:space-between;font-size:12px;color:var(--faint);font-family:var(--mono)}
+
+.xid{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0;display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px;align-items:center}
+.xid svg{width:100%;height:auto;display:block}
+.xid .field input{width:100%}
+.xid-out{margin-top:10px;background:var(--surface);border-radius:8px;padding:12px 14px;border-left:4px solid var(--c,var(--ok));font-size:15px}
+.xid-out b{color:var(--c)}
+
+.plan{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:18px 0}
+.plan button{display:block;width:100%;text-align:left;font:inherit;font-family:var(--mono);font-size:13.5px;background:var(--code-bg);border:none;border-bottom:1px solid var(--line);color:var(--text);padding:7px 14px;cursor:pointer;white-space:pre;overflow-x:auto}
+.plan button:last-child{border-bottom:none}
+.plan button:hover{background:var(--surface)}
+.plan button[aria-pressed="true"]{background:color-mix(in srgb,var(--exam) 14%,var(--code-bg));box-shadow:inset 4px 0 0 var(--exam)}
+.plan-desc{background:var(--surface);border-radius:8px;padding:12px 14px;border-left:4px solid var(--exam);font-size:15px;color:var(--muted);min-height:70px}
+.plan-desc b{color:var(--text)}
+
+@media (max-width:980px){.mv-grid{grid-template-columns:1fr}.xid{grid-template-columns:1fr}.xid svg{max-width:260px;margin:0 auto}}
+@media (max-width:620px){.slots{grid-template-columns:1fr 1fr}.av-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="series"><b>EDB Postgres AI Database Essentials v18</b> 시험 대비 · 8편 / 12편</div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="라이트 테마로 전환">☀ 라이트</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="hero">
+  <div class="hero-top">
+    <div>
+      <p class="ep-num"><span>트랙 B · 운영·관리</span>8편</p>
+      <h1>MVCC와 유지보수</h1>
+      <p class="lede">PostgreSQL 계열에서 UPDATE는 행을 고치지 않습니다. 새 버전을 하나 더 쓰고 옛 버전에 "여기까지"라고 표시할 뿐입니다. 이 설계 덕분에 읽기와 쓰기가 서로를 막지 않지만, 그 대가로 치워야 할 옛 버전이 쌓입니다. VACUUM이 왜 필요한지, 무엇을 조심해야 하는지가 모두 여기서 나옵니다.</p>
+    </div>
+    <div class="hero-meta">
+      <span>기준: EPAS 18 / PostgreSQL 18</span>
+      <span>읽는 시간 약 70분</span>
+      <span>추정 출제 비중: 중간 이상</span>
+    </div>
+  </div>
+
+  <div class="mv" id="mv">
+    <div class="mv-head">
+      <h2>한 페이지 안에서 벌어지는 일 — "다음"을 눌러 따라가세요</h2>
+      <div class="mv-legend">
+        <span><i style="background:var(--live)"></i>살아 있는 버전</span>
+        <span><i style="background:var(--old)"></i>죽었지만 옛 스냅샷이 아직 봄</span>
+        <span><i style="background:var(--dead)"></i>dead tuple (치워도 됨)</span>
+        <span><i style="background:var(--pg)"></i>커밋 전</span>
+      </div>
+    </div>
+    <div class="mv-sql" id="mvSql"></div>
+    <div class="mv-grid">
+      <div class="page8"><h5>accounts 테이블 · 페이지 0 (8KB)</h5><div class="slots" id="slots"></div></div>
+      <div class="viewers">
+        <div class="viewer" id="vA"><h5 style="color:var(--pg)">세션 A — 매번 새 스냅샷 (Read Committed)</h5><pre id="vAo"></pre></div>
+        <div class="viewer" id="vB"><h5 style="color:var(--ora)">세션 B — 오래 열린 트랜잭션 (Repeatable Read)</h5><pre id="vBo"></pre></div>
+      </div>
+    </div>
+    <div class="mv-text" id="mvText" aria-live="polite"></div>
+    <div class="sim-ctrl"><button class="btn" type="button" id="mvPrev">이전</button><button class="btn" type="button" id="mvNext">다음</button><button class="btn" type="button" id="mvReset">처음부터</button><span class="count" id="mvCount"></span></div>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="toc" aria-label="목차">
+    <p>이번 편에서 다루는 것</p>
+    <ol>
+      <li><a href="#s1">MVCC의 원리</a></li>
+      <li><a href="#s2">dead tuple과 bloat</a></li>
+      <li><a href="#s3">VACUUM과 VACUUM FULL</a></li>
+      <li><a href="#s4">autovacuum</a></li>
+      <li><a href="#s5">트랜잭션 ID wraparound</a></li>
+      <li><a href="#s6">ANALYZE와 통계</a></li>
+      <li><a href="#s7">EXPLAIN 기초</a></li>
+      <li><a href="#s8">인덱스 유지보수와 잠금</a></li>
+      <li><a href="#s9">정기 점검 체크리스트</a></li>
+      <li><a href="#s10">용어 사전</a></li>
+      <li><a href="#s11">확인 퀴즈</a></li>
+    </ol>
+  </nav>
+
+<main>
+
+<!-- 1 -->
+<section id="s1">
+  <p class="sec-no">1장</p>
+  <h2 class="sec">MVCC의 원리</h2>
+  <p><b>MVCC(Multi-Version Concurrency Control, 다중 버전 동시성 제어)</b>는 한 행의 여러 버전을 동시에 보관해서, 각 트랜잭션이 자기 시점의 버전을 읽게 하는 방식입니다. 그 결과 <b>읽기는 쓰기를 막지 않고, 쓰기는 읽기를 막지 않습니다</b>. 같은 행을 동시에 수정하려는 쓰기끼리만 서로 기다립니다.</p>
+  <h3>튜플 헤더의 두 숫자</h3>
+  <p>2편 10장에서 본 튜플(행 버전) 헤더에는 트랜잭션 ID(XID) 두 개가 들어 있습니다.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>필드</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td><code>xmin</code></td><td>이 버전을 <b>만든</b> 트랜잭션의 ID</td></tr>
+      <tr><td><code>xmax</code></td><td>이 버전을 <b>지우거나 대체한</b> 트랜잭션의 ID (없으면 0)</td></tr>
+      <tr><td><code>ctid</code></td><td>이 버전의 물리적 위치 (페이지, 줄 번호). UPDATE되면 새 버전을 가리킴</td></tr>
+    </tbody></table></div>
+<pre>SELECT ctid, xmin, xmax, * FROM accounts;   <span class="cm">-- 숨은 시스템 컬럼을 직접 볼 수 있음</span>
+SELECT txid_current();                      <span class="cm">-- 현재 트랜잭션 ID (PG13+: pg_current_xact_id())</span></pre>
+  <ul class="plain">
+    <li><b>INSERT</b> — 새 버전을 만들고 xmin에 자기 XID를 적습니다.</li>
+    <li><b>DELETE</b> — 행을 지우지 않고, 현재 버전의 xmax에 자기 XID를 적습니다.</li>
+    <li><b>UPDATE</b> — DELETE + INSERT입니다. 옛 버전의 xmax에 표시하고, 새 버전을 따로 씁니다.</li>
+  </ul>
+  <p>어떤 트랜잭션이 버전을 볼 수 있는지는 <b>스냅샷</b>(그 순간 어떤 트랜잭션이 커밋됐는지의 목록)과 xmin·xmax를 비교해 판단합니다. 간단히 말해 "만든 트랜잭션이 내 스냅샷 기준으로 커밋됐고, 지운 트랜잭션은 아직 커밋되지 않았거나 없으면" 보입니다. 커밋 여부는 2편의 <code>pg_xact/</code>에 기록되어 있습니다.</p>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>"PostgreSQL에서 UPDATE는 기존 행을 그 자리에서 덮어쓴다"는 틀린 문장입니다. <b>새 버전을 추가</b>하고 옛 버전은 dead tuple로 남습니다. 그래서 UPDATE가 많은 테이블일수록 VACUUM이 중요합니다. Oracle은 옛 값을 undo 영역에 따로 보관하는 방식이라, Oracle 경험자가 자주 헷갈리는 부분입니다.</p>
+  </div>
+  <div class="box term">
+    <strong>용어: HOT 업데이트 (Heap-Only Tuple)</strong>
+    <p>UPDATE가 <b>인덱스에 걸린 컬럼을 바꾸지 않고</b>, 새 버전이 <b>같은 페이지</b>에 들어갈 공간이 있으면 인덱스를 고치지 않고 페이지 안에서만 버전을 연결합니다. 인덱스 쓰기가 줄어 훨씬 빠릅니다. 자주 UPDATE되는 테이블은 <code>fillfactor</code>를 90 정도로 낮춰 페이지에 여유 공간을 남기면 HOT 비율을 높일 수 있습니다. 비율은 <code>pg_stat_user_tables.n_tup_hot_upd</code>로 확인합니다.</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="s2">
+  <p class="sec-no">2장</p>
+  <h2 class="sec">dead tuple과 bloat</h2>
+  <p>어떤 트랜잭션도 더 이상 볼 수 없게 된 옛 버전을 <b>dead tuple</b>이라고 합니다. 그대로 두면 테이블과 인덱스가 실제 데이터보다 훨씬 커지는데, 이를 <b>bloat(팽창)</b>라고 부릅니다. 스캔할 페이지가 늘어 느려지고, 캐시 효율이 떨어지고, 디스크를 낭비합니다.</p>
+<pre>SELECT relname, n_live_tup, n_dead_tup,
+       round(100.0 * n_dead_tup / nullif(n_live_tup + n_dead_tup, 0), 1) AS dead_pct,
+       last_vacuum, last_autovacuum, last_analyze, last_autoanalyze
+FROM   pg_stat_user_tables
+ORDER  BY n_dead_tup DESC
+LIMIT  10;</pre>
+  <h3>dead tuple이 치워지지 않는 원인</h3>
+  <p>VACUUM은 "아직 누군가 볼 수도 있는" 버전은 지우지 못합니다. 히어로의 5단계에서 본 상황입니다. 가장 오래된 스냅샷이 기준선(xmin horizon)이 되어, 그보다 뒤에 죽은 버전은 모두 남습니다.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>원인</th><th>찾는 법</th></tr></thead>
+    <tbody>
+      <tr><td>오래 실행 중인 트랜잭션·쿼리</td><td><code>pg_stat_activity</code>의 <code>xact_start</code>, <code>backend_xmin</code></td></tr>
+      <tr><td><b>idle in transaction</b> 세션 (BEGIN 후 방치)</td><td><code>state = 'idle in transaction'</code>. 5편 <code>idle_in_transaction_session_timeout</code>으로 예방</td></tr>
+      <tr><td>사용하지 않는 복제 슬롯</td><td><code>pg_replication_slots</code>의 <code>xmin</code>, <code>active</code> (11편)</td></tr>
+      <tr><td>커밋되지 않은 2단계 커밋 트랜잭션</td><td><code>pg_prepared_xacts</code></td></tr>
+      <tr><td>hot_standby_feedback을 켠 스탠바이의 긴 쿼리</td><td>스탠바이의 <code>pg_stat_activity</code> (11편)</td></tr>
+    </tbody></table></div>
+<pre><span class="cm">-- 가장 오래된 트랜잭션 찾기</span>
+SELECT pid, usename, state, now() - xact_start AS xact_age, backend_xmin, left(query, 60)
+FROM   pg_stat_activity
+WHERE  backend_xmin IS NOT NULL
+ORDER  BY xact_start
+LIMIT  5;</pre>
+  <div class="box field">
+    <strong>현장 사례: "VACUUM을 돌렸는데 용량이 그대로예요"</strong>
+    <p>MSP에서 가장 흔한 DB 문의 중 하나입니다. 원인은 대개 두 가지입니다. 첫째, 일반 VACUUM은 공간을 OS에 돌려주지 않고 <b>재사용 가능하게만</b> 표시합니다(3장). 둘째, 며칠째 idle in transaction 상태인 세션이 있어 VACUUM이 아무것도 지우지 못했을 수 있습니다. <code>VACUUM VERBOSE</code> 출력의 "dead row versions cannot be removed yet" 숫자를 확인하고, 위 쿼리로 범인을 찾으세요.</p>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="s3">
+  <p class="sec-no">3장</p>
+  <h2 class="sec">VACUUM과 VACUUM FULL</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>VACUUM</th><th>VACUUM FULL</th></tr></thead>
+    <tbody>
+      <tr><td>하는 일</td><td>dead tuple 공간을 <b>재사용 가능</b>으로 표시, FSM·VM 갱신, 오래된 XID 동결</td><td>테이블을 <b>새 파일로 통째로 다시 씀</b>, 인덱스도 재생성</td></tr>
+      <tr><td>디스크 공간</td><td>OS에 돌려주지 않음 (테이블 끝부분의 빈 페이지만 잘라냄)</td><td><b>OS에 돌려줌</b></td></tr>
+      <tr><td>잠금</td><td>SHARE UPDATE EXCLUSIVE — 읽기·쓰기와 함께 실행 가능</td><td><b>ACCESS EXCLUSIVE</b> — 끝날 때까지 조회도 불가</td></tr>
+      <tr><td>추가 공간</td><td>거의 없음</td><td>테이블+인덱스 크기만큼 여유 공간 필요</td></tr>
+      <tr><td>운영 중 사용</td><td>언제든 (autovacuum이 자동으로)</td><td>유지보수 창에서만, 드물게</td></tr>
+    </tbody></table></div>
+<pre>VACUUM orders;                        <span class="cm">-- 한 테이블</span>
+VACUUM (VERBOSE, ANALYZE) orders;     <span class="cm">-- 결과 출력 + 통계 갱신</span>
+VACUUM (PARALLEL 4) orders;           <span class="cm">-- 인덱스 정리를 병렬로</span>
+VACUUM (FREEZE) orders;               <span class="cm">-- 적극적으로 동결 (5장)</span>
+VACUUM;                               <span class="cm">-- 현재 DB의 모든 테이블</span>
+VACUUM FULL orders;                   <span class="cm">-- 주의: 테이블 잠금</span>
+
+<span class="cm"># 쉘 도구 (enterprisedb 사용자)</span>
+vacuumdb -p 5444 --all --analyze-in-stages --jobs=4</pre>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>"테이블 파일 크기를 줄여 OS에 공간을 돌려주는 것은?" → <b>VACUUM FULL</b>(또는 CLUSTER). "운영 중 서비스를 멈추지 않고 실행할 수 있는 것은?" → <b>일반 VACUUM</b>. VACUUM은 트랜잭션 블록 안에서 실행할 수 없습니다. 서비스를 멈추지 않고 bloat를 줄여야 한다면 pg_repack 같은 온라인 재구성 확장을 검토합니다.</p>
+  </div>
+  <div class="box analogy">
+    <strong>비유: 주차장 정리</strong>
+    <p>VACUUM은 떠난 차의 자리에 "빈자리" 표지를 세워 다음 차가 쓰게 하는 것입니다. 주차장 넓이는 그대로입니다. VACUUM FULL은 모든 차를 새 주차장으로 빈틈없이 옮기고 옛 주차장을 반납하는 것이라, 옮기는 동안 아무도 드나들 수 없습니다.</p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="s4">
+  <p class="sec-no">4장</p>
+  <h2 class="sec">autovacuum</h2>
+  <p>autovacuum launcher(2편)가 <code>autovacuum_naptime</code>(기본 1분)마다 데이터베이스를 돌며, 변경량이 기준을 넘은 테이블에 worker를 보내 VACUUM과 ANALYZE를 수행합니다. <b>autovacuum은 끄지 않는 것이 원칙</b>입니다.</p>
+  <h3>언제 동작하나</h3>
+<pre>VACUUM  기준 = autovacuum_vacuum_threshold (50)  + autovacuum_vacuum_scale_factor (0.2)  × 행 수
+ANALYZE 기준 = autovacuum_analyze_threshold (50) + autovacuum_analyze_scale_factor (0.1) × 행 수
+INSERT  기준 = autovacuum_vacuum_insert_threshold (1000) + autovacuum_vacuum_insert_scale_factor (0.2) × 행 수</pre>
+  <p>기본값은 "행의 약 20%가 dead가 되면 VACUUM"입니다. 1천만 행 테이블이면 200만 행이 죽어야 동작하므로, 큰 테이블일수록 너무 늦게 돕니다. PostgreSQL 18은 이런 큰 테이블을 위해 VACUUM 기준의 상한인 <code>autovacuum_vacuum_max_threshold</code>를 추가했습니다(기본 1억).</p>
+
+  <h3>autovacuum 동작 시점 계산기</h3>
+  <div class="av" id="av">
+    <div class="av-grid">
+      <div class="field"><label for="aRows">테이블 행 수 <output id="oRows"></output></label><input type="range" id="aRows" min="3" max="9" step="0.1" value="7"></div>
+      <div class="field"><label for="aUpd">하루 UPDATE·DELETE 행 수 <output id="oUpd"></output></label><input type="range" id="aUpd" min="2" max="8" step="0.1" value="5.5"></div>
+      <div class="field"><label for="aSf">autovacuum_vacuum_scale_factor <output id="oSf"></output></label><input type="range" id="aSf" min="0" max="0.4" step="0.01" value="0.2"></div>
+      <div class="field"><label for="aTh">autovacuum_vacuum_threshold <output id="oTh"></output></label><input type="range" id="aTh" min="0" max="10000" step="50" value="50"></div>
+    </div>
+    <div class="av-out" id="avOut" aria-live="polite"></div>
+  </div>
+<pre><span class="cm">-- 큰 테이블만 더 자주 돌게 테이블 단위로 조정</span>
+ALTER TABLE orders SET (autovacuum_vacuum_scale_factor = 0.01,
+                        autovacuum_analyze_scale_factor = 0.005);
+ALTER TABLE orders RESET (autovacuum_vacuum_scale_factor);   <span class="cm">-- 되돌리기</span></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>파라미터</th><th>기본값</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td><code>autovacuum</code></td><td>on</td><td>전체 켜기·끄기. 꺼도 wraparound 방지용 VACUUM은 강제로 실행됨</td></tr>
+      <tr><td><code>autovacuum_max_workers</code></td><td>3</td><td>동시에 도는 worker 수</td></tr>
+      <tr><td><code>autovacuum_naptime</code></td><td>1min</td><td>DB별 점검 주기</td></tr>
+      <tr><td><code>autovacuum_vacuum_cost_limit</code> / <code>_cost_delay</code></td><td>-1(=200) / 2ms</td><td>I/O 부하 조절. 한도만큼 일하면 잠시 쉼. 빠르게 치우려면 limit을 올림</td></tr>
+      <tr><td><code>log_autovacuum_min_duration</code></td><td>10min</td><td>오래 걸린 autovacuum 기록 (5편)</td></tr>
+    </tbody></table></div>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>autovacuum은 VACUUM만이 아니라 <b>ANALYZE도 자동으로</b> 수행합니다. 기준식의 기본값(threshold 50, scale factor 0.2 / 0.1)과 "테이블 단위로 ALTER TABLE ... SET으로 바꿀 수 있다"는 점이 자주 나옵니다. 진행 중인 VACUUM은 <code>pg_stat_progress_vacuum</code> 뷰로 확인합니다.</p>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="s5">
+  <p class="sec-no">5장</p>
+  <h2 class="sec">트랜잭션 ID wraparound</h2>
+  <p>트랜잭션 ID는 32비트 숫자라 약 42억 개에서 한 바퀴를 돕니다. 비교는 원형으로 이뤄져서, 어떤 XID 기준으로 약 21억 개 앞은 "과거", 21억 개 뒤는 "미래"로 봅니다. 아주 오래된 행을 그대로 두면 언젠가 그 행의 xmin이 "미래"로 뒤집혀 <b>커밋된 데이터가 갑자기 안 보이게</b> 됩니다. 이것이 wraparound 문제입니다.</p>
+  <p>이를 막는 것이 VACUUM의 <b>동결(freeze)</b>입니다. 충분히 오래된 행에 "모든 트랜잭션에게 보이는 과거"라는 표시를 해 두면, 그 행은 XID 비교에서 빠집니다.</p>
+  <div class="xid" id="xid">
+    <svg viewBox="0 0 220 220" role="img" aria-label="트랜잭션 ID 나이 게이지">
+      <circle cx="110" cy="110" r="88" fill="none" stroke="var(--line)" stroke-width="18"/>
+      <circle id="xArc" cx="110" cy="110" r="88" fill="none" stroke="var(--ok)" stroke-width="18" stroke-linecap="round" transform="rotate(-90 110 110)" stroke-dasharray="0 553"/>
+      <text id="xNum" x="110" y="104" text-anchor="middle" font-family="var(--mono)" font-size="24" font-weight="600" fill="var(--text)">0</text>
+      <text x="110" y="128" text-anchor="middle" font-family="var(--font)" font-size="12" fill="var(--muted)">age(datfrozenxid)</text>
+      <text x="110" y="146" text-anchor="middle" font-family="var(--font)" font-size="11" fill="var(--faint)">한계 약 21억</text>
+    </svg>
+    <div>
+      <div class="field"><label for="xAge">가장 오래된 동결 안 된 XID의 나이 <output id="oAge"></output></label><input type="range" id="xAge" min="0" max="2147" step="1" value="120"></div>
+      <div class="xid-out" id="xidOut" aria-live="polite"></div>
+    </div>
+  </div>
+<pre><span class="cm">-- 데이터베이스별·테이블별 나이 확인 (정기 감시 대상)</span>
+SELECT datname, age(datfrozenxid) FROM pg_database ORDER BY 2 DESC;
+SELECT relname, age(relfrozenxid) FROM pg_class WHERE relkind = 'r' ORDER BY 2 DESC LIMIT 10;</pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>파라미터</th><th>기본값</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td><code>vacuum_freeze_min_age</code></td><td>5천만</td><td>이보다 오래된 행은 VACUUM이 동결</td></tr>
+      <tr><td><code>vacuum_freeze_table_age</code></td><td>1억 5천만</td><td>테이블 나이가 이보다 많으면 VACUUM이 전체 페이지를 훑는 적극 모드로 동작</td></tr>
+      <tr><td><code>autovacuum_freeze_max_age</code></td><td>2억</td><td>이 나이를 넘으면 <b>autovacuum이 꺼져 있어도</b> wraparound 방지 VACUUM을 강제 실행 (변경 시 재시작)</td></tr>
+    </tbody></table></div>
+  <div class="box warn">
+    <strong>한계에 가까워지면</strong>
+    <p>남은 여유가 약 4천만 트랜잭션 아래로 내려가면 서버가 경고를 로그와 클라이언트에 보내기 시작하고, 더 가까워지면 데이터 보호를 위해 <b>새 트랜잭션 ID 할당을 거부</b>합니다. 이 상태가 되면 쓰기 작업이 모두 멈추므로 장애와 다름없습니다. 원인은 대부분 2장의 "오래 열린 트랜잭션"이나 "버려진 복제 슬롯"이라 VACUUM이 동결을 못 한 경우입니다. 나이 감시를 MSP 모니터링 항목에 반드시 넣으세요.</p>
+  </div>
+</section>
+
+<!-- 6 -->
+<section id="s6">
+  <p class="sec-no">6장</p>
+  <h2 class="sec">ANALYZE와 통계</h2>
+  <p>2편 8장의 옵티마이저는 "이 조건에 맞는 행이 몇 개쯤일까"를 추정해 실행 계획을 고릅니다. 그 추정의 근거가 <b>통계</b>이며, ANALYZE가 테이블에서 표본을 뽑아 수집합니다.</p>
+<pre>ANALYZE orders;                        <span class="cm">-- 한 테이블</span>
+ANALYZE;                               <span class="cm">-- 현재 DB 전체</span>
+ANALYZE orders (customer, status);     <span class="cm">-- 일부 컬럼만</span>
+
+<span class="cm">-- 수집된 통계 보기</span>
+SELECT attname, null_frac, n_distinct, most_common_vals, histogram_bounds
+FROM   pg_stats
+WHERE  tablename = 'orders' AND attname = 'status';</pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>pg_stats 컬럼</th><th>의미</th></tr></thead>
+    <tbody>
+      <tr><td><code>null_frac</code></td><td>NULL 비율</td></tr>
+      <tr><td><code>n_distinct</code></td><td>서로 다른 값의 수 (음수면 행 수 대비 비율)</td></tr>
+      <tr><td><code>most_common_vals</code> / <code>_freqs</code></td><td>자주 나오는 값과 빈도</td></tr>
+      <tr><td><code>histogram_bounds</code></td><td>나머지 값의 분포 구간</td></tr>
+      <tr><td><code>correlation</code></td><td>물리적 저장 순서와 값 순서의 상관관계 (인덱스 스캔 비용 추정에 사용)</td></tr>
+    </tbody></table></div>
+  <ul class="plain">
+    <li><b>통계 상세도</b> — <code>default_statistics_target</code>(기본 100). 분포가 복잡한 컬럼은 <code>ALTER TABLE orders ALTER COLUMN status SET STATISTICS 1000;</code>으로 따로 높입니다.</li>
+    <li><b>확장 통계</b> — 컬럼끼리 상관관계가 강하면(예: 시·군·구) 옵티마이저가 행 수를 크게 틀립니다. <code>CREATE STATISTICS s1 (dependencies) ON city, district FROM addr;</code></li>
+    <li><b>대량 적재 직후</b> — autovacuum이 돌기 전에 쿼리가 들어오면 옛 통계로 엉뚱한 계획이 나옵니다. 적재 스크립트 마지막에 <code>ANALYZE</code>를 넣으세요.</li>
+  </ul>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>통계는 <code>pg_statistic</code> 카탈로그에 저장되고 사람이 읽기 좋은 형태는 <code>pg_stats</code> 뷰입니다. VACUUM은 통계를 갱신하지 않지만 <b>VACUUM ANALYZE</b>는 둘 다 합니다. 메이저 업그레이드 후 통계가 없으면 성능이 급락했는데, PostgreSQL 18의 pg_upgrade는 통계를 보존합니다(10편).</p>
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="s7">
+  <p class="sec-no">7장</p>
+  <h2 class="sec">EXPLAIN 기초</h2>
+<pre>EXPLAIN SELECT ...;            <span class="cm">-- 계획만 (실행 안 함)</span>
+EXPLAIN ANALYZE SELECT ...;    <span class="cm">-- 실제로 실행하고 측정. DML이면 데이터가 바뀌니 BEGIN ... ROLLBACK으로 감싸기</span>
+EXPLAIN (ANALYZE, BUFFERS, VERBOSE) SELECT ...;</pre>
+  <p>PostgreSQL 18부터는 <code>EXPLAIN ANALYZE</code>에 <b>BUFFERS 정보가 기본으로 포함</b>되어, 각 단계가 shared_buffers에서 몇 페이지를 찾았고(hit) 몇 페이지를 디스크에서 읽었는지(read) 바로 보입니다. 아래 계획의 줄을 눌러 읽는 법을 확인하세요. 계획은 <b>들여쓰기가 깊은 곳부터 실행되어 위로 올라옵니다</b>.</p>
+  <div class="plan" id="plan" role="group" aria-label="실행 계획 줄"></div>
+  <div class="plan-desc" id="planDesc" aria-live="polite"></div>
+  <div class="table-wrap" style="margin-top:18px"><table>
+    <thead><tr><th>노드</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td>Seq Scan</td><td>테이블 전체를 순서대로 읽음. 많은 행을 읽을 땐 오히려 효율적</td></tr>
+      <tr><td>Index Scan</td><td>인덱스로 위치를 찾아 테이블 행을 읽음</td></tr>
+      <tr><td>Index Only Scan</td><td>인덱스만으로 답함. 가시성 맵(VM)이 최신이어야 효과 — VACUUM이 중요한 또 다른 이유</td></tr>
+      <tr><td>Bitmap Heap Scan</td><td>인덱스로 대상 페이지 목록을 먼저 만든 뒤 페이지 순서대로 읽음</td></tr>
+      <tr><td>Nested Loop / Hash Join / Merge Join</td><td>조인 방식. 작은 쪽 반복 / 해시 테이블 / 정렬된 두 입력 병합</td></tr>
+      <tr><td>Sort, HashAggregate</td><td>정렬과 집계. work_mem을 넘으면 디스크 사용(external merge, Batches &gt; 1)</td></tr>
+    </tbody></table></div>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p><code>cost=0.43..8.45</code>는 <b>시작 비용..전체 비용</b>이며 단위는 시간이 아니라 상대 비용입니다(seq_page_cost = 1 기준). <code>rows</code>는 추정 행 수, <code>actual ... rows</code>는 실제 행 수이며, 둘의 차이가 크면 <b>통계가 낡았거나 부족</b>하다는 신호입니다. <code>EXPLAIN ANALYZE</code>는 쿼리를 실제로 실행한다는 점도 기억하세요.</p>
+  </div>
+</section>
+
+<!-- 8 -->
+<section id="s8">
+  <p class="sec-no">8장</p>
+  <h2 class="sec">인덱스 유지보수와 잠금</h2>
+<pre>REINDEX INDEX orders_pkey;                 <span class="cm">-- 인덱스 재생성 (쓰기 차단)</span>
+REINDEX INDEX CONCURRENTLY orders_pkey;    <span class="cm">-- 서비스 중 재생성 (PG12+, 느리지만 막지 않음)</span>
+REINDEX TABLE CONCURRENTLY orders;
+CREATE INDEX CONCURRENTLY ON orders (customer);   <span class="cm">-- 운영 중 인덱스 추가의 표준</span>
+CLUSTER orders USING orders_created_idx;   <span class="cm">-- 인덱스 순서로 테이블 재정렬 (전체 잠금)</span>
+
+<span class="cm">-- 한 번도 안 쓰인 인덱스 찾기 (쓰기만 느리게 하는 후보)</span>
+SELECT indexrelid::regclass, idx_scan, pg_size_pretty(pg_relation_size(indexrelid))
+FROM   pg_stat_user_indexes WHERE idx_scan = 0 ORDER BY pg_relation_size(indexrelid) DESC;</pre>
+  <h3>유지보수 작업과 잠금</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>작업</th><th>잠금</th><th>동시에 조회</th><th>동시에 쓰기</th></tr></thead>
+    <tbody>
+      <tr><td>VACUUM, ANALYZE</td><td>SHARE UPDATE EXCLUSIVE</td><td>가능</td><td>가능</td></tr>
+      <tr><td>CREATE INDEX CONCURRENTLY, REINDEX CONCURRENTLY</td><td>SHARE UPDATE EXCLUSIVE</td><td>가능</td><td>가능</td></tr>
+      <tr><td>CREATE INDEX</td><td>SHARE</td><td>가능</td><td><b>불가</b></td></tr>
+      <tr><td>VACUUM FULL, CLUSTER, ALTER TABLE ... SET TABLESPACE, 대부분의 ALTER TABLE</td><td>ACCESS EXCLUSIVE</td><td><b>불가</b></td><td><b>불가</b></td></tr>
+    </tbody></table></div>
+<pre><span class="cm">-- 누가 누구를 막고 있나</span>
+SELECT pid, pg_blocking_pids(pid) AS blocked_by, wait_event_type, state, left(query, 60)
+FROM   pg_stat_activity WHERE cardinality(pg_blocking_pids(pid)) &gt; 0;</pre>
+  <div class="box warn">
+    <strong>ALTER TABLE 한 줄이 서비스를 멈추는 이유</strong>
+    <p>ACCESS EXCLUSIVE 잠금은 획득을 <b>기다리는 동안에도</b> 뒤에 오는 모든 조회를 줄 세웁니다. 긴 쿼리가 테이블을 쓰고 있는 상태에서 ALTER TABLE을 실행하면, ALTER가 기다리는 사이 새 SELECT들까지 전부 막혀 장애처럼 보입니다. 운영 DDL 전에는 <code>SET lock_timeout = '5s';</code>를 걸어 오래 기다리지 않고 실패하게 하세요(5편).</p>
+  </div>
+  <p class="muted" style="font-size:15px"><span class="epas-only">EPAS</span>는 워크로드를 분석해 인덱스 후보를 추천하는 Index Advisor 기능도 제공합니다. 설정 방법은 EDB 문서의 Index Advisor 항목을 참고하세요.</p>
+</section>
+
+<!-- 9 -->
+<section id="s9">
+  <p class="sec-no">9장</p>
+  <h2 class="sec">정기 점검 체크리스트</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>주기</th><th>점검 항목</th><th>확인 방법</th></tr></thead>
+    <tbody>
+      <tr><td>상시(감시)</td><td>XID 나이, idle in transaction 세션, 잠금 대기, 복제 슬롯 지연</td><td>age(datfrozenxid), pg_stat_activity, pg_blocking_pids, pg_replication_slots</td></tr>
+      <tr><td>매일</td><td>autovacuum이 제때 돌고 있는지, dead tuple 상위 테이블</td><td>pg_stat_user_tables의 last_autovacuum, n_dead_tup</td></tr>
+      <tr><td>매주</td><td>느린 쿼리, 임시 파일 발생, 캐시 적중률</td><td>로그(log_min_duration_statement, log_temp_files), pg_stat_database</td></tr>
+      <tr><td>매월</td><td>테이블·인덱스 bloat, 안 쓰는 인덱스, 크기 증가 추세</td><td>pg_stat_user_indexes, pg_total_relation_size 추이</td></tr>
+      <tr><td>대량 작업 후</td><td>통계 갱신</td><td>ANALYZE</td></tr>
+    </tbody></table></div>
+  <div class="box field">
+    <strong>현장 팁: 체크리스트를 자동화하자</strong>
+    <p>위 쿼리들은 대부분 결과가 한두 줄이라 모니터링 도구의 사용자 정의 지표로 넣기 좋습니다. 특히 XID 나이와 idle in transaction 개수는 임계치 알람을 걸어 두면 대형 장애를 미리 막을 수 있습니다. EDB의 Postgres Enterprise Manager(11편)도 이런 항목을 기본 대시보드로 제공합니다.</p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section id="s10">
+  <p class="sec-no">10장</p>
+  <h2 class="sec">용어 사전</h2>
+  <label for="glossSearch" class="muted" style="font-size:14px">용어 검색</label>
+  <input id="glossSearch" class="gloss-search" type="search" placeholder="예: xmin, freeze, HOT">
+  <div class="gloss" id="gloss"></div>
+  <p class="gloss-empty" id="glossEmpty">일치하는 용어가 없습니다. 다른 표현으로 검색해 보세요.</p>
+</section>
+
+<!-- 11 -->
+<section id="s11">
+  <p class="sec-no">11장</p>
+  <h2 class="sec">확인 퀴즈</h2>
+  <p class="muted">MVCC 동작과 유지보수 명령의 차이를 묻는 10문항입니다.</p>
+  <div class="quiz" id="quiz"></div>
+  <div class="score" aria-live="polite"><span id="scoreText">0 / 0 정답</span><button type="button" id="quizReset">다시 풀기</button></div>
+  <div class="next">
+    <h3>다음 편 예고 — 9편. 데이터 이동</h3>
+    <p style="margin-bottom:0">트랙 C(데이터 보호와 이동)가 시작됩니다. 서버 쪽 COPY와 클라이언트 쪽 \copy의 차이, pg_dump·pg_dumpall·pg_restore와 출력 포맷(plain·custom·directory·tar)별 특징, 그리고 EPAS 전용 EDB*Loader와 EDB Clone Schema, Oracle에서 옮겨 오는 Migration Toolkit과 Migration Portal을 다룹니다. 6편의 template0이 복원 과정에서 다시 등장합니다.</p>
+  </div>
+</section>
+
+</main>
+</div>
+
+<footer>EDB Postgres AI Database Essentials v18 시험 대비 강의 시리즈 · 8편. 기본값은 PostgreSQL 18 기준이며, 히어로의 XID·ctid 값은 학습용 예시입니다.</footer>
+
+<script>
+(function(){
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function $(id){return document.getElementById(id);}
+  var root=document.documentElement, tbtn=$('themeBtn');
+  tbtn.addEventListener('click',function(){
+    var light=root.getAttribute('data-theme')==='light';
+    root.setAttribute('data-theme',light?'dark':'light');
+    tbtn.textContent=light?'☀ 라이트':'☾ 다크';
+    tbtn.setAttribute('aria-label',light?'라이트 테마로 전환':'다크 테마로 전환');
+  });
+  var prog=$('progress');
+  function onScroll(){var h=document.documentElement.scrollHeight-window.innerHeight;prog.style.width=(h>0?window.scrollY/h*100:0)+'%';}
+  window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){links.forEach(function(a){a.classList.toggle('active',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-30% 0px -60% 0px'});
+    document.querySelectorAll('main section').forEach(function(s){io.observe(s);});
+  }
+
+  /* ===== MVCC hero ===== */
+  /* slot: {ct, d, xmin, xmax, s: live|dead|oldvis|pending|empty} */
+  function S(ct,d,xmin,xmax,s){return {ct:ct,d:d,xmin:xmin,xmax:xmax,s:s};}
+  var E={s:'empty'};
+  var M=[
+    {sql:'-- 시작: 두 행이 이미 있음 (XID 100이 넣고 커밋)',sl:[S('(0,1)','id=1 · 5,000',100,0,'live'),S('(0,2)','id=2 · 8,000',100,0,'live'),E],a:' id | balance\n  1 |   5000\n  2 |   8000',b:null,t:'두 행 모두 xmin=100(만든 트랜잭션), xmax=0(아무도 지우지 않음)입니다. 이 페이지에는 빈 칸이 하나 남아 있습니다.'},
+    {sql:'-- 세션 B\nBEGIN ISOLATION LEVEL REPEATABLE READ;\nSELECT * FROM accounts;   -- 스냅샷 확정',sl:[S('(0,1)','id=1 · 5,000',100,0,'live'),S('(0,2)','id=2 · 8,000',100,0,'live'),E],a:' id | balance\n  1 |   5000\n  2 |   8000',b:' id | balance\n  1 |   5000\n  2 |   8000',t:'세션 B가 트랜잭션을 열고 지금 이 순간의 스냅샷을 잡았습니다. B는 트랜잭션이 끝날 때까지 이 시점의 데이터만 봅니다(4편 Repeatable Read).'},
+    {sql:'-- 세션 A (XID 102)\nBEGIN;\nUPDATE accounts SET balance = 4000 WHERE id = 1;',sl:[S('(0,1)','id=1 · 5,000',100,102,'live'),S('(0,2)','id=2 · 8,000',100,0,'live'),S('(0,3)','id=1 · 4,000',102,0,'pending')],a:'-- A 자신에게는 새 값이 보임\n id | balance\n  1 |   4000\n  2 |   8000',b:' id | balance\n  1 |   5000\n  2 |   8000',t:'UPDATE는 (0,1)을 고치지 않았습니다. 빈 칸 (0,3)에 <b>새 버전</b>을 쓰고, 옛 버전의 xmax에 102를 적었을 뿐입니다. 아직 커밋 전이라 A 외의 모든 세션은 옛 버전 5,000을 봅니다. 읽는 쪽은 전혀 막히지 않았습니다.'},
+    {sql:'-- 세션 A\nCOMMIT;',sl:[S('(0,1)','id=1 · 5,000',100,102,'oldvis'),S('(0,2)','id=2 · 8,000',100,0,'live'),S('(0,3)','id=1 · 4,000',102,0,'live')],a:' id | balance\n  1 |   4000\n  2 |   8000',b:' id | balance\n  1 |   5000   ← 옛 버전\n  2 |   8000',t:'커밋 후 새 스냅샷으로 읽는 세션 A는 4,000을 봅니다. 그런데 B의 스냅샷에서는 XID 102가 "아직 커밋 안 된 미래"이므로 B는 여전히 옛 버전 (0,1)의 5,000을 봅니다. 한 행의 <b>두 버전이 동시에 쓰이고 있는</b> 상태입니다.'},
+    {sql:'-- 세션 A (XID 103)\nDELETE FROM accounts WHERE id = 2;   -- 자동 커밋',sl:[S('(0,1)','id=1 · 5,000',100,102,'oldvis'),S('(0,2)','id=2 · 8,000',100,103,'oldvis'),S('(0,3)','id=1 · 4,000',102,0,'live')],a:' id | balance\n  1 |   4000',b:' id | balance\n  1 |   5000\n  2 |   8000   ← 지워졌지만 B에겐 보임',t:'DELETE도 행을 지우지 않고 xmax=103만 적습니다. A에게는 id=2가 사라졌지만, B의 스냅샷에는 여전히 보입니다.'},
+    {sql:'-- 세션 A 창에서 (관리자 권한)\nVACUUM VERBOSE accounts;',sl:[S('(0,1)','id=1 · 5,000',100,102,'oldvis'),S('(0,2)','id=2 · 8,000',100,103,'oldvis'),S('(0,3)','id=1 · 4,000',102,0,'live')],a:'-- (A 창에서 실행한 VACUUM 출력)\nINFO:  "accounts": removed 0 row versions\nDETAIL: 2 dead row versions cannot\n        be removed yet, oldest xmin: 101',b:' (트랜잭션 열린 채 대기 중)',t:'VACUUM을 돌렸지만 <b>아무것도 치우지 못했습니다</b>. 세션 B가 아직 두 옛 버전을 볼 수 있기 때문입니다. "cannot be removed yet"과 oldest xmin이 바로 2장에서 말한 원인 추적의 단서입니다. idle in transaction 세션 하나가 테이블 전체의 청소를 막을 수 있습니다.'},
+    {sql:'-- 세션 B\nCOMMIT;   -- 오래 열린 트랜잭션 종료',sl:[S('(0,1)','id=1 · 5,000',100,102,'dead'),S('(0,2)','id=2 · 8,000',100,103,'dead'),S('(0,3)','id=1 · 4,000',102,0,'live')],a:' id | balance\n  1 |   4000',b:null,t:'B가 끝나자 두 옛 버전을 볼 수 있는 스냅샷이 하나도 남지 않았습니다. 이제 이 둘은 진짜 <b>dead tuple</b>입니다. 하지만 공간은 아직 그대로 차지하고 있습니다.'},
+    {sql:'-- 세션 A 창에서 (또는 autovacuum이 자동으로)\nVACUUM VERBOSE accounts;',sl:[E,E,S('(0,3)','id=1 · 4,000',102,0,'live')],a:'-- (A 창에서 실행한 VACUUM 출력)\nINFO:  "accounts": removed 2 row versions\n        in 1 pages',b:null,t:'VACUUM이 dead tuple 두 개를 치우고 그 자리를 <b>재사용 가능</b>으로 여유 공간 맵(FSM)에 기록했습니다. 파일 크기는 줄지 않았습니다(3장). 페이지 안에 빈 칸이 생겼을 뿐입니다.'},
+    {sql:'-- 세션 A (XID 104)\nINSERT INTO accounts VALUES (3, 6000);',sl:[S('(0,1)','id=3 · 6,000',104,0,'live'),E,S('(0,3)','id=1 · 4,000',102,0,'live')],a:' id | balance\n  1 |   4000\n  3 |   6000',b:null,t:'새 행이 VACUUM이 비워 둔 자리 (0,1)에 들어갔습니다. 파일을 늘리지 않고 공간을 재사용한 것입니다. autovacuum이 제때 돌면 테이블은 이런 식으로 크기를 유지합니다.'}
+  ];
+  var mi=0, slotsEl=$('slots');
+  var LBL={live:'live',dead:'dead',oldvis:'B가 봄',pending:'커밋 전',empty:'빈 칸'};
+  function mvR(){
+    var st=M[mi];
+    $('mvSql').textContent=st.sql;
+    slotsEl.innerHTML=st.sl.map(function(x,i){
+      if(x.s==='empty')return '<div class="slot empty"><span class="st">'+LBL.empty+'</span><div class="ct">(0,'+(i+1)+')</div><div class="dat" style="color:var(--faint);font-weight:400">재사용 가능</div></div>';
+      return '<div class="slot '+x.s+'"><span class="st">'+LBL[x.s]+'</span><div class="ct">ctid '+x.ct+'</div><div class="dat">'+esc(x.d)+'</div><div class="x"><span>xmin</span><span>'+x.xmin+'</span><span>xmax</span><span>'+(x.xmax||0)+'</span></div></div>';
+    }).join('');
+    $('vAo').textContent=st.a;
+    $('vB').classList.toggle('off',st.b===null);
+    $('vBo').textContent=st.b===null?'(트랜잭션 없음)':st.b;
+    $('mvText').innerHTML=st.t;
+    $('mvPrev').disabled=mi===0;$('mvNext').disabled=mi===M.length-1;$('mvCount').textContent=(mi+1)+' / '+M.length;
+  }
+  $('mvNext').addEventListener('click',function(){if(mi<M.length-1){mi++;mvR();}});
+  $('mvPrev').addEventListener('click',function(){if(mi>0){mi--;mvR();}});
+  $('mvReset').addEventListener('click',function(){mi=0;mvR();});
+  mvR();
+
+  /* ===== autovacuum calc ===== */
+  function fmt(n){if(n>=1e8)return (n/1e8).toFixed(1).replace(/\.0$/,'')+'억';if(n>=1e4)return (n/1e4).toFixed(n>=1e5?0:1).replace(/\.0$/,'')+'만';return Math.round(n).toLocaleString();}
+  function av(){
+    var rows=Math.pow(10,+$('aRows').value), upd=Math.pow(10,+$('aUpd').value), sf=+$('aSf').value, th=+$('aTh').value;
+    $('oRows').textContent=fmt(rows)+'행';$('oUpd').textContent=fmt(upd)+'행/일';$('oSf').textContent=sf.toFixed(2);$('oTh').textContent=th;
+    var trig=Math.min(th+sf*rows,1e8), hrs=trig/upd*24, capped=th+sf*rows>1e8;
+    var intv=hrs<1?Math.round(hrs*60)+'분':(hrs<48?hrs.toFixed(1)+'시간':(hrs/24).toFixed(1)+'일');
+    var maxShow=Math.max(trig*1.3,upd*1.05), pctFill=Math.min(100,upd/maxShow*100), pctTh=Math.min(100,trig/maxShow*100);
+    var verdict, col;
+    if(hrs>24*7){verdict='일주일 넘게 기다려야 합니다. 그동안 dead tuple이 쌓여 bloat가 커집니다. 테이블 단위로 scale_factor를 낮추세요.';col='var(--bad)';}
+    else if(hrs>24){verdict='하루에 한 번도 안 돕니다. 큰 테이블이라면 scale_factor를 0.01~0.05로 낮추는 것을 검토하세요.';col='var(--exam)';}
+    else if(hrs<0.05){verdict='매우 자주 돕니다. 정상일 수 있지만 cost 제한 때문에 따라잡지 못하는지 pg_stat_progress_vacuum으로 확인하세요.';col='var(--exam)';}
+    else{verdict='적절한 빈도입니다.';col='var(--ok)';}
+    $('avOut').innerHTML='<p style="margin:0 0 4px">VACUUM 기준: <b>'+fmt(trig)+'</b> dead tuple'+(capped?' <span class="muted">(PG18 autovacuum_vacuum_max_threshold 1억으로 상한 적용)</span>':'')+' → 약 <b>'+intv+'</b>마다 autovacuum</p>'+
+      '<div class="av-bar"><div class="fill" style="width:'+pctFill+'%"></div><div class="th" style="left:calc('+pctTh+'% - 1px)"></div></div>'+
+      '<div class="av-axis"><span>0</span><span style="color:var(--dead)">빨강: 하루 동안 생기는 dead tuple</span><span style="color:var(--exam)">노랑 선: VACUUM 기준</span></div>'+
+      '<p style="margin:8px 0 0;color:'+col+';font-weight:600">'+verdict+'</p>';
+  }
+  ['aRows','aUpd','aSf','aTh'].forEach(function(k){$(k).addEventListener('input',av);});av();
+
+  /* ===== XID gauge ===== */
+  function xid(){
+    var m=+$('xAge').value, age=m*1e6, frac=m/2147, len=553*frac;
+    $('oAge').textContent=(m>=100?(m/100).toFixed(2)+'억':m+'백만');
+    var col,msg;
+    if(m<150){col='var(--ok)';msg='여유 있음. 평소 VACUUM이 동결을 제때 하고 있습니다.';}
+    else if(m<200){col='var(--ok)';msg='vacuum_freeze_table_age(1억 5천만)를 넘었습니다. 다음 VACUUM은 전체 페이지를 훑는 적극 모드로 동작합니다.';}
+    else if(m<1000){col='var(--exam)';msg='autovacuum_freeze_max_age(2억)를 넘었습니다. autovacuum이 꺼져 있어도 wraparound 방지 VACUUM이 강제로 시작됩니다. pg_stat_activity에 "(to prevent wraparound)" 표시가 붙은 autovacuum이 보입니다.';}
+    else if(m<2107){col='var(--dead)';msg='매우 위험. 강제 VACUUM이 계속 실패하고 있다는 뜻입니다. 오래 열린 트랜잭션, 버려진 복제 슬롯, prepared 트랜잭션을 즉시 찾아 정리하고 VACUUM을 돌리세요.';}
+    else{col='var(--dead)';msg='한계 직전. 서버가 경고를 내고, 더 가까워지면 새 트랜잭션 ID 할당을 거부해 모든 쓰기가 멈춥니다. 장애 상황입니다.';}
+    var arc=$('xArc');arc.setAttribute('stroke-dasharray',len+' 553');arc.setAttribute('stroke',col);
+    $('xNum').textContent=(m>=100?(m/100).toFixed(1)+'억':m+'M');
+    var o=$('xidOut');o.style.setProperty('--c',col);o.innerHTML='<b>'+(m>=100?(m/100).toFixed(2)+'억':m+'백만')+'</b> — '+esc(msg);
+  }
+  $('xAge').addEventListener('input',xid);xid();
+
+  /* ===== EXPLAIN reader ===== */
+  var PL=[
+    ['Hash Join  (cost=38.50..1890.12 rows=1520 width=48) (actual time=0.61..9.84 rows=1497 loops=1)','<b>최상위 노드 = 마지막에 실행</b>. 아래 두 입력을 해시 조인해 최종 결과를 냅니다. 추정 1,520행, 실제 1,497행으로 추정이 정확합니다. actual time 0.61..9.84는 첫 행까지 0.61ms, 전체 9.84ms입니다.'],
+    ['  Hash Cond: (o.customer_id = c.customer_id)','조인 조건입니다. 작은 쪽(customers)으로 해시 테이블을 만들고 큰 쪽(orders)의 행을 하나씩 비춰 봅니다.'],
+    ['  Buffers: shared hit=412 read=37','PG18에서는 ANALYZE만 써도 기본으로 나오는 줄입니다. shared_buffers에서 412페이지를 찾았고(hit), 37페이지는 디스크(또는 OS 캐시)에서 읽었습니다(read). read가 많으면 캐시가 부족하거나 처음 읽은 데이터입니다.'],
+    ['  ->  Seq Scan on orders o  (cost=0.00..1741.00 rows=1520 width=36) (actual time=0.02..8.10 rows=1497 loops=1)','orders 테이블을 처음부터 끝까지 읽습니다. 조건에 맞는 행이 테이블의 상당 부분이라면 인덱스보다 순차 스캔이 더 빠를 수 있어 옵티마이저가 고른 것입니다.'],
+    ['        Filter: (created_at >= \'2026-09-01\'::date)','Seq Scan이 읽으면서 걸러 내는 조건입니다. 이 조건으로 전체 중 적은 비율만 남는다면 created_at 인덱스를 검토할 만합니다.'],
+    ['        Rows Removed by Filter: 48503','읽었지만 조건에 맞지 않아 버린 행 수입니다. 이 숫자가 결과 행 수보다 훨씬 크면 "쓸데없이 많이 읽고 있다"는 신호로, 인덱스 후보입니다.'],
+    ['  ->  Hash  (cost=26.00..26.00 rows=1000 width=16) (actual time=0.55..0.55 rows=1000 loops=1)','customers로 해시 테이블을 만드는 단계입니다. 시작 비용과 전체 비용이 같은(26.00..26.00) 것은 해시 테이블을 다 만들어야 결과를 넘길 수 있기 때문입니다.'],
+    ['        Buckets: 1024  Batches: 1  Memory Usage: 60kB','Batches: 1이면 해시 테이블이 work_mem 안에 다 들어갔다는 뜻입니다. 2 이상이면 work_mem이 부족해 디스크를 썼다는 뜻입니다(2편).'],
+    ['        ->  Seq Scan on customers c  (cost=0.00..26.00 rows=1000 width=16) (actual time=0.01..0.21 rows=1000 loops=1)','<b>들여쓰기가 가장 깊은 곳 = 가장 먼저 실행</b>. 1,000행짜리 작은 테이블이라 전체를 읽는 것이 가장 쌉니다.'],
+    ['Planning Time: 0.31 ms','실행 계획을 세우는 데 걸린 시간입니다.'],
+    ['Execution Time: 10.12 ms','실제 실행 시간입니다. EXPLAIN ANALYZE는 쿼리를 정말로 실행하므로, UPDATE·DELETE를 분석할 때는 BEGIN; EXPLAIN ANALYZE ...; ROLLBACK;으로 감싸세요.']
+  ];
+  var planEl=$('plan'), pd=$('planDesc');
+  PL.forEach(function(x,i){var b=document.createElement('button');b.type='button';b.textContent=x[0];b.setAttribute('aria-pressed','false');b.addEventListener('click',function(){selP(i);});planEl.appendChild(b);});
+  function selP(i){[].forEach.call(planEl.children,function(b,j){b.setAttribute('aria-pressed',i===j?'true':'false');});pd.innerHTML=PL[i][1];}
+  selP(8);
+
+  /* ===== glossary ===== */
+  var T=[
+    ['MVCC','다중 버전 동시성 제어','행의 여러 버전을 두어 읽기와 쓰기가 서로 막지 않게 하는 방식.'],
+    ['튜플','Tuple','테이블 행의 한 버전.'],
+    ['xmin / xmax','생성·삭제 트랜잭션 ID','튜플을 만든 XID와 지우거나 대체한 XID.'],
+    ['ctid','물리 위치','(페이지, 줄 번호). UPDATE 후 새 버전을 가리킴.'],
+    ['스냅샷','Snapshot','어떤 트랜잭션이 커밋되어 보이는지의 기준. 격리 수준에 따라 문장마다 또는 트랜잭션마다.'],
+    ['HOT 업데이트','Heap-Only Tuple','인덱스 컬럼 변경이 없고 같은 페이지에 공간이 있으면 인덱스를 고치지 않는 UPDATE.'],
+    ['fillfactor','채움 비율','페이지를 얼마나 채울지. 낮추면 HOT 업데이트 공간 확보.'],
+    ['dead tuple','죽은 튜플','어떤 트랜잭션도 볼 수 없는 옛 버전. VACUUM 대상.'],
+    ['bloat','팽창','dead tuple 등으로 테이블·인덱스가 실제 데이터보다 커진 상태.'],
+    ['xmin horizon','청소 기준선','가장 오래된 스냅샷. 이후에 죽은 버전은 VACUUM이 지우지 못함.'],
+    ['idle in transaction','트랜잭션 방치 세션','BEGIN 후 아무것도 안 하는 세션. 청소를 막음.'],
+    ['VACUUM','청소','dead tuple 공간을 재사용 가능하게. 공간을 OS에 반환하지 않음. 동시 작업 가능.'],
+    ['VACUUM FULL','전체 재작성','테이블을 새로 써서 공간 반환. ACCESS EXCLUSIVE 잠금.'],
+    ['FSM','Free Space Map','페이지별 여유 공간 기록(_fsm 파일).'],
+    ['VM','Visibility Map','모두에게 보이는 페이지 표시(_vm 파일). Index Only Scan에 필요.'],
+    ['autovacuum','자동 청소','기준을 넘은 테이블에 VACUUM·ANALYZE 자동 수행. 끄지 말 것.'],
+    ['scale_factor / threshold','autovacuum 기준','threshold + scale_factor × 행 수. VACUUM 기본 50 + 0.2.'],
+    ['autovacuum_vacuum_max_threshold','PG18 상한','큰 테이블의 VACUUM 기준 상한. 기본 1억.'],
+    ['XID wraparound','트랜잭션 ID 순환','32비트 XID가 돌아 오래된 데이터가 미래로 뒤집히는 문제.'],
+    ['동결','Freeze','오래된 튜플을 모두에게 보이는 과거로 표시해 XID 비교에서 제외.'],
+    ['age(datfrozenxid)','XID 나이','DB에서 동결되지 않은 가장 오래된 XID의 나이. 감시 대상.'],
+    ['autovacuum_freeze_max_age','강제 VACUUM 기준','기본 2억. 넘으면 autovacuum이 꺼져 있어도 강제 실행.'],
+    ['ANALYZE','통계 수집','표본으로 컬럼 분포 수집. pg_statistic에 저장, pg_stats로 조회.'],
+    ['default_statistics_target','통계 상세도','기본 100. 컬럼별로 SET STATISTICS로 조정.'],
+    ['확장 통계','CREATE STATISTICS','컬럼 간 상관관계 통계(dependencies, ndistinct, mcv).'],
+    ['EXPLAIN / EXPLAIN ANALYZE','실행 계획','계획만 / 실제 실행 후 측정. PG18부터 ANALYZE에 BUFFERS 기본 포함.'],
+    ['cost','비용','시작 비용..전체 비용. 시간 아닌 상대 단위.'],
+    ['REINDEX CONCURRENTLY','온라인 인덱스 재생성','PG12+. 쓰기를 막지 않고 인덱스 재생성.'],
+    ['CREATE INDEX CONCURRENTLY','온라인 인덱스 생성','쓰기를 막지 않음. 트랜잭션 블록 안에서 불가.'],
+    ['ACCESS EXCLUSIVE','가장 강한 잠금','조회까지 막음. VACUUM FULL, CLUSTER, 대부분의 ALTER TABLE.'],
+    ['pg_blocking_pids()','잠금 추적','어떤 세션이 이 세션을 막는지 반환.']
+  ];
+  var gl=$('gloss'), gs=$('glossSearch'), ge=$('glossEmpty');
+  T.forEach(function(t){var d=document.createElement('details');d.dataset.k=t.join(' ').toLowerCase();d.innerHTML='<summary><span>'+esc(t[0])+' <em>'+esc(t[1])+'</em></span></summary><p>'+esc(t[2])+'</p>';gl.appendChild(d);});
+  gs.addEventListener('input',function(){var q=gs.value.trim().toLowerCase(),n=0;[].forEach.call(gl.children,function(d){var m=!q||d.dataset.k.indexOf(q)>-1;d.style.display=m?'':'none';if(m)n++;});ge.style.display=n?'none':'block';});
+
+  /* ===== quiz ===== */
+  var Q=[
+    {q:'PostgreSQL 계열에서 UPDATE가 수행하는 동작으로 옳은 것은?',o:['기존 행을 그 자리에서 덮어쓴다','옛 값을 undo 영역에 복사한 뒤 덮어쓴다','새 행 버전을 추가하고 옛 버전의 xmax에 표시한다','행을 삭제하고 테이블 끝에 다시 쓴다(항상 새 페이지)'],a:2,e:'UPDATE는 <b>새 버전을 추가</b>하고 옛 버전의 xmax에 자기 XID를 적습니다. undo 방식은 Oracle의 설계입니다.'},
+    {q:'튜플 헤더의 xmin이 뜻하는 것은?',o:['이 버전을 만든 트랜잭션 ID','이 버전을 지운 트랜잭션 ID','가장 오래된 스냅샷','테이블의 최소 행 번호'],a:0,e:'<b>xmin은 만든 트랜잭션</b>, xmax는 지우거나 대체한 트랜잭션입니다.'},
+    {q:'일반 VACUUM에 대한 설명으로 옳은 것은?',o:['테이블 파일을 줄여 OS에 공간을 돌려준다','ACCESS EXCLUSIVE 잠금을 건다','dead tuple 공간을 재사용 가능하게 하며 조회·쓰기와 동시에 실행된다','트랜잭션 블록 안에서만 실행할 수 있다'],a:2,e:'일반 VACUUM은 공간을 <b>재사용 가능</b>하게 표시하고 동시 작업을 허용합니다. 공간 반환과 전체 잠금은 VACUUM FULL의 특징입니다.'},
+    {q:'VACUUM VERBOSE 결과에 "dead row versions cannot be removed yet"이 많다. 가장 먼저 의심할 것은?',o:['shared_buffers 부족','오래 열린 트랜잭션이나 idle in transaction 세션','인덱스가 너무 많음','autovacuum_naptime이 짧음'],a:1,e:'아직 누군가 볼 수 있는 버전은 지우지 못합니다. <b>오래된 스냅샷</b>(긴 트랜잭션, idle in transaction, 버려진 복제 슬롯 등)을 찾아야 합니다.'},
+    {q:'autovacuum의 기본 VACUUM 기준(PG18의 상한 제외)은?',o:['50 + 0.1 × 행 수','50 + 0.2 × 행 수','1000 + 0.2 × 행 수','행 수의 50%'],a:1,e:'VACUUM 기준은 <b>autovacuum_vacuum_threshold(50) + scale_factor(0.2) × 행 수</b>입니다. 0.1은 ANALYZE, 1000은 INSERT 기준 값입니다.'},
+    {q:'autovacuum = off 상태에서도 VACUUM이 강제로 실행되는 경우는?',o:['dead tuple이 20%를 넘을 때','XID 나이가 autovacuum_freeze_max_age를 넘을 때','서버를 재시작할 때','ANALYZE를 실행할 때'],a:1,e:'wraparound를 막기 위해 <b>autovacuum_freeze_max_age(기본 2억)</b>를 넘으면 강제로 실행됩니다.'},
+    {q:'트랜잭션 ID wraparound를 막기 위해 VACUUM이 오래된 행에 하는 작업은?',o:['압축','동결(freeze)','재색인','통계 수집'],a:1,e:'<b>동결</b>은 오래된 행을 모든 트랜잭션에게 보이는 과거로 표시해 XID 비교에서 제외합니다.'},
+    {q:'EXPLAIN ANALYZE에서 추정 rows와 실제 rows가 크게 다를 때 우선 할 조치는?',o:['shared_buffers 증가','ANALYZE로 통계 갱신(필요 시 통계 상세도 상향)','VACUUM FULL','서버 재시작'],a:1,e:'추정과 실제의 큰 차이는 <b>통계가 낡았거나 부족</b>하다는 신호입니다.'},
+    {q:'운영 중 서비스 쓰기를 막지 않고 인덱스를 새로 만드는 방법은?',o:['CREATE INDEX','CREATE INDEX CONCURRENTLY','CLUSTER','VACUUM FULL'],a:1,e:'<b>CREATE INDEX CONCURRENTLY</b>는 쓰기를 막지 않습니다. 일반 CREATE INDEX는 SHARE 잠금으로 쓰기를 막습니다.'},
+    {q:'다음 중 ACCESS EXCLUSIVE 잠금을 걸어 조회까지 막는 작업은?',o:['VACUUM','ANALYZE','REINDEX CONCURRENTLY','VACUUM FULL'],a:3,e:'<b>VACUUM FULL</b>(그리고 CLUSTER, 대부분의 ALTER TABLE)은 ACCESS EXCLUSIVE 잠금을 겁니다.'}
+  ];
+  var qw=$('quiz'), stx=$('scoreText'), ans=0, cor=0;
+  function upd(){stx.textContent=cor+' / '+ans+' 정답 (전체 '+Q.length+'문항)';}
+  function buildQ(){
+    qw.innerHTML='';ans=0;cor=0;
+    Q.forEach(function(x,i){
+      var box=document.createElement('div');box.className='q';
+      box.innerHTML='<h4><small>Q'+(i+1)+'</small>'+esc(x.q)+'</h4><div class="opts"></div><div class="explain"></div>';
+      var op=box.querySelector('.opts'), ex=box.querySelector('.explain');
+      x.o.forEach(function(t,j){
+        var b=document.createElement('button');b.type='button';b.textContent=t;
+        b.addEventListener('click',function(){
+          var bs=op.querySelectorAll('button');[].forEach.call(bs,function(bb){bb.disabled=true;});
+          bs[x.a].classList.add('right');if(j!==x.a)b.classList.add('wrong');else cor++;ans++;
+          ex.innerHTML=(j===x.a?'<b style="color:var(--ok)">정답입니다.</b> ':'<b style="color:var(--bad)">다시 확인해 보세요.</b> ')+x.e;
+          ex.classList.add('show');upd();
+        });
+        op.appendChild(b);
+      });
+      qw.appendChild(box);
+    });
+    upd();
+  }
+  $('quizReset').addEventListener('click',buildQ);buildQ();
+})();
+</script>
+</body>
+</html>

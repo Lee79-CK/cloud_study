@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>11편. 고가용성·모니터링·커넥션 풀링 개요 — EDB Postgres AI Database Essentials v18</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+
+
+
+
+
+:root{
+  --bg:#0e1829; --bg2:#122036; --surface:#172641; --surface2:#1c2e4d; --line:#28406a;
+  --text:#e7edf7; --muted:#9db0cc; --faint:#6f84a6;
+  --pg:#62a2ef; --pge:#ab90f7; --epas:#2ccbb0; --ora:#f27b9e; --exam:#f5bb45; --disk:#f39a5b;
+  --ok:#4fd18b; --bad:#f07070; --code-bg:#0a1322;
+  --proc:var(--pg); --mem:var(--pge); --wal:var(--ora);
+  --radius-lg:18px; --radius:10px;
+  --font:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#f3f6fb; --bg2:#e8eef8; --surface:#ffffff; --surface2:#f1f5fb; --line:#d2ddec;
+  --text:#15233d; --muted:#4f607c; --faint:#7d8ca5;
+  --pg:#2d6cbd; --pge:#6a49d3; --epas:#0b937e; --ora:#c43d67; --exam:#a5710a; --disk:#c2621f;
+  --ok:#1b9a58; --bad:#cc3b3b; --code-bg:#eef3fa;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-behavior:smooth;scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px)}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--pg)}
+code,pre{font-family:var(--mono)}
+:focus-visible{outline:2px solid var(--exam);outline-offset:3px;border-radius:4px}
+svg{max-width:100%}
+
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.topbar-inner{display:flex;align-items:center;gap:16px;padding:10px 22px;max-width:1280px;margin:0 auto}
+.series{font-size:14px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.series b{color:var(--text);font-weight:600}
+.theme-btn{border:1px solid var(--line);background:var(--surface);color:var(--text);font:inherit;font-size:14px;padding:6px 14px;border-radius:999px;cursor:pointer}
+.theme-btn:hover{border-color:var(--pg)}
+.progress{height:3px;background:linear-gradient(90deg,var(--pg),var(--pge),var(--ora),var(--disk),var(--exam));width:0%}
+
+
+/* hero */
+.hero{max-width:1280px;margin:0 auto;padding:52px 22px 36px}
+.hero-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.9fr);gap:40px;align-items:end;margin-bottom:26px}
+.ep-num{font-size:15px;color:var(--muted);margin:0 0 10px}
+.ep-num span{display:inline-block;background:var(--surface2);border:1px solid var(--line);border-radius:999px;padding:2px 12px;margin-right:8px;color:var(--text)}
+.hero h1{font-size:clamp(34px,5vw,56px);line-height:1.18;margin:0 0 18px;font-weight:700;letter-spacing:-.02em}
+.hero .lede{font-size:18.5px;color:var(--muted);margin:0}
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:14px}
+.hero-meta span{border:1px solid var(--line);border-radius:999px;padding:4px 12px;color:var(--muted)}
+
+/* install console (hero) */
+.console{display:grid;grid-template-columns:260px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg2)}
+.steps-nav{border-right:1px solid var(--line);padding:10px 0;display:flex;flex-direction:column}
+.steps-nav p{margin:4px 16px 8px;font-size:13.5px;color:var(--faint)}
+.steps-nav button{display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;align-items:start;font:inherit;font-size:14.5px;text-align:left;background:none;border:none;color:var(--muted);padding:9px 16px;cursor:pointer;line-height:1.45}
+.steps-nav button b{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--line);font-size:12.5px;color:var(--faint);font-weight:600}
+.steps-nav button:hover{background:var(--surface);color:var(--text)}
+.steps-nav button[aria-current="step"]{background:var(--surface);color:var(--text)}
+.steps-nav button[aria-current="step"] b{background:var(--epas);border-color:var(--epas);color:#062a24}
+.steps-nav button.done b{border-color:var(--epas);color:var(--epas)}
+.term-wrap{display:flex;flex-direction:column;min-width:0}
+.tty{background:#07101d;color:#d9e4f3;font-family:var(--mono);font-size:14px;line-height:1.65;padding:16px 18px;min-height:250px;overflow-x:auto;white-space:pre;border-bottom:1px solid var(--line)}
+:root[data-theme="light"] .tty{background:#0f1a2c}
+.tty .pr{color:#5fd4bd}
+.tty .out{color:#9fb0c8}
+.tty .ok{color:#6fe0a0}
+.tty .warn{color:#f5c565}
+.term-bar{display:flex;gap:6px;padding:8px 14px;background:#0a1526;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:#7f93b3;align-items:center}
+.term-bar i{width:10px;height:10px;border-radius:50%;background:#2b3d5e;display:inline-block}
+.term-bar span{margin-left:8px}
+.term-note{padding:14px 18px;background:var(--surface)}
+.term-note h3{margin:0 0 6px;font-size:17px}
+.term-note p{margin:0 0 8px;font-size:15px;color:var(--muted)}
+.term-note p:last-child{margin:0}
+.term-ctrl{display:flex;gap:8px;padding:10px 18px 14px;background:var(--surface);align-items:center}
+.term-ctrl span{margin-left:auto;font-size:13.5px;color:var(--faint)}
+
+/* layout */
+.layout{max-width:1280px;margin:0 auto;padding:0 22px 80px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding-top:8px}
+.toc p{margin:0 0 8px;color:var(--faint);font-size:13.5px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a::before{content:counter(t);color:var(--faint);min-width:1.2em;font-variant-numeric:tabular-nums}
+.toc a:hover{background:var(--surface);color:var(--text)}
+.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--pg)}
+main{min-width:0;max-width:820px}
+section{padding-top:28px;margin-bottom:36px}
+.sec-no{font-size:14px;color:var(--faint);margin:0 0 4px}
+h2.sec{font-size:clamp(26px,3.4vw,34px);line-height:1.3;margin:0 0 18px;letter-spacing:-.015em}
+h3{font-size:21px;margin:34px 0 10px;line-height:1.4}
+h4{font-size:17.5px;margin:22px 0 8px}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin-bottom:6px}
+
+.box{border-radius:var(--radius);padding:16px 18px;margin:22px 0;background:var(--surface);border:1px solid var(--line);border-left-width:5px}
+.box > strong:first-child{display:block;margin-bottom:6px;font-size:15.5px}
+.box p:last-child,.box ul:last-child{margin-bottom:0}
+.box.exam{border-left-color:var(--exam)} .box.exam > strong:first-child{color:var(--exam)}
+.box.term{border-left-color:var(--pge)} .box.term > strong:first-child{color:var(--pge)}
+.box.warn{border-left-color:var(--bad)} .box.warn > strong:first-child{color:var(--bad)}
+.box.field{border-left-color:var(--epas)} .box.field > strong:first-child{color:var(--epas)}
+.box.analogy{border-left-color:var(--disk)} .box.analogy > strong:first-child{color:var(--disk)}
+
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;overflow-x:auto;font-size:14.5px;line-height:1.6;margin:0 0 18px}
+p code,li code,td code,.box code,.arch-info code,.pd code{background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.88em}
+.cm{color:var(--faint)} .st{color:var(--epas)} .kw{color:var(--pge)}
+
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin:0 0 20px}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:15px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14.5px}
+tbody tr:last-child td{border-bottom:none}
+
+.chip{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:5px 14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--surface2);color:var(--text);border-color:var(--pg)}
+.btn{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:8px;padding:8px 16px;cursor:pointer}
+.btn:hover:not(:disabled){border-color:var(--pg)}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.danger{border-color:color-mix(in srgb,var(--bad) 60%,var(--line));color:var(--bad)}
+
+
+.box{border-radius:var(--radius);padding:16px 18px;margin:22px 0;background:var(--surface);border:1px solid var(--line);border-left-width:5px}
+.box > strong:first-child{display:block;margin-bottom:6px;font-size:15.5px}
+.box p:last-child,.box ul:last-child{margin-bottom:0}
+.box.exam{border-left-color:var(--exam)} .box.exam > strong:first-child{color:var(--exam)}
+.box.term{border-left-color:var(--pge)} .box.term > strong:first-child{color:var(--pge)}
+.box.warn{border-left-color:var(--bad)} .box.warn > strong:first-child{color:var(--bad)}
+.box.field{border-left-color:var(--epas)} .box.field > strong:first-child{color:var(--epas)}
+.box.analogy{border-left-color:var(--disk)} .box.analogy > strong:first-child{color:var(--disk)}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;overflow-x:auto;font-size:14.5px;line-height:1.6;margin:0 0 18px}
+p code,li code,td code,.box code,.builder code,.sd code,.trouble code{background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.88em}
+.cm{color:var(--faint)} .st{color:var(--epas)}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);margin:0 0 20px}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:15px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14.5px}
+tbody tr:last-child td{border-bottom:none}
+.chip{font:inherit;font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:5px 14px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--surface2);color:var(--text);border-color:var(--epas)}
+.btn{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--surface2);color:var(--text);border-radius:8px;padding:7px 16px;cursor:pointer}
+.btn:hover:not(:disabled){border-color:var(--epas)}
+.btn:disabled{opacity:.45;cursor:default}
+.epas-only{color:var(--epas);font-weight:600}
+
+/* method cards */
+.methods{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:18px 0}
+.method{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.method h4{margin:0 0 4px;font-size:16px}
+.method p{margin:0;font-size:14.5px;color:var(--muted);line-height:1.6}
+.method.main{border-color:var(--epas);box-shadow:inset 0 3px 0 var(--epas)}
+
+/* os toggle */
+.toggle{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+
+/* builder */
+.builder{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.bgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 20px}
+.bfield > span{display:block;font-size:14.5px;font-weight:600;margin-bottom:6px}
+.bfield .opts-row{display:flex;flex-wrap:wrap;gap:6px}
+.bfield input[type=text]{width:100%;font:inherit;font-family:var(--mono);font-size:14.5px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.bout{margin-top:18px}
+.bout h4{margin:14px 0 6px;font-size:15px;color:var(--muted);font-weight:600}
+.bout pre{margin-bottom:8px;white-space:pre-wrap;word-break:break-all}
+.result{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.result div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.result small{display:block;color:var(--faint);font-size:12.5px}
+.result b{font-family:var(--mono);font-size:15px}
+.notes{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.notes li{font-size:14.5px;padding:8px 12px;border-radius:8px;background:var(--surface);border-left:3px solid var(--exam);color:var(--muted)}
+.notes li.bad{border-left-color:var(--bad)}
+.notes li.good{border-left-color:var(--ok)}
+
+/* shutdown sim */
+.sd{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sd-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.sd-modes button{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;color:var(--text);cursor:pointer;line-height:1.45}
+.sd-modes button small{display:block;color:var(--faint);font-size:12.5px;font-family:var(--mono)}
+.sd-modes button span{font-weight:700;font-size:16px}
+.sd-modes button[aria-pressed="true"]{border-color:var(--c);box-shadow:inset 0 3px 0 var(--c)}
+.sd-rows{display:grid;gap:6px}
+.sd-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;background:var(--surface);border-radius:8px;padding:10px 14px;font-size:15px}
+.sd-row b{color:var(--muted);font-weight:500;font-size:14px}
+.sd-cmd{margin-top:12px}
+
+/* trouble */
+.trouble{display:grid;gap:8px;margin:16px 0}
+.trouble details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px}
+.trouble summary{cursor:pointer;list-style:none;display:flex;gap:10px;align-items:baseline}
+.trouble summary::-webkit-details-marker{display:none}
+.trouble summary code{font-size:13.5px;color:var(--bad);background:none;border:none;padding:0;white-space:normal;word-break:break-all}
+.trouble summary::after{content:"+";margin-left:auto;color:var(--muted)}
+.trouble details[open] summary::after{content:"−"}
+.trouble .tb{margin-top:10px;font-size:15px;color:var(--muted)}
+.trouble .tb p{margin:0 0 8px}
+.trouble .tb pre{margin:0}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;font-size:16px;padding:10px 14px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;gap:8px}
+.gloss details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px 16px}
+.gloss summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.gloss summary::-webkit-details-marker{display:none}
+.gloss summary::after{content:"+";color:var(--muted);font-weight:400}
+.gloss details[open] summary::after{content:"−"}
+.gloss summary em{font-style:normal;font-weight:400;color:var(--muted);font-size:14px}
+.gloss details p{margin:8px 0 2px;color:var(--muted);font-size:15.5px}
+.gloss-empty{color:var(--muted);font-size:15px;display:none}
+
+/* quiz */
+.quiz{display:grid;gap:14px;margin:18px 0}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+.q h4{margin:0 0 10px;font-size:16.5px;line-height:1.55}
+.q h4 small{color:var(--faint);font-weight:500;margin-right:6px}
+.opts{display:grid;gap:7px}
+.opts button{font:inherit;font-size:15px;text-align:left;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:8px;padding:9px 12px;cursor:pointer}
+.opts button:hover:not(:disabled){border-color:var(--pg)}
+.opts button:disabled{cursor:default}
+.opts button.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.opts button.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,var(--bg2))}
+.explain{margin-top:10px;font-size:15px;color:var(--muted);display:none}
+.explain.show{display:block}
+.explain b{color:var(--text)}
+.score{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);background:var(--surface2);border:1px solid var(--line);border-radius:999px;padding:8px 18px;width:max-content;max-width:100%;margin:10px 0 0 auto;font-size:15px;display:flex;gap:14px;align-items:center}
+.score button{font:inherit;font-size:14px;background:none;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:3px 12px;cursor:pointer}
+
+.next{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;margin-top:20px}
+.next h3{margin-top:0}
+footer{border-top:1px solid var(--line);padding:24px 22px 40px;text-align:center;color:var(--faint);font-size:14px}
+
+
+@media (max-width:1080px){.console{grid-template-columns:1fr}.steps-nav{border-right:none;border-bottom:1px solid var(--line);flex-direction:row;flex-wrap:wrap}.steps-nav p{width:100%}.steps-nav button{grid-template-columns:24px auto;padding:6px 10px}}
+@media (max-width:980px){
+  .hero-top{grid-template-columns:1fr;gap:12px}
+  .layout{grid-template-columns:1fr;gap:0}
+  .toc{display:none}
+  main{max-width:none}
+  .result{grid-template-columns:1fr}
+}
+@media (max-width:620px){
+  body{font-size:16px}
+  .bgrid,.sd-modes{grid-template-columns:1fr}
+  .sd-row{grid-template-columns:1fr;gap:2px}
+  .topbar-inner{padding:10px 14px}
+  .hero,.layout{padding-left:16px;padding-right:16px}
+  .steps-nav button span{display:none}
+}
+
+/* ===== 4편 추가 ===== */
+.emu{display:grid;grid-template-columns:minmax(0,1fr) 300px;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg2)}
+.emu-main{display:flex;flex-direction:column;min-width:0}
+.emu .tty{height:330px;overflow:auto;white-space:pre;min-height:0}
+.emu-input{display:flex;align-items:center;gap:8px;background:#07101d;padding:10px 18px;border-top:1px solid #1d2d48;font-family:var(--mono);font-size:14px}
+:root[data-theme="light"] .emu-input{background:#0f1a2c}
+.emu-input label{color:#5fd4bd;white-space:nowrap}
+.emu-input input{flex:1;min-width:0;background:transparent;border:none;color:#e7edf7;font:inherit;outline:none}
+.emu-input input:focus-visible{outline:none}
+.emu-input:focus-within{box-shadow:inset 0 0 0 2px var(--exam)}
+.emu-side{border-left:1px solid var(--line);padding:12px;overflow:auto;max-height:420px}
+.emu-side p{margin:0 0 8px;font-size:13.5px;color:var(--faint)}
+.emu-side .grp{margin-bottom:12px}
+.emu-side .grp b{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;font-weight:600}
+.cmdchips{display:flex;flex-wrap:wrap;gap:5px}
+.cmdchips button{font-family:var(--mono);font-size:12.5px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:6px;padding:3px 8px;cursor:pointer}
+.cmdchips button:hover{border-color:var(--epas)}
+.emu-note{grid-column:1/-1;background:var(--surface);border-top:1px solid var(--line);padding:14px 18px;min-height:80px}
+.emu-note h3{margin:0 0 4px;font-size:16px;font-family:var(--mono)}
+.emu-note p{margin:0;font-size:15px;color:var(--muted)}
+
+.cb{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.cb-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.cb-grid label{display:block;font-size:14px;font-weight:600;margin-bottom:5px}
+.cb-grid input,.cb-grid select{width:100%;font:inherit;font-family:var(--mono);font-size:14.5px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.cb-out{margin-top:14px;display:grid;gap:8px}
+.cb-item{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+.cb-item small{display:block;color:var(--faint);font-size:12.5px;margin-bottom:3px}
+.cb-item code{font-size:14px;word-break:break-all;background:none;border:none;padding:0;color:var(--text)}
+
+.sorter{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sort-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:6px}
+.sort-row code{font-size:14px;background:none;border:none;padding:0;color:var(--text);word-break:break-all}
+.sort-btns{display:flex;gap:4px;flex-wrap:wrap}
+.sort-btns button{font:inherit;font-size:12.5px;font-weight:600;border:1px solid var(--line);background:var(--bg2);color:var(--muted);border-radius:6px;padding:3px 9px;cursor:pointer}
+.sort-btns button:disabled{cursor:default}
+.sort-btns button.right{border-color:var(--ok);color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.sort-btns button.wrong{border-color:var(--bad);color:var(--bad)}
+.sort-exp{grid-column:1/-1;font-size:14px;color:var(--muted);display:none}
+.sort-exp.show{display:block}
+.sort-score{margin-top:10px;font-size:15px;color:var(--muted)}
+
+.iso{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.iso-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.iso-top span{font-size:14px;color:var(--muted);margin-right:4px}
+.iso-grid{display:grid;grid-template-columns:48px minmax(0,1fr) minmax(0,1fr);gap:6px;font-size:14px}
+.iso-grid .h{font-weight:600;padding:6px 10px;border-radius:6px;background:var(--surface2)}
+.iso-grid .t{font-family:var(--mono);color:var(--faint);padding:8px 4px;text-align:center}
+.iso-cell{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:13.5px;min-height:38px;white-space:pre-wrap;opacity:.28;transition:opacity .2s}
+.iso-cell.on{opacity:1}
+.iso-cell.cur{border-color:var(--exam);box-shadow:0 0 0 1px var(--exam)}
+.iso-cell .r{display:block;color:var(--epas);margin-top:2px}
+.iso-cell .x{display:block;color:var(--bad);margin-top:2px}
+.iso-cell.empty{background:transparent;border-style:dashed;opacity:.18}
+.iso-text{margin-top:12px;background:var(--surface);border-left:4px solid var(--exam);border-radius:8px;padding:12px 14px;font-size:15px;color:var(--muted);min-height:64px}
+.iso-ctrl{display:flex;gap:8px;margin-top:10px;align-items:center}
+.iso-ctrl span{margin-left:auto;font-size:13.5px;color:var(--faint)}
+
+.tabs{margin:22px 0}
+.tablist{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line)}
+.tablist button{font:inherit;font-size:15px;background:none;border:none;color:var(--muted);padding:10px 14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tablist button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--epas);font-weight:600}
+.tabpanel{background:var(--surface);border:1px solid var(--line);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:20px}
+.tabpanel[hidden]{display:none}
+.tabpanel h4{margin-top:0}
+.tabpanel pre{margin-bottom:12px}
+
+@media (max-width:1080px){.emu{grid-template-columns:1fr}.emu-side{border-left:none;border-top:1px solid var(--line);max-height:none}}
+@media (max-width:760px){.cb-grid{grid-template-columns:1fr 1fr}.iso-grid{grid-template-columns:36px minmax(0,1fr) minmax(0,1fr)}}
+@media (max-width:520px){.cb-grid{grid-template-columns:1fr}.sort-row{grid-template-columns:1fr}.emu .tty{height:260px}}
+
+.sim{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sim-text{background:var(--surface);border-radius:var(--radius);padding:14px 16px;min-height:70px;border-left:4px solid var(--exam);font-size:15px;color:var(--muted)}
+.sim-ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.sim-ctrl .count{margin-left:auto;font-size:14px;color:var(--faint);font-variant-numeric:tabular-nums}
+
+.steps{counter-reset:s;list-style:none;padding:0;margin:18px 0}
+.steps li{counter-increment:s;position:relative;padding-left:44px;margin-bottom:16px}
+.steps li::before{content:counter(s);position:absolute;left:0;top:2px;width:30px;height:30px;border-radius:50%;background:var(--surface2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:14px;color:var(--epas)}
+
+.field label{display:flex;justify-content:space-between;gap:10px;font-size:14.5px;margin-bottom:4px}
+
+/* ===== 11편 추가 ===== */
+:root{--pri:#4fd18b;--stb:#62a2ef;--wit:#ab90f7;--down:#f07070;--vip:#f5bb45}
+:root[data-theme="light"]{--pri:#1b9a58;--stb:#2d6cbd;--wit:#6a49d3;--down:#cc3b3b;--vip:#a5710a}
+.ha{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px}
+.ha-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}
+.ha-head h2{margin:0;font-size:16px;font-weight:600}
+.scn{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:14px;align-items:center}
+.app{background:var(--surface);border:2px solid var(--faint);border-radius:12px;padding:12px;text-align:center}
+.app b{display:block;font-size:15px}
+.app span{display:block;font-size:12.5px;color:var(--muted);margin-top:4px}
+.app .vipline{margin-top:8px;font-family:var(--mono);font-size:12.5px;color:var(--vip)}
+.nodes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.nd{background:var(--surface);border:2px solid var(--c);border-radius:12px;padding:12px;position:relative;transition:border-color .25s, opacity .25s, box-shadow .25s;min-height:150px}
+.nd.off{opacity:.45;border-style:dashed}
+.nd.hl{box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 35%,transparent)}
+.nd h4{margin:0 0 2px;font-family:var(--mono);font-size:15px}
+.nd .role{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:1px 9px;color:#0e1829;background:var(--c);margin-bottom:8px}
+.nd .vip{position:absolute;right:10px;top:10px;font-family:var(--mono);font-size:11.5px;color:var(--vip);border:1px solid var(--vip);border-radius:6px;padding:0 6px}
+.nd dl{display:grid;grid-template-columns:62px 1fr;gap:2px 6px;margin:0;font-size:12.5px}
+.nd dt{color:var(--faint)}
+.nd dd{margin:0;font-family:var(--mono)}
+.ha-text{margin-top:12px;background:var(--surface);border-left:4px solid var(--exam);border-radius:8px;padding:12px 14px;font-size:15px;color:var(--muted);min-height:70px}
+.ha-text b{color:var(--text)}
+.ha-text code{font-size:13px}
+
+.sc{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;margin:22px 0}
+.sc-levels{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.pipe5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.p5{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:10px;font-size:13.5px;line-height:1.45;position:relative;transition:border-color .2s, background .2s}
+.p5 small{display:block;color:var(--faint);font-size:11.5px;font-family:var(--mono)}
+.p5.wait{border-color:var(--exam);background:color-mix(in srgb,var(--exam) 10%,var(--surface))}
+.p5.after{opacity:.45}
+.p5.ret::after{content:"← 여기서 COMMIT 응답";position:absolute;left:8px;bottom:-22px;font-size:11.5px;color:var(--exam);font-weight:600;white-space:nowrap}
+.sc-out{margin-top:30px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.sc-out div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:14px}
+.sc-out b{display:block;font-size:12.5px;color:var(--faint);font-weight:600;margin-bottom:3px}
+.sc-out .lat{display:flex;gap:3px;margin-top:4px}
+.sc-out .lat i{height:8px;flex:1;border-radius:4px;background:var(--line)}
+.sc-out .lat i.on{background:var(--exam)}
+
+.sym{display:grid;grid-template-columns:260px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin:18px 0}
+.sym .qs{background:var(--bg2);border-right:1px solid var(--line)}
+.sym .qs button{display:block;width:100%;text-align:left;font:inherit;font-size:14.5px;background:none;border:none;border-bottom:1px solid var(--line);color:var(--muted);padding:10px 14px;cursor:pointer;line-height:1.45}
+.sym .qs button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--vip)}
+.sym .ans{padding:16px;background:var(--surface);min-width:0}
+.sym .ans h5{margin:0 0 6px;font-size:14px;color:var(--vip)}
+.sym .ans p{margin:0 0 8px;font-size:14.5px;color:var(--muted)}
+.sym .ans pre{margin:0;font-size:13px;white-space:pre-wrap}
+
+@media (max-width:1080px){.stage{grid-template-columns:1fr}}
+@media (max-width:820px){.nodes{grid-template-columns:1fr}.pipe5{grid-template-columns:1fr}.p5.ret::after{position:static;display:block;margin-top:4px}.sc-out{grid-template-columns:1fr;margin-top:12px}.sym{grid-template-columns:1fr}.sym .qs{border-right:none;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="series"><b>EDB Postgres AI Database Essentials v18</b> 시험 대비 · 11편 / 12편</div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="라이트 테마로 전환">☀ 라이트</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="hero">
+  <div class="hero-top">
+    <div>
+      <p class="ep-num"><span>트랙 C · 데이터 보호와 이동</span>11편</p>
+      <h1>고가용성·모니터링·커넥션 풀링 개요</h1>
+      <p class="lede">10편의 백업은 "되살리는" 기술이고, 고가용성은 "멈추지 않게 하는" 기술입니다. 재료는 같은 WAL입니다. 이 편에서는 스트리밍 복제부터 EDB Failover Manager, EDB Postgres Distributed, 모니터링 도구와 커넥션 풀러까지, 각 도구가 어떤 문제를 푸는지 구분하는 것을 목표로 합니다.</p>
+    </div>
+    <div class="hero-meta">
+      <span>기준: EPAS 18 / PostgreSQL 18</span>
+      <span>읽는 시간 약 70분</span>
+      <span>시험 수준: 개요·역할 구분</span>
+    </div>
+  </div>
+
+  <div class="ha" id="ha">
+    <div class="ha-head"><h2>EDB Failover Manager 장애 조치 극장 — 상황을 고르고 "다음"을 누르세요</h2></div>
+    <div class="scn" id="scn" role="group" aria-label="시나리오 선택">
+      <button class="chip" type="button" data-s="down" aria-pressed="true">주 서버 장애</button>
+      <button class="chip" type="button" data-s="iso" aria-pressed="false">주 서버 네트워크 고립</button>
+      <button class="chip" type="button" data-s="sw" aria-pressed="false">계획된 전환 (switchover)</button>
+    </div>
+    <div class="stage">
+      <div class="app"><b>애플리케이션</b><span>VIP로만 접속</span><div class="vipline">db-vip 10.0.1.100</div></div>
+      <div class="nodes" id="nodes"></div>
+    </div>
+    <div class="ha-text" id="haText" aria-live="polite"></div>
+    <div class="sim-ctrl"><button class="btn" type="button" id="haPrev">이전</button><button class="btn" type="button" id="haNext">다음</button><button class="btn" type="button" id="haReset">처음부터</button><span class="count" id="haCount"></span></div>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="toc" aria-label="목차">
+    <p>이번 편에서 다루는 것</p>
+    <ol>
+      <li><a href="#s1">고가용성 기본 용어</a></li>
+      <li><a href="#s2">스트리밍 복제</a></li>
+      <li><a href="#s3">동기 복제와 synchronous_commit</a></li>
+      <li><a href="#s4">복제 슬롯과 승격</a></li>
+      <li><a href="#s5">논리 복제</a></li>
+      <li><a href="#s6">EDB Failover Manager</a></li>
+      <li><a href="#s7">EDB Postgres Distributed</a></li>
+      <li><a href="#s8">커넥션 풀러</a></li>
+      <li><a href="#s9">모니터링과 PEM</a></li>
+      <li><a href="#s10">용어 사전</a></li>
+      <li><a href="#s11">확인 퀴즈</a></li>
+    </ol>
+  </nav>
+
+<main>
+
+<!-- 1 -->
+<section id="s1">
+  <p class="sec-no">1장</p>
+  <h2 class="sec">고가용성 기본 용어</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>용어</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td><b>주 서버(primary)</b></td><td>읽기·쓰기를 받는 서버. 예전 문서에서는 master</td></tr>
+      <tr><td><b>스탠바이(standby)</b></td><td>주 서버의 WAL을 받아 같은 상태를 유지하는 서버. 읽기 전용 조회 가능(hot standby)</td></tr>
+      <tr><td><b>failover</b></td><td>주 서버 <b>장애</b> 때 스탠바이를 주 서버로 올리는 것. 계획되지 않은 전환</td></tr>
+      <tr><td><b>switchover</b></td><td>점검·패치를 위해 <b>계획적으로</b> 역할을 바꾸는 것. 데이터 손실 없이 진행</td></tr>
+      <tr><td><b>승격(promote)</b></td><td>스탠바이가 복구 모드를 끝내고 주 서버가 되는 동작. 타임라인 증가(10편)</td></tr>
+      <tr><td><b>split-brain</b></td><td>네트워크 분리로 두 서버가 동시에 자신을 주 서버로 여기고 쓰기를 받는 최악의 상황. 데이터가 갈라짐</td></tr>
+      <tr><td><b>펜싱(fencing)</b></td><td>split-brain을 막기 위해 옛 주 서버를 확실히 격리·정지시키는 조치</td></tr>
+    </tbody></table></div>
+  <div class="box analogy">
+    <strong>비유: 조종사와 부조종사</strong>
+    <p>스트리밍 복제는 부조종사가 조종사의 모든 조작을 실시간으로 따라 하는 것입니다. Failover Manager는 "조종사가 정말 쓰러졌는지"를 관제탑(witness)과 함께 확인하고 부조종사에게 조종간을 넘기는 규정입니다. 무전이 끊겼을 뿐인데 두 사람이 동시에 조종간을 잡으면 안 되므로, 고립된 쪽이 스스로 손을 떼게 하는 것이 펜싱입니다.</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="s2">
+  <p class="sec-no">2장</p>
+  <h2 class="sec">스트리밍 복제</h2>
+  <p>주 서버의 <b>walsender</b> 프로세스가 WAL을 실시간으로 보내고, 스탠바이의 <b>walreceiver</b>가 받아 기록하며, <b>startup</b> 프로세스가 재생합니다(2편 프로세스 표). 클러스터 전체가 바이트 단위로 같아지는 <b>물리 복제</b>입니다.</p>
+  <h3>스탠바이 만들기</h3>
+<pre><span class="cm"># 주 서버 준비: 복제 역할, pg_hba.conf의 replication 항목 (10편 pg_basebackup과 같음)</span>
+<span class="cm"># wal_level = replica (기본), max_wal_senders 여유, hot_standby = on (스탠바이 쪽, 기본)</span>
+
+<span class="cm"># 스탠바이 서버에서 (빈 데이터 디렉터리)</span>
+pg_basebackup -h db01 -p 5444 -U repl_user \
+  -D /var/lib/edb/as18/data -Xstream -P -R -C -S standby_db02
+sudo systemctl start edb-as-18</pre>
+  <ul class="plain">
+    <li><code>-R</code> — <b>standby.signal</b> 파일을 만들고 <code>primary_conninfo</code>(주 서버 접속 정보)를 postgresql.auto.conf에 적어 줍니다.</li>
+    <li><code>-C -S 이름</code> — 주 서버에 <b>복제 슬롯</b>을 만들고 그 슬롯을 쓰도록 설정합니다(4장).</li>
+  </ul>
+  <h3>상태 확인</h3>
+<pre><span class="cm">-- 주 서버에서: 스탠바이별 진행 위치와 지연</span>
+SELECT application_name, client_addr, state, sync_state,
+       sent_lsn, write_lsn, flush_lsn, replay_lsn,
+       write_lag, flush_lag, replay_lag
+FROM   pg_stat_replication;
+
+<span class="cm">-- 스탠바이에서</span>
+SELECT pg_is_in_recovery();                         <span class="cm">-- t</span>
+SELECT status, sender_host FROM pg_stat_wal_receiver;
+SELECT now() - pg_last_xact_replay_timestamp() AS replay_delay;</pre>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>스트리밍 복제는 <b>클러스터 전체</b>를 복제합니다(특정 DB·테이블만 불가). 스탠바이는 <b>읽기 전용</b>이고, 같은 메이저 버전이어야 합니다. 스탠바이 모드 신호는 <b>standby.signal</b>, 일회성 복구는 recovery.signal(10편)입니다. 복제 지연은 주 서버의 <code>pg_stat_replication</code>으로 봅니다.</p>
+  </div>
+  <div class="box term">
+    <strong>용어: 스탠바이 쿼리 충돌</strong>
+    <p>스탠바이에서 긴 조회를 돌리는 동안, 주 서버의 VACUUM이 그 조회가 보던 행을 치우는 WAL이 도착하면 충돌이 생깁니다. 스탠바이는 <code>max_standby_streaming_delay</code>(기본 30초)만큼 기다린 뒤 조회를 취소합니다. <code>hot_standby_feedback = on</code>으로 충돌을 줄일 수 있지만, 그 대가로 주 서버의 청소가 늦어집니다(8편 2장).</p>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="s3">
+  <p class="sec-no">3장</p>
+  <h2 class="sec">동기 복제와 synchronous_commit</h2>
+  <p>기본은 <b>비동기 복제</b>입니다. 주 서버는 자기 디스크에 WAL을 쓰면 바로 커밋을 응답하고, 스탠바이로는 뒤따라 보냅니다. 빠르지만 주 서버가 갑자기 사라지면 아직 전송되지 않은 마지막 커밋 몇 건을 잃을 수 있습니다. <b>동기 복제</b>는 스탠바이가 받았다는 확인까지 기다려 이 손실을 막습니다.</p>
+<pre><span class="cm"># 주 서버 postgresql.conf — 스탠바이의 application_name으로 지정</span>
+synchronous_standby_names = 'FIRST 1 (db02, db03)'   <span class="cm"># 목록 순서대로 우선, 1대의 확인을 기다림</span>
+<span class="cm"># synchronous_standby_names = 'ANY 1 (db02, db03)'   # 둘 중 아무거나 먼저 응답한 1대</span>
+synchronous_commit = on</pre>
+  <h3>synchronous_commit 단계 비교</h3>
+  <p class="muted">단계를 고르면 COMMIT이 어디까지 기다리는지, 무엇이 보장되는지 보여 줍니다. synchronous_standby_names가 설정되어 있다고 가정합니다.</p>
+  <div class="sc" id="sc">
+    <div class="sc-levels" id="scLevels"></div>
+    <div class="pipe5" id="pipe5"></div>
+    <div class="sc-out" id="scOut" aria-live="polite"></div>
+  </div>
+  <div class="box warn">
+    <strong>동기 스탠바이가 죽으면 쓰기가 멈춘다</strong>
+    <p>동기 복제에서 확인을 줄 스탠바이가 하나도 없으면, 주 서버의 커밋은 <b>무한정 기다립니다</b>. 그래서 동기 복제는 보통 스탠바이를 2대 이상 두고 <code>ANY 1</code>이나 <code>FIRST 1</code>로 한 대만 확인받게 구성합니다. 반대로 synchronous_standby_names가 비어 있으면 synchronous_commit = on이어도 <b>로컬 디스크 기록만</b> 기다리는 비동기 복제입니다.</p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="s4">
+  <p class="sec-no">4장</p>
+  <h2 class="sec">복제 슬롯과 승격</h2>
+  <h3>복제 슬롯</h3>
+  <p>스탠바이가 잠시 끊겼다 돌아왔을 때 필요한 WAL을 주 서버가 이미 지웠다면 다시 따라갈 수 없습니다. <b>복제 슬롯</b>은 "이 스탠바이가 받아 갈 때까지 WAL을 지우지 마라"는 예약입니다.</p>
+<pre>SELECT pg_create_physical_replication_slot('standby_db02');
+SELECT slot_name, slot_type, active, restart_lsn,
+       pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained
+FROM   pg_replication_slots;
+SELECT pg_drop_replication_slot('standby_db02');   <span class="cm">-- 쓰지 않는 슬롯은 반드시 삭제</span></pre>
+  <div class="box warn">
+    <strong>버려진 슬롯이 디스크를 채운다</strong>
+    <p>스탠바이를 없앴는데 슬롯을 지우지 않으면, 주 서버는 그 슬롯을 위해 WAL을 영원히 보관해 결국 pg_wal 디스크가 가득 찹니다. 논리 복제 슬롯은 8편의 xmin horizon도 붙잡아 VACUUM까지 막습니다. <code>max_slot_wal_keep_size</code>로 슬롯이 붙잡을 수 있는 WAL의 상한을 정해 두세요(초과하면 슬롯이 무효화되어 스탠바이를 다시 만들어야 하지만, 주 서버는 살아남습니다).</p>
+  </div>
+  <h3>승격과 옛 주 서버</h3>
+<pre>pg_ctl promote -D /var/lib/edb/as18/data      <span class="cm"># 스탠바이에서</span>
+SELECT pg_promote();                         <span class="cm"># SQL로 (PG12+)</span></pre>
+  <p>승격된 스탠바이는 새 타임라인으로 쓰기를 시작합니다(10편 7장). 옛 주 서버는 그 사이 새 주 서버에 없는 WAL을 일부 가지고 있을 수 있어 그대로 스탠바이로 붙일 수 없습니다. <b>pg_rewind</b>로 갈라진 부분을 되감아 맞추거나, pg_basebackup으로 새로 만듭니다. pg_rewind를 쓰려면 <code>wal_log_hints = on</code> 또는 데이터 체크섬이 켜져 있어야 합니다(PG18 initdb 기본으로 충족, 3편).</p>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>"주 서버에 WAL이 계속 쌓여 디스크가 찼다" → <b>비활성 복제 슬롯</b>(또는 10편의 아카이브 실패)을 의심합니다. 승격은 <code>pg_ctl promote</code>나 <code>pg_promote()</code>, 옛 주 서버 재합류는 <b>pg_rewind</b>입니다.</p>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="s5">
+  <p class="sec-no">5장</p>
+  <h2 class="sec">논리 복제</h2>
+  <p>물리 복제가 "디스크 블록의 변경"을 보낸다면, 논리 복제는 "<b>어느 테이블의 어느 행이 어떻게 바뀌었는가</b>"를 보냅니다. 그래서 테이블 단위로 고를 수 있고, 다른 메이저 버전 사이에서도 동작합니다.</p>
+<pre><span class="cm">-- 원본(발행자): wal_level = logical (재시작 필요)</span>
+CREATE PUBLICATION sales_pub FOR TABLE orders, customers;
+CREATE PUBLICATION paid_pub  FOR TABLE orders WHERE (status = 'PAID');   <span class="cm">-- 행 필터 (PG15+)</span>
+
+<span class="cm">-- 대상(구독자): 테이블 구조는 미리 만들어 둬야 함</span>
+CREATE SUBSCRIPTION sales_sub
+  CONNECTION 'host=db01 port=5444 dbname=sales user=repl_user'
+  PUBLICATION sales_pub;</pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>물리(스트리밍) 복제</th><th>논리 복제</th></tr></thead>
+    <tbody>
+      <tr><td>단위</td><td>클러스터 전체</td><td>테이블 선택 (행 필터·컬럼 목록 가능)</td></tr>
+      <tr><td>대상 서버</td><td>읽기 전용 스탠바이</td><td><b>읽기·쓰기 가능한</b> 일반 서버</td></tr>
+      <tr><td>버전</td><td>같은 메이저 버전</td><td><b>다른 메이저 버전 가능</b></td></tr>
+      <tr><td>DDL·시퀀스</td><td>모두 복제</td><td>DDL은 복제되지 않음 (구조 변경은 양쪽에 직접)</td></tr>
+      <tr><td>wal_level</td><td>replica</td><td>logical</td></tr>
+      <tr><td>주 용도</td><td>고가용성, 읽기 분산</td><td>무중단에 가까운 메이저 업그레이드, 일부 데이터 통합·배포</td></tr>
+    </tbody></table></div>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>논리 복제는 <b>PUBLICATION</b>(발행)과 <b>SUBSCRIPTION</b>(구독)으로 구성되고, 원본에 <b>wal_level = logical</b>이 필요합니다. <b>DDL은 복제되지 않는다</b>는 점이 자주 나옵니다. 2편의 logical replication launcher가 구독용 작업 프로세스를 관리합니다.</p>
+  </div>
+</section>
+
+<!-- 6 -->
+<section id="s6">
+  <p class="sec-no">6장</p>
+  <h2 class="sec"><span class="epas-only">EDB Failover Manager (EFM)</span></h2>
+  <p>스트리밍 복제만으로는 장애를 감지하고 스탠바이를 승격하는 일을 사람이 해야 합니다. <b>EDB Failover Manager</b>는 주·스탠바이 구조에서 이를 자동화하는 EDB의 고가용성 도구로, PostgreSQL과 EPAS 모두에 쓸 수 있습니다. 히어로의 극장이 EFM의 동작입니다.</p>
+  <h3>구성</h3>
+  <ul class="plain">
+    <li><b>에이전트</b> — 각 서버에서 EFM 에이전트(Java 프로그램)가 돌며, 서로 JGroups로 통신해 상태를 확인합니다. 주 에이전트, 하나 이상의 스탠바이 에이전트, 그리고 선택적인 witness 에이전트로 이뤄집니다.</li>
+    <li><b>witness 노드</b> — DB 없이 판단에만 참여하는 노드입니다. 데이터 노드가 두 대(주+스탠바이 1)뿐일 때 "누가 정말 사라졌나"를 다수결로 정하기 위해 필요하며, <b>데이터 노드가 세 대 이상이면 따로 두지 않아도 됩니다</b>.</li>
+    <li><b>클라이언트 연결 전환</b> — 가상 IP(VIP)를 새 주 서버로 옮기거나, PgBouncer·Pgpool-II·로드 밸런서와 연동해 애플리케이션이 새 주 서버로 붙게 합니다.</li>
+  </ul>
+<pre><span class="cm"># 설정 파일 (/etc/edb/efm-버전/)</span>
+efm.properties   <span class="cm"># DB 접속 정보, is.witness, virtual.ip, 장애 판단 시간 등</span>
+efm.nodes        <span class="cm"># 클러스터 구성원 주소 목록</span>
+
+<span class="cm"># 운영 명령</span>
+efm cluster-status efm            <span class="cm"># 클러스터 상태, 각 노드 역할·LSN·동기 여부</span>
+efm promote efm -switchover       <span class="cm"># 계획된 역할 전환 (옛 주 서버는 스탠바이로)</span>
+efm allow-node efm 10.0.1.13      <span class="cm"># 새 노드 참여 허용</span>
+efm stop-cluster efm              <span class="cm"># 모든 에이전트 중지 (DB는 그대로)</span></pre>
+  <div class="box exam">
+    <strong>시험 포인트</strong>
+    <p>EFM은 <b>주-스탠바이(스트리밍 복제) 구조의 자동 장애 조치</b> 도구입니다. 장애 시 가장 최신 상태의 스탠바이를 승격하려 하지만, 비동기 복제라면 데이터 손실 가능성은 남습니다. witness는 <b>데이터 노드가 둘일 때</b> 필요합니다. 네트워크에서 고립된 주 서버가 스스로 DB를 멈추게 하는 설정(<code>stop.isolated.primary</code>)이 split-brain 방지의 핵심입니다.</p>
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="s7">
+  <p class="sec-no">7장</p>
+  <h2 class="sec"><span class="epas-only">EDB Postgres Distributed (PGD)</span></h2>
+  <p>EFM 구조에서는 쓰기를 받는 서버가 언제나 한 대이고, 장애 조치에 수십 초 정도가 걸립니다. <b>EDB Postgres Distributed</b>는 여러 노드가 <b>모두 쓰기를 받을 수 있는</b>(multi-master, active-active) 분산 구조로, 노드 하나가 사라져도 거의 끊김 없이 다른 노드로 이어 가는 것을 목표로 합니다.</p>
+  <ul class="plain">
+    <li><b>논리 복제 기반</b> — 노드끼리 변경을 논리 복제로 주고받습니다. 그래서 노드별 메이저 업그레이드를 하나씩 진행하는 무중단 업그레이드가 가능합니다.</li>
+    <li><b>충돌 처리</b> — 두 노드에서 같은 행을 동시에 바꾸면 충돌이 생기므로, 충돌 감지·해결 규칙과 이를 피하는 설계가 필요합니다.</li>
+    <li><b>합의와 연결 라우팅</b> — Raft 합의로 그룹의 상태를 결정하고, 애플리케이션 연결을 알맞은 노드로 보내는 라우팅 구성요소를 둡니다.</li>
+    <li><b>커밋 범위</b> — 트랜잭션마다 몇 개 노드의 확인을 받을지 등 내구성 수준을 정할 수 있습니다.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>스트리밍 복제 + EFM</th><th>EDB Postgres Distributed</th></tr></thead>
+    <tbody>
+      <tr><td>쓰기 노드</td><td>주 서버 1대</td><td>여러 대 가능</td></tr>
+      <tr><td>복제 방식</td><td>물리</td><td>논리</td></tr>
+      <tr><td>장애 조치</td><td>감지 후 승격 (수십 초 수준)</td><td>다른 노드로 연결 전환 (매우 짧게)</td></tr>
+      <tr><td>복잡도</td><td>낮음</td><td>높음 (충돌·설계 고려)</td></tr>
+      <tr><td>어울리는 곳</td><td>대부분의 업무 시스템</td><td>극도로 높은 가용성, 지역 분산, 무중단 업그레이드</td></tr>
+    </tbody></table></div>
+  <p class="muted" style="font-size:15px">PGD는 EDB Postgres Extended(PGE)와 EPAS에서 쓰며(1편), 세부 구성요소 이름과 아키텍처 선택지는 버전에 따라 바뀌므로 공식 문서를 기준으로 확인하세요. 이 시험에서는 EFM과의 차이를 구분하는 수준이면 충분합니다.</p>
+</section>
+
+<!-- 8 -->
+<section id="s8">
+  <p class="sec-no">8장</p>
+  <h2 class="sec">커넥션 풀러</h2>
+  <p>2편에서 봤듯 연결 하나가 프로세스 하나라서, 짧은 연결이 수천 개씩 오가는 웹 애플리케이션은 연결 생성 비용과 메모리 부담이 큽니다. <b>커넥션 풀러</b>는 애플리케이션과 DB 사이에서 적은 수의 DB 연결을 미리 열어 두고 돌려씁니다.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>PgBouncer</th><th>Pgpool-II</th></tr></thead>
+    <tbody>
+      <tr><td>성격</td><td>가볍고 단순한 전용 풀러</td><td>풀링 + 읽기 부하 분산 + 자체 장애 감시(watchdog) 등 다기능 미들웨어</td></tr>
+      <tr><td>기본 포트</td><td>6432</td><td>9999</td></tr>
+      <tr><td>강점</td><td>적은 자원으로 수천 연결 처리</td><td>SELECT를 스탠바이로 분산</td></tr>
+      <tr><td>EDB 배포</td><td>EDB PgBouncer 패키지</td><td>EDB Pgpool-II 패키지</td></tr>
+    </tbody></table></div>
+  <h3>PgBouncer 풀 모드</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>pool_mode</th><th>DB 연결을 돌려받는 시점</th><th>주의</th></tr></thead>
+    <tbody>
+      <tr><td><code>session</code></td><td>클라이언트가 연결을 끊을 때</td><td>가장 호환성 높음, 풀링 효과는 가장 적음</td></tr>
+      <tr><td><code>transaction</code></td><td>트랜잭션이 끝날 때</td><td><b>가장 많이 씀</b>. 세션 상태(SET, 임시 테이블, 세션 수준 advisory lock, LISTEN)에 기대는 코드는 문제가 생김</td></tr>
+      <tr><td><code>statement</code></td><td>문장 하나가 끝날 때</td><td>여러 문장 트랜잭션 불가</td></tr>
+    </tbody></table></div>
+  <div class="box field">
+    <strong>현장 사례: 풀러를 넣었더니 이상해졌어요</strong>
+    <p>transaction 모드에서는 연속된 두 트랜잭션이 서로 다른 DB 연결에서 실행될 수 있습니다. 앞 트랜잭션에서 <code>SET search_path</code>를 했다면 다음 트랜잭션에서는 사라져 있을 수 있습니다. 세션 설정은 5편의 <code>ALTER ROLE ... SET</code>으로 옮기고, 9편의 EDB*Loader처럼 풀러를 거칠 수 없는 도구는 DB에 직접 붙게 하세요. 풀러 장애가 곧 DB 장애가 되지 않도록 풀러도 이중화합니다.</p>
+  </div>
+</section>
+
+<!-- 9 -->
+<section id="s9">
+  <p class="sec-no">9장</p>
+  <h2 class="sec">모니터링과 Postgres Enterprise Manager</h2>
+  <h3>내장 통계 뷰</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>뷰</th><th>보는 것</th><th>다룬 편</th></tr></thead>
+    <tbody>
+      <tr><td><code>pg_stat_activity</code></td><td>지금 접속한 세션, 실행 중 쿼리, 대기 이벤트</td><td>2·8편</td></tr>
+      <tr><td><code>pg_stat_database</code></td><td>DB별 커밋·롤백, 캐시 적중, 임시 파일, deadlock</td><td>2편</td></tr>
+      <tr><td><code>pg_stat_user_tables</code> / <code>_indexes</code></td><td>테이블·인덱스 사용량, dead tuple, VACUUM 시각</td><td>8편</td></tr>
+      <tr><td><code>pg_stat_io</code></td><td>백엔드 종류·작업별 I/O 통계 (PG16+)</td><td>—</td></tr>
+      <tr><td><code>pg_stat_checkpointer</code></td><td>체크포인트 통계 (PG17+)</td><td>2편</td></tr>
+      <tr><td><code>pg_stat_replication</code> / <code>pg_replication_slots</code></td><td>복제 지연, 슬롯</td><td>11편</td></tr>
+      <tr><td><code>pg_stat_archiver</code></td><td>WAL 아카이빙 성공·실패</td><td>10편</td></tr>
+      <tr><td><code>pg_locks</code></td><td>잠금 보유·대기</td><td>8편</td></tr>
+      <tr><td><code>pg_stat_statements</code> (확장)</td><td>쿼리 유형별 누적 실행 횟수·시간. 느린 쿼리 분석의 기본</td><td>—</td></tr>
+    </tbody></table></div>
+<pre><span class="cm"># pg_stat_statements 켜기 — EPAS 기본 목록에 덧붙이기 (5편), 재시작 필요</span>
+shared_preload_libraries = '...기존 값...,pg_stat_statements'</pre>
+<pre>CREATE EXTENSION pg_stat_statements;
+SELECT calls, round(total_exec_time) AS total_ms, round(mean_exec_time,1) AS mean_ms, left(query, 60)
+FROM   pg_stat_statements ORDER BY total_exec_time DESC LIMIT 10;</pre>
+
+  <h3>증상별로 볼 곳</h3>
+  <p class="muted">증상을 고르면 먼저 볼 곳과 쿼리를 알려 줍니다.</p>
+  <div class="sym" id="sym">
+    <div class="qs" id="symQs" role="group" aria-label="증상 선택"></div>
+    <div class="ans" id="symAns" aria-live="polite"></div>
+  </div>
+
+  <h3><span class="epas-only">Postgres Enterprise Manager (PEM)</span></h3>
+  <p>PEM은 EDB의 웹 기반 모니터링·관리 도구입니다. 여러 서버의 Postgres를 한 화면에서 보고, 임계치 알림을 받고, 성능 문제를 분석합니다.</p>
+  <ul class="plain">
+    <li><b>PEM 서버</b> — 수집한 데이터를 저장하는 Postgres 데이터베이스와 웹 화면으로 구성됩니다.</li>
+    <li><b>PEM 에이전트</b> — 감시 대상 서버마다 설치되어 OS와 DB 지표를 정해진 주기로 수집(probe)해 PEM 서버로 보냅니다.</li>
+    <li><b>기능</b> — 대시보드, 알림(이메일·웹훅 등), 쿼리 분석(SQL Profiler), 성능 진단, 설정 튜닝 도우미, 용량 추세 분석, 로그 분석 등.</li>
+  </ul>
+  <p class="muted" style="font-size:15px">1편의 Hybrid Manager도 여러 환경의 Postgres 관측 기능을 제공합니다. 이 시험에서는 PEM이 "에이전트 기반 중앙 모니터링·관리 도구"라는 점을 기억하면 됩니다.</p>
+  <div class="box exam">
+    <strong>시험 포인트: 도구 역할 한 줄 정리</strong>
+    <p><b>EFM</b> = 주-스탠바이 자동 장애 조치 · <b>PGD</b> = 다중 쓰기 분산 고가용성 · <b>PEM</b> = 모니터링·관리 · <b>PgBouncer</b> = 커넥션 풀링 · <b>Pgpool-II</b> = 풀링 + 읽기 분산 · <b>Barman / pgBackRest</b> = 백업·PITR(10편). 선택지에서 이 역할을 바꿔 놓은 문장이 함정으로 나옵니다.</p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section id="s10">
+  <p class="sec-no">10장</p>
+  <h2 class="sec">용어 사전</h2>
+  <label for="glossSearch" class="muted" style="font-size:14px">용어 검색</label>
+  <input id="glossSearch" class="gloss-search" type="search" placeholder="예: witness, slot, pool_mode">
+  <div class="gloss" id="gloss"></div>
+  <p class="gloss-empty" id="glossEmpty">일치하는 용어가 없습니다. 다른 표현으로 검색해 보세요.</p>
+</section>
+
+<!-- 11 -->
+<section id="s11">
+  <p class="sec-no">11장</p>
+  <h2 class="sec">확인 퀴즈</h2>
+  <p class="muted">도구 역할 구분과 복제 기본 동작을 묻는 12문항입니다.</p>
+  <div class="quiz" id="quiz"></div>
+  <div class="score" aria-live="polite"><span id="scoreText">0 / 0 정답</span><button type="button" id="quizReset">다시 풀기</button></div>
+  <div class="next">
+    <h3>다음 편 예고 — 12편. Oracle 호환 기능 실전</h3>
+    <p style="margin-bottom:0">트랙 D이자 마지막 본편입니다. 1편 판별기에서 맛본 Oracle 호환 기능을 본격적으로 다룹니다. SPL로 작성하는 프로시저·함수·트리거·패키지, Oracle 호환 데이터 타입과 DATE 동작, DUAL·ROWNUM·CONNECT BY·시너님, DBMS_OUTPUT 같은 내장 패키지, 그리고 5편의 edb_redwood_* 파라미터가 실제로 바꾸는 동작까지. 이 시험을 PostgreSQL 시험과 가르는 영역입니다.</p>
+  </div>
+</section>
+
+</main>
+</div>
+
+<footer>EDB Postgres AI Database Essentials v18 시험 대비 강의 시리즈 · 11편. EFM·PGD·PEM의 세부 설정과 구성요소는 버전마다 다르므로 각 제품의 공식 문서를 기준으로 확인하세요.</footer>
+
+<script>
+(function(){
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function $(id){return document.getElementById(id);}
+  var root=document.documentElement, tbtn=$('themeBtn');
+  tbtn.addEventListener('click',function(){
+    var light=root.getAttribute('data-theme')==='light';
+    root.setAttribute('data-theme',light?'dark':'light');
+    tbtn.textContent=light?'☀ 라이트':'☾ 다크';
+    tbtn.setAttribute('aria-label',light?'라이트 테마로 전환':'다크 테마로 전환');
+  });
+  var prog=$('progress');
+  function onScroll(){var h=document.documentElement.scrollHeight-window.innerHeight;prog.style.width=(h>0?window.scrollY/h*100:0)+'%';}
+  window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){links.forEach(function(a){a.classList.toggle('active',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-30% 0px -60% 0px'});
+    document.querySelectorAll('main section').forEach(function(s){io.observe(s);});
+  }
+
+  /* ===== HA theater ===== */
+  function N(role,st,tl,lsn,vip,extra){return {role:role,st:st,tl:tl,lsn:lsn,vip:vip,ex:extra||''};}
+  var SCN={
+    down:[
+      {n:[N('primary','ok',1,'0/9A0030F0',true,'쓰기 받는 중'),N('standby','ok',1,'0/9A0030F0',false,'스트리밍 수신'),N('standby','ok',1,'0/9A0030C8',false,'스트리밍 수신')],t:'정상 상태입니다. db01이 주 서버이고 VIP를 가지고 있습니다. 세 서버의 EFM 에이전트가 서로 상태를 주고받고(JGroups), 두 스탠바이는 WAL을 실시간으로 받고 있습니다. 데이터 노드가 세 대라 별도 witness가 없어도 다수결이 가능합니다.'},
+      {n:[N('primary','down',1,'—',true,'응답 없음'),N('standby','ok',1,'0/9A0030F0',false,'주 서버와 연결 끊김'),N('standby','ok',1,'0/9A0030C8',false,'주 서버와 연결 끊김')],t:'db01 서버가 갑자기 꺼졌습니다. 두 스탠바이 에이전트가 주 에이전트·DB와의 연결을 잃었음을 감지합니다. EFM은 정해진 시간 동안 재시도하며, <b>다른 에이전트들과 함께</b> "정말 주 서버가 사라졌는가"를 확인합니다. 한 서버의 판단만으로 승격하지 않는 것이 split-brain 방지의 첫걸음입니다.'},
+      {n:[N('primary','down',1,'—',false,'격리 대상'),N('primary','ok',2,'0/9A0030F0',false,'승격 중'),N('standby','ok',1,'0/9A0030C8',false,'대기')],t:'장애가 확정되면 EFM은 <b>가장 최신 WAL을 가진 스탠바이</b>(여기서는 LSN이 더 앞선 db02, 우선순위 목록이 있다면 그 순서도 반영)를 승격합니다. db02는 복구 모드를 끝내고 <b>타임라인 2</b>로 쓰기를 시작합니다(10편 7장). db01에만 있던, 전송되지 못한 커밋이 있었다면 비동기 복제에서는 이 부분을 잃습니다.'},
+      {n:[N('primary','down',1,'—',false,''),N('primary','ok',2,'0/9A004210',true,'VIP 획득 · 쓰기 받는 중'),N('standby','ok',2,'0/9A004210',false,'새 주 서버 따라가는 중')],t:'VIP가 db02로 옮겨집니다. 애플리케이션은 같은 주소로 <b>다시 연결</b>하기만 하면 됩니다. 기존 연결은 끊기므로 애플리케이션에 재연결·재시도 로직이 있어야 합니다. 설정에 따라 EFM은 db03이 새 주 서버를 따라가도록 재구성합니다.'},
+      {n:[N('standby','off',1,'—',false,'복구 후 재합류 필요'),N('primary','ok',2,'0/9A0051A0',true,''),N('standby','ok',2,'0/9A0051A0',false,'')],t:'db01이 다시 켜져도 <b>스스로 주 서버로 돌아오면 안 됩니다</b>. 옛 타임라인의 WAL을 가지고 있으므로 <code>pg_rewind</code>로 되감거나 새로 pg_basebackup을 받아 스탠바이로 재합류시킵니다(4장). 그다음 <code>efm allow-node</code> 등으로 클러스터에 다시 참여시킵니다.'}
+    ],
+    iso:[
+      {n:[N('primary','ok',1,'0/9A0030F0',true,'쓰기 받는 중'),N('standby','ok',1,'0/9A0030F0',false,''),N('witness','ok',null,'—',false,'판단만 참여')],t:'이번에는 데이터 노드가 db01·db02 두 대뿐이라 db03은 DB 없는 <b>witness</b>입니다. 셋이 다수결로 판단합니다.'},
+      {n:[N('primary','iso',1,'0/9A0031A0',true,'다른 노드와 통신 불가'),N('standby','ok',1,'0/9A0030F0',false,'주 서버 안 보임'),N('witness','ok',null,'—',false,'주 서버 안 보임')],t:'db01은 살아 있지만 네트워크 장애로 db02·witness와 통신이 끊겼습니다. db02와 witness는 "주 서버가 사라졌다"고 보고, db01은 "나 빼고 다 사라졌다"고 봅니다. 이 상태에서 둘 다 쓰기를 받으면 <b>split-brain</b>입니다.'},
+      {n:[N('primary','down',1,'0/9A0031A0',false,'스스로 DB 중지'),N('primary','ok',2,'0/9A0030F0',true,'승격 · VIP 획득'),N('witness','ok',null,'—',false,'')],t:'다수(db02 + witness)가 있는 쪽이 장애 조치를 진행해 db02를 승격합니다. 소수가 된 db01의 에이전트는 자신이 <b>고립되었음</b>을 알고, <code>stop.isolated.primary</code> 설정에 따라 스스로 DB를 멈추고 VIP를 내려놓습니다. 이것이 펜싱입니다. witness가 없었다면 둘 중 누가 고립된 쪽인지 판단할 수 없었습니다.'},
+      {n:[N('standby','off',1,'—',false,'재합류 필요'),N('primary','ok',2,'0/9A004010',true,''),N('witness','ok',null,'—',false,'')],t:'네트워크가 돌아와도 db01은 그대로 합류할 수 없습니다. 고립된 동안 받은 쓰기(LSN 0/9A0031A0)가 새 주 서버에는 없기 때문입니다. pg_rewind로 맞춘 뒤 스탠바이로 붙입니다. 이 사례가 <b>데이터 노드가 둘일 때 witness가 필요한 이유</b>입니다.'}
+    ],
+    sw:[
+      {n:[N('primary','ok',1,'0/9A0030F0',true,'OS 패치 예정'),N('standby','ok',1,'0/9A0030F0',false,'동기화 완료'),N('standby','ok',1,'0/9A0030F0',false,'')],t:'db01의 OS 패치를 위해 주 서버 역할을 db02로 넘기려 합니다. 장애가 아니라 <b>계획된 전환(switchover)</b>입니다. 먼저 <code>efm cluster-status efm</code>으로 스탠바이가 모두 동기화되어 있는지 확인합니다.'},
+      {n:[N('primary','ok',1,'0/9A0030F0',true,'쓰기 중지'),N('standby','ok',1,'0/9A0030F0',false,'마지막 WAL 수신'),N('standby','ok',1,'0/9A0030F0',false,'')],t:'<code>efm promote efm -switchover</code>를 실행합니다. EFM이 db01의 쓰기를 멈추고, 스탠바이가 마지막 WAL까지 받았는지 확인합니다. 계획된 전환이므로 <b>데이터 손실이 없습니다</b>.'},
+      {n:[N('standby','ok',2,'0/9A003200',false,'새 주 서버를 따라감'),N('primary','ok',2,'0/9A003200',true,'승격 · VIP 획득'),N('standby','ok',2,'0/9A003200',false,'')],t:'db02가 승격되어 VIP를 가져가고, 옛 주 서버 db01은 <b>스탠바이로 전환</b>되어 db02를 따라갑니다. 이제 db01을 안전하게 패치하고 재부팅할 수 있습니다. 끝나면 같은 명령으로 다시 되돌릴 수도 있습니다.'}
+    ]
+  };
+  var COL={primary:'var(--pri)',standby:'var(--stb)',witness:'var(--wit)'};
+  var RL={primary:'PRIMARY',standby:'STANDBY',witness:'WITNESS'};
+  var cur='down', hi=0, prev=null;
+  function haR(){
+    var s=SCN[cur][hi];
+    $('nodes').innerHTML=s.n.map(function(n,i){
+      var c=n.st==='down'||n.st==='iso'?'var(--down)':COL[n.role];
+      var changed=prev&&prev[i]&&(prev[i].role!==n.role||prev[i].st!==n.st||prev[i].vip!==n.vip);
+      var state=n.st==='down'?'중지·응답 없음':(n.st==='iso'?'고립':(n.st==='off'?'클러스터 밖':'정상'));
+      return '<div class="nd'+(n.st==='off'?' off':'')+(changed?' hl':'')+'" style="--c:'+c+'">'+(n.vip?'<span class="vip">VIP</span>':'')+'<h4>db0'+(i+1)+'</h4><span class="role">'+RL[n.role]+'</span><dl><dt>상태</dt><dd>'+state+'</dd>'+(n.tl!==null?'<dt>타임라인</dt><dd>'+n.tl+'</dd><dt>LSN</dt><dd>'+n.lsn+'</dd>':'<dt>DB</dt><dd>없음</dd>')+(n.ex?'<dt>비고</dt><dd style="font-family:var(--font)">'+esc(n.ex)+'</dd>':'')+'</dl></div>';
+    }).join('');
+    prev=s.n;
+    $('haText').innerHTML=s.t;
+    $('haPrev').disabled=hi===0;$('haNext').disabled=hi===SCN[cur].length-1;$('haCount').textContent=(hi+1)+' / '+SCN[cur].length;
+  }
+  [].forEach.call(document.querySelectorAll('#scn .chip'),function(c){c.addEventListener('click',function(){cur=c.dataset.s;hi=0;prev=null;[].forEach.call(document.querySelectorAll('#scn .chip'),function(x){x.setAttribute('aria-pressed',x===c?'true':'false');});haR();});});
+  $('haNext').addEventListener('click',function(){if(hi<SCN[cur].length-1){hi++;haR();}});
+  $('haPrev').addEventListener('click',function(){if(hi>0){hi--;prev=null;haR();}});
+  $('haReset').addEventListener('click',function(){hi=0;prev=null;haR();});
+  haR();
+
+  /* ===== synchronous_commit ===== */
+  var P5=[['주 서버','WAL을 wal_buffers에 기록'],['주 서버','WAL을 로컬 디스크에 flush'],['스탠바이','WAL을 받아 OS에 write'],['스탠바이','WAL을 디스크에 flush'],['스탠바이','WAL 재생(apply) → 조회에 보임']];
+  var LV=[
+    {k:'off',w:0,lat:1,g:'주 서버 장애 시 최근 커밋 몇 건(최대 wal_writer_delay의 수 배 정도) 손실 가능. 데이터 손상은 없음',sb:'스탠바이 보장 없음',use:'로그성 데이터처럼 약간의 손실이 괜찮을 때'},
+    {k:'local',w:1,lat:2,g:'주 서버 디스크에는 확실히 기록',sb:'스탠바이 보장 없음 (비동기와 같음)',use:'동기 복제 환경에서 특정 트랜잭션만 빠르게'},
+    {k:'remote_write',w:2,lat:3,g:'주 서버 디스크 + 스탠바이 OS 메모리까지',sb:'스탠바이 OS가 함께 죽지 않는 한 보존',use:'성능과 안전의 절충'},
+    {k:'on',w:3,lat:4,g:'주 서버 디스크 + 스탠바이 디스크까지',sb:'주 서버가 사라져도 스탠바이에 커밋이 남음',use:'동기 복제의 표준값 (기본값)'},
+    {k:'remote_apply',w:4,lat:5,g:'스탠바이에서 재생까지 끝남',sb:'커밋 직후 스탠바이에서 조회해도 바로 보임',use:'스탠바이로 읽기를 분산하면서 최신성 보장이 필요할 때'}
+  ];
+  var lvEl=$('scLevels');
+  LV.forEach(function(l,i){var b=document.createElement('button');b.type='button';b.className='chip';b.textContent=l.k;b.setAttribute('aria-pressed','false');b.addEventListener('click',function(){scR(i);});lvEl.appendChild(b);});
+  function scR(i){
+    var l=LV[i];
+    [].forEach.call(lvEl.children,function(b,j){b.setAttribute('aria-pressed',i===j?'true':'false');});
+    $('pipe5').innerHTML=P5.map(function(p,j){var cls=j<=l.w?'wait':'after';if(j===l.w)cls+=' ret';return '<div class="p5 '+cls+'"><small>'+(j+1)+'. '+p[0]+'</small>'+p[1]+'</div>';}).join('');
+    var bars='';for(var k=1;k<=5;k++)bars+='<i class="'+(k<=l.lat?'on':'')+'"></i>';
+    $('scOut').innerHTML='<div><b>보장</b>'+esc(l.g)+'</div><div><b>스탠바이 쪽</b>'+esc(l.sb)+'</div><div><b>쓰임 · 커밋 지연</b>'+esc(l.use)+'<div class="lat">'+bars+'</div></div>';
+  }
+  scR(3);
+
+  /* ===== symptoms ===== */
+  var SY=[
+    ['갑자기 모든 요청이 느려졌다','먼저 지금 무엇이 돌고 무엇을 기다리는지 봅니다. wait_event_type이 Lock이면 잠금 경합, IO면 디스크 병목입니다.',"SELECT pid, state, wait_event_type, wait_event,\n       now() - query_start AS running, left(query, 60)\nFROM pg_stat_activity\nWHERE state <> 'idle' ORDER BY query_start;"],
+    ['특정 기능만 계속 느리다','쿼리 유형별 누적 시간 상위를 보고, 해당 쿼리를 EXPLAIN ANALYZE로 분석합니다(8편).','SELECT calls, round(mean_exec_time,1) AS mean_ms, left(query, 70)\nFROM pg_stat_statements\nORDER BY total_exec_time DESC LIMIT 10;'],
+    ['연결 오류 "too many clients"','max_connections에 도달했습니다. 누가 연결을 많이 잡고 있는지, idle 연결이 많은지 보고 커넥션 풀러를 검토합니다(8장).','SELECT usename, application_name, state, count(*)\nFROM pg_stat_activity\nGROUP BY 1,2,3 ORDER BY 4 DESC;'],
+    ['스탠바이 데이터가 늦게 보인다','주 서버에서 스탠바이별 지연을 보고, 단계(write·flush·replay) 중 어디서 밀리는지 확인합니다.','SELECT application_name, state, sync_state,\n       write_lag, flush_lag, replay_lag\nFROM pg_stat_replication;'],
+    ['pg_wal 디스크가 계속 찬다','아카이브 실패(10편)와 버려진 복제 슬롯(4장)이 대표 원인입니다.','SELECT failed_count, last_failed_wal FROM pg_stat_archiver;\nSELECT slot_name, active,\n  pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn))\nFROM pg_replication_slots;'],
+    ['테이블이 점점 커지고 느려진다','dead tuple이 쌓이는지, autovacuum이 제때 도는지, 오래 열린 트랜잭션이 청소를 막는지 봅니다(8편).','SELECT relname, n_dead_tup, last_autovacuum\nFROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 10;'],
+    ['정렬이 디스크를 많이 쓴다','work_mem 부족으로 임시 파일이 생기는지 봅니다(2편). log_temp_files로 어떤 쿼리인지 로그에 남길 수 있습니다(5편).','SELECT datname, temp_files, pg_size_pretty(temp_bytes)\nFROM pg_stat_database ORDER BY temp_bytes DESC;']
+  ];
+  var sq=$('symQs'), sa=$('symAns');
+  SY.forEach(function(x,i){var b=document.createElement('button');b.type='button';b.textContent=x[0];b.setAttribute('aria-pressed','false');b.addEventListener('click',function(){sy(i);});sq.appendChild(b);});
+  function sy(i){[].forEach.call(sq.children,function(b,j){b.setAttribute('aria-pressed',i===j?'true':'false');});var x=SY[i];sa.innerHTML='<h5>'+esc(x[0])+'</h5><p>'+esc(x[1])+'</p><pre>'+esc(x[2])+'</pre>';}
+  sy(0);
+
+  /* ===== glossary ===== */
+  var T=[
+    ['primary / standby','주 서버 / 스탠바이','쓰기를 받는 서버 / WAL을 받아 같은 상태를 유지하는 읽기 전용 서버.'],
+    ['failover / switchover','장애 조치 / 계획 전환','장애 시 승격 / 계획적으로 역할 교대(손실 없음).'],
+    ['split-brain','두 주 서버','네트워크 분리로 두 서버가 동시에 쓰기를 받는 상황.'],
+    ['펜싱','Fencing','옛 주 서버를 확실히 격리·정지시켜 split-brain 방지.'],
+    ['스트리밍 복제','Streaming replication','walsender → walreceiver로 WAL 실시간 전송. 클러스터 전체 물리 복제.'],
+    ['standby.signal','스탠바이 신호 파일','PGDATA에 있으면 스탠바이로 시작. pg_basebackup -R이 생성.'],
+    ['primary_conninfo','주 서버 접속 정보','스탠바이가 WAL을 받을 주 서버 연결 문자열.'],
+    ['hot_standby','읽기 가능 스탠바이','스탠바이에서 조회 허용(기본 on).'],
+    ['hot_standby_feedback','스탠바이 피드백','스탠바이 조회 충돌을 줄이지만 주 서버 VACUUM을 늦춤.'],
+    ['synchronous_standby_names','동기 스탠바이 목록','FIRST n (...) 또는 ANY n (...). 비어 있으면 비동기.'],
+    ['synchronous_commit','커밋 대기 수준','off, local, remote_write, on(기본), remote_apply.'],
+    ['pg_stat_replication','복제 상태 뷰','주 서버에서 스탠바이별 LSN·지연·sync_state.'],
+    ['복제 슬롯','Replication slot','소비자가 받아 갈 때까지 WAL 보존. 버려진 슬롯은 디스크를 채움.'],
+    ['max_slot_wal_keep_size','슬롯 WAL 상한','슬롯이 붙잡을 수 있는 WAL 크기 한도.'],
+    ['pg_promote()','승격 함수','스탠바이를 주 서버로. pg_ctl promote와 같음.'],
+    ['pg_rewind','되감기 도구','옛 주 서버를 새 주 서버 타임라인에 맞춰 스탠바이로 재합류.'],
+    ['논리 복제','Logical replication','PUBLICATION/SUBSCRIPTION. 테이블 단위, 다른 버전 가능, DDL 미복제. wal_level=logical.'],
+    ['EFM','EDB Failover Manager','주-스탠바이 자동 장애 조치. 에이전트, JGroups, VIP. PostgreSQL·EPAS 지원.'],
+    ['witness 노드','판단 전용 노드','DB 없이 다수결에만 참여. 데이터 노드가 둘일 때 필요.'],
+    ['efm cluster-status','EFM 상태 명령','노드 역할, LSN, 동기 여부 확인.'],
+    ['stop.isolated.primary','고립 주 서버 정지','고립된 주 서버가 스스로 DB를 멈추게 하는 EFM 설정.'],
+    ['VIP','가상 IP','새 주 서버로 옮겨지는 접속용 주소.'],
+    ['PGD','EDB Postgres Distributed','다중 쓰기(active-active) 분산 고가용성. 논리 복제 기반, 충돌 처리, Raft.'],
+    ['PgBouncer','경량 커넥션 풀러','기본 포트 6432. pool_mode: session, transaction, statement.'],
+    ['Pgpool-II','다기능 미들웨어','풀링, 읽기 부하 분산, watchdog. 기본 포트 9999.'],
+    ['transaction 풀 모드','트랜잭션 단위 풀링','가장 널리 씀. 세션 상태에 의존하는 기능 주의.'],
+    ['pg_stat_statements','쿼리 통계 확장','쿼리 유형별 누적 횟수·시간. shared_preload_libraries 필요.'],
+    ['pg_stat_io','I/O 통계 뷰','PG16+. 백엔드 종류·작업별 I/O.'],
+    ['PEM','Postgres Enterprise Manager','EDB의 웹 기반 모니터링·관리. PEM 서버 + 감시 대상마다 에이전트.']
+  ];
+  var gl=$('gloss'), gs=$('glossSearch'), ge=$('glossEmpty');
+  T.forEach(function(t){var d=document.createElement('details');d.dataset.k=t.join(' ').toLowerCase();d.innerHTML='<summary><span>'+esc(t[0])+' <em>'+esc(t[1])+'</em></span></summary><p>'+esc(t[2])+'</p>';gl.appendChild(d);});
+  gs.addEventListener('input',function(){var q=gs.value.trim().toLowerCase(),n=0;[].forEach.call(gl.children,function(d){var m=!q||d.dataset.k.indexOf(q)>-1;d.style.display=m?'':'none';if(m)n++;});ge.style.display=n?'none':'block';});
+
+  /* ===== quiz ===== */
+  var Q=[
+    {q:'스트리밍 복제에 대한 설명으로 옳은 것은?',o:['특정 테이블만 골라 복제할 수 있다','클러스터 전체를 물리적으로 복제하며 스탠바이는 읽기 전용이다','다른 메이저 버전 사이에서도 동작한다','DDL은 복제되지 않는다'],a:1,e:'스트리밍 복제는 <b>클러스터 전체 물리 복제</b>이고 스탠바이는 읽기 전용입니다. 테이블 선택, 다른 버전, DDL 미복제는 논리 복제의 특징입니다.'},
+    {q:'pg_basebackup -R 옵션이 하는 일은?',o:['백업을 압축한다','standby.signal과 주 서버 접속 정보를 함께 써 준다','복제 슬롯을 삭제한다','복구 목표 시각을 설정한다'],a:1,e:'<b>-R</b>은 스탠바이로 바로 시작할 수 있게 standby.signal과 primary_conninfo를 작성합니다.'},
+    {q:'synchronous_standby_names가 비어 있고 synchronous_commit = on이면?',o:['동기 복제로 동작한다','스탠바이가 없으면 커밋이 멈춘다','로컬 디스크 기록만 기다리는 비동기 복제로 동작한다','오류로 서버가 시작되지 않는다'],a:2,e:'동기 스탠바이가 지정되지 않으면 <b>로컬 flush만</b> 기다리는 비동기 복제입니다.'},
+    {q:'synchronous_commit 값 중, 커밋 직후 스탠바이에서 조회해도 바로 보이는 것을 보장하는 것은?',o:['remote_write','on','remote_apply','local'],a:2,e:'<b>remote_apply</b>는 스탠바이 재생까지 기다리므로 커밋 직후 스탠바이 조회에 보입니다.'},
+    {q:'주 서버의 pg_wal이 계속 커지는데 아카이빙은 정상이다. 가장 의심되는 원인은?',o:['work_mem 부족','비활성(버려진) 복제 슬롯','shared_buffers 과다','autovacuum 꺼짐'],a:1,e:'<b>비활성 복제 슬롯</b>이 WAL 삭제를 막고 있을 가능성이 큽니다. pg_replication_slots를 확인하세요.'},
+    {q:'장애 조치 후 옛 주 서버를 새 주 서버의 스탠바이로 다시 붙일 때 쓰는 도구는?',o:['pg_rewind','pg_upgrade','pg_combinebackup','pg_resetwal'],a:0,e:'<b>pg_rewind</b>가 갈라진 타임라인을 되감아 맞춥니다. 또는 pg_basebackup으로 새로 만듭니다.'},
+    {q:'논리 복제에 필요한 원본 서버의 wal_level은?',o:['minimal','replica','logical','archive'],a:2,e:'논리 복제는 <b>wal_level = logical</b>이 필요하며 변경 시 재시작해야 합니다.'},
+    {q:'EDB Failover Manager에 대한 설명으로 옳은 것은?',o:['여러 노드가 동시에 쓰기를 받는 다중 마스터 도구다','주-스탠바이 구조에서 장애를 감지해 스탠바이를 자동 승격한다','논리 백업 도구다','커넥션 풀러다'],a:1,e:'EFM은 <b>주-스탠바이 자동 장애 조치</b> 도구입니다. 다중 쓰기는 PGD, 풀링은 PgBouncer입니다.'},
+    {q:'EFM 클러스터에 별도의 witness 노드가 필요한 경우는?',o:['데이터 노드가 3대 이상일 때','데이터 노드가 2대(주 + 스탠바이 1)뿐일 때','동기 복제를 쓸 때','VIP를 쓸 때'],a:1,e:'다수결 판단을 위해 <b>데이터 노드가 둘일 때</b> witness가 필요합니다. 세 대 이상이면 필수가 아닙니다.'},
+    {q:'여러 노드가 모두 쓰기를 받을 수 있는 EDB의 분산 고가용성 솔루션은?',o:['EDB Failover Manager','EDB Postgres Distributed','Postgres Enterprise Manager','Barman'],a:1,e:'<b>EDB Postgres Distributed(PGD)</b>입니다. 논리 복제 기반이며 충돌 처리가 필요합니다.'},
+    {q:'PgBouncer의 transaction 풀 모드에서 주의해야 하는 것은?',o:['여러 문장 트랜잭션을 쓸 수 없다','세션 수준 설정(SET 등)이 다음 트랜잭션에 유지된다고 가정한 코드','연결 수가 오히려 늘어난다','SSL을 쓸 수 없다'],a:1,e:'트랜잭션마다 다른 DB 연결을 쓸 수 있어 <b>세션 상태에 의존하는 코드</b>가 문제를 일으킵니다. 여러 문장 트랜잭션 불가는 statement 모드입니다.'},
+    {q:'Postgres Enterprise Manager(PEM)에 대한 설명으로 옳은 것은?',o:['자동 장애 조치를 수행한다','감시 대상 서버의 에이전트가 수집한 지표를 PEM 서버에서 보여 주는 모니터링·관리 도구다','WAL 아카이브 도구다','SQL*Loader 호환 도구다'],a:1,e:'PEM은 <b>에이전트 기반 중앙 모니터링·관리</b> 도구입니다.'}
+  ];
+  var qw=$('quiz'), stx=$('scoreText'), ans=0, cor=0;
+  function upd(){stx.textContent=cor+' / '+ans+' 정답 (전체 '+Q.length+'문항)';}
+  function buildQ(){
+    qw.innerHTML='';ans=0;cor=0;
+    Q.forEach(function(x,i){
+      var box=document.createElement('div');box.className='q';
+      box.innerHTML='<h4><small>Q'+(i+1)+'</small>'+esc(x.q)+'</h4><div class="opts"></div><div class="explain"></div>';
+      var op=box.querySelector('.opts'), ex=box.querySelector('.explain');
+      x.o.forEach(function(t,j){
+        var b=document.createElement('button');b.type='button';b.textContent=t;
+        b.addEventListener('click',function(){
+          var bs=op.querySelectorAll('button');[].forEach.call(bs,function(bb){bb.disabled=true;});
+          bs[x.a].classList.add('right');if(j!==x.a)b.classList.add('wrong');else cor++;ans++;
+          ex.innerHTML=(j===x.a?'<b style="color:var(--ok)">정답입니다.</b> ':'<b style="color:var(--bad)">다시 확인해 보세요.</b> ')+x.e;
+          ex.classList.add('show');upd();
+        });
+        op.appendChild(b);
+      });
+      qw.appendChild(box);
+    });
+    upd();
+  }
+  $('quizReset').addEventListener('click',buildQ);buildQ();
+})();
+</script>
+</body>
+</html>
