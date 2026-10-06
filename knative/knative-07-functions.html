@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knative 7편 · Knative Functions: 코드만으로 배포하기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --font: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 16px);scroll-behavior:smooth}
+*,*::before,*::after{box-sizing:inherit}
+:root[data-theme="dark"]{
+  --bg:#0F1633; --bg2:#141D42; --surface:#1A2452; --surface2:#212C5E; --line:#2C3874;
+  --text:#E8ECFF; --muted:#A3ADDA; --faint:#6F7AAE;
+  --serving:#5B95FF; --eventing:#FFB443; --functions:#38D9A9; --hot:#FF6F91; --violet:#B18CFF;
+  --code:#0A0F27; --codetext:#D7DEFF; --codekey:#7FB0FF; --codestr:#5FE3BC; --codecom:#6E79A8;
+  --shadow:0 18px 50px -24px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FC; --bg2:#E8ECF9; --surface:#FFFFFF; --surface2:#F1F4FC; --line:#D2D8EF;
+  --text:#17204A; --muted:#525D8C; --faint:#8A93BB;
+  --serving:#2B66DB; --eventing:#B86F00; --functions:#0B9671; --hot:#D2345D; --violet:#7448D6;
+  --code:#141B3D; --codetext:#DCE3FF; --codekey:#8CB8FF; --codestr:#6BE6C1; --codecom:#7480B4;
+  --shadow:0 18px 40px -26px rgba(30,40,90,.35);
+}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--serving)}
+::selection{background:var(--serving);color:#fff}
+:focus-visible{outline:3px solid var(--eventing);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px}
+.series{font-size:14px;color:var(--muted)}
+.series b{color:var(--text);font-weight:700}
+.progress{flex:1;height:4px;background:var(--line);border-radius:4px;overflow:hidden}
+.progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--serving),var(--functions),var(--eventing))}
+.theme-btn{font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.theme-btn:hover{border-color:var(--serving)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow:auto;padding:32px 0;font-size:14px}
+.toc p{margin:0 0 10px;color:var(--faint);font-size:13px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a::before{content:counter(t);font-family:var(--mono);font-size:12px;color:var(--faint);min-width:16px;padding-top:2px}
+.toc a:hover{color:var(--text);background:var(--surface)}
+.toc a.on{color:var(--text);background:var(--surface);box-shadow:inset 3px 0 0 var(--serving)}
+main{min-width:0;padding-bottom:120px}
+@media (max-width:980px){.wrap{grid-template-columns:1fr;gap:0}.toc{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:56px 0 24px}
+.hero h1{font-size:clamp(44px,7vw,84px);line-height:1.05;letter-spacing:-.03em;margin:0 0 18px;font-weight:700}
+.hero .lede{font-size:20px;color:var(--muted);max-width:640px;margin:0 0 30px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px}
+.chip{font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg2)}
+
+/* simulator */
+.sim{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:var(--shadow)}
+.sim-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.sim-head h2{font-size:19px;margin:0}
+.sim-head p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.sim-btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:inherit;font-size:15px;font-weight:500;border-radius:12px;padding:9px 16px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;transition:transform .08s,border-color .15s}
+.btn:hover{border-color:var(--serving)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--serving);border-color:var(--serving);color:#fff}
+.btn.warn{background:transparent;border-color:var(--hot);color:var(--hot)}
+.sim-stage{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:stretch}
+@media (max-width:640px){.sim-stage{grid-template-columns:1fr}}
+.activator{border:1.5px dashed var(--eventing);border-radius:16px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;background:color-mix(in srgb,var(--eventing) 7%,transparent);transition:opacity .3s}
+.activator.dim{opacity:.38}
+.activator strong{font-size:15px;color:var(--eventing)}
+.activator small{font-size:12.5px;color:var(--muted);line-height:1.5}
+.queue{display:flex;flex-wrap:wrap;gap:4px;min-height:22px}
+.queue i{width:10px;height:10px;border-radius:50%;background:var(--eventing);display:block}
+.pods{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+@media (max-width:640px){.pods{grid-template-columns:repeat(4,1fr)}}
+.pod{aspect-ratio:1/1;border-radius:14px;border:1.5px solid var(--line);background:var(--bg2);position:relative;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--faint);transition:background .25s,border-color .25s,transform .25s}
+.pod.starting{border-color:var(--violet);border-style:dashed;color:var(--violet);animation:pulse 0.9s infinite}
+.pod.ready{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 14%,var(--bg2));color:var(--functions)}
+.pod.busy{background:color-mix(in srgb,var(--functions) 34%,var(--bg2));color:var(--text)}
+.pod.stopping{border-color:var(--hot);color:var(--hot);opacity:.5;transform:scale(.9)}
+@keyframes pulse{50%{opacity:.45}}
+.sim-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+@media (max-width:640px){.sim-stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-family:var(--mono);font-size:24px;line-height:1.2}
+.stat span{font-size:12.5px;color:var(--muted)}
+.sim-status{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--bg2);font-size:15px;display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--faint)}
+.idlebar{height:4px;border-radius:4px;background:var(--line);margin-top:10px;overflow:hidden}
+.idlebar span{display:block;height:100%;width:0;background:var(--hot);transition:width .1s linear}
+.sim-note{font-size:13px;color:var(--faint);margin:10px 2px 0}
+
+/* ---------- sections ---------- */
+section.lesson{padding:72px 0 0}
+.sec-no{font-family:var(--mono);font-size:14px;color:var(--faint);margin-bottom:6px}
+h2.h{font-size:clamp(28px,3.4vw,38px);line-height:1.25;letter-spacing:-.02em;margin:0 0 18px}
+h3{font-size:21px;margin:36px 0 10px;letter-spacing:-.01em}
+.prose{max-width:720px}
+.prose p{margin:0 0 16px}
+.muted{color:var(--muted)}
+strong{font-weight:700}
+.term{border-bottom:1.5px dotted var(--faint);cursor:help}
+code.i{font-family:var(--mono);font-size:.86em;background:var(--bg2);border:1px solid var(--line);padding:1px 6px;border-radius:6px}
+
+.callout{border-left:4px solid var(--serving);background:var(--surface);padding:16px 20px;border-radius:0 14px 14px 0;margin:22px 0;max-width:720px}
+.callout.amber{border-color:var(--eventing)}
+.callout.mint{border-color:var(--functions)}
+.callout.hot{border-color:var(--hot)}
+.callout b.t{display:block;margin-bottom:4px}
+.callout p{margin:0}
+
+/* traits */
+.traits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin:24px 0;max-width:820px}
+@media (max-width:640px){.traits{grid-template-columns:1fr}}
+.trait{background:var(--surface);padding:20px 22px}
+.trait h4{margin:0 0 6px;font-size:17px;display:flex;gap:10px;align-items:center}
+.trait h4 .sw{width:12px;height:12px;border-radius:3px}
+.trait p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* analogy */
+.analogy{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:820px;margin:20px 0}
+@media (max-width:640px){.analogy{grid-template-columns:1fr}}
+.analogy div{border-radius:18px;padding:20px;border:1px solid var(--line);background:var(--bg2)}
+.analogy div:last-child{background:color-mix(in srgb,var(--functions) 9%,var(--bg2));border-color:color-mix(in srgb,var(--functions) 45%,var(--line))}
+.analogy h4{margin:0 0 8px;font-size:17px}
+.analogy ul{margin:0;padding-left:18px;color:var(--muted);font-size:15.5px}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:16px;max-width:100%}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:15px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14px;color:var(--muted);font-weight:500}
+tbody th{font-weight:500;color:var(--muted);white-space:nowrap;background:var(--surface)}
+tbody td{background:var(--surface)}
+tr:last-child th,tr:last-child td{border-bottom:0}
+td.yes{color:var(--functions);font-weight:700}
+td.no{color:var(--hot);font-weight:700}
+td.mid{color:var(--eventing);font-weight:700}
+.colhead-k{color:var(--serving)!important}
+
+/* tabs + code */
+.tabs{display:flex;gap:6px;margin:20px 0 0;flex-wrap:wrap}
+.tab{font:inherit;font-size:15px;padding:8px 16px;border-radius:12px 12px 0 0;border:1px solid var(--line);border-bottom:0;background:var(--bg2);color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--code);color:var(--codetext)}
+.tabpanel[hidden]{display:none}
+.codebox{position:relative;background:var(--code);border-radius:0 14px 14px 14px;margin:0 0 20px;overflow:hidden}
+.codebox.solo{border-radius:14px}
+.codebox .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px;font-size:13px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07)}
+.copy{font:inherit;font-size:12.5px;color:var(--codetext);background:rgba(255,255,255,.08);border:0;border-radius:8px;padding:4px 10px;cursor:pointer}
+.copy:hover{background:rgba(255,255,255,.16)}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.65;color:var(--codetext)}
+pre .k{color:var(--codekey)}
+pre .s{color:var(--codestr)}
+pre .c{color:var(--codecom);font-style:italic}
+pre .p{color:#FFB86B}
+.linecount{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 4px;font-size:15px}
+.linecount b{font-family:var(--mono);font-size:26px;margin-right:4px}
+
+/* component map */
+.kmap{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.kmap-layers{display:flex;flex-direction:column;gap:10px}
+.kmap-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.kmap-top{grid-template-columns:1fr}}
+.kcomp{font:inherit;text-align:left;cursor:pointer;border-radius:16px;padding:16px;border:2px solid transparent;color:var(--text);background:var(--bg2);transition:border-color .15s,background .15s}
+.kcomp h4{margin:0 0 4px;font-size:18px}
+.kcomp p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.kcomp[data-c="serving"] h4{color:var(--serving)}
+.kcomp[data-c="eventing"] h4{color:var(--eventing)}
+.kcomp[data-c="functions"] h4{color:var(--functions)}
+.kcomp[aria-pressed="true"][data-c="serving"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="eventing"]{border-color:var(--eventing);background:color-mix(in srgb,var(--eventing) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="functions"]{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 12%,var(--bg2))}
+.klayer{border-radius:14px;padding:12px 16px;font-size:15px;background:var(--bg2);border:1px dashed var(--line);color:var(--muted)}
+.klayer b{color:var(--text)}
+.klayer.k8s{border-style:solid;background:color-mix(in srgb,var(--serving) 6%,var(--bg2))}
+.kdetail{margin-top:16px;padding:18px 20px;border-radius:16px;background:var(--bg);border:1px solid var(--line);min-height:150px}
+.kdetail h4{margin:0 0 8px;font-size:18px}
+.kdetail dl{display:grid;grid-template-columns:110px 1fr;gap:6px 14px;margin:0;font-size:15px}
+.kdetail dt{color:var(--faint)}
+.kdetail dd{margin:0}
+
+/* resource tree */
+.tree{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.tree-ctrl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tree-list{list-style:none;margin:0;padding:0;font-size:15px}
+.tree-list li{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;padding:9px 12px;border-radius:12px;opacity:.16;transition:opacity .35s,background .35s}
+.tree-list li.show{opacity:1}
+.tree-list li.flash{background:color-mix(in srgb,var(--functions) 14%,transparent)}
+.tree-list .kind{font-family:var(--mono);font-size:13px;padding:2px 9px;border-radius:7px;white-space:nowrap;background:var(--bg2);border:1px solid var(--line)}
+.kind.svc{color:var(--serving);border-color:var(--serving)}
+.kind.knative{color:var(--violet)}
+.kind.k8s{color:var(--functions)}
+.kind.net{color:var(--eventing)}
+.tree-list .nm{font-family:var(--mono);font-size:14px}
+.tree-list .why{display:block;color:var(--muted);font-size:14px;line-height:1.55}
+.tree-list li[data-d="1"]{margin-left:24px}
+.tree-list li[data-d="2"]{margin-left:48px}
+.tree-list li[data-d="3"]{margin-left:72px}
+@media (max-width:640px){.tree-list li[data-d="1"]{margin-left:10px}.tree-list li[data-d="2"]{margin-left:20px}.tree-list li[data-d="3"]{margin-left:30px}}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:14px}
+
+/* request path */
+.path{display:flex;align-items:stretch;gap:0;margin:24px 0;overflow-x:auto;padding-bottom:6px}
+.hop{flex:1 0 140px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;font-size:14px;color:var(--muted);position:relative}
+.hop b{display:block;color:var(--text);font-size:15.5px;margin-bottom:4px}
+.hop.act{border:1.5px dashed var(--eventing)}
+.hop.act b{color:var(--eventing)}
+.hop.qp b{color:var(--violet)}
+.hop.uc b{color:var(--functions)}
+.arrow{flex:0 0 28px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px}
+
+/* timeline */
+.timeline{list-style:none;margin:24px 0;padding:0;position:relative;max-width:760px}
+.timeline::before{content:"";position:absolute;left:84px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.timeline li{display:grid;grid-template-columns:72px 1fr;gap:28px;padding:0 0 22px;position:relative}
+.timeline .yr{font-family:var(--mono);font-weight:600;font-size:15px;text-align:right;padding-top:2px}
+.timeline li::after{content:"";position:absolute;left:79px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2.5px solid var(--serving)}
+.timeline li.big::after{background:var(--functions);border-color:var(--functions)}
+.timeline h4{margin:0 0 2px;font-size:17px}
+.timeline p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* ecosystem */
+.eco{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0;max-width:860px}
+@media (max-width:640px){.eco{grid-template-columns:1fr}}
+.eco div{padding:16px 18px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.eco h4{margin:0 0 2px;font-size:16.5px}
+.eco .rel{font-size:13px;color:var(--violet);margin-bottom:6px;display:block}
+.eco p{margin:0;font-size:15px;color:var(--muted)}
+
+/* steps */
+.steps{list-style:none;margin:20px 0;padding:0;counter-reset:s;max-width:820px}
+.steps>li{counter-increment:s;position:relative;padding-left:52px;margin-bottom:26px}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:36px;height:36px;border-radius:12px;background:var(--serving);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.steps h4{margin:4px 0 8px;font-size:18px}
+.steps p{margin:0 0 10px}
+
+/* uses */
+.uses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}
+@media (max-width:860px){.uses{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.uses{grid-template-columns:1fr}}
+.use{padding:18px;border-radius:16px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c,var(--serving))}
+.use h4{margin:0 0 6px;font-size:17px}
+.use p{margin:0;font-size:15px;color:var(--muted)}
+.use .ep{display:block;margin-top:10px;font-size:13px;color:var(--faint)}
+
+.nofit{max-width:820px;margin:18px 0}
+.nofit details{border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:10px}
+.nofit summary{cursor:pointer;padding:14px 18px;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.nofit summary::-webkit-details-marker{display:none}
+.nofit summary::after{content:"+";color:var(--faint);font-family:var(--mono)}
+.nofit details[open] summary::after{content:"−"}
+.nofit .body{padding:0 18px 16px;color:var(--muted);font-size:15.5px}
+.nofit .body b{color:var(--text)}
+
+/* quiz */
+.quiz{max-width:820px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px}
+.q h4{margin:0 0 12px;font-size:17px;line-height:1.55}
+.q .opts{display:grid;gap:8px}
+.q button{font:inherit;font-size:15.5px;text-align:left;padding:11px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer}
+.q button:hover:not(:disabled){border-color:var(--serving)}
+.q button.right{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 15%,var(--bg2))}
+.q button.wrong{border-color:var(--hot);background:color-mix(in srgb,var(--hot) 12%,var(--bg2))}
+.q button:disabled{cursor:default}
+.q .fb{margin-top:12px;font-size:15px;color:var(--muted);display:none}
+.q .fb.show{display:block}
+.q .fb b{color:var(--text)}
+.score{font-size:16px;margin:4px 0 18px;color:var(--muted)}
+.score b{color:var(--text);font-family:var(--mono)}
+
+/* glossary */
+.gsearch{font:inherit;font-size:16px;width:100%;max-width:420px;padding:11px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 18px}
+.gsearch:focus{border-color:var(--serving);outline:none}
+.gloss{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.gloss{grid-template-columns:1fr}}
+.g{padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.g dt{font-weight:700;margin-bottom:2px}
+.g dt small{font-weight:400;color:var(--faint);font-size:13px;margin-left:6px}
+.g dd{margin:0;font-size:15px;color:var(--muted)}
+.g[hidden]{display:none}
+
+/* summary */
+.recap{max-width:820px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:24px 26px;margin:22px 0}
+.recap ol{margin:0;padding-left:22px}
+.recap li{margin-bottom:8px}
+.next{max-width:820px;border-radius:20px;padding:24px 26px;background:linear-gradient(135deg,color-mix(in srgb,var(--serving) 22%,var(--surface)),var(--surface));border:1px solid var(--line)}
+.next h3{margin:0 0 8px}
+.next p{margin:0;color:var(--muted)}
+footer{margin-top:60px;color:var(--faint);font-size:13.5px;max-width:820px}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation:none!important;transition:none!important}
+}
+
+/* ---------- 2편 전용 ---------- */
+.zone-s{--z:var(--serving)} .zone-c{--z:var(--violet)} .zone-r{--z:var(--eventing)}
+
+/* CRD relation diagram */
+.rel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.rel-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rel-top{grid-column:1/-1;display:flex;justify-content:center}
+.rnode{font:inherit;text-align:left;border-radius:16px;padding:14px 16px;border:2px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer;transition:border-color .15s,background .15s,opacity .2s}
+.rnode h4{margin:0 0 2px;font-size:17px}
+.rnode p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.rnode.svc{max-width:420px;width:100%;border-color:var(--serving)}
+.rnode.svc h4{color:var(--serving)}
+.rnode.cfg h4{color:var(--violet)}
+.rnode.rt h4{color:var(--eventing)}
+.rnode.rev h4{color:var(--functions)}
+.rnode.on{background:color-mix(in srgb,var(--z2,var(--serving)) 14%,var(--bg2));border-color:var(--z2,var(--serving))}
+.rnode.cfg{--z2:var(--violet)} .rnode.rt{--z2:var(--eventing)} .rnode.rev{--z2:var(--functions)}
+.rel.focus .rnode:not(.on){opacity:.4}
+.revs{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.rel-grid{grid-template-columns:1fr}.revs{grid-template-columns:1fr}}
+.rel-links{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13.5px;color:var(--faint);text-align:center}
+.rel-out{margin-top:14px;padding:14px 18px;border-radius:14px;background:var(--bg);border:1px solid var(--line);font-size:15.5px;min-height:74px}
+
+/* annotated yaml */
+.ay{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:16px;margin:24px 0}
+@media (max-width:900px){.ay{grid-template-columns:1fr}}
+.ay-code{background:var(--code);border-radius:16px;padding:12px 0;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.7;color:var(--codetext)}
+.ay-line{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:none;border:0;border-left:4px solid var(--z);padding:0 16px;white-space:pre;cursor:pointer}
+.ay-line:hover{background:rgba(255,255,255,.05)}
+.ay-line.on{background:rgba(255,255,255,.11)}
+.ay-line .k{color:var(--codekey)} .ay-line .s{color:var(--codestr)}
+.ay-note{position:sticky;top:80px;align-self:start;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.ay-note .zt{font-size:13px;color:var(--z);margin-bottom:4px;display:block}
+.ay-note h4{margin:0 0 8px;font-size:18px;font-family:var(--mono);word-break:break-all}
+.ay-note p{margin:0 0 10px;font-size:15.5px;color:var(--muted)}
+.ay-note p b{color:var(--text)}
+.ay-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin-top:-8px}
+.ay-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* reconcile */
+.recon{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.actors{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.actor{font-size:14px;padding:6px 12px;border-radius:10px;border:1.5px solid var(--line);color:var(--muted);background:var(--bg2);transition:all .2s}
+.actor.on{border-color:var(--functions);color:var(--text);background:color-mix(in srgb,var(--functions) 18%,var(--bg2))}
+.rsteps{list-style:none;margin:0;padding:0;counter-reset:r}
+.rsteps li{counter-increment:r;display:grid;grid-template-columns:34px 1fr;gap:12px;padding:10px 12px;border-radius:12px;opacity:.18;transition:opacity .3s,background .3s}
+.rsteps li::before{content:counter(r);width:28px;height:28px;border-radius:9px;background:var(--bg2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px}
+.rsteps li.show{opacity:1}
+.rsteps li.cur{background:color-mix(in srgb,var(--functions) 10%,transparent)}
+.rsteps li.cur::before{background:var(--functions);color:#062018;border-color:var(--functions)}
+.rsteps b{display:block;font-size:15.5px}
+.rsteps span{font-size:14.5px;color:var(--muted)}
+.rctrl{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+
+/* components */
+.term-out{background:var(--code);color:var(--codetext);border-radius:14px;font-family:var(--mono);font-size:13.5px;overflow-x:auto;margin:20px 0 6px}
+.term-out .hd{padding:10px 16px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07);white-space:pre}
+.term-row{display:block;width:100%;font:inherit;color:inherit;text-align:left;background:none;border:0;padding:3px 16px;white-space:pre;cursor:pointer}
+.term-row:hover,.term-row.on{background:rgba(255,255,255,.09)}
+.term-row .ns{color:var(--codecom)}
+.term-row .nm{color:var(--codekey)}
+.comp-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:12px 0 20px;max-width:820px}
+.comp-card h4{margin:0 0 6px;font-size:18px;font-family:var(--mono)}
+.comp-card .tag2{display:inline-block;font-size:12.5px;padding:2px 9px;border-radius:7px;margin-left:8px;vertical-align:2px;font-family:var(--font)}
+.tag2.cp{background:color-mix(in srgb,var(--violet) 20%,transparent);color:var(--violet)}
+.tag2.dp{background:color-mix(in srgb,var(--functions) 20%,transparent);color:var(--functions)}
+.comp-card dl{display:grid;grid-template-columns:96px 1fr;gap:6px 14px;margin:8px 0 0;font-size:15px}
+.comp-card dt{color:var(--faint)}
+.comp-card dd{margin:0}
+.comp-card dd.fail{color:var(--hot)}
+
+/* SKS */
+.sks{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0}
+.sks-flow{display:flex;align-items:center;gap:0;overflow-x:auto;margin:16px 0;padding-bottom:4px}
+.sks-flow .hop{flex:1 0 120px}
+.sks-flow .hop.gone{opacity:.25;border-style:dashed}
+.sks-out{font-size:15.5px;color:var(--muted);max-width:760px}
+.sks-out b{color:var(--text)}
+
+/* traffic editor */
+.tedit{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.trow{display:grid;grid-template-columns:120px 1fr 64px 150px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+@media (max-width:640px){.trow{grid-template-columns:1fr 64px;}.trow input[type=range]{grid-column:1/-1}.trow .tg{grid-column:1/-1}}
+.trow .rv{font-family:var(--mono);font-size:14px}
+.trow .rv small{display:block;font-family:var(--font);color:var(--faint);font-size:12.5px}
+.trow output{font-family:var(--mono);font-size:18px;text-align:right}
+.trow input[type=text]{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);width:100%}
+input[type=range]{width:100%;accent-color:var(--serving)}
+.tsum{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+.tsum .bad{color:var(--hot)} .tsum .good{color:var(--functions)}
+.tbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--line);margin:4px 0 14px}
+.tbar span{display:block;height:100%;transition:width .2s}
+.tsplit{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.tsplit{grid-template-columns:1fr}}
+.urls{font-family:var(--mono);font-size:13.5px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.urls div{padding:3px 0;word-break:break-all}
+.urls div span{color:var(--faint);font-family:var(--font);font-size:12.5px;margin-left:6px}
+.hits{display:flex;flex-wrap:wrap;gap:4px;min-height:20px;margin-top:10px}
+.hits i{width:14px;height:14px;border-radius:4px;display:block}
+
+/* net compare & cm grid */
+.cms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:20px 0 0}
+@media (max-width:760px){.cms{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cm{font:inherit;font-family:var(--mono);font-size:13.5px;text-align:left;padding:12px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.cm[aria-pressed="true"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--surface))}
+.cm small{display:block;font-family:var(--font);color:var(--muted);font-size:12.5px;margin-top:2px}
+.cm-out{margin:12px 0 20px}
+.cm-out .desc{background:var(--surface);border:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 18px;font-size:15.5px;color:var(--muted);border-bottom:0}
+.cm-out .desc b{color:var(--text)}
+.cm-out .codebox{border-radius:0 0 14px 14px}
+
+/* ---------- 3편 전용 ---------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.panel h3{margin-top:0}
+.ctrls{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 18px;margin-bottom:16px}
+.ctrl label{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:2px}
+.ctrl label output{font-family:var(--mono);color:var(--text)}
+.ctrl select{font:inherit;font-size:14.5px;width:100%;padding:7px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text)}
+.ctrl.chk label{justify-content:flex-start;gap:8px;align-items:center;color:var(--text);cursor:pointer}
+.presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.presets .btn[aria-pressed="true"]{background:var(--serving);border-color:var(--serving);color:#fff}
+.chart{width:100%;height:auto;display:block;background:var(--bg);border:1px solid var(--line);border-radius:14px}
+.chart text{font-family:var(--mono);font-size:11px;fill:var(--faint)}
+.legend2{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin:10px 0 0}
+.legend2 i{display:inline-block;width:18px;height:4px;border-radius:2px;margin-right:6px;vertical-align:3px}
+.legend2 i.box{height:12px;width:12px;vertical-align:-1px;opacity:.6}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+@media (max-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--mono);font-size:22px;line-height:1.25}
+.kpi span{font-size:12.5px;color:var(--muted)}
+.kpi.warn b{color:var(--hot)} .kpi.ok b{color:var(--functions)}
+
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+@media (max-width:760px){.calc{grid-template-columns:1fr}}
+.formula{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font-size:15px}
+.formula .eq{font-family:var(--mono);font-size:14px;line-height:1.9;color:var(--muted)}
+.formula .eq b{color:var(--text)}
+.formula .big{font-family:var(--mono);font-size:40px;font-weight:600;color:var(--functions);line-height:1.1;margin:6px 0}
+.formula .why{font-size:14.5px;color:var(--muted);margin:8px 0 0}
+.mode{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;font-size:15px}
+.mode.proxy{background:color-mix(in srgb,var(--eventing) 22%,transparent);color:var(--eventing)}
+.mode.serve{background:color-mix(in srgb,var(--functions) 22%,transparent);color:var(--functions)}
+
+.cold{margin:8px 0}
+.cold-toggles{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:15px}
+.cold-toggles label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.cbar{display:flex;height:40px;border-radius:10px;overflow:hidden;background:var(--line)}
+.cbar span{display:flex;align-items:center;justify-content:center;font-size:12px;color:#0b1028;font-weight:600;white-space:nowrap;overflow:hidden;transition:width .3s}
+.cleg{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 18px;margin-top:12px;font-size:14px;color:var(--muted)}
+.cleg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cleg b{color:var(--text);font-family:var(--mono);font-weight:500}
+.ctotal{font-size:16px;margin-top:12px}
+.ctotal b{font-family:var(--mono);font-size:24px;color:var(--hot)}
+
+.recipes .tabpanel pre{font-size:13px}
+.recipe-desc{background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:0 14px 0 0;padding:14px 18px;font-size:15.5px;color:var(--muted)}
+.recipe-desc b{color:var(--text)}
+.recipes .codebox{border-radius:0 0 14px 14px}
+code.i.nowrap{white-space:nowrap}
+
+
+/* ---------- 7편 전용 ---------- */
+.patt{display:flex;align-items:center;flex-wrap:wrap;gap:0;margin:14px 0}
+.patt .node{padding:10px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);font-size:14px}
+.patt .node.src{border-color:var(--serving);color:var(--serving)}
+.patt .node.mid{border-color:var(--eventing);color:var(--eventing)}
+.patt .node.dst{border-color:var(--functions);color:var(--functions)}
+.patt .node.vi{border-color:var(--violet);color:var(--violet)}
+.patt .ar{padding:0 8px;color:var(--faint);font-size:18px}
+
+.scf-top{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:12px;overflow:hidden}
+.seg button{font:inherit;font-size:14px;padding:7px 14px;border:0;background:var(--bg2);color:var(--muted);cursor:pointer}
+.seg button+button{border-left:1.5px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--functions);color:#06201a;font-weight:600}
+.scf{display:grid;grid-template-columns:220px minmax(0,1fr);gap:14px}
+@media (max-width:760px){.scf{grid-template-columns:1fr}}
+.tree2{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 8px;font-family:var(--mono);font-size:13px;align-self:start}
+.tree2 button{display:block;width:100%;text-align:left;font:inherit;background:none;border:0;color:var(--muted);padding:5px 10px;border-radius:8px;cursor:pointer;white-space:pre}
+.tree2 button:hover{background:var(--surface)}
+.tree2 button[aria-pressed="true"]{background:var(--surface2);color:var(--text)}
+.tree2 .dir{color:var(--faint);padding:5px 10px;white-space:pre}
+.fnote{margin:8px 0 0;font-size:14.5px;color:var(--muted)}
+
+.term{background:var(--code);color:var(--codetext);border-radius:14px;font-family:var(--mono);font-size:13px;line-height:1.7;padding:14px 16px;min-height:260px;white-space:pre-wrap;overflow-x:auto}
+.term .k{color:var(--codekey)} .term .c{color:var(--codecom)} .term .o{color:var(--codestr)} .term .w{color:#FFB86B}
+.stepper{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.stepper button{font:inherit;font-family:var(--mono);font-size:13.5px;padding:7px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--muted);cursor:pointer}
+.stepper button.done{color:var(--functions);border-color:color-mix(in srgb,var(--functions) 50%,var(--line))}
+.stepper button[aria-pressed="true"]{background:var(--serving);border-color:var(--serving);color:#fff}
+.stepdesc{font-size:15px;color:var(--muted);margin:0 0 10px;min-height:48px}
+.stepdesc b{color:var(--text)}
+
+.dep{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+@media (max-width:760px){.dep{grid-template-columns:1fr}}
+.reslist{list-style:none;margin:0;padding:0}
+.reslist li{display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:10px;font-size:14.5px;margin-bottom:4px;background:var(--bg2)}
+.reslist li .kind{font-family:var(--mono);font-size:12.5px;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}
+.reslist li.k8s .kind{color:var(--functions)} .reslist li.kn .kind{color:var(--violet)} .reslist li.ev .kind{color:var(--eventing)}
+.feat{list-style:none;margin:0;padding:0;font-size:14.5px}
+.feat li{padding:5px 0;display:flex;gap:8px}
+.feat li .y{color:var(--functions);font-weight:700;min-width:16px}
+.feat li .n{color:var(--hot);font-weight:700;min-width:16px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series"><b>Knative 강의</b> 7편 / 10편</div>
+    <div class="progress" aria-hidden="true"><span id="prog"></span></div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" aria-label="목차">
+    <p>이번 편의 흐름</p>
+    <ol>
+      <li><a href="#s1">함수가 해 주는 일</a></li>
+      <li><a href="#s2">함수 프로젝트 들여다보기</a></li>
+      <li><a href="#s3">func.yaml: 함수의 설계도</a></li>
+      <li><a href="#s4">개발 사이클 따라가기</a></li>
+      <li><a href="#s5">빌드 방식 고르기</a></li>
+      <li><a href="#s6">이벤트 구독: func subscribe</a></li>
+      <li><a href="#s7">배포 대상: knative vs raw</a></li>
+      <li><a href="#s8">Lambda와 무엇이 다른가</a></li>
+      <li><a href="#s9">팀과 CI에 넣기</a></li>
+      <li><a href="#s10">실습</a></li>
+      <li><a href="#s11">자주 만나는 문제</a></li>
+      <li><a href="#s12">확인 퀴즈</a></li>
+      <li><a href="#s13">용어 사전</a></li>
+      <li><a href="#s14">정리와 다음 편</a></li>
+    </ol>
+  </nav>
+
+<main>
+  <header class="hero">
+    <h1>Knative Functions</h1>
+    <p class="lede">지금까지는 컨테이너 이미지를 직접 만들어 Service에 넣었습니다. Functions는 그 앞 단계까지 대신합니다. 함수 하나만 작성하면 이미지 빌드, 레지스트리 업로드, Knative 배포, 이벤트 구독까지 <code class="i">func</code> 명령 몇 개로 끝납니다.</p>
+    <div class="meta">
+      <span class="chip">기준 버전 Knative v1.23</span>
+      <span class="chip">선수 지식: 2편, 5편</span>
+      <span class="chip">예상 학습 시간 80~100분</span>
+    </div>
+  </header>
+
+  <!-- 1 -->
+  <section class="lesson" id="s1">
+    <div class="sec-no">1 / 14</div>
+    <h2 class="h">함수가 해 주는 일</h2>
+    <div class="prose"><p>일반 Knative 서비스를 만드는 과정과 함수를 만드는 과정을 비교해 보면 차이가 분명합니다.</p></div>
+    <div class="analogy">
+      <div>
+        <h4>Knative Service 직접 만들기</h4>
+        <ul>
+          <li>HTTP 서버 코드 작성 (라우팅, 포트, 헬스 체크)</li>
+          <li>Dockerfile 작성과 이미지 빌드</li>
+          <li>레지스트리 로그인과 push</li>
+          <li>ksvc YAML 작성과 apply</li>
+          <li>이벤트를 받으려면 Trigger YAML 별도 작성</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Knative Function</h4>
+        <ul>
+          <li><code class="i">func create</code>로 뼈대 생성</li>
+          <li>Handle 함수 하나만 채움</li>
+          <li><code class="i">func deploy</code> 한 번으로 빌드·push·배포</li>
+          <li><code class="i">func subscribe</code>로 이벤트 구독 선언</li>
+          <li>HTTP 서버, 헬스 체크, CloudEvents 파싱은 템플릿이 담당</li>
+        </ul>
+      </div>
+    </div>
+    <div class="patt" aria-label="func deploy 내부 흐름">
+      <div class="node src">함수 코드<br><small>+ func.yaml</small></div><div class="ar">›</div>
+      <div class="node vi">빌더<br><small>Buildpacks · S2I · host</small></div><div class="ar">›</div>
+      <div class="node mid">레지스트리<br><small>이미지 push</small></div><div class="ar">›</div>
+      <div class="node dst">Knative Service<br><small>또는 Deployment</small></div><div class="ar">›</div>
+      <div class="node mid">Trigger<br><small>구독 선언 시</small></div>
+    </div>
+    <div class="callout">
+      <b class="t">결과물은 결국 평범한 Knative Service</b>
+      <p>함수라고 해서 특별한 런타임이 클러스터에 따로 도는 것이 아닙니다. <code class="i">func deploy</code>가 끝나면 2~4편에서 다룬 그 Knative Service가 생깁니다. 그래서 오토스케일링 어노테이션, 트래픽 분할, 보안 설정이 모두 그대로 적용됩니다. Functions는 <strong>개발자 경험 도구</strong>입니다.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="lesson" id="s2">
+    <div class="sec-no">2 / 14</div>
+    <h2 class="h">함수 프로젝트 들여다보기</h2>
+    <div class="prose">
+      <p>템플릿은 크게 두 종류입니다. <strong>http</strong> 템플릿은 일반 HTTP 요청을, <strong>cloudevents</strong> 템플릿은 CloudEvent를 받고 돌려줍니다(5편의 답장). 언어와 템플릿을 바꿔 가며 <code class="i">func create</code>가 만드는 파일을 열어 보세요. 지원 언어는 Go, Node.js, TypeScript, Python, Quarkus, Spring Boot, Rust입니다.</p>
+    </div>
+    <div class="panel">
+      <div class="scf-top">
+        <div class="seg" id="langSeg" role="group" aria-label="언어"></div>
+        <div class="seg" id="tplSeg" role="group" aria-label="템플릿"></div>
+      </div>
+      <div class="codebox solo" style="margin-bottom:12px"><div class="cap"><span>생성 명령</span><button class="copy" type="button">복사</button></div><pre><code id="scfCmd"></code></pre></div>
+      <div class="scf">
+        <div class="tree2" id="scfTree"></div>
+        <div>
+          <div class="codebox solo"><div class="cap"><span id="scfFile"></span><button class="copy" type="button">복사</button></div><pre><code id="scfCode"></code></pre></div>
+          <p class="fnote" id="scfNote"></p>
+        </div>
+      </div>
+    </div>
+    <div class="callout amber">
+      <b class="t">템플릿 버전에 따라 모양이 다를 수 있다</b>
+      <p>func는 언어별 템플릿을 계속 개선하고 있습니다. 예를 들어 Python 템플릿은 최근 ASGI 기반의 클래스 구조로 바뀌었고, Go 템플릿도 인스턴스 구조체에 Handle 메서드를 다는 형태로 정리됐습니다. 위 예시는 이해를 돕기 위한 대표 형태이므로, 실제 작업에서는 <code class="i">func create</code>로 생성된 파일과 그 안의 주석을 기준으로 삼으세요.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="lesson" id="s3">
+    <div class="sec-no">3 / 14</div>
+    <h2 class="h">func.yaml: 함수의 설계도</h2>
+    <div class="prose"><p>func.yaml은 빌드·실행·배포 설정을 모두 담는 파일입니다. 대부분은 <code class="i">func</code> 명령이 알아서 채우지만, 직접 고쳐도 됩니다. 줄을 눌러 설명을 보세요.</p></div>
+    <div class="ay">
+      <div class="ay-code" id="fyCode"></div>
+      <div class="ay-note" id="fyNote" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="lesson" id="s4">
+    <div class="sec-no">4 / 14</div>
+    <h2 class="h">개발 사이클 따라가기</h2>
+    <div class="prose"><p>함수 개발의 전형적인 순서입니다. 버튼을 차례로 눌러 각 명령이 무엇을 하는지, 어떤 출력이 나오는지 보세요. 출력은 이해를 돕기 위해 간추린 예시입니다.</p></div>
+    <div class="panel">
+      <div class="stepper" id="stepper"></div>
+      <p class="stepdesc" id="stepDesc"></p>
+      <div class="term" id="stepTerm" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="lesson" id="s5">
+    <div class="sec-no">5 / 14</div>
+    <h2 class="h">빌드 방식 고르기</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:150px">빌더</th><th>동작</th><th>장점</th><th>주의</th></tr></thead>
+        <tbody>
+          <tr><th>pack<br><small class="muted">Buildpacks</small></th><td>Cloud Native Buildpacks가 소스를 분석해 언어에 맞는 이미지를 만듦</td><td>대부분의 언어 지원. 베이스 이미지 보안 패치를 빌드팩 갱신으로 일괄 반영</td><td>로컬 컨테이너 엔진(Docker, Podman) 필요. 첫 빌드가 느림</td></tr>
+          <tr><th>s2i<br><small class="muted">Source-to-Image</small></th><td>Red Hat 계열 빌더 이미지에 소스를 넣어 이미지 생성</td><td>OpenShift 환경과 잘 맞음</td><td>지원 언어가 pack보다 적음</td></tr>
+          <tr><th>host</th><td>컨테이너 엔진 없이 로컬에서 바로 OCI 이미지를 조립</td><td>Docker 없이 빠르게 빌드. 회사 PC에 Docker 설치가 어려울 때</td><td>Go, Python 등 일부 언어만 지원. 언어별 지원 여부 확인 필요</td></tr>
+          <tr><th>원격 빌드<br><small class="muted">--remote</small></th><td>클러스터 안의 Tekton 파이프라인이 Git 저장소를 받아 빌드·배포</td><td>개발자 PC에 아무것도 없어도 됨. 빌드 환경 통일</td><td>클러스터에 Tekton과 권한 설정 필요. 레지스트리 자격 증명을 클러스터에 둬야 함</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout mint">
+      <b class="t">MSP 관점의 선택</b>
+      <p>고객사 개발자 PC 환경이 제각각이라면 <strong>원격 빌드</strong>로 빌드 환경을 클러스터에 통일하는 편이 지원 부담이 적습니다. 반대로 개발자가 소수이고 빠른 반복이 중요하면 <strong>host 또는 pack</strong> 로컬 빌드가 편합니다. 어느 쪽이든 빌드팩 이미지와 베이스 이미지 출처를 고객사 보안 정책에 맞게 사설 레지스트리로 미러링하는 것을 권합니다.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="lesson" id="s6">
+    <div class="sec-no">6 / 14</div>
+    <h2 class="h">이벤트 구독: func subscribe</h2>
+    <div class="prose">
+      <p>cloudevents 템플릿 함수는 Broker에서 이벤트를 받는 것이 보통입니다. 5편에서는 Trigger YAML을 따로 썼지만, 함수에서는 구독을 func.yaml에 선언해 두면 배포할 때 Trigger가 함께 만들어집니다.</p>
+    </div>
+    <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash"># func.yaml에 구독 선언 추가 (아직 클러스터 변경 없음)
+func subscribe --source default --filter type=com.mycorp.order.created
+
+# 배포할 때 Trigger가 함께 생성됨
+func deploy
+
+kubectl get trigger</code></pre></div>
+    <div class="callout">
+      <b class="t">답장으로 다음 함수 깨우기</b>
+      <p>cloudevents 함수가 CloudEvent를 반환하면 Broker로 돌아가 다른 함수의 Trigger를 깨웁니다. 함수 A는 <code class="i">order.created</code>를 받아 <code class="i">order.scored</code>를 반환하고, 함수 B는 <code class="i">order.scored</code>를 구독하는 식으로 5~6편의 코레오그래피를 함수만으로 만들 수 있습니다. 반환 type이 자기 구독 필터에 걸리지 않게 주의하세요.</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="lesson" id="s7">
+    <div class="sec-no">7 / 14</div>
+    <h2 class="h">배포 대상: knative vs raw</h2>
+    <div class="prose">
+      <p>v1.21부터 <code class="i">func deploy --deployer raw</code> 옵션이 생겼습니다. Knative Serving이 없는 클러스터에도 함수를 일반 쿠버네티스 Deployment와 Service로 배포할 수 있습니다. 토글로 결과를 비교해 보세요.</p>
+    </div>
+    <div class="panel">
+      <div class="seg" id="depSeg" role="group" aria-label="deployer" style="display:inline-flex">
+        <button type="button" data-d="knative" aria-pressed="true">--deployer knative (기본)</button>
+        <button type="button" data-d="raw" aria-pressed="false">--deployer raw</button>
+      </div>
+      <div class="dep">
+        <div><p style="margin:0 0 8px;font-size:14px;color:var(--muted)">생성되는 리소스</p><ul class="reslist" id="depRes"></ul></div>
+        <div><p style="margin:0 0 8px;font-size:14px;color:var(--muted)">얻는 것과 잃는 것</p><ul class="feat" id="depFeat"></ul></div>
+      </div>
+    </div>
+    <div class="callout amber">
+      <b class="t">raw는 언제 쓰나</b>
+      <p>Knative Serving을 설치할 수 없는 고객사 클러스터(규제, 운영 정책, 관리형 플랫폼 제약)에서도 함수 개발 경험만은 통일하고 싶을 때 씁니다. 같은 함수 코드를 개발 클러스터에서는 Knative로, 특정 운영 클러스터에서는 raw로 배포하는 식입니다. 0개 축소, Revision, 트래픽 분할은 포기해야 하므로, 필요하면 HPA나 KEDA를 따로 붙여야 합니다.</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="lesson" id="s8">
+    <div class="sec-no">8 / 14</div>
+    <h2 class="h">Lambda와 무엇이 다른가</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:140px">항목</th><th class="colhead-k">Knative Functions</th><th>AWS Lambda 등 FaaS</th></tr></thead>
+        <tbody>
+          <tr><th>결과물</th><td>표준 OCI 이미지 + Knative Service</td><td>제공자 고유 패키지와 실행 환경</td></tr>
+          <tr><th>실행 위치</th><td>어떤 쿠버네티스든. 온프레미스, 여러 클라우드</td><td>해당 클라우드 리전</td></tr>
+          <tr><th>이벤트 형식</th><td>CloudEvents 표준</td><td>서비스마다 고유 이벤트 구조</td></tr>
+          <tr><th>실행 시간</th><td>요청 단위 타임아웃 (조정 가능)</td><td>최대 실행 시간 제한</td></tr>
+          <tr><th>로컬 실행</th><td><code class="i">func run</code>으로 같은 이미지를 그대로</td><td>에뮬레이터나 별도 도구 필요</td></tr>
+          <tr><th>운영 부담</th><td>클러스터 운영 필요 (MSP의 영역)</td><td>인프라 운영 없음</td></tr>
+          <tr><th>탈출 비용</th><td>낮음. 이미지를 일반 Deployment로도 실행 가능</td><td>높음. 이벤트 구조와 런타임 의존</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout mint">
+      <b class="t">고객사 설득 포인트</b>
+      <p>"Lambda 같은 개발 경험을 자체 클러스터에서" 그리고 "나중에 플랫폼을 바꿔도 코드는 그대로"가 핵심 메시지입니다. 반대로 고객사가 클러스터 운영 역량이 없고 특정 클라우드에 정착할 계획이라면 관리형 FaaS가 더 나을 수 있다는 점도 솔직하게 비교해 주는 것이 좋습니다.</p>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="lesson" id="s9">
+    <div class="sec-no">9 / 14</div>
+    <h2 class="h">팀과 CI에 넣기</h2>
+    <div class="traits">
+      <div class="trait"><h4><span class="sw" style="background:var(--serving)"></span>func.yaml은 Git에</h4><p>함수 코드와 func.yaml을 함께 커밋하면 빌드·배포 설정이 코드와 함께 버전 관리됩니다. 레지스트리 주소나 네임스페이스처럼 환경마다 다른 값은 CI에서 플래그나 환경 변수로 덮어씁니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--violet)"></span>CI에서 func build</h4><p>CI 러너에서 <code class="i">func build</code>로 이미지를 만들고 push한 뒤, 배포는 GitOps 저장소의 이미지 태그만 바꾸는 방식이 4편의 "배포와 출시 분리"와 잘 맞습니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--functions)"></span>사내 템플릿 저장소</h4><p><code class="i">func repository</code>로 회사 표준 템플릿(로깅 형식, 추적 설정, 보안 헤더 포함)을 등록하면 모든 함수가 같은 출발점에서 시작합니다. MSP가 고객사에 제공할 만한 부가가치입니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--eventing)"></span>시크릿은 참조로</h4><p><code class="i">func config envs</code>와 <code class="i">func config volumes</code>로 Secret·ConfigMap을 참조하게 하세요. func.yaml에 비밀 값을 직접 적으면 Git에 그대로 남습니다.</p></div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="lesson" id="s10">
+    <div class="sec-no">10 / 14</div>
+    <h2 class="h">실습</h2>
+    <div class="callout hot">
+      <b class="t">레지스트리 준비</b>
+      <p>함수 이미지는 레지스트리에 올라가야 클러스터가 받을 수 있습니다. 아래 실습은 로그인 없이 쓰는 임시 공개 레지스트리 <code class="i">ttl.sh</code>를 씁니다(이미지가 일정 시간 뒤 자동 삭제). <strong>공개 레지스트리이므로 회사 코드나 비밀 값은 절대 넣지 마세요.</strong> 사내 실습이라면 사설 레지스트리 주소로 바꾸세요.</p>
+    </div>
+    <ol class="steps">
+      <li><h4>func CLI 설치</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">brew tap knative-extensions/kn-plugins
+brew install func
+# 또는 GitHub 릴리스에서 바이너리. kn 플러그인으로 쓰면 "kn func ..."
+
+func version
+func languages
+func templates</code></pre></div></li>
+      <li><h4>cloudevents 함수 만들기</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">func create -l go -t cloudevents order-scorer
+cd order-scorer
+ls -la
+cat func.yaml</code></pre></div>
+        <p>생성된 handle.go의 Handle 함수를 열어, 받은 이벤트를 로그로 남기고 <code class="i">com.mycorp.order.scored</code> 타입의 답장을 돌려주도록 고쳐 보세요. 2장의 예시를 참고하면 됩니다.</p></li>
+      <li><h4>로컬에서 실행하고 호출</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash"># 터미널 1: 로컬 컨테이너로 실행 (빌드 포함)
+func run
+
+# 터미널 2: CloudEvent로 호출
+func invoke --format cloudevent \
+  --type com.mycorp.order.created \
+  --data '{"orderId":"1234","amount":39000}'</code></pre></div></li>
+      <li><h4>클러스터에 배포</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">export FUNC_REGISTRY=ttl.sh/knlab-$(date +%s)
+func deploy --registry $FUNC_REGISTRY
+
+func describe
+kn service list
+func invoke --target remote --format cloudevent --type com.mycorp.order.created --data '{"orderId":"5678"}'</code></pre></div></li>
+      <li><h4>Broker 구독 연결</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn broker create default          # 5편에서 지웠다면 다시
+
+func subscribe --source default --filter type=com.mycorp.order.created
+func deploy --registry $FUNC_REGISTRY
+kubectl get trigger
+
+# 5편 방식으로 Broker에 이벤트 발행
+kubectl run curl --image=curlimages/curl --rm -it --restart=Never -- \
+  curl -s http://broker-ingress.knative-eventing.svc.cluster.local/default/default \
+  -H "Ce-Specversion: 1.0" -H "Ce-Id: o-1" -H "Ce-Source: /lab" \
+  -H "Ce-Type: com.mycorp.order.created" -H "Content-Type: application/json" \
+  -d '{"orderId":"9999"}'
+
+kubectl logs -l function.knative.dev/name=order-scorer -c user-container --tail=20</code></pre></div>
+        <p class="muted">로그 라벨 셀렉터는 func 버전에 따라 다를 수 있습니다. 안 나오면 <code class="i">kubectl get pods --show-labels</code>로 확인하세요.</p></li>
+      <li><h4>설정 바꾸고 다시 배포</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash"># 대화형으로 환경 변수 추가 (또는 func.yaml 직접 수정)
+func config envs add
+
+# func.yaml의 deploy 아래에 오토스케일링 어노테이션을 넣고
+func deploy --registry $FUNC_REGISTRY
+kn revisions list    # 새 Revision 확인</code></pre></div></li>
+      <li><h4>raw 배포 비교 (선택)</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">func delete
+func deploy --registry $FUNC_REGISTRY --deployer raw
+kubectl get deploy,svc | grep order-scorer
+kn service list      # Knative Service는 없음</code></pre></div></li>
+      <li><h4>정리</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">func delete
+cd .. && rm -rf order-scorer</code></pre></div></li>
+    </ol>
+  </section>
+
+  <!-- 11 -->
+  <section class="lesson" id="s11">
+    <div class="sec-no">11 / 14</div>
+    <h2 class="h">자주 만나는 문제</h2>
+    <div class="nofit">
+      <details><summary>func build가 "cannot connect to Docker daemon"</summary><div class="body">pack·s2i 빌더는 로컬 컨테이너 엔진이 필요합니다. Docker나 Podman을 켜거나, 지원 언어라면 <b>host 빌더</b>(<code class="i">--builder host</code>)를, 아니면 <b>원격 빌드</b>를 쓰세요. Podman이면 소켓 경로를 DOCKER_HOST로 알려 줘야 할 수 있습니다.</div></details>
+      <details><summary>배포는 됐는데 Pod가 ImagePullBackOff</summary><div class="body">클러스터 노드가 레지스트리에 접근하지 못하는 경우입니다. 사설 레지스트리라면 <b>imagePullSecret</b>을 네임스페이스 기본 ServiceAccount에 연결하세요. 2편에서 봤듯 controller의 다이제스트 조회도 레지스트리 접근이 필요합니다.</div></details>
+      <details><summary>첫 빌드가 너무 오래 걸림</summary><div class="body">Buildpacks는 첫 빌드에 빌더 이미지와 의존성을 내려받습니다. 두 번째부터는 캐시를 씁니다. 회사망에서는 <b>빌더 이미지를 사내 레지스트리로 미러링</b>하면 크게 빨라집니다.</div></details>
+      <details><summary>func invoke는 되는데 Broker 이벤트는 안 옴</summary><div class="body">구독 필터의 type 철자, Broker 이름(<code class="i">--source</code>), 그리고 <b>func subscribe 후 다시 deploy</b>했는지 확인하세요. subscribe는 func.yaml만 고치고 클러스터는 deploy 때 바뀝니다.</div></details>
+      <details><summary>함수가 무한히 자기 자신을 깨움</summary><div class="body">반환하는 CloudEvent의 type이 자기 구독 필터와 같은 경우입니다. <b>반환 type을 다르게</b> 하거나, 답장이 필요 없으면 이벤트를 반환하지 마세요.</div></details>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="lesson" id="s12">
+    <div class="sec-no">12 / 14</div>
+    <h2 class="h">확인 퀴즈</h2>
+    <p class="score" id="score">맞힌 문제 <b>0</b> / 7</p>
+    <div class="quiz" id="quiz"></div>
+  </section>
+
+  <!-- 13 -->
+  <section class="lesson" id="s13">
+    <div class="sec-no">13 / 14</div>
+    <h2 class="h">용어 사전</h2>
+    <input class="gsearch" id="gsearch" type="search" placeholder="용어 검색 (예: Buildpacks, subscribe)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- 14 -->
+  <section class="lesson" id="s14">
+    <div class="sec-no">14 / 14</div>
+    <h2 class="h">정리와 다음 편</h2>
+    <div class="recap">
+      <ol>
+        <li>Knative Functions는 <strong>개발자 경험 도구</strong>이며, 결과물은 평범한 Knative Service(또는 Deployment)입니다.</li>
+        <li>템플릿은 <strong>http</strong>와 <strong>cloudevents</strong> 두 종류이고, 여러 언어를 지원합니다.</li>
+        <li><strong>func.yaml</strong>에 빌드·실행·배포·구독 설정이 모두 들어가며 Git으로 관리합니다.</li>
+        <li>개발 사이클은 <strong>create → run → invoke → deploy → subscribe</strong>입니다.</li>
+        <li>빌더는 pack, s2i, host, 그리고 Tekton 기반 원격 빌드 중 환경에 맞게 고릅니다.</li>
+        <li><strong>--deployer raw</strong>로 Serving 없는 클러스터에도 배포할 수 있지만, 0개 축소와 Revision은 사라집니다.</li>
+        <li>Lambda 대비 강점은 <strong>이식성과 표준</strong>, 약점은 클러스터 운영 부담입니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편: 어디에 쓰는가, 응용 사례와 안 맞는 경우</h3>
+      <p>지금까지 배운 Serving, Eventing, Functions를 조합해 실제 사례를 설계합니다. KServe와 함께하는 AI 추론, LLM의 0개 축소와 GPU 콜드 스타트 딜레마, 웹훅·API 백엔드, 데이터 파이프라인, AIOps 알람 처리, 개발·프리뷰 환경 비용 절감, 그리고 Knative를 쓰지 말아야 할 판단 기준까지 다룹니다.</p>
+    </div>
+    <footer>Knative 강의 시리즈 7편. Knative v1.23과 같은 시기의 func CLI를 기준으로 작성했습니다. 언어 템플릿의 코드 구조, func.yaml의 specVersion과 필드, 명령 플래그는 func 버전에 따라 바뀔 수 있으니 func --help와 생성된 파일을 기준으로 확인하세요.</footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+  const root=document.documentElement, tb=document.getElementById('themeBtn');
+  function setTheme(t){root.setAttribute('data-theme',t);tb.textContent=t==='dark'?'라이트 테마':'다크 테마';try{localStorage.setItem('kn-theme',t)}catch(e){}}
+  let saved=null;try{saved=localStorage.getItem('kn-theme')}catch(e){}
+  setTheme(saved==='light'?'light':'dark');
+  tb.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+  const prog=document.getElementById('prog'), links=[...document.querySelectorAll('.toc a')], secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  function onScroll(){const h=document.documentElement.scrollHeight-innerHeight;prog.style.width=(h>0?scrollY/h*100:0)+'%';
+    let cur=0;secs.forEach((s,i)=>{if(s.getBoundingClientRect().top<160)cur=i});links.forEach((a,i)=>a.classList.toggle('on',i===cur&&scrollY>200))}
+  addEventListener('scroll',onScroll,{passive:true});onScroll();
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function hlYaml(line){let l=esc(line);if(/^\s*#/.test(line))return '<span class="c">'+l+'</span>';
+    l=l.replace(/"([^"]*)"/g,'<span class="s">"$1"</span>');l=l.replace(/^(\s*-?\s*)([A-Za-z0-9_.\/-]+)(:)/,'$1<span class="k">$2</span>$3');l=l.replace(/(\s#\s.*)$/,'<span class="c">$1</span>');return l}
+  function hlBash(line){let l=esc(line);if(/^\s*#/.test(line))return '<span class="c">'+l+'</span>';
+    l=l.replace(/^(\s*)(func|kn|kubectl|curl|brew|export|cd|ls|cat)\b/,'$1<span class="k">$2</span>').replace(/(\s)(--?[a-zA-Z][a-zA-Z-]*)/g,'$1<span class="p">$2</span>').replace(/(\s#\s.*)$/,'<span class="c">$1</span>');return l}
+  const KW={go:/\b(package|import|func|type|struct|return|var|if|nil|err|map|any)\b/g,js:/\b(const|let|async|await|return|require|module|exports|new)\b/g,py:/\b(import|from|def|class|async|await|return|self|True|False)\b/g};
+  function hlCode(line,lang){let l=esc(line);const com=lang==='py'?/(#.*)$/:/(\/\/.*)$/;
+    let cm='';const m=l.match(com);if(m&&!/["'][^"']*$/.test(l.slice(0,m.index))){cm=m[1];l=l.slice(0,m.index)}
+    l=l.replace(/("[^"]*"|'[^']*'|`[^`]*`)/g,'\u0001$1\u0002');
+    l=l.split(/(\u0001[^\u0002]*\u0002)/).map(p=>p.startsWith('\u0001')?'<span class="s">'+p.slice(1,-1)+'</span>':p.replace(KW[lang],'<span class="k">$1</span>')).join('');
+    return l+(cm?'<span class="c">'+cm+'</span>':'')}
+  function hl(c){const lang=c.dataset.lang||'yaml',raw=c.textContent;c.dataset.raw=raw;
+    c.innerHTML=raw.split('\n').map(x=>lang==='yaml'?hlYaml(x):lang==='bash'?hlBash(x):hlCode(x,lang)).join('\n')}
+  document.querySelectorAll('code[data-lang]').forEach(hl);
+  function fallback(t,cb){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}ta.remove();cb()}
+  document.addEventListener('click',e=>{const b=e.target.closest('.copy');if(!b)return;const code=b.closest('.codebox').querySelector('code');const txt=code.dataset.raw||code.textContent;
+    const done=()=>{b.textContent='복사됨';setTimeout(()=>b.textContent='복사',1400)};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(done,()=>fallback(txt,done));else fallback(txt,done)});
+  const $=id=>document.getElementById(id);
+
+  /* 2. scaffold explorer */
+  const SC={
+    go:{name:'Go',lang:'go',files:{
+      http:{tree:['func.yaml','go.mod','handle.go','handle_test.go','README.md'],main:'handle.go',code:
+'package function\n\nimport (\n\t"fmt"\n\t"net/http"\n)\n\n// MyFunction은 함수 인스턴스. 연결 풀 등 공유 자원을 여기에 둔다\ntype MyFunction struct{}\n\n// New는 인스턴스가 만들어질 때 한 번 호출된다\nfunc New() *MyFunction { return &MyFunction{} }\n\n// Handle은 HTTP 요청마다 호출된다\nfunc (f *MyFunction) Handle(w http.ResponseWriter, r *http.Request) {\n\tname := r.URL.Query().Get("name")\n\tif name == "" {\n\t\tname = "world"\n\t}\n\tfmt.Fprintf(w, "Hello, %s!\\n", name)\n}',
+        note:'표준 net/http 시그니처 그대로입니다. 라우팅, 포트, 헬스 체크 엔드포인트는 템플릿의 런타임이 처리합니다.'},
+      cloudevents:{tree:['func.yaml','go.mod','handle.go','handle_test.go','README.md'],main:'handle.go',code:
+'package function\n\nimport (\n\t"context"\n\t"log"\n\n\t"github.com/cloudevents/sdk-go/v2/event"\n)\n\ntype MyFunction struct{}\n\nfunc New() *MyFunction { return &MyFunction{} }\n\n// 받은 CloudEvent를 처리하고, 답장 이벤트를 반환한다 (반환이 nil이면 답장 없음)\nfunc (f *MyFunction) Handle(ctx context.Context, e event.Event) (*event.Event, error) {\n\tlog.Printf("received %s from %s", e.Type(), e.Source())\n\n\treply := event.New()\n\treply.SetID(e.ID() + "-scored")\n\treply.SetSource("/functions/order-scorer")\n\treply.SetType("com.mycorp.order.scored") // 받은 type과 다르게!\n\t_ = reply.SetData(event.ApplicationJSON, map[string]any{"score": 0.03})\n\treturn &reply, nil\n}',
+        note:'CloudEvents Go SDK의 event.Event를 그대로 받습니다. 에러를 반환하면 5xx가 되어 Broker가 재시도합니다.'}}},
+    node:{name:'Node.js',lang:'js',files:{
+      http:{tree:['func.yaml','index.js','package.json','test/','README.md'],main:'index.js',code:
+'/**\n * HTTP 요청마다 호출된다.\n * context: 요청 정보(query, headers, method)와 로거\n * body: 요청 본문\n */\nconst handle = async (context, body) => {\n  context.log.info(`query: ${JSON.stringify(context.query)}`);\n  return {\n    statusCode: 200,\n    headers: { "content-type": "application/json" },\n    body: { hello: context.query.name || "world" }\n  };\n};\n\nmodule.exports = { handle };',
+        note:'반환 객체로 상태 코드, 헤더, 본문을 지정합니다. 본문만 반환해도 됩니다.'},
+      cloudevents:{tree:['func.yaml','index.js','package.json','test/','README.md'],main:'index.js',code:
+'const { CloudEvent } = require("cloudevents");\n\n/**\n * CloudEvent마다 호출된다.\n * 새 CloudEvent를 반환하면 Broker로 답장이 간다.\n */\nconst handle = async (context, event) => {\n  context.log.info(`received ${event.type} id=${event.id}`);\n\n  return new CloudEvent({\n    source: "/functions/order-scorer",\n    type: "com.mycorp.order.scored",\n    data: { orderId: event.data.orderId, score: 0.03 }\n  });\n};\n\nmodule.exports = { handle };',
+        note:'cloudevents npm 패키지가 의존성에 이미 들어 있습니다. 반환하지 않으면 답장 없이 2xx로 끝납니다.'}}},
+    py:{name:'Python',lang:'py',files:{
+      http:{tree:['func.yaml','pyproject.toml','function/','  __init__.py','  func.py','tests/','README.md'],main:'function/func.py',code:
+'import logging\n\n\ndef new():\n    """런타임이 함수 인스턴스를 만들 때 호출"""\n    return Function()\n\n\nclass Function:\n    async def handle(self, scope, receive, send):\n        """ASGI 방식: HTTP 요청마다 호출"""\n        logging.info("request received")\n        await send({\n            "type": "http.response.start",\n            "status": 200,\n            "headers": [[b"content-type", b"text/plain"]],\n        })\n        await send({"type": "http.response.body", "body": b"Hello, world!"})\n\n    def start(self, cfg):\n        """선택: 시작 시 한 번 (모델 로딩 등)"""\n        logging.info("function starting")\n\n    def alive(self):\n        """선택: 헬스 체크 응답"""\n        return True, "Alive"',
+        note:'최근 Python 템플릿은 ASGI 기반 클래스 구조입니다. start에서 무거운 초기화(모델 로딩)를 하면 요청마다 반복하지 않습니다.'},
+      cloudevents:{tree:['func.yaml','pyproject.toml','function/','  __init__.py','  func.py','tests/','README.md'],main:'function/func.py',code:
+'import logging\n\n\ndef new():\n    return Function()\n\n\nclass Function:\n    async def handle(self, scope, receive, send):\n        # cloudevents 템플릿은 들어온 요청을 CloudEvent로 해석하고\n        # 답장 CloudEvent를 돌려주는 도우미 코드를 포함한다.\n        # 정확한 도우미 함수 이름은 생성된 func.py의 주석을 따를 것.\n        logging.info("cloudevent received")\n        ...\n\n    def start(self, cfg):\n        logging.info("loading reference data once")',
+        note:'Python cloudevents 템플릿의 세부 도우미 API는 버전에 따라 바뀌어 왔습니다. 구조(클래스, start, handle)만 기억하고 세부는 생성된 파일을 보세요.'}}}
+  };
+  let lang='go', tpl='cloudevents', file=null;
+  const ls=$('langSeg'), ts=$('tplSeg');
+  Object.entries(SC).forEach(([k,v])=>{const b=document.createElement('button');b.type='button';b.textContent=v.name;b.dataset.k=k;b.onclick=()=>{lang=k;file=null;scf()};ls.appendChild(b)});
+  ['http','cloudevents'].forEach(t=>{const b=document.createElement('button');b.type='button';b.textContent=t;b.dataset.k=t;b.onclick=()=>{tpl=t;file=null;scf()};ts.appendChild(b)});
+  function yamlFor(){const rt={go:'go',node:'node',py:'python'}[lang];return 'specVersion: 0.36.0\nname: my-func\nruntime: '+rt+'\ncreated: 2026-10-04T09:00:00+09:00\ninvoke: '+(tpl==='cloudevents'?'cloudevent':'http')+'\n# registry, build, run, deploy 항목은\n# 명령을 쓰면서 채워진다 (3장)'}
+  function scf(){[...ls.children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===lang));[...ts.children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.k===tpl));
+    const s=SC[lang],f=s.files[tpl];if(!file)file=f.main;
+    const rt={go:'go',node:'node',py:'python'}[lang];
+    const cmd=$('scfCmd');cmd.textContent='func create -l '+rt+' -t '+tpl+' my-func';cmd.dataset.lang='bash';hl(cmd);
+    $('scfTree').innerHTML='<div class="dir">my-func/</div>'+f.tree.map(n=>n.endsWith('/')?'<div class="dir">  '+n+'</div>':'<button type="button" data-f="'+n.trim()+'" data-full="'+(n.trim()==='func.py'?f.main:n.trim())+'" aria-pressed="false">  '+n+'</button>').join('');
+    $('scfTree').querySelectorAll('button').forEach(b=>{const full=b.dataset.full;b.setAttribute('aria-pressed',full===file);b.onclick=()=>{file=full;scf()};if(!['func.yaml',f.main].includes(full)){b.disabled=true;b.style.opacity=.5;b.title='예시에서는 생략'}});
+    const code=$('scfCode');
+    if(file==='func.yaml'){$('scfFile').textContent='func.yaml';code.textContent=yamlFor();code.dataset.lang='yaml';$('scfNote').textContent='막 만든 함수의 func.yaml은 짧습니다. 빌드·배포 명령을 쓰면서 항목이 늘어납니다.'}
+    else{$('scfFile').textContent=f.main;code.textContent=f.code;code.dataset.lang=s.lang;$('scfNote').textContent=f.note}
+    hl(code)}
+  scf();
+
+  /* 3. func.yaml annotated */
+  const FY=[
+    ['specVersion: 0.36.0','sv'],['name: order-scorer','name'],['runtime: go','rt'],['registry: registry.mycorp.com/team-a','reg'],
+    ['image: registry.mycorp.com/team-a/order-scorer:latest','img'],['created: 2026-10-04T09:00:00+09:00','cr'],['invoke: cloudevent','inv'],
+    ['build:','build'],['  builder: pack','builder'],['  buildEnvs:','benv'],['    - name: GOFLAGS','benv'],['      value: "-mod=mod"','benv'],
+    ['run:','run'],['  envs:','envs'],['    - name: SCORE_THRESHOLD','envs'],['      value: "0.7"','envs'],['    - name: API_KEY','sec'],['      value: "{{ secret:scorer-secrets:api-key }}"','sec'],
+    ['deploy:','deploy'],['  namespace: customer-a','ns'],['  deployer: knative','dep'],['  annotations:','ann'],['    autoscaling.knative.dev/max-scale: "5"','ann'],
+    ['  healthEndpoints:','health'],['    liveness: /health/liveness','health'],['    readiness: /health/readiness','health'],
+    ['  subscriptions:','sub'],['    - source: default','sub'],['      filters:','sub'],['        type: com.mycorp.order.created','sub']
+  ];
+  const FN={
+    sv:['specVersion','func.yaml 형식의 버전입니다. func CLI가 관리하므로 직접 바꾸지 않습니다. 더 새로운 func로 열면 자동으로 올라갈 수 있습니다.'],
+    name:['name','함수 이름이자 Knative Service 이름입니다. URL의 첫 부분이 됩니다.'],
+    rt:['runtime','언어 런타임입니다. 빌더가 이 값을 보고 빌드 방식을 정합니다.'],
+    reg:['registry','이미지를 올릴 레지스트리입니다. <b>--registry</b> 플래그나 FUNC_REGISTRY 환경 변수로 줄 수 있습니다. 팀 단위로 고정하면 편합니다.'],
+    img:['image','최종 이미지 이름입니다. 비워 두면 registry와 name으로 조합됩니다. 배포 시에는 다이제스트로 고정되어 Revision에 들어갑니다(2편).'],
+    cr:['created','생성 시각. 참고용입니다.'],
+    inv:['invoke','<b>func invoke</b>의 기본 형식입니다. cloudevents 템플릿이면 cloudevent로 채워집니다.'],
+    build:['build','이미지 빌드 설정 묶음입니다.'],
+    builder:['builder','pack, s2i, host 중 하나. <b>--builder</b> 플래그로 덮어쓸 수 있습니다(5장).'],
+    benv:['buildEnvs','빌드할 때만 쓰는 환경 변수입니다. 실행 중인 함수에는 전달되지 않습니다. 사설 모듈 프록시 주소 등에 씁니다.'],
+    run:['run','함수가 실행될 때의 설정입니다. 로컬 func run과 클러스터 배포 모두에 적용됩니다.'],
+    envs:['envs','실행 환경 변수입니다. <b>func config envs add</b>로 대화형 추가도 됩니다. 값이 바뀌면 template이 바뀌므로 새 Revision이 생깁니다.'],
+    sec:['{{ secret:… }}','Secret 참조 문법입니다. 비밀 값을 func.yaml에 직접 적지 않고 <b>쿠버네티스 Secret의 키를 가리킵니다</b>. configMap 참조도 비슷한 문법이 있습니다.'],
+    deploy:['deploy','클러스터 배포 설정 묶음입니다.'],
+    ns:['namespace','배포할 네임스페이스입니다. 비우면 현재 kubeconfig 컨텍스트의 네임스페이스를 씁니다. 고객사별 네임스페이스를 명시하는 것이 안전합니다.'],
+    dep:['deployer','knative(기본) 또는 raw. raw면 Knative Service 대신 Deployment와 Service로 배포합니다(7장).'],
+    ann:['annotations','Knative Service에 붙일 어노테이션입니다. 3편의 오토스케일링 설정을 여기 그대로 씁니다.'],
+    health:['healthEndpoints','liveness, readiness 프로브 경로입니다. 템플릿 런타임이 이 경로를 기본 제공합니다.'],
+    sub:['subscriptions','<b>func subscribe</b>로 추가되는 구독 목록입니다. source는 Broker 이름, filters는 Trigger 필터입니다. 배포 시 Trigger로 만들어집니다.']
+  };
+  const fy=$('fyCode'), fn=$('fyNote');
+  FY.forEach(([t,k])=>{const b=document.createElement('button');b.type='button';b.className='ay-line zone-c';b.dataset.k=k;b.innerHTML=hlYaml(t);b.onclick=()=>fyShow(k);fy.appendChild(b)});
+  function fyShow(k){fy.querySelectorAll('.ay-line').forEach(x=>x.classList.toggle('on',x.dataset.k===k));fn.className='ay-note zone-c';fn.innerHTML='<span class="zt">func.yaml</span><h4>'+FN[k][0]+'</h4><p>'+FN[k][1]+'</p>'}
+  fyShow('reg');
+
+  /* 4. stepper */
+  const ST=[
+    ['func create','<b>뼈대 생성.</b> 언어와 템플릿을 고르면 디렉터리, 핸들러, 테스트, func.yaml이 만들어집니다. 클러스터는 아직 건드리지 않습니다.',
+'<span class="k">$ func create -l go -t cloudevents order-scorer</span>\n<span class="o">Created go function in /work/order-scorer</span>\n\n<span class="k">$ ls order-scorer</span>\nREADME.md  func.yaml  go.mod  handle.go  handle_test.go'],
+    ['func run','<b>로컬 실행.</b> 이미지를 빌드해 로컬 컨테이너로 띄웁니다. 클러스터와 똑같은 이미지라 "내 PC에선 됐는데"가 줄어듭니다.',
+'<span class="k">$ func run</span>\n<span class="c">Building function image</span>\n<span class="c">  using builder pack (첫 빌드는 수 분 걸릴 수 있음)</span>\n<span class="o">Function built: …/order-scorer:latest</span>\n<span class="o">Running on host port 8080</span>'],
+    ['func invoke','<b>호출 시험.</b> 로컬이나 원격 함수에 HTTP 요청 또는 CloudEvent를 보내고 응답을 보여 줍니다. curl로 Ce- 헤더를 쓰는 수고를 덜어 줍니다.',
+'<span class="k">$ func invoke --format cloudevent --type com.mycorp.order.created \\\n    --data \'{"orderId":"1234"}\'</span>\n<span class="c">Context Attributes,</span>\n  specversion: 1.0\n  type: com.mycorp.order.scored\n  source: /functions/order-scorer\n<span class="c">Data,</span>\n  {"score":0.03}'],
+    ['func deploy','<b>빌드·push·배포.</b> 이미지를 레지스트리에 올리고 Knative Service를 만들거나 갱신합니다. 설정이 바뀌었다면 새 Revision이 생깁니다.',
+'<span class="k">$ func deploy --registry registry.mycorp.com/team-a</span>\n<span class="c">Building function image</span>\n<span class="c">Pushing function image to the registry</span>\n<span class="o">✓ Function deployed in namespace "customer-a" and exposed at URL:</span>\n   http://order-scorer.customer-a.apps.mycorp.com'],
+    ['func subscribe','<b>구독 선언.</b> func.yaml에 Broker와 필터를 추가합니다. 클러스터 반영은 다음 deploy에서 일어납니다.',
+'<span class="k">$ func subscribe --source default --filter type=com.mycorp.order.created</span>\n<span class="c"># func.yaml에 subscriptions 항목 추가됨</span>\n\n<span class="k">$ func deploy</span>\n<span class="o">✓ Function updated, Trigger created</span>'],
+    ['func describe','<b>상태 확인.</b> 함수의 URL, 이미지, 구독(Trigger) 정보를 한눈에 봅니다.',
+'<span class="k">$ func describe</span>\nFunction name:\n  order-scorer\nFunction is built in image:\n  registry.mycorp.com/team-a/order-scorer@sha256:…\nFunction is deployed in namespace:\n  customer-a\nRoutes:\n  http://order-scorer.customer-a.apps.mycorp.com\nSubscriptions (Source, Type, Broker):\n  default  com.mycorp.order.created'],
+    ['func delete','<b>정리.</b> 클러스터의 함수(Service, Trigger)를 지웁니다. 로컬 코드와 레지스트리 이미지는 남습니다.',
+'<span class="k">$ func delete</span>\n<span class="o">Removing Knative Service: order-scorer in namespace \'customer-a\'</span>']
+  ];
+  const sp=$('stepper');let cur=0;const seen=new Set([0]);
+  ST.forEach((s,i)=>{const b=document.createElement('button');b.type='button';b.textContent=(i+1)+'. '+s[0];b.onclick=()=>{cur=i;seen.add(i);step()};sp.appendChild(b)});
+  function step(){[...sp.children].forEach((b,i)=>{b.setAttribute('aria-pressed',i===cur);b.classList.toggle('done',seen.has(i)&&i!==cur)});$('stepDesc').innerHTML=ST[cur][1];$('stepTerm').innerHTML=ST[cur][2]}
+  step();
+
+  /* 7. deployer */
+  const DP={
+    knative:{res:[['kn','Knative Service'],['kn','Configuration · Revision · Route'],['k8s','Deployment (Revision별)'],['k8s','Service (SKS가 관리)'],['ev','Trigger (구독 시)']],
+      feat:[['y','0개 축소와 요청 기반 오토스케일링'],['y','Revision과 트래픽 분할, 즉시 롤백'],['y','자동 URL과 도메인, TLS 연동'],['n','클러스터에 Knative Serving 설치 필요']]},
+    raw:{res:[['k8s','Deployment'],['k8s','Service'],['ev','Trigger (구독 시, Eventing이 있다면)']],
+      feat:[['y','Knative Serving 없이도 배포 가능'],['y','일반 쿠버네티스 도구로 그대로 관리'],['n','0개 축소 없음 (항상 Pod 실행)'],['n','Revision·트래픽 분할 없음. 확장은 HPA·KEDA로 따로']]}
+  };
+  function dep(d){document.querySelectorAll('#depSeg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.d===d));
+    $('depRes').innerHTML=DP[d].res.map(r=>'<li class="'+r[0]+'"><span class="kind">'+(r[0]==='kn'?'Knative':r[0]==='ev'?'Eventing':'K8s')+'</span>'+r[1]+'</li>').join('');
+    $('depFeat').innerHTML=DP[d].feat.map(f=>'<li><span class="'+f[0]+'">'+(f[0]==='y'?'+':'−')+'</span>'+f[1]+'</li>').join('')}
+  document.querySelectorAll('#depSeg button').forEach(b=>b.onclick=()=>dep(b.dataset.d));dep('knative');
+
+  /* quiz */
+  const QZ=[
+    {q:'func deploy가 끝나면 클러스터에 생기는 기본 결과물은?',o:['전용 함수 런타임 Pod','평범한 Knative Service','Lambda 함수','CronJob'],a:1,e:'Functions는 개발자 경험 도구이고 결과물은 2~4편의 Knative Service입니다.'},
+    {q:'Broker 이벤트를 받고 답장 이벤트를 돌려주는 함수를 만들 때 고를 템플릿은?',o:['http','cloudevents','raw','pack'],a:1,e:'cloudevents 템플릿은 CloudEvent를 받아 CloudEvent를 반환하는 시그니처를 제공합니다.'},
+    {q:'func subscribe를 실행한 직후의 상태로 옳은 것은?',o:['Trigger가 즉시 생성된다','func.yaml에 구독이 추가되고, 다음 deploy 때 Trigger가 생긴다','Broker가 생성된다','함수가 삭제된다'],a:1,e:'subscribe는 설정만 바꿉니다. 클러스터 반영은 deploy에서 일어납니다.'},
+    {q:'Docker 없이 로컬에서 Go 함수 이미지를 만들고 싶다면?',o:['pack 빌더','host 빌더','s2i 빌더','--deployer raw'],a:1,e:'host 빌더는 컨테이너 엔진 없이 OCI 이미지를 조립합니다. 지원 언어는 확인이 필요합니다.'},
+    {q:'--deployer raw로 배포했을 때 잃는 것은?',o:['이미지 빌드','0개 축소와 Revision·트래픽 분할','CloudEvents 처리','레지스트리 push'],a:1,e:'raw는 Deployment와 Service로 배포하므로 Knative Serving 기능을 쓸 수 없습니다.'},
+    {q:'func.yaml에 API 키를 넣는 올바른 방법은?',o:['value에 키를 직접 적는다','Secret 참조 문법으로 쿠버네티스 Secret을 가리킨다','buildEnvs에 넣는다','함수 이름에 포함한다'],a:1,e:'func.yaml은 Git에 커밋되므로 비밀 값은 Secret 참조로 둡니다.'},
+    {q:'Knative Functions가 관리형 FaaS 대비 가진 가장 큰 강점은?',o:['인프라 운영이 전혀 없다','표준 이미지·CloudEvents 기반이라 이식성이 높다','실행 시간 제한이 없다는 점만','무료라는 점'],a:1,e:'어떤 쿠버네티스에서든 같은 코드와 이미지로 돌릴 수 있습니다. 대신 클러스터 운영 부담이 있습니다.'}
+  ];
+  const qz=$('quiz'), sc=document.querySelector('#score b');let right=0;
+  QZ.forEach((it,qi)=>{const box=document.createElement('div');box.className='q';box.innerHTML='<h4>'+(qi+1)+'. '+it.q+'</h4><div class="opts"></div><div class="fb"></div>';
+    const opts=box.querySelector('.opts'), fb=box.querySelector('.fb');
+    it.o.forEach((o,oi)=>{const b=document.createElement('button');b.type='button';b.textContent=o;
+      b.onclick=()=>{opts.querySelectorAll('button').forEach((x,xi)=>{x.disabled=true;if(xi===it.a)x.classList.add('right')});
+        if(oi===it.a){right++;sc.textContent=right;fb.innerHTML='<b>정답입니다.</b> '+it.e}else{b.classList.add('wrong');fb.innerHTML='<b>아쉽네요.</b> '+it.e}fb.classList.add('show')};opts.appendChild(b)});qz.appendChild(box)});
+
+  /* glossary */
+  const GL=[
+    ['Knative Functions','','함수 코드만으로 이미지 빌드부터 배포·구독까지 해 주는 Knative 개발자 도구.'],
+    ['func','','Knative Functions CLI. kn 플러그인으로도 사용 가능(kn func).'],
+    ['템플릿','Template','함수 뼈대의 종류. http, cloudevents.'],
+    ['func.yaml','','함수의 빌드·실행·배포·구독 설정 파일.'],
+    ['Handle','','요청이나 이벤트마다 호출되는 함수 진입점.'],
+    ['func run','','함수를 로컬 컨테이너로 실행.'],
+    ['func invoke','','함수에 HTTP 요청이나 CloudEvent를 보내 시험.'],
+    ['func deploy','','빌드·push·Knative 배포를 한 번에.'],
+    ['func subscribe','','func.yaml에 Broker 구독(Trigger) 선언을 추가.'],
+    ['Buildpacks','pack','소스 분석으로 컨테이너 이미지를 만드는 CNCF 프로젝트.'],
+    ['S2I','Source-to-Image','빌더 이미지에 소스를 넣어 이미지를 만드는 방식.'],
+    ['host 빌더','','컨테이너 엔진 없이 로컬에서 OCI 이미지를 조립하는 빌더.'],
+    ['원격 빌드','--remote','클러스터의 Tekton 파이프라인으로 빌드·배포.'],
+    ['Tekton','','쿠버네티스 기반 CI/CD 파이프라인 프로젝트.'],
+    ['deployer','','함수 배포 방식. knative(기본) 또는 raw.'],
+    ['raw 배포','','Knative Serving 없이 Deployment와 Service로 배포. v1.21부터.'],
+    ['ASGI','','Python 비동기 웹 서버 인터페이스. 최신 Python 함수 템플릿의 기반.'],
+    ['Secret 참조','{{ secret:… }}','func.yaml에서 쿠버네티스 Secret 값을 가리키는 문법.'],
+    ['func repository','','사내 표준 템플릿 저장소를 등록·관리하는 명령.'],
+    ['ttl.sh','','로그인 없이 쓰는 임시 공개 레지스트리. 실습 전용.']
+  ];
+  const gl=$('gloss');
+  GL.forEach(([t,s,d])=>{const g=document.createElement('div');g.className='g';g.dataset.s=(t+' '+s+' '+d).toLowerCase();g.innerHTML='<dt>'+t+(s?'<small>'+s+'</small>':'')+'</dt><dd>'+d+'</dd>';gl.appendChild(g)});
+  $('gsearch').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();gl.querySelectorAll('.g').forEach(g=>g.hidden=v&&!g.dataset.s.includes(v))});
+})();
+</script>
+</body>
+</html>

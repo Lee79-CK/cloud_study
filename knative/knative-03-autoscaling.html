@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knative 3편 · 오토스케일링 심화: Scale-to-Zero의 비밀</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --font: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 16px);scroll-behavior:smooth}
+*,*::before,*::after{box-sizing:inherit}
+:root[data-theme="dark"]{
+  --bg:#0F1633; --bg2:#141D42; --surface:#1A2452; --surface2:#212C5E; --line:#2C3874;
+  --text:#E8ECFF; --muted:#A3ADDA; --faint:#6F7AAE;
+  --serving:#5B95FF; --eventing:#FFB443; --functions:#38D9A9; --hot:#FF6F91; --violet:#B18CFF;
+  --code:#0A0F27; --codetext:#D7DEFF; --codekey:#7FB0FF; --codestr:#5FE3BC; --codecom:#6E79A8;
+  --shadow:0 18px 50px -24px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FC; --bg2:#E8ECF9; --surface:#FFFFFF; --surface2:#F1F4FC; --line:#D2D8EF;
+  --text:#17204A; --muted:#525D8C; --faint:#8A93BB;
+  --serving:#2B66DB; --eventing:#B86F00; --functions:#0B9671; --hot:#D2345D; --violet:#7448D6;
+  --code:#141B3D; --codetext:#DCE3FF; --codekey:#8CB8FF; --codestr:#6BE6C1; --codecom:#7480B4;
+  --shadow:0 18px 40px -26px rgba(30,40,90,.35);
+}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--serving)}
+::selection{background:var(--serving);color:#fff}
+:focus-visible{outline:3px solid var(--eventing);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px}
+.series{font-size:14px;color:var(--muted)}
+.series b{color:var(--text);font-weight:700}
+.progress{flex:1;height:4px;background:var(--line);border-radius:4px;overflow:hidden}
+.progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--serving),var(--functions),var(--eventing))}
+.theme-btn{font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.theme-btn:hover{border-color:var(--serving)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow:auto;padding:32px 0;font-size:14px}
+.toc p{margin:0 0 10px;color:var(--faint);font-size:13px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a::before{content:counter(t);font-family:var(--mono);font-size:12px;color:var(--faint);min-width:16px;padding-top:2px}
+.toc a:hover{color:var(--text);background:var(--surface)}
+.toc a.on{color:var(--text);background:var(--surface);box-shadow:inset 3px 0 0 var(--serving)}
+main{min-width:0;padding-bottom:120px}
+@media (max-width:980px){.wrap{grid-template-columns:1fr;gap:0}.toc{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:56px 0 24px}
+.hero h1{font-size:clamp(44px,7vw,84px);line-height:1.05;letter-spacing:-.03em;margin:0 0 18px;font-weight:700}
+.hero .lede{font-size:20px;color:var(--muted);max-width:640px;margin:0 0 30px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px}
+.chip{font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg2)}
+
+/* simulator */
+.sim{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:var(--shadow)}
+.sim-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.sim-head h2{font-size:19px;margin:0}
+.sim-head p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.sim-btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:inherit;font-size:15px;font-weight:500;border-radius:12px;padding:9px 16px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;transition:transform .08s,border-color .15s}
+.btn:hover{border-color:var(--serving)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--serving);border-color:var(--serving);color:#fff}
+.btn.warn{background:transparent;border-color:var(--hot);color:var(--hot)}
+.sim-stage{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:stretch}
+@media (max-width:640px){.sim-stage{grid-template-columns:1fr}}
+.activator{border:1.5px dashed var(--eventing);border-radius:16px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;background:color-mix(in srgb,var(--eventing) 7%,transparent);transition:opacity .3s}
+.activator.dim{opacity:.38}
+.activator strong{font-size:15px;color:var(--eventing)}
+.activator small{font-size:12.5px;color:var(--muted);line-height:1.5}
+.queue{display:flex;flex-wrap:wrap;gap:4px;min-height:22px}
+.queue i{width:10px;height:10px;border-radius:50%;background:var(--eventing);display:block}
+.pods{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+@media (max-width:640px){.pods{grid-template-columns:repeat(4,1fr)}}
+.pod{aspect-ratio:1/1;border-radius:14px;border:1.5px solid var(--line);background:var(--bg2);position:relative;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--faint);transition:background .25s,border-color .25s,transform .25s}
+.pod.starting{border-color:var(--violet);border-style:dashed;color:var(--violet);animation:pulse 0.9s infinite}
+.pod.ready{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 14%,var(--bg2));color:var(--functions)}
+.pod.busy{background:color-mix(in srgb,var(--functions) 34%,var(--bg2));color:var(--text)}
+.pod.stopping{border-color:var(--hot);color:var(--hot);opacity:.5;transform:scale(.9)}
+@keyframes pulse{50%{opacity:.45}}
+.sim-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+@media (max-width:640px){.sim-stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-family:var(--mono);font-size:24px;line-height:1.2}
+.stat span{font-size:12.5px;color:var(--muted)}
+.sim-status{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--bg2);font-size:15px;display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--faint)}
+.idlebar{height:4px;border-radius:4px;background:var(--line);margin-top:10px;overflow:hidden}
+.idlebar span{display:block;height:100%;width:0;background:var(--hot);transition:width .1s linear}
+.sim-note{font-size:13px;color:var(--faint);margin:10px 2px 0}
+
+/* ---------- sections ---------- */
+section.lesson{padding:72px 0 0}
+.sec-no{font-family:var(--mono);font-size:14px;color:var(--faint);margin-bottom:6px}
+h2.h{font-size:clamp(28px,3.4vw,38px);line-height:1.25;letter-spacing:-.02em;margin:0 0 18px}
+h3{font-size:21px;margin:36px 0 10px;letter-spacing:-.01em}
+.prose{max-width:720px}
+.prose p{margin:0 0 16px}
+.muted{color:var(--muted)}
+strong{font-weight:700}
+.term{border-bottom:1.5px dotted var(--faint);cursor:help}
+code.i{font-family:var(--mono);font-size:.86em;background:var(--bg2);border:1px solid var(--line);padding:1px 6px;border-radius:6px}
+
+.callout{border-left:4px solid var(--serving);background:var(--surface);padding:16px 20px;border-radius:0 14px 14px 0;margin:22px 0;max-width:720px}
+.callout.amber{border-color:var(--eventing)}
+.callout.mint{border-color:var(--functions)}
+.callout.hot{border-color:var(--hot)}
+.callout b.t{display:block;margin-bottom:4px}
+.callout p{margin:0}
+
+/* traits */
+.traits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin:24px 0;max-width:820px}
+@media (max-width:640px){.traits{grid-template-columns:1fr}}
+.trait{background:var(--surface);padding:20px 22px}
+.trait h4{margin:0 0 6px;font-size:17px;display:flex;gap:10px;align-items:center}
+.trait h4 .sw{width:12px;height:12px;border-radius:3px}
+.trait p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* analogy */
+.analogy{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:820px;margin:20px 0}
+@media (max-width:640px){.analogy{grid-template-columns:1fr}}
+.analogy div{border-radius:18px;padding:20px;border:1px solid var(--line);background:var(--bg2)}
+.analogy div:last-child{background:color-mix(in srgb,var(--functions) 9%,var(--bg2));border-color:color-mix(in srgb,var(--functions) 45%,var(--line))}
+.analogy h4{margin:0 0 8px;font-size:17px}
+.analogy ul{margin:0;padding-left:18px;color:var(--muted);font-size:15.5px}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:16px;max-width:100%}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:15px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14px;color:var(--muted);font-weight:500}
+tbody th{font-weight:500;color:var(--muted);white-space:nowrap;background:var(--surface)}
+tbody td{background:var(--surface)}
+tr:last-child th,tr:last-child td{border-bottom:0}
+td.yes{color:var(--functions);font-weight:700}
+td.no{color:var(--hot);font-weight:700}
+td.mid{color:var(--eventing);font-weight:700}
+.colhead-k{color:var(--serving)!important}
+
+/* tabs + code */
+.tabs{display:flex;gap:6px;margin:20px 0 0;flex-wrap:wrap}
+.tab{font:inherit;font-size:15px;padding:8px 16px;border-radius:12px 12px 0 0;border:1px solid var(--line);border-bottom:0;background:var(--bg2);color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--code);color:var(--codetext)}
+.tabpanel[hidden]{display:none}
+.codebox{position:relative;background:var(--code);border-radius:0 14px 14px 14px;margin:0 0 20px;overflow:hidden}
+.codebox.solo{border-radius:14px}
+.codebox .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px;font-size:13px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07)}
+.copy{font:inherit;font-size:12.5px;color:var(--codetext);background:rgba(255,255,255,.08);border:0;border-radius:8px;padding:4px 10px;cursor:pointer}
+.copy:hover{background:rgba(255,255,255,.16)}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.65;color:var(--codetext)}
+pre .k{color:var(--codekey)}
+pre .s{color:var(--codestr)}
+pre .c{color:var(--codecom);font-style:italic}
+pre .p{color:#FFB86B}
+.linecount{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 4px;font-size:15px}
+.linecount b{font-family:var(--mono);font-size:26px;margin-right:4px}
+
+/* component map */
+.kmap{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.kmap-layers{display:flex;flex-direction:column;gap:10px}
+.kmap-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.kmap-top{grid-template-columns:1fr}}
+.kcomp{font:inherit;text-align:left;cursor:pointer;border-radius:16px;padding:16px;border:2px solid transparent;color:var(--text);background:var(--bg2);transition:border-color .15s,background .15s}
+.kcomp h4{margin:0 0 4px;font-size:18px}
+.kcomp p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.kcomp[data-c="serving"] h4{color:var(--serving)}
+.kcomp[data-c="eventing"] h4{color:var(--eventing)}
+.kcomp[data-c="functions"] h4{color:var(--functions)}
+.kcomp[aria-pressed="true"][data-c="serving"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="eventing"]{border-color:var(--eventing);background:color-mix(in srgb,var(--eventing) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="functions"]{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 12%,var(--bg2))}
+.klayer{border-radius:14px;padding:12px 16px;font-size:15px;background:var(--bg2);border:1px dashed var(--line);color:var(--muted)}
+.klayer b{color:var(--text)}
+.klayer.k8s{border-style:solid;background:color-mix(in srgb,var(--serving) 6%,var(--bg2))}
+.kdetail{margin-top:16px;padding:18px 20px;border-radius:16px;background:var(--bg);border:1px solid var(--line);min-height:150px}
+.kdetail h4{margin:0 0 8px;font-size:18px}
+.kdetail dl{display:grid;grid-template-columns:110px 1fr;gap:6px 14px;margin:0;font-size:15px}
+.kdetail dt{color:var(--faint)}
+.kdetail dd{margin:0}
+
+/* resource tree */
+.tree{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.tree-ctrl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tree-list{list-style:none;margin:0;padding:0;font-size:15px}
+.tree-list li{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;padding:9px 12px;border-radius:12px;opacity:.16;transition:opacity .35s,background .35s}
+.tree-list li.show{opacity:1}
+.tree-list li.flash{background:color-mix(in srgb,var(--functions) 14%,transparent)}
+.tree-list .kind{font-family:var(--mono);font-size:13px;padding:2px 9px;border-radius:7px;white-space:nowrap;background:var(--bg2);border:1px solid var(--line)}
+.kind.svc{color:var(--serving);border-color:var(--serving)}
+.kind.knative{color:var(--violet)}
+.kind.k8s{color:var(--functions)}
+.kind.net{color:var(--eventing)}
+.tree-list .nm{font-family:var(--mono);font-size:14px}
+.tree-list .why{display:block;color:var(--muted);font-size:14px;line-height:1.55}
+.tree-list li[data-d="1"]{margin-left:24px}
+.tree-list li[data-d="2"]{margin-left:48px}
+.tree-list li[data-d="3"]{margin-left:72px}
+@media (max-width:640px){.tree-list li[data-d="1"]{margin-left:10px}.tree-list li[data-d="2"]{margin-left:20px}.tree-list li[data-d="3"]{margin-left:30px}}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:14px}
+
+/* request path */
+.path{display:flex;align-items:stretch;gap:0;margin:24px 0;overflow-x:auto;padding-bottom:6px}
+.hop{flex:1 0 140px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;font-size:14px;color:var(--muted);position:relative}
+.hop b{display:block;color:var(--text);font-size:15.5px;margin-bottom:4px}
+.hop.act{border:1.5px dashed var(--eventing)}
+.hop.act b{color:var(--eventing)}
+.hop.qp b{color:var(--violet)}
+.hop.uc b{color:var(--functions)}
+.arrow{flex:0 0 28px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px}
+
+/* timeline */
+.timeline{list-style:none;margin:24px 0;padding:0;position:relative;max-width:760px}
+.timeline::before{content:"";position:absolute;left:84px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.timeline li{display:grid;grid-template-columns:72px 1fr;gap:28px;padding:0 0 22px;position:relative}
+.timeline .yr{font-family:var(--mono);font-weight:600;font-size:15px;text-align:right;padding-top:2px}
+.timeline li::after{content:"";position:absolute;left:79px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2.5px solid var(--serving)}
+.timeline li.big::after{background:var(--functions);border-color:var(--functions)}
+.timeline h4{margin:0 0 2px;font-size:17px}
+.timeline p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* ecosystem */
+.eco{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0;max-width:860px}
+@media (max-width:640px){.eco{grid-template-columns:1fr}}
+.eco div{padding:16px 18px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.eco h4{margin:0 0 2px;font-size:16.5px}
+.eco .rel{font-size:13px;color:var(--violet);margin-bottom:6px;display:block}
+.eco p{margin:0;font-size:15px;color:var(--muted)}
+
+/* steps */
+.steps{list-style:none;margin:20px 0;padding:0;counter-reset:s;max-width:820px}
+.steps>li{counter-increment:s;position:relative;padding-left:52px;margin-bottom:26px}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:36px;height:36px;border-radius:12px;background:var(--serving);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.steps h4{margin:4px 0 8px;font-size:18px}
+.steps p{margin:0 0 10px}
+
+/* uses */
+.uses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}
+@media (max-width:860px){.uses{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.uses{grid-template-columns:1fr}}
+.use{padding:18px;border-radius:16px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c,var(--serving))}
+.use h4{margin:0 0 6px;font-size:17px}
+.use p{margin:0;font-size:15px;color:var(--muted)}
+.use .ep{display:block;margin-top:10px;font-size:13px;color:var(--faint)}
+
+.nofit{max-width:820px;margin:18px 0}
+.nofit details{border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:10px}
+.nofit summary{cursor:pointer;padding:14px 18px;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.nofit summary::-webkit-details-marker{display:none}
+.nofit summary::after{content:"+";color:var(--faint);font-family:var(--mono)}
+.nofit details[open] summary::after{content:"−"}
+.nofit .body{padding:0 18px 16px;color:var(--muted);font-size:15.5px}
+.nofit .body b{color:var(--text)}
+
+/* quiz */
+.quiz{max-width:820px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px}
+.q h4{margin:0 0 12px;font-size:17px;line-height:1.55}
+.q .opts{display:grid;gap:8px}
+.q button{font:inherit;font-size:15.5px;text-align:left;padding:11px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer}
+.q button:hover:not(:disabled){border-color:var(--serving)}
+.q button.right{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 15%,var(--bg2))}
+.q button.wrong{border-color:var(--hot);background:color-mix(in srgb,var(--hot) 12%,var(--bg2))}
+.q button:disabled{cursor:default}
+.q .fb{margin-top:12px;font-size:15px;color:var(--muted);display:none}
+.q .fb.show{display:block}
+.q .fb b{color:var(--text)}
+.score{font-size:16px;margin:4px 0 18px;color:var(--muted)}
+.score b{color:var(--text);font-family:var(--mono)}
+
+/* glossary */
+.gsearch{font:inherit;font-size:16px;width:100%;max-width:420px;padding:11px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 18px}
+.gsearch:focus{border-color:var(--serving);outline:none}
+.gloss{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.gloss{grid-template-columns:1fr}}
+.g{padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.g dt{font-weight:700;margin-bottom:2px}
+.g dt small{font-weight:400;color:var(--faint);font-size:13px;margin-left:6px}
+.g dd{margin:0;font-size:15px;color:var(--muted)}
+.g[hidden]{display:none}
+
+/* summary */
+.recap{max-width:820px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:24px 26px;margin:22px 0}
+.recap ol{margin:0;padding-left:22px}
+.recap li{margin-bottom:8px}
+.next{max-width:820px;border-radius:20px;padding:24px 26px;background:linear-gradient(135deg,color-mix(in srgb,var(--serving) 22%,var(--surface)),var(--surface));border:1px solid var(--line)}
+.next h3{margin:0 0 8px}
+.next p{margin:0;color:var(--muted)}
+footer{margin-top:60px;color:var(--faint);font-size:13.5px;max-width:820px}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation:none!important;transition:none!important}
+}
+
+/* ---------- 2편 전용 ---------- */
+.zone-s{--z:var(--serving)} .zone-c{--z:var(--violet)} .zone-r{--z:var(--eventing)}
+
+/* CRD relation diagram */
+.rel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.rel-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rel-top{grid-column:1/-1;display:flex;justify-content:center}
+.rnode{font:inherit;text-align:left;border-radius:16px;padding:14px 16px;border:2px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer;transition:border-color .15s,background .15s,opacity .2s}
+.rnode h4{margin:0 0 2px;font-size:17px}
+.rnode p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.rnode.svc{max-width:420px;width:100%;border-color:var(--serving)}
+.rnode.svc h4{color:var(--serving)}
+.rnode.cfg h4{color:var(--violet)}
+.rnode.rt h4{color:var(--eventing)}
+.rnode.rev h4{color:var(--functions)}
+.rnode.on{background:color-mix(in srgb,var(--z2,var(--serving)) 14%,var(--bg2));border-color:var(--z2,var(--serving))}
+.rnode.cfg{--z2:var(--violet)} .rnode.rt{--z2:var(--eventing)} .rnode.rev{--z2:var(--functions)}
+.rel.focus .rnode:not(.on){opacity:.4}
+.revs{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.rel-grid{grid-template-columns:1fr}.revs{grid-template-columns:1fr}}
+.rel-links{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13.5px;color:var(--faint);text-align:center}
+.rel-out{margin-top:14px;padding:14px 18px;border-radius:14px;background:var(--bg);border:1px solid var(--line);font-size:15.5px;min-height:74px}
+
+/* annotated yaml */
+.ay{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:16px;margin:24px 0}
+@media (max-width:900px){.ay{grid-template-columns:1fr}}
+.ay-code{background:var(--code);border-radius:16px;padding:12px 0;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.7;color:var(--codetext)}
+.ay-line{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:none;border:0;border-left:4px solid var(--z);padding:0 16px;white-space:pre;cursor:pointer}
+.ay-line:hover{background:rgba(255,255,255,.05)}
+.ay-line.on{background:rgba(255,255,255,.11)}
+.ay-line .k{color:var(--codekey)} .ay-line .s{color:var(--codestr)}
+.ay-note{position:sticky;top:80px;align-self:start;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.ay-note .zt{font-size:13px;color:var(--z);margin-bottom:4px;display:block}
+.ay-note h4{margin:0 0 8px;font-size:18px;font-family:var(--mono);word-break:break-all}
+.ay-note p{margin:0 0 10px;font-size:15.5px;color:var(--muted)}
+.ay-note p b{color:var(--text)}
+.ay-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin-top:-8px}
+.ay-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* reconcile */
+.recon{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.actors{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.actor{font-size:14px;padding:6px 12px;border-radius:10px;border:1.5px solid var(--line);color:var(--muted);background:var(--bg2);transition:all .2s}
+.actor.on{border-color:var(--functions);color:var(--text);background:color-mix(in srgb,var(--functions) 18%,var(--bg2))}
+.rsteps{list-style:none;margin:0;padding:0;counter-reset:r}
+.rsteps li{counter-increment:r;display:grid;grid-template-columns:34px 1fr;gap:12px;padding:10px 12px;border-radius:12px;opacity:.18;transition:opacity .3s,background .3s}
+.rsteps li::before{content:counter(r);width:28px;height:28px;border-radius:9px;background:var(--bg2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px}
+.rsteps li.show{opacity:1}
+.rsteps li.cur{background:color-mix(in srgb,var(--functions) 10%,transparent)}
+.rsteps li.cur::before{background:var(--functions);color:#062018;border-color:var(--functions)}
+.rsteps b{display:block;font-size:15.5px}
+.rsteps span{font-size:14.5px;color:var(--muted)}
+.rctrl{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+
+/* components */
+.term-out{background:var(--code);color:var(--codetext);border-radius:14px;font-family:var(--mono);font-size:13.5px;overflow-x:auto;margin:20px 0 6px}
+.term-out .hd{padding:10px 16px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07);white-space:pre}
+.term-row{display:block;width:100%;font:inherit;color:inherit;text-align:left;background:none;border:0;padding:3px 16px;white-space:pre;cursor:pointer}
+.term-row:hover,.term-row.on{background:rgba(255,255,255,.09)}
+.term-row .ns{color:var(--codecom)}
+.term-row .nm{color:var(--codekey)}
+.comp-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:12px 0 20px;max-width:820px}
+.comp-card h4{margin:0 0 6px;font-size:18px;font-family:var(--mono)}
+.comp-card .tag2{display:inline-block;font-size:12.5px;padding:2px 9px;border-radius:7px;margin-left:8px;vertical-align:2px;font-family:var(--font)}
+.tag2.cp{background:color-mix(in srgb,var(--violet) 20%,transparent);color:var(--violet)}
+.tag2.dp{background:color-mix(in srgb,var(--functions) 20%,transparent);color:var(--functions)}
+.comp-card dl{display:grid;grid-template-columns:96px 1fr;gap:6px 14px;margin:8px 0 0;font-size:15px}
+.comp-card dt{color:var(--faint)}
+.comp-card dd{margin:0}
+.comp-card dd.fail{color:var(--hot)}
+
+/* SKS */
+.sks{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0}
+.sks-flow{display:flex;align-items:center;gap:0;overflow-x:auto;margin:16px 0;padding-bottom:4px}
+.sks-flow .hop{flex:1 0 120px}
+.sks-flow .hop.gone{opacity:.25;border-style:dashed}
+.sks-out{font-size:15.5px;color:var(--muted);max-width:760px}
+.sks-out b{color:var(--text)}
+
+/* traffic editor */
+.tedit{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.trow{display:grid;grid-template-columns:120px 1fr 64px 150px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+@media (max-width:640px){.trow{grid-template-columns:1fr 64px;}.trow input[type=range]{grid-column:1/-1}.trow .tg{grid-column:1/-1}}
+.trow .rv{font-family:var(--mono);font-size:14px}
+.trow .rv small{display:block;font-family:var(--font);color:var(--faint);font-size:12.5px}
+.trow output{font-family:var(--mono);font-size:18px;text-align:right}
+.trow input[type=text]{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);width:100%}
+input[type=range]{width:100%;accent-color:var(--serving)}
+.tsum{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+.tsum .bad{color:var(--hot)} .tsum .good{color:var(--functions)}
+.tbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--line);margin:4px 0 14px}
+.tbar span{display:block;height:100%;transition:width .2s}
+.tsplit{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.tsplit{grid-template-columns:1fr}}
+.urls{font-family:var(--mono);font-size:13.5px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.urls div{padding:3px 0;word-break:break-all}
+.urls div span{color:var(--faint);font-family:var(--font);font-size:12.5px;margin-left:6px}
+.hits{display:flex;flex-wrap:wrap;gap:4px;min-height:20px;margin-top:10px}
+.hits i{width:14px;height:14px;border-radius:4px;display:block}
+
+/* net compare & cm grid */
+.cms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:20px 0 0}
+@media (max-width:760px){.cms{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cm{font:inherit;font-family:var(--mono);font-size:13.5px;text-align:left;padding:12px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.cm[aria-pressed="true"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--surface))}
+.cm small{display:block;font-family:var(--font);color:var(--muted);font-size:12.5px;margin-top:2px}
+.cm-out{margin:12px 0 20px}
+.cm-out .desc{background:var(--surface);border:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 18px;font-size:15.5px;color:var(--muted);border-bottom:0}
+.cm-out .desc b{color:var(--text)}
+.cm-out .codebox{border-radius:0 0 14px 14px}
+
+
+/* ---------- 3편 전용 ---------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.panel h3{margin-top:0}
+.ctrls{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 18px;margin-bottom:16px}
+.ctrl label{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:2px}
+.ctrl label output{font-family:var(--mono);color:var(--text)}
+.ctrl select{font:inherit;font-size:14.5px;width:100%;padding:7px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text)}
+.ctrl.chk label{justify-content:flex-start;gap:8px;align-items:center;color:var(--text);cursor:pointer}
+.presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.presets .btn[aria-pressed="true"]{background:var(--serving);border-color:var(--serving);color:#fff}
+.chart{width:100%;height:auto;display:block;background:var(--bg);border:1px solid var(--line);border-radius:14px}
+.chart text{font-family:var(--mono);font-size:11px;fill:var(--faint)}
+.legend2{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin:10px 0 0}
+.legend2 i{display:inline-block;width:18px;height:4px;border-radius:2px;margin-right:6px;vertical-align:3px}
+.legend2 i.box{height:12px;width:12px;vertical-align:-1px;opacity:.6}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+@media (max-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--mono);font-size:22px;line-height:1.25}
+.kpi span{font-size:12.5px;color:var(--muted)}
+.kpi.warn b{color:var(--hot)} .kpi.ok b{color:var(--functions)}
+
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+@media (max-width:760px){.calc{grid-template-columns:1fr}}
+.formula{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font-size:15px}
+.formula .eq{font-family:var(--mono);font-size:14px;line-height:1.9;color:var(--muted)}
+.formula .eq b{color:var(--text)}
+.formula .big{font-family:var(--mono);font-size:40px;font-weight:600;color:var(--functions);line-height:1.1;margin:6px 0}
+.formula .why{font-size:14.5px;color:var(--muted);margin:8px 0 0}
+.mode{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;font-size:15px}
+.mode.proxy{background:color-mix(in srgb,var(--eventing) 22%,transparent);color:var(--eventing)}
+.mode.serve{background:color-mix(in srgb,var(--functions) 22%,transparent);color:var(--functions)}
+
+.cold{margin:8px 0}
+.cold-toggles{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:15px}
+.cold-toggles label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.cbar{display:flex;height:40px;border-radius:10px;overflow:hidden;background:var(--line)}
+.cbar span{display:flex;align-items:center;justify-content:center;font-size:12px;color:#0b1028;font-weight:600;white-space:nowrap;overflow:hidden;transition:width .3s}
+.cleg{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 18px;margin-top:12px;font-size:14px;color:var(--muted)}
+.cleg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cleg b{color:var(--text);font-family:var(--mono);font-weight:500}
+.ctotal{font-size:16px;margin-top:12px}
+.ctotal b{font-family:var(--mono);font-size:24px;color:var(--hot)}
+
+.recipes .tabpanel pre{font-size:13px}
+.recipe-desc{background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:0 14px 0 0;padding:14px 18px;font-size:15.5px;color:var(--muted)}
+.recipe-desc b{color:var(--text)}
+.recipes .codebox{border-radius:0 0 14px 14px}
+code.i.nowrap{white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series"><b>Knative 강의</b> 3편 / 10편</div>
+    <div class="progress" aria-hidden="true"><span id="prog"></span></div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" aria-label="목차">
+    <p>이번 편의 흐름</p>
+    <ol>
+      <li><a href="#s1">무엇을 보고 늘리나: 지표</a></li>
+      <li><a href="#s2">Pod 수 계산 공식</a></li>
+      <li><a href="#s3">stable과 panic, 두 개의 시계</a></li>
+      <li><a href="#s4">시뮬레이터로 실험하기</a></li>
+      <li><a href="#s5">0개까지 줄어드는 과정</a></li>
+      <li><a href="#s6">콜드 스타트 해부</a></li>
+      <li><a href="#s7">Activator를 남길까 뺄까</a></li>
+      <li><a href="#s8">어노테이션 총정리</a></li>
+      <li><a href="#s9">KPA vs HPA, 그리고 KEDA</a></li>
+      <li><a href="#s10">상황별 설정 레시피</a></li>
+      <li><a href="#s11">실습: 부하 걸고 관찰하기</a></li>
+      <li><a href="#s12">자주 하는 실수</a></li>
+      <li><a href="#s13">확인 퀴즈</a></li>
+      <li><a href="#s14">용어 사전</a></li>
+      <li><a href="#s15">정리와 다음 편</a></li>
+    </ol>
+  </nav>
+
+<main>
+  <header class="hero">
+    <h1>오토스케일링 심화</h1>
+    <p class="lede">Knative는 언제 Pod를 늘리고, 왜 급할 때는 더 빨리 늘리며, 어떻게 0개까지 내려갈까요. 공식 하나와 시계 두 개만 이해하면 Knative 확장 동작의 거의 전부가 설명됩니다.</p>
+    <div class="meta">
+      <span class="chip">기준 버전 Knative v1.23</span>
+      <span class="chip">선수 지식: 1~2편</span>
+      <span class="chip">예상 학습 시간 90~110분</span>
+    </div>
+    <div class="callout">
+      <b class="t">이번 편의 주인공</b>
+      <p>2편에서 이름만 등장했던 <strong>autoscaler</strong> 컴포넌트와 <strong>PodAutoscaler(KPA)</strong> 리소스입니다. 1편 시뮬레이터에서 단순하게 보여 준 "요청이 늘면 Pod가 는다"를 실제 계산 규칙으로 바꿔 봅니다.</p>
+    </div>
+  </header>
+
+  <!-- 1 -->
+  <section class="lesson" id="s1">
+    <div class="sec-no">1 / 15</div>
+    <h2 class="h">무엇을 보고 늘리나: 지표</h2>
+    <div class="prose">
+      <p>일반 쿠버네티스 HPA는 주로 CPU 사용률을 봅니다. 하지만 웹 서비스가 느려지는 이유는 CPU만이 아닙니다. DB를 기다리거나 외부 API를 기다리는 동안에는 CPU가 놀고 있어도 요청은 쌓입니다. 그래서 Knative의 기본 확장기 KPA는 <strong>요청 자체</strong>를 셉니다.</p>
+    </div>
+    <div class="traits">
+      <div class="trait"><h4><span class="sw" style="background:var(--serving)"></span>동시성 (concurrency) · 기본값</h4><p>"지금 이 순간 Pod 하나가 붙잡고 있는 요청 수"입니다. 응답이 느려지면 자연히 커지므로, 처리 속도가 떨어지는 신호를 바로 잡아냅니다. 기본 목표는 Pod당 100입니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--violet)"></span>초당 요청 수 (rps)</h4><p>"Pod 하나가 1초에 받는 요청 수"입니다. 요청 하나하나가 짧고 일정한 API에 맞습니다. 기본 목표는 Pod당 초당 200입니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--eventing)"></span>CPU · 메모리 (HPA 클래스)</h4><p>요청 수보다 계산량이 병목인 서비스에 씁니다. 이때는 KPA 대신 쿠버네티스 HPA에 일을 맡기며, 0개 축소는 할 수 없습니다. 9장에서 다룹니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--functions)"></span>누가 재나</h4><p>각 Pod의 <strong>queue-proxy</strong>가 동시성과 요청 수를 재고, autoscaler가 이를 주기적으로 긁어 갑니다. Pod가 아주 많으면 일부 표본만 긁어 평균을 추정합니다. activator가 경로에 있을 때는 activator도 수치를 보고합니다.</p></div>
+    </div>
+    <div class="callout amber">
+      <b class="t">동시성과 rps의 관계</b>
+      <p>평균 응답 시간이 0.1초인 서비스에 초당 100개 요청이 오면, 어느 순간이든 평균 10개가 처리 중입니다(100 × 0.1). 이것이 동시성입니다. 응답이 1초로 느려지면 같은 rps에서 동시성은 100으로 뛰어오릅니다. 동시성 지표가 "느려짐"에 민감하게 반응하는 이유입니다.</p>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="lesson" id="s2">
+    <div class="sec-no">2 / 15</div>
+    <h2 class="h">Pod 수 계산 공식</h2>
+    <div class="prose">
+      <p>KPA의 핵심 계산은 놀랄 만큼 단순합니다. 관측한 전체 동시성을, Pod 하나가 감당하길 원하는 양으로 나누고 올림합니다. 여기서 "원하는 양"은 목표값에 <strong>목표 사용률</strong>(기본 70%)을 곱한 값입니다. 사용률을 70%로 두는 이유는 Pod를 꽉 채우지 않고 갑작스러운 증가에 대비한 여유를 남기기 위해서입니다.</p>
+    </div>
+    <div class="panel">
+      <div class="calc">
+        <div>
+          <div class="ctrls" style="grid-template-columns:1fr">
+            <div class="ctrl"><label for="cObs">관측된 전체 동시성 <output id="oObs"></output></label><input type="range" id="cObs" min="0" max="500" step="5" value="120"></div>
+            <div class="ctrl"><label for="cTarget">target (Pod당 목표) <output id="oTarget"></output></label><input type="range" id="cTarget" min="1" max="200" step="1" value="10"></div>
+            <div class="ctrl"><label for="cUtil">target-utilization-percentage <output id="oUtil"></output></label><input type="range" id="cUtil" min="10" max="100" step="5" value="70"></div>
+            <div class="ctrl"><label for="cMin">min-scale <output id="oMin"></output></label><input type="range" id="cMin" min="0" max="10" step="1" value="0"></div>
+            <div class="ctrl"><label for="cMax">max-scale (0은 무제한) <output id="oMax"></output></label><input type="range" id="cMax" min="0" max="30" step="1" value="0"></div>
+          </div>
+        </div>
+        <div class="formula" aria-live="polite">
+          <div class="eq" id="fEq"></div>
+          <div class="big" id="fBig"></div>
+          <p class="why" id="fWhy"></p>
+        </div>
+      </div>
+    </div>
+    <div class="callout mint">
+      <b class="t">containerConcurrency를 정하면 target도 따라간다</b>
+      <p>2편에서 본 강제 상한 <code class="i">containerConcurrency</code>를 10으로 두고 target을 따로 적지 않으면, target도 10이 됩니다. 사용률 70%가 곱해지니 실제로는 Pod당 7개를 목표로 늘립니다. 상한(벽)에 부딪히기 전에 미리 Pod를 늘리려는 설계입니다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="lesson" id="s3">
+    <div class="sec-no">3 / 15</div>
+    <h2 class="h">stable과 panic, 두 개의 시계</h2>
+    <div class="prose">
+      <p>위 공식의 "관측된 동시성"은 순간값이 아니라 <strong>일정 시간의 평균</strong>입니다. KPA는 길이가 다른 두 개의 평균을 동시에 계산합니다.</p>
+    </div>
+    <div class="analogy">
+      <div>
+        <h4>stable 윈도우 (기본 60초)</h4>
+        <ul>
+          <li>최근 60초 평균으로 판단하는 <strong>평상시 모드</strong></li>
+          <li>잠깐 튀는 값에 흔들리지 않아 Pod 수가 안정적</li>
+          <li>단점: 진짜 폭주에는 반응이 느림</li>
+        </ul>
+      </div>
+      <div>
+        <h4>panic 윈도우 (기본 6초)</h4>
+        <ul>
+          <li>stable 윈도우의 10% 길이로 계산한 <strong>짧은 평균</strong></li>
+          <li>짧은 평균으로 계산한 필요 Pod 수가 현재 준비된 Pod의 2배(200%) 이상이면 panic 모드 진입</li>
+          <li>panic 중에는 짧은 평균으로 빠르게 늘리고, <strong>절대 줄이지 않음</strong></li>
+        </ul>
+      </div>
+    </div>
+    <div class="prose">
+      <p>panic 모드는 조건이 다시 발생하지 않은 채 stable 윈도우 한 번(60초)이 지나야 풀립니다. 폭주가 끝난 직후 성급하게 Pod를 줄였다가 다시 늘리는 출렁임을 막기 위해서입니다.</p>
+      <p>계산은 기본 2초마다 반복됩니다. 한 번에 늘릴 수 있는 폭(<code class="i">max-scale-up-rate</code>, 기본 1000배)은 사실상 제한이 없고, 줄이는 폭(<code class="i">max-scale-down-rate</code>, 기본 2)은 한 번에 절반까지로 제한됩니다. 늘릴 때는 과감하게, 줄일 때는 조심스럽게 하는 비대칭 설계입니다.</p>
+    </div>
+    <div class="callout hot">
+      <b class="t">비유: 식당 주방장</b>
+      <p>주방장은 보통 "지난 한 시간 손님 수"를 보고 직원을 배치합니다(stable). 그런데 단체 손님 버스가 들이닥치면 바로 비상 호출을 겁니다(panic). 비상 상황이 끝나도 혹시 버스가 또 올까 봐 한동안은 직원을 집에 보내지 않습니다(panic 중 축소 금지와 60초 유지).</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="lesson" id="s4">
+    <div class="sec-no">4 / 15</div>
+    <h2 class="h">시뮬레이터로 실험하기</h2>
+    <div class="prose">
+      <p>이번 편의 핵심 실험실입니다. 트래픽 패턴을 고르고 설정을 바꿔 가며 Pod 수가 어떻게 따라가는지 보세요. 아래 지표들은 "비용"(Pod·초)과 "품질"(콜드 스타트, 용량 부족)의 줄다리기를 보여 줍니다. KPA 규칙을 단순화한 모델이라 실제 값과 똑같지는 않지만, 경향은 같습니다.</p>
+    </div>
+    <div class="panel">
+      <div class="presets" id="presets"></div>
+      <div class="ctrls">
+        <div class="ctrl"><label for="sTarget">target <output></output></label><input type="range" id="sTarget" min="2" max="50" step="1" value="10"></div>
+        <div class="ctrl"><label for="sWin">stable-window (초) <output></output></label><input type="range" id="sWin" min="6" max="180" step="6" value="60"></div>
+        <div class="ctrl"><label for="sPanic">panic-threshold (%) <output></output></label><input type="range" id="sPanic" min="110" max="1000" step="10" value="200"></div>
+        <div class="ctrl"><label for="sMin">min-scale <output></output></label><input type="range" id="sMin" min="0" max="10" step="1" value="0"></div>
+        <div class="ctrl"><label for="sMax">max-scale <output></output></label><input type="range" id="sMax" min="1" max="30" step="1" value="30"></div>
+        <div class="ctrl"><label for="sDelay">scale-down-delay (초) <output></output></label><input type="range" id="sDelay" min="0" max="120" step="10" value="0"></div>
+        <div class="ctrl"><label for="sCold">Pod 기동 시간 (초) <output></output></label><input type="range" id="sCold" min="1" max="90" step="1" value="6"></div>
+        <div class="ctrl"><label for="sAct">activation-scale <output></output></label><input type="range" id="sAct" min="1" max="10" step="1" value="1"></div>
+      </div>
+      <svg class="chart" id="chart" viewBox="0 0 900 330" role="img" aria-label="시간에 따른 동시성과 Pod 수 그래프"></svg>
+      <div class="legend2">
+        <span><i style="background:var(--eventing)"></i>들어오는 동시성 (왼쪽 축)</span>
+        <span><i style="background:var(--violet);height:2px"></i>원하는 Pod 수 (오른쪽 축)</span>
+        <span><i style="background:var(--functions)"></i>준비된 Pod 수 (오른쪽 축)</span>
+        <span><i class="box" style="background:var(--hot)"></i>panic 모드 구간</span>
+        <span><i class="box" style="background:var(--serving)"></i>Pod 0개인데 요청 대기 (콜드 스타트)</span>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><b id="kCost">0</b><span>Pod·초 (자원 비용)</span></div>
+        <div class="kpi" id="kColdBox"><b id="kCold">0</b><span>콜드 스타트 대기 초</span></div>
+        <div class="kpi" id="kOverBox"><b id="kOver">0</b><span>용량 부족 초 (목표의 100% 초과)</span></div>
+        <div class="kpi"><b id="kPeak">0</b><span>최대 Pod 수</span></div>
+      </div>
+    </div>
+    <div class="callout">
+      <b class="t">해 볼 만한 실험</b>
+      <p>"간헐적 호출"에서 min-scale을 0과 1로 바꿔 비용과 콜드 스타트를 비교해 보세요. "스파이크"에서 panic-threshold를 1000%로 올리면 panic이 거의 안 걸려 용량 부족 시간이 늘어납니다. "계단"에서 Pod 기동 시간을 60초로 늘리면 LLM 같은 무거운 서비스가 얼마나 불리한지 보입니다. scale-down-delay를 60초로 두면 출렁임이 줄어드는 대신 Pod·초가 늘어납니다.</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="lesson" id="s5">
+    <div class="sec-no">5 / 15</div>
+    <h2 class="h">0개까지 줄어드는 과정</h2>
+    <div class="prose">
+      <p>마지막 요청이 끝난 뒤 Pod가 사라지기까지는 여러 단계가 있습니다. 1편에서 "대략 60~90초"라고 했던 시간의 정체입니다.</p>
+    </div>
+    <ol class="timeline">
+      <li><span class="yr">0초</span><div><h4>마지막 요청 종료</h4><p>동시성이 0이 됩니다. 하지만 stable 윈도우 평균에는 아직 지난 요청들이 남아 있습니다.</p></div></li>
+      <li><span class="yr">~60초</span><div><h4>stable 평균이 0에 도달</h4><p>60초 동안 요청이 하나도 없어야 평균이 0이 되고, 계산된 Pod 수도 0이 됩니다. scale-down-delay를 설정했다면 그만큼 더 기다립니다.</p></div></li>
+      <li><span class="yr">+α</span><div><h4>Activator를 경로에 다시 넣기</h4><p>Pod를 없애기 전에 SKS를 Proxy 모드로 바꿔 activator가 요청을 받도록 준비합니다. 그래야 Pod가 0개인 순간에 들어온 요청도 잃지 않습니다. 이 전환을 기다리는 최대 시간이 <code class="i">scale-to-zero-grace-period</code>(기본 30초)입니다.</p></div></li>
+      <li><span class="yr">+보존</span><div><h4>마지막 Pod 보존 (선택)</h4><p><code class="i">scale-to-zero-pod-retention-period</code>를 주면 마지막 Pod를 그 시간만큼 더 남겨 둡니다. 기본은 0초입니다.</p></div></li>
+      <li class="big"><span class="yr">끝</span><div><h4>Pod 0개</h4><p>Deployment의 replicas가 0이 됩니다. 이후 첫 요청이 오면 activator가 autoscaler를 즉시 깨워 activation-scale(기본 1)만큼 Pod를 띄웁니다.</p></div></li>
+    </ol>
+    <div class="callout amber">
+      <b class="t">요청 처리 중인 Pod는 바로 죽지 않는다</b>
+      <p>Pod를 줄일 때 queue-proxy는 새 요청을 받지 않으면서 처리 중인 요청이 끝나기를 기다립니다. 오래 걸리는 요청(최대 timeoutSeconds)이 있으면 Pod 종료도 그만큼 늦어집니다. 스케일 다운이 느리다고 느껴진다면 긴 요청이 남아 있는지 먼저 확인하세요.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="lesson" id="s6">
+    <div class="sec-no">6 / 15</div>
+    <h2 class="h">콜드 스타트 해부</h2>
+    <div class="prose">
+      <p>0개에서 첫 요청을 받기까지 걸리는 시간은 여러 조각의 합입니다. 어느 조각이 큰지 알아야 어디를 줄일지 정할 수 있습니다. 아래 상황을 바꿔 보세요. 시간은 이해를 돕기 위한 대표 예시이며, 실제 값은 환경마다 크게 다릅니다.</p>
+    </div>
+    <div class="panel cold">
+      <div class="cold-toggles">
+        <label><input type="checkbox" id="cCached" checked> 노드에 이미지가 이미 있음</label>
+        <label><input type="checkbox" id="cNode"> 빈 노드가 없어 노드 추가 필요</label>
+        <label><select id="cApp" class="" style="font:inherit;font-size:14.5px;padding:4px 8px;border-radius:8px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text)">
+          <option value="go">Go·Rust 경량 앱</option>
+          <option value="jvm">JVM(Spring) 앱</option>
+          <option value="llm">7B LLM 추론 서버</option>
+        </select></label>
+      </div>
+      <div class="cbar" id="cbar" aria-hidden="true"></div>
+      <div class="cleg" id="cleg"></div>
+      <p class="ctotal" aria-live="polite">첫 요청 대기 시간 약 <b id="ctot">0</b>초</p>
+    </div>
+    <h3>조각별 처방</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:170px">조각</th><th>줄이는 방법</th></tr></thead>
+        <tbody>
+          <tr><th>노드 추가</th><td>클러스터 오토스케일러가 노드를 붙이는 데는 수 분이 걸립니다. 우선순위 낮은 빈 Pod로 자리를 미리 잡아 두는 "오버프로비저닝"이나, 중요한 서비스의 min-scale로 대응합니다.</td></tr>
+          <tr><th>이미지 받기</th><td>작은 베이스 이미지(distroless 등), 레이어 정리, 노드에 미리 받아 두는 DaemonSet, 가까운 레지스트리 미러.</td></tr>
+          <tr><th>컨테이너·앱 초기화</th><td>지연 로딩, 시작 시 불필요한 연결 줄이기, JVM이라면 CDS나 네이티브 이미지 같은 기동 최적화.</td></tr>
+          <tr><th>모델 로딩</th><td>모델 파일을 노드 로컬이나 빠른 스토리지에 캐시, 더 작은 양자화 모델, 그리고 무엇보다 min-scale 1 이상 유지. LLM은 0개 축소를 신중히 판단하세요.</td></tr>
+          <tr><th>준비 확인</th><td>queue-proxy가 기동 직후 짧은 간격으로 준비 상태를 확인해 줍니다. 앱의 readiness 엔드포인트를 가볍게 만드세요.</td></tr>
+          <tr><th>전체</th><td>아예 0으로 가지 않기(min-scale), 늦게 내려가기(scale-down-delay), 한 번에 여러 개 띄우기(activation-scale).</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="lesson" id="s7">
+    <div class="sec-no">7 / 15</div>
+    <h2 class="h">Activator를 남길까 뺄까: target-burst-capacity</h2>
+    <div class="prose">
+      <p>2편에서 SKS가 Proxy 모드와 Serve 모드를 오간다고 했습니다. 그 기준이 <strong>여유 버스트 용량</strong>입니다. 계산은 이렇습니다.</p>
+      <p style="font-family:var(--mono);font-size:15px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px">여유 용량 = 준비된 Pod 수 × Pod당 전체 용량 − 현재 동시성 − target-burst-capacity</p>
+      <p>여유 용량이 0 이상이면 갑자기 요청이 몰려도 감당할 수 있다고 보고 activator를 빼서(Serve) 지연을 줄입니다. 음수면 activator를 남겨(Proxy) 요청을 버퍼링하고 고르게 분배합니다.</p>
+    </div>
+    <div class="panel">
+      <div class="calc">
+        <div class="ctrls" style="grid-template-columns:1fr">
+          <div class="ctrl"><label for="bPods">준비된 Pod 수 <output></output></label><input type="range" id="bPods" min="0" max="10" step="1" value="2"></div>
+          <div class="ctrl"><label for="bCap">Pod당 전체 용량 <output></output></label><input type="range" id="bCap" min="10" max="200" step="10" value="100"></div>
+          <div class="ctrl"><label for="bCur">현재 동시성 <output></output></label><input type="range" id="bCur" min="0" max="500" step="5" value="40"></div>
+          <div class="ctrl"><label for="bTbc">target-burst-capacity</label>
+            <select id="bTbc"><option value="211" selected>211 (기본값)</option><option value="0">0 (0개일 때만 activator)</option><option value="-1">-1 (항상 activator)</option><option value="100">100</option><option value="500">500</option></select></div>
+        </div>
+        <div class="formula" aria-live="polite">
+          <div class="eq" id="bEq"></div>
+          <div style="margin:10px 0"><span class="mode" id="bMode"></span></div>
+          <p class="why" id="bWhy"></p>
+        </div>
+      </div>
+    </div>
+    <div class="callout amber">
+      <b class="t">기본값 211의 의미</b>
+      <p>Pod당 용량 100에서는 준비된 Pod가 3개 이상이고 여유가 넉넉해야 activator가 빠집니다. 즉 기본 설정에서는 <strong>작은 서비스일수록 activator가 경로에 남아 있는 시간이 깁니다</strong>. 지연 몇 밀리초가 중요한 서비스는 TBC를 낮추고 min-scale로 Pod를 유지하는 조합을 고려하세요. 반대로 Pod 사이 부하 분산이 중요한 서비스는 -1로 두어 항상 activator가 분배하게 할 수 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="lesson" id="s8">
+    <div class="sec-no">8 / 15</div>
+    <h2 class="h">어노테이션 총정리</h2>
+    <div class="prose"><p>Revision 단위로 쓰는 어노테이션은 모두 <code class="i">autoscaling.knative.dev/</code>로 시작하고 <code class="i">spec.template.metadata.annotations</code>에 적습니다. 클러스터 전체 기본값은 <code class="i">config-autoscaler</code> ConfigMap에 있으며, 어노테이션이 그 값을 덮어씁니다.</p></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:230px">어노테이션 (접두사 생략)</th><th style="width:110px">기본값</th><th>뜻과 쓰임</th></tr></thead>
+        <tbody>
+          <tr><th>class</th><td>kpa</td><td><code class="i">kpa.autoscaling.knative.dev</code> 또는 <code class="i">hpa.autoscaling.knative.dev</code>. 확장기를 고릅니다.</td></tr>
+          <tr><th>metric</th><td>concurrency</td><td>KPA는 concurrency 또는 rps, HPA는 cpu 또는 memory.</td></tr>
+          <tr><th>target</th><td>100 (rps는 200)</td><td>Pod당 목표값. 부드러운 목표라 넘을 수 있습니다.</td></tr>
+          <tr><th>target-utilization-percentage</th><td>70</td><td>목표값의 몇 %를 실제 계산 기준으로 쓸지. 여유분 확보용.</td></tr>
+          <tr><th>min-scale</th><td>0</td><td>최소 Pod 수. 1 이상이면 0개 축소 안 함. 트래픽을 받지 않는(Route에 없는) Revision에는 적용되지 않습니다.</td></tr>
+          <tr><th>max-scale</th><td>0 (무제한)</td><td>최대 Pod 수. 비용 폭주와 하위 시스템(DB 연결 수) 보호에 꼭 설정하세요.</td></tr>
+          <tr><th>initial-scale</th><td>1</td><td>Revision이 처음 만들어질 때 띄울 Pod 수. 큰 트래픽을 넘겨받을 새 버전이라면 미리 크게.</td></tr>
+          <tr><th>activation-scale</th><td>1</td><td>0개에서 깨어날 때 한 번에 띄울 Pod 수.</td></tr>
+          <tr><th>scale-down-delay</th><td>0s</td><td>줄이기 결정을 이 시간만큼 미룹니다. 최대 1시간. 출렁임과 잦은 콜드 스타트 완화.</td></tr>
+          <tr><th>window</th><td>60s</td><td>stable 윈도우 길이(6초~1시간). 짧을수록 민감하고 길수록 둔합니다.</td></tr>
+          <tr><th>panic-window-percentage</th><td>10</td><td>panic 윈도우를 stable 윈도우의 몇 %로 할지.</td></tr>
+          <tr><th>panic-threshold-percentage</th><td>200</td><td>필요 Pod가 현재의 몇 % 이상일 때 panic 진입할지.</td></tr>
+          <tr><th>target-burst-capacity</th><td>211</td><td>activator를 경로에 남길지 판단하는 여유분. 0이면 0개일 때만, -1이면 항상 경유.</td></tr>
+          <tr><th>scale-to-zero-pod-retention-period</th><td>0s</td><td>0개로 가기 직전 마지막 Pod를 더 남겨 둘 시간.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <b class="t">클러스터 전용 설정 (config-autoscaler)</b>
+      <p><code class="i">enable-scale-to-zero</code>(기본 true)를 false로 두면 클러스터 전체에서 0개 축소가 꺼집니다. <code class="i">scale-to-zero-grace-period</code>(30초), <code class="i">max-scale-up-rate</code>(1000), <code class="i">max-scale-down-rate</code>(2), <code class="i">allow-zero-initial-scale</code>(false), 그리고 사용자가 지정할 수 있는 max-scale의 상한인 <code class="i">max-scale-limit</code>도 여기에 있습니다. 멀티테넌트 클러스터라면 max-scale-limit으로 한 고객이 클러스터를 독차지하는 것을 막을 수 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="lesson" id="s9">
+    <div class="sec-no">9 / 15</div>
+    <h2 class="h">KPA vs HPA, 그리고 KEDA</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:150px">항목</th><th class="colhead-k">KPA (기본)</th><th>HPA 클래스</th><th>KEDA 연동</th></tr></thead>
+        <tbody>
+          <tr><th>기준 지표</th><td>동시성, rps</td><td>CPU, 메모리</td><td>큐 길이, Kafka lag, Prometheus 쿼리 등 외부 지표</td></tr>
+          <tr><th>0개 축소</th><td class="yes">가능</td><td class="no">불가 (최소 1)</td><td class="mid">구성에 따라 다름</td></tr>
+          <tr><th>panic 모드</th><td class="yes">있음</td><td class="no">없음 (HPA 자체 동작)</td><td class="no">없음</td></tr>
+          <tr><th>설치</th><td>Serving 기본 포함</td><td>Serving의 HPA 확장 구성요소 추가 설치</td><td>KEDA와 Knative용 KEDA 오토스케일러 확장 설치</td></tr>
+          <tr><th>잘 맞는 곳</th><td>대부분의 HTTP 서비스</td><td>이미지 처리, 암호화처럼 CPU가 병목인 서비스</td><td>HTTP 외 신호로 미리 늘려야 하는 서비스</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="codebox solo"><div class="cap"><span>HPA 클래스로 CPU 70% 기준 확장</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/class: "hpa.autoscaling.knative.dev"
+        autoscaling.knative.dev/metric: "cpu"
+        autoscaling.knative.dev/target: "70"
+        autoscaling.knative.dev/min-scale: "1"
+        autoscaling.knative.dev/max-scale: "10"
+    spec:
+      containers:
+        - image: registry.example.com/thumbnailer:1.4
+          resources:
+            requests:
+              cpu: 500m</code></pre></div>
+    <div class="callout amber">
+      <b class="t">HPA 클래스에서 target의 단위가 바뀐다</b>
+      <p>KPA에서 target 70은 "동시 요청 70개"지만, HPA 클래스에서 metric이 cpu면 "CPU 사용률 70%"입니다. 같은 숫자가 전혀 다른 뜻이 되니 클래스를 바꿀 때 target을 꼭 다시 계산하세요. CPU 기준이라면 resources.requests.cpu도 반드시 있어야 합니다.</p>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="lesson" id="s10">
+    <div class="sec-no">10 / 15</div>
+    <h2 class="h">상황별 설정 레시피</h2>
+    <div class="prose"><p>고객사 서비스 성격에 따라 출발점으로 쓸 만한 조합입니다. 숫자는 시작점일 뿐이니 부하 테스트로 다듬으세요.</p></div>
+    <div class="recipes">
+      <div class="tabs" role="tablist" aria-label="설정 레시피" id="rtabs"></div>
+      <div id="rpanel"></div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="lesson" id="s11">
+    <div class="sec-no">11 / 15</div>
+    <h2 class="h">실습: 부하 걸고 관찰하기</h2>
+    <div class="prose"><p>퀵스타트 kind 클러스터와 부하 생성 도구 <code class="i">hey</code>를 씁니다. 터미널 세 개(부하, Pod 관찰, KPA 관찰)를 띄워 두면 편합니다.</p></div>
+    <ol class="steps">
+      <li>
+        <h4>hey 설치와 목표값이 작은 서비스 배포</h4>
+        <p>target을 10으로 낮춰 노트북에서도 확장이 잘 보이게 합니다. helloworld-go는 응답이 너무 빨라서, 동시성을 키우려고 부하 쪽 동시 연결 수를 늘립니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">brew install hey      # 또는: go install github.com/rakyll/hey@latest
+
+kn service create hello \
+  --image ghcr.io/knative/helloworld-go:latest \
+  --port 8080 \
+  --annotation autoscaling.knative.dev/target=10 \
+  --annotation autoscaling.knative.dev/max-scale=15</code></pre></div>
+      </li>
+      <li>
+        <h4>관찰 창 열기</h4>
+        <div class="codebox solo"><div class="cap"><span>bash (터미널 2, 3)</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash"># 터미널 2: Pod 수 변화
+kubectl get pod -l serving.knative.dev/service=hello -w
+
+# 터미널 3: KPA가 원하는 수와 실제 수
+kubectl get podautoscaler -w</code></pre></div>
+      </li>
+      <li>
+        <h4>부하 걸기: 동시 연결 50개를 30초</h4>
+        <p>2장 공식으로 예상하면 50 ÷ (10 × 0.7) ≈ 7.1이므로 Pod 8개 근처까지 늘어날 것입니다. 처음 몇 초에 panic 모드로 빠르게 늘어나는 것도 보세요.</p>
+        <div class="codebox solo"><div class="cap"><span>bash (터미널 1)</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">hey -z 30s -c 50 http://hello.default.127.0.0.1.sslip.io
+
+# 부하가 끝난 뒤 언제 줄어드는지 시간을 재 보세요
+date</code></pre></div>
+      </li>
+      <li>
+        <h4>autoscaler의 판단 엿보기</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kubectl get podautoscaler -o yaml | grep -E 'desiredScale|actualScale'
+kubectl get sks       # Proxy / Serve 모드 확인
+
+kubectl logs -n knative-serving deploy/autoscaler --since=2m \
+  | grep -iE 'panic|desired' | tail -n 20</code></pre></div>
+      </li>
+      <li>
+        <h4>콜드 스타트 시간 재기</h4>
+        <p>Pod가 0개가 된 것을 확인한 뒤 첫 요청과 두 번째 요청의 시간을 비교합니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">curl -s -o /dev/null -w '첫 요청: %{time_total}s\n' http://hello.default.127.0.0.1.sslip.io
+curl -s -o /dev/null -w '두 번째: %{time_total}s\n' http://hello.default.127.0.0.1.sslip.io</code></pre></div>
+      </li>
+      <li>
+        <h4>설정을 바꿔 다시 비교</h4>
+        <p>min-scale과 scale-down-delay를 넣고 같은 실험을 반복합니다. 어노테이션 변경은 template 변경이라 새 Revision이 생긴다는 점도 확인하세요.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn service update hello \
+  --annotation autoscaling.knative.dev/min-scale=1 \
+  --annotation autoscaling.knative.dev/scale-down-delay=2m
+
+kn revisions list
+hey -z 30s -c 50 http://hello.default.127.0.0.1.sslip.io</code></pre></div>
+      </li>
+      <li>
+        <h4>클러스터 기본값 확인과 정리</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kubectl get cm config-autoscaler -n knative-serving -o yaml | grep -v '^    #' | head -40
+
+kn service delete hello</code></pre></div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 12 -->
+  <section class="lesson" id="s12">
+    <div class="sec-no">12 / 15</div>
+    <h2 class="h">자주 하는 실수</h2>
+    <div class="nofit">
+      <details><summary>min-scale을 줬는데 Pod가 0개가 됐어요</summary><div class="body">min-scale은 <b>Route가 트래픽을 보내는 Revision에만</b> 적용됩니다. 새 Revision으로 트래픽이 100% 넘어가면 옛 Revision은 min-scale과 상관없이 0개로 줄어듭니다. 의도한 동작이니 현재 트래픽을 받는 Revision의 설정을 확인하세요.</div></details>
+      <details><summary>target과 containerConcurrency를 같은 것으로 착각</summary><div class="body">target은 <b>확장 계산용 목표</b>, containerConcurrency는 <b>queue-proxy가 강제하는 상한</b>입니다. 한 번에 요청 하나만 처리할 수 있는 앱(일부 LLM 서버, 단일 스레드 앱)이라면 containerConcurrency를 1로 두어야 요청이 몰려도 앱이 쓰러지지 않습니다.</div></details>
+      <details><summary>CPU 집약 서비스에 동시성 기준을 그대로 사용</summary><div class="body">요청 수는 적은데 요청 하나가 CPU를 많이 쓰면, 동시성 기준으로는 Pod가 늘지 않는데 응답은 느려집니다. target을 낮추거나, <b>HPA 클래스의 CPU 기준</b>으로 바꾸세요.</div></details>
+      <details><summary>max-scale을 비워 둠</summary><div class="body">무제한이 기본입니다. 공격성 트래픽이나 버그로 요청이 폭증하면 Pod가 끝없이 늘어 <b>DB 연결 수 고갈, 노드 증설 비용 폭탄</b>으로 이어집니다. 고객사 서비스에는 항상 상한을 두세요.</div></details>
+      <details><summary>노드 증설 시간을 계산에 넣지 않음</summary><div class="body">KPA는 2초마다 판단하지만, 빈 노드가 없으면 Pod는 Pending으로 노드를 기다립니다. 클러스터 오토스케일러의 노드 추가는 수 분이 걸리므로, 피크가 예측되면 <b>오버프로비저닝이나 미리 늘린 min-scale</b>로 대비해야 합니다.</div></details>
+      <details><summary>Knative Service에 별도 HPA를 또 만듦</summary><div class="body">Knative가 만든 Deployment에 직접 HPA를 붙이면 두 확장기가 서로 싸웁니다. 확장은 <b>반드시 Knative 어노테이션으로만</b> 제어하세요.</div></details>
+    </div>
+  </section>
+
+  <!-- 13 -->
+  <section class="lesson" id="s13">
+    <div class="sec-no">13 / 15</div>
+    <h2 class="h">확인 퀴즈</h2>
+    <p class="score" id="score">맞힌 문제 <b>0</b> / 7</p>
+    <div class="quiz" id="quiz"></div>
+  </section>
+
+  <!-- 14 -->
+  <section class="lesson" id="s14">
+    <div class="sec-no">14 / 15</div>
+    <h2 class="h">용어 사전</h2>
+    <input class="gsearch" id="gsearch" type="search" placeholder="용어 검색 (예: panic, 버스트)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- 15 -->
+  <section class="lesson" id="s15">
+    <div class="sec-no">15 / 15</div>
+    <h2 class="h">정리와 다음 편</h2>
+    <div class="recap">
+      <ol>
+        <li>KPA는 CPU가 아니라 <strong>요청(동시성 또는 rps)</strong>을 보고 확장합니다. 측정은 queue-proxy가 합니다.</li>
+        <li>Pod 수 = <strong>올림(관측 동시성 ÷ (target × 사용률))</strong>을 min·max 사이로 자른 값입니다.</li>
+        <li>평소엔 60초 평균(stable), 급증하면 6초 평균(panic)으로 판단합니다. panic 중에는 줄이지 않습니다.</li>
+        <li>0개 축소는 stable 평균이 0이 된 뒤 activator를 경로에 넣고 나서 일어납니다.</li>
+        <li>콜드 스타트는 노드, 이미지, 앱 초기화, 모델 로딩의 합입니다. 큰 조각부터 줄이세요.</li>
+        <li>target-burst-capacity가 activator를 경로에 남길지 정합니다. 기본 211에서는 작은 서비스일수록 activator를 거칩니다.</li>
+        <li>CPU 병목이면 HPA 클래스, 외부 신호면 KEDA. 그리고 max-scale은 항상 설정합니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편: 트래픽 관리, 배포 전략, 보안 기본</h3>
+      <p>2편의 Route를 무기로 카나리·블루그린 배포와 즉시 롤백을 실습하고, 태그 URL로 출시 전 검증하는 흐름을 만듭니다. cert-manager로 HTTPS를 자동화하고, secure-pod-defaults와 클러스터 내부 전용 서비스로 기본 보안을 다집니다.</p>
+    </div>
+    <footer>Knative 강의 시리즈 3편. Knative v1.23의 기본값을 바탕으로 작성했습니다. 시뮬레이터는 KPA 규칙을 단순화한 교육용 모델입니다. 기본값과 키 이름은 버전과 배포판에 따라 다를 수 있으니 실무에서는 config-autoscaler의 실제 값과 공식 문서를 함께 확인하세요.</footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+  /* theme */
+  const root=document.documentElement, tb=document.getElementById('themeBtn');
+  function setTheme(t){root.setAttribute('data-theme',t);tb.textContent=t==='dark'?'라이트 테마':'다크 테마';try{localStorage.setItem('kn-theme',t)}catch(e){};if(window.__redraw)window.__redraw()}
+  let saved=null;try{saved=localStorage.getItem('kn-theme')}catch(e){}
+  setTheme(saved==='light'?'light':'dark');
+  tb.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+
+  /* progress + toc */
+  const prog=document.getElementById('prog'), links=[...document.querySelectorAll('.toc a')], secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  function onScroll(){const h=document.documentElement.scrollHeight-innerHeight;prog.style.width=(h>0?scrollY/h*100:0)+'%';
+    let cur=0;secs.forEach((s,i)=>{if(s.getBoundingClientRect().top<160)cur=i});links.forEach((a,i)=>a.classList.toggle('on',i===cur&&scrollY>200))}
+  addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+  /* highlight + copy */
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function hlYaml(line){let l=esc(line);l=l.replace(/"([^"]*)"/g,'<span class="s">"$1"</span>');
+    l=l.replace(/^(\s*-?\s*)([A-Za-z0-9_.\/-]+)(:)/,'$1<span class="k">$2</span>$3');l=l.replace(/(\s#\s.*)$/,'<span class="c">$1</span>');return l}
+  function hlBash(line){let l=esc(line);if(/^\s*#/.test(line))return '<span class="c">'+l+'</span>';
+    l=l.replace(/^(\s*)(kn|kubectl|brew|curl|kind|for|cat|hey|go|date)\b/,'$1<span class="k">$2</span>').replace(/(\s)(--?[a-z][a-z-]*)/g,'$1<span class="p">$2</span>').replace(/(\s#\s.*)$/,'<span class="c">$1</span>');return l}
+  function hl(c){const lang=c.dataset.lang,raw=c.textContent;c.dataset.raw=raw;c.innerHTML=raw.split('\n').map(x=>lang==='yaml'?hlYaml(x):hlBash(x)).join('\n')}
+  document.querySelectorAll('code[data-lang]').forEach(hl);
+  function fallback(t,cb){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}ta.remove();cb()}
+  document.addEventListener('click',e=>{const b=e.target.closest('.copy');if(!b)return;const code=b.closest('.codebox').querySelector('code');const txt=code.dataset.raw||code.textContent;
+    const done=()=>{b.textContent='복사됨';setTimeout(()=>b.textContent='복사',1400)};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(done,()=>fallback(txt,done));else fallback(txt,done)});
+
+  const $=id=>document.getElementById(id);
+  const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  /* 2. formula calc */
+  function calc(){const obs=+$('cObs').value,t=+$('cTarget').value,u=+$('cUtil').value,mn=+$('cMin').value,mx=+$('cMax').value;
+    $('oObs').textContent=obs;$('oTarget').textContent=t;$('oUtil').textContent=u+'%';$('oMin').textContent=mn;$('oMax').textContent=mx||'무제한';
+    const eff=t*u/100, raw=obs/eff, ceil=Math.ceil(raw-1e-9);let fin=Math.max(ceil,mn);if(mx>0)fin=Math.min(fin,mx);
+    $('fEq').innerHTML='Pod당 실제 목표 = '+t+' × '+u+'% = <b>'+eff.toFixed(1)+'</b><br>필요 Pod = 올림('+obs+' ÷ '+eff.toFixed(1)+') = 올림('+raw.toFixed(2)+') = <b>'+ceil+'</b><br>min·max 적용 → <b>'+fin+'</b>';
+    $('fBig').textContent=fin+'개';
+    let why;
+    if(obs===0&&fin===0)why='요청이 없으니 0개입니다. 단, 실제로는 stable 윈도우 평균이 0이 될 때까지 기다린 뒤입니다.';
+    else if(fin!==ceil&&fin===mn)why='계산값은 '+ceil+'개지만 min-scale '+mn+' 때문에 최소 '+mn+'개를 유지합니다.';
+    else if(fin!==ceil)why='계산값은 '+ceil+'개지만 max-scale '+mx+'에서 막혔습니다. 남는 요청은 Pod당 목표를 넘겨 처리되거나 대기합니다.';
+    else why='Pod '+fin+'개가 각각 평균 '+(obs/Math.max(fin,1)).toFixed(1)+'개의 동시 요청을 맡게 됩니다. 목표의 100%('+t+')까지는 여유가 남습니다.';
+    $('fWhy').textContent=why}
+  ['cObs','cTarget','cUtil','cMin','cMax'].forEach(id=>$(id).addEventListener('input',calc));calc();
+
+  /* 4. simulator */
+  const T=300;
+  const PRESETS={
+    spike:{n:'스파이크',f:t=>t<200?(t>=60&&t<90?120:20):0},
+    step:{n:'계단',f:t=>t<50?0:t<100?30:t<150?60:t<210?90:0},
+    sparse:{n:'간헐적 호출',f:t=>((t>=20&&t<26)||(t>=120&&t<126)||(t>=230&&t<236))?15:0},
+    ramp:{n:'출근 시간 램프',f:t=>t<150?t*0.7:Math.max(0,105-(t-150)*0.9)}
+  };
+  let preset='spike';
+  const pEl=$('presets');
+  Object.entries(PRESETS).forEach(([k,v])=>{const b=document.createElement('button');b.type='button';b.className='btn';b.textContent=v.n;b.dataset.k=k;b.setAttribute('aria-pressed',k===preset);
+    b.onclick=()=>{preset=k;[...pEl.children].forEach(x=>x.setAttribute('aria-pressed',x.dataset.k===k));runSim()};pEl.appendChild(b)});
+  const SIDS=['sTarget','sWin','sPanic','sMin','sMax','sDelay','sCold','sAct'];
+  SIDS.forEach(id=>$(id).addEventListener('input',runSim));
+  function rand(i){const x=Math.sin(i*12.9898)*43758.5453;return x-Math.floor(x)}
+  function runSim(){
+    SIDS.forEach(id=>{$(id).previousElementSibling.querySelector('output').textContent=$(id).value});
+    const target=+$('sTarget').value,util=0.7,W=+$('sWin').value,PW=Math.max(1,Math.round(W*0.1)),thr=+$('sPanic').value/100,
+      mn=+$('sMin').value,mx=+$('sMax').value,delay=+$('sDelay').value,cold=+$('sCold').value,act=+$('sAct').value,GRACE=30;
+    const f=PRESETS[preset].f, c=[];for(let t=0;t<T;t++){const b=f(t);c.push(b>0?Math.max(0,b*(0.9+0.2*rand(t+1))):0)}
+    let pods=[]; // ready times
+    let desired=mn, panic=false, lastPanic=-1e9, zeroSince=null;
+    const out={des:[],ready:[],panic:[],cold:[]};const desHist=[];
+    let cost=0,coldS=0,overS=0,peak=0;
+    for(let t=0;t<T;t++){
+      const readyN=pods.filter(r=>r<=t).length;
+      if(t%2===0){
+        const avg=(a,b)=>{let s=0,n=0;for(let i=Math.max(0,a);i<=b;i++){s+=c[i];n++}return n?s/n:0};
+        const sAvg=avg(t-W+1,t),pAvg=avg(t-PW+1,t),eff=target*util;
+        const dS=Math.ceil(sAvg/eff-1e-9),dP=Math.ceil(pAvg/eff-1e-9);
+        const base=Math.max(1,readyN);
+        if(dP/base>=thr&&dP>0){panic=true;lastPanic=t}
+        if(panic&&t-lastPanic>=W)panic=false;
+        let d=panic?Math.max(dP,desired):dS;
+        if(!panic&&d>0){const floor=Math.ceil(readyN/2);if(d<floor)d=floor}
+        desHist.push([t,d]);
+        if(delay>0){for(const [ht,hd] of desHist)if(ht>t-delay&&hd>d)d=hd}
+        d=Math.max(d,mn);d=Math.min(d,mx);
+        if(d===0){if(zeroSince===null)zeroSince=t;if(t-zeroSince<GRACE)d=pods.length>0?1:0}else zeroSince=null;
+        desired=d;
+      }
+      // activator poke when zero and traffic
+      if(pods.length===0&&c[t]>0){desired=Math.max(desired,act,mn,1);zeroSince=null}
+      // reconcile pods
+      if(pods.length<desired){for(let i=pods.length;i<desired;i++)pods.push(t+cold)}
+      else if(pods.length>desired){pods.sort((a,b)=>b-a);pods=pods.slice(pods.length-desired)}
+      const rN=pods.filter(r=>r<=t).length;
+      out.des.push(desired);out.ready.push(rN);out.panic.push(panic);
+      const isCold=c[t]>0&&rN===0;out.cold.push(isCold);
+      cost+=pods.length;if(isCold)coldS++;if(rN>0&&c[t]>rN*target)overS++;peak=Math.max(peak,pods.length);
+    }
+    $('kCost').textContent=Math.round(cost).toLocaleString();$('kCold').textContent=coldS;$('kOver').textContent=overS;$('kPeak').textContent=peak;
+    $('kColdBox').className='kpi '+(coldS>0?'warn':'ok');$('kOverBox').className='kpi '+(overS>0?'warn':'ok');
+    window.__sim={c,out,target};draw();
+  }
+  function draw(){const s=window.__sim;if(!s)return;const {c,out}=s;const svg=$('chart');
+    const W=900,H=330,L=44,R=40,TOP=16,B=34,pw=W-L-R,ph=H-TOP-B;
+    const maxC=Math.max(20,Math.ceil(Math.max(...c)/20)*20), maxP=Math.max(5,Math.ceil(Math.max(...out.des,...out.ready)*1.15));
+    const x=t=>L+t/(T-1)*pw, yc=v=>TOP+ph-v/maxC*ph, yp=v=>TOP+ph-v/maxP*ph;
+    const col={line:cssv('--line'),ev:cssv('--eventing'),vi:cssv('--violet'),fn:cssv('--functions'),hot:cssv('--hot'),sv:cssv('--serving')};
+    let g='';
+    // bands
+    const band=(arr,color,op)=>{let st=null;for(let t=0;t<=T;t++){const on=t<T&&arr[t];if(on&&st===null)st=t;if(!on&&st!==null){g+='<rect x="'+x(st)+'" y="'+TOP+'" width="'+Math.max(2,x(t)-x(st))+'" height="'+ph+'" fill="'+color+'" opacity="'+op+'"/>';st=null}}};
+    band(out.panic,col.hot,.13);band(out.cold,col.sv,.35);
+    for(let i=0;i<=4;i++){const yy=TOP+ph*i/4;g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+yy+'" y2="'+yy+'" stroke="'+col.line+'" stroke-width="1"/>';
+      g+='<text x="'+(L-6)+'" y="'+(yy+4)+'" text-anchor="end">'+Math.round(maxC*(1-i/4))+'</text>';
+      g+='<text x="'+(W-R+6)+'" y="'+(yy+4)+'">'+Math.round(maxP*(1-i/4))+'</text>'}
+    for(let t=0;t<=T;t+=60)g+='<text x="'+x(Math.min(t,T-1))+'" y="'+(H-12)+'" text-anchor="middle">'+t+'s</text>';
+    const path=(arr,fy,step)=>{let d='';arr.forEach((v,t)=>{const X=x(t),Y=fy(v);if(t===0)d+='M'+X+' '+Y;else d+=step?'H'+X+'V'+Y:'L'+X+' '+Y});return d};
+    g+='<path d="'+path(c,yc,false)+'" fill="none" stroke="'+col.ev+'" stroke-width="2" opacity=".85"/>';
+    g+='<path d="'+path(out.des,yp,true)+'" fill="none" stroke="'+col.vi+'" stroke-width="1.6" stroke-dasharray="5 4"/>';
+    g+='<path d="'+path(out.ready,yp,true)+'" fill="none" stroke="'+col.fn+'" stroke-width="2.6"/>';
+    g+='<text x="'+L+'" y="11">동시성</text><text x="'+(W-R)+'" y="11" text-anchor="end">Pod</text>';
+    svg.innerHTML=g}
+  window.__redraw=draw;runSim();
+
+  /* 6. cold start */
+  const CS={sched:['스케줄링·활성화 신호','var(--violet)'],node:['노드 추가','var(--hot)'],pull:['이미지 받기','var(--eventing)'],start:['컨테이너 시작·앱 초기화','var(--serving)'],model:['모델 로딩','#FF9ECF'],ready:['준비 확인','var(--functions)']};
+  function cold(){const cached=$('cCached').checked,node=$('cNode').checked,app=$('cApp').value;
+    const seg={sched:0.5,node:node?150:0,pull:cached?0:(app==='llm'?90:app==='jvm'?20:6),start:app==='jvm'?12:app==='llm'?8:0.5,model:app==='llm'?60:0,ready:app==='llm'?5:0.5};
+    const tot=Object.values(seg).reduce((a,b)=>a+b,0);
+    $('cbar').innerHTML=Object.entries(seg).filter(([k,v])=>v>0).map(([k,v])=>'<span style="width:'+(v/tot*100)+'%;background:'+CS[k][1]+'">'+(v/tot>0.08?CS[k][0]:'')+'</span>').join('');
+    $('cleg').innerHTML=Object.entries(seg).map(([k,v])=>'<div><i style="background:'+CS[k][1]+'"></i>'+CS[k][0]+' <b>'+(v===0?'0':v<1?v.toFixed(1):v)+'초</b></div>').join('');
+    $('ctot').textContent=tot<10?tot.toFixed(1):Math.round(tot)}
+  ['cCached','cNode','cApp'].forEach(id=>$(id).addEventListener('change',cold));cold();
+
+  /* 7. TBC */
+  function tbc(){['bPods','bCap','bCur'].forEach(id=>$(id).previousElementSibling.querySelector('output').textContent=$(id).value);
+    const p=+$('bPods').value,cap=+$('bCap').value,cur=+$('bCur').value,t=+$('bTbc').value;let mode,eq,why;
+    if(t===-1){mode='proxy';eq='target-burst-capacity = -1<br><b>항상 activator 경유</b>';why='계산 없이 항상 Proxy 모드입니다. activator가 모든 요청을 받아 Pod들에 고르게 나눠 줍니다. 부하 분산 품질을 지연보다 중시할 때 씁니다.'}
+    else if(p===0){mode='proxy';eq='준비된 Pod가 0개';why='Pod가 없으니 어떤 설정이든 activator가 요청을 붙잡아야 합니다.'}
+    else if(t===0){mode='serve';eq='target-burst-capacity = 0<br><b>Pod가 1개 이상이면 activator 제외</b>';why='0개일 때만 activator를 쓰고 그 외에는 Pod로 직행합니다. 지연은 가장 짧지만, 급증 시 일부 Pod에 요청이 몰릴 수 있습니다.'}
+    else{const ebc=p*cap-cur-t;mode=ebc>=0?'serve':'proxy';
+      eq=p+' × '+cap+' − '+cur+' − '+t+' = <b>'+ebc+'</b>';
+      why=ebc>=0?'여유가 '+ebc+'만큼 남아 갑작스러운 증가도 감당할 수 있다고 보고 activator를 경로에서 뺍니다.':'여유가 '+(-ebc)+'만큼 부족해 activator를 경로에 남겨 둡니다. Pod가 '+Math.ceil((cur+t)/cap)+'개 이상 준비되면 Serve 모드로 바뀝니다.'}
+    $('bEq').innerHTML=eq;$('bMode').className='mode '+mode;$('bMode').textContent=mode==='serve'?'Serve 모드 (Pod 직행)':'Proxy 모드 (activator 경유)';$('bWhy').textContent=why}
+  ['bPods','bCap','bCur','bTbc'].forEach(id=>$(id).addEventListener('input',tbc));tbc();
+
+  /* 10. recipes */
+  const RC=[
+    ['웹훅·사내 도구','하루 몇 번 오는 호출. <b>비용 최소화가 최우선</b>이고 첫 요청이 1~2초 늦는 것은 허용됩니다. 기본값에 상한만 둡니다.','annotations:\n  autoscaling.knative.dev/min-scale: "0"\n  autoscaling.knative.dev/max-scale: "3"'],
+    ['대고객 API','콜드 스타트가 사용자 경험에 바로 드러나는 서비스. <b>항상 2개 이상 유지</b>해 노드 장애에도 버티고, 피크 뒤 출렁임을 줄이려 축소를 늦춥니다.','annotations:\n  autoscaling.knative.dev/min-scale: "2"\n  autoscaling.knative.dev/max-scale: "30"\n  autoscaling.knative.dev/target: "50"\n  autoscaling.knative.dev/scale-down-delay: "5m"'],
+    ['LLM 추론','기동에 수십 초 이상 걸리고 Pod 하나가 동시에 처리할 수 있는 요청이 제한적입니다. <b>상한을 엄격히 두고, 목표를 낮게, 최소 1개 유지</b>. 업무 시간 외 0개 축소는 별도 판단입니다.','annotations:\n  autoscaling.knative.dev/min-scale: "1"\n  autoscaling.knative.dev/max-scale: "4"\n  autoscaling.knative.dev/target: "6"\n  autoscaling.knative.dev/scale-down-delay: "15m"\n  autoscaling.knative.dev/window: "180s"\nspec:\n  containerConcurrency: 8   # 서버의 배치 한도에 맞춤\n  timeoutSeconds: 600'],
+    ['이벤트 처리','Eventing으로 메시지를 받아 처리하는 서비스. 이벤트가 몰려 들어오면 <b>빠르게 여러 개를 깨우는 것</b>이 중요합니다.','annotations:\n  autoscaling.knative.dev/min-scale: "0"\n  autoscaling.knative.dev/max-scale: "20"\n  autoscaling.knative.dev/activation-scale: "3"\n  autoscaling.knative.dev/target: "20"'],
+    ['출시 직후 새 버전','큰 트래픽을 넘겨받을 새 Revision. 처음부터 <b>넉넉히 띄운 상태</b>로 시작해 트래픽 전환 순간의 용량 부족을 막습니다.','annotations:\n  autoscaling.knative.dev/initial-scale: "10"\n  autoscaling.knative.dev/min-scale: "2"\n  autoscaling.knative.dev/max-scale: "40"']
+  ];
+  const rt=$('rtabs'), rp=$('rpanel');
+  RC.forEach((r,i)=>{const b=document.createElement('button');b.type='button';b.className='tab';b.setAttribute('role','tab');b.textContent=r[0];b.onclick=()=>showR(i);rt.appendChild(b)});
+  function showR(i){[...rt.children].forEach((b,j)=>b.setAttribute('aria-selected',j===i));
+    rp.innerHTML='<div class="recipe-desc">'+RC[i][1]+'</div><div class="codebox"><div class="cap"><span>spec.template.metadata 아래</span><button class="copy" type="button">복사</button></div><pre><code data-lang="yaml"></code></pre></div>';
+    const code=rp.querySelector('code');code.textContent=RC[i][2];hl(code)}
+  showR(0);
+
+  /* quiz */
+  const QZ=[
+    {q:'KPA의 기본 확장 지표는?',o:['CPU 사용률','메모리 사용량','동시성(concurrency)','네트워크 대역폭'],a:2,e:'queue-proxy가 측정한 동시 요청 수가 기본 지표입니다. rps로 바꿀 수 있고, CPU·메모리는 HPA 클래스에서 씁니다.'},
+    {q:'target 10, 사용률 70%에서 관측 동시성이 50이면 계산된 Pod 수는?',o:['5','7','8','10'],a:2,e:'50 ÷ (10 × 0.7) = 7.14 → 올림해서 8개입니다.'},
+    {q:'panic 모드에 대한 설명으로 옳은 것은?',o:['Pod를 즉시 0개로 줄인다','짧은 윈도우 평균으로 빠르게 늘리고, 그동안은 줄이지 않는다','activator를 경로에서 뺀다','오류가 발생했다는 뜻이다'],a:1,e:'필요 Pod가 현재의 2배 이상이면 진입하고, stable 윈도우 한 번 동안 조건이 없어야 풀립니다.'},
+    {q:'min-scale: "2"를 준 Revision이 0개가 되었습니다. 가장 그럴듯한 이유는?',o:['버그다','그 Revision이 더 이상 Route에서 트래픽을 받지 않는다','max-scale이 0이다','target이 너무 크다'],a:1,e:'min-scale은 트래픽을 받는 Revision에만 적용됩니다.'},
+    {q:'준비된 Pod 2개, Pod당 용량 100, 현재 동시성 20, TBC 기본값(211)일 때 SKS 모드는?',o:['Serve','Proxy','Panic','Burst'],a:1,e:'2×100 − 20 − 211 = −31로 음수이므로 activator가 경로에 남는 Proxy 모드입니다.'},
+    {q:'이미지 썸네일 생성처럼 CPU가 병목인 서비스에 더 맞는 설정은?',o:['target을 1000으로 올린다','HPA 클래스와 cpu 지표를 쓴다','min-scale을 0으로 둔다','window를 6초로 줄인다'],a:1,e:'요청 수가 적어도 CPU가 포화될 수 있으므로 CPU 기준 HPA 클래스가 적합합니다. 단, 0개 축소는 안 됩니다.'},
+    {q:'7B LLM 서버가 0개에서 깨어나는 데 2분이 걸립니다. 가장 효과가 큰 조치는?',o:['target-burst-capacity를 -1로','min-scale을 1 이상으로','panic-threshold를 1000%로','max-scale을 무제한으로'],a:1,e:'콜드 스타트 자체를 피하는 것이 가장 확실합니다. 이미지 캐시와 모델 캐시는 그다음 단계입니다.'}
+  ];
+  const qz=$('quiz'), sc=document.querySelector('#score b');let right=0;
+  QZ.forEach((it,qi)=>{const box=document.createElement('div');box.className='q';box.innerHTML='<h4>'+(qi+1)+'. '+it.q+'</h4><div class="opts"></div><div class="fb"></div>';
+    const opts=box.querySelector('.opts'), fb=box.querySelector('.fb');
+    it.o.forEach((o,oi)=>{const b=document.createElement('button');b.type='button';b.textContent=o;
+      b.onclick=()=>{opts.querySelectorAll('button').forEach((x,xi)=>{x.disabled=true;if(xi===it.a)x.classList.add('right')});
+        if(oi===it.a){right++;sc.textContent=right;fb.innerHTML='<b>정답입니다.</b> '+it.e}else{b.classList.add('wrong');fb.innerHTML='<b>아쉽네요.</b> '+it.e}fb.classList.add('show')};opts.appendChild(b)});qz.appendChild(box)});
+
+  /* glossary */
+  const GL=[
+    ['KPA','Knative Pod Autoscaler','동시성이나 rps로 Pod 수를 정하는 Knative 기본 확장기. 0개 축소와 panic 모드 지원.'],
+    ['동시성','Concurrency','한 순간에 처리 중인 요청 수. KPA 기본 지표.'],
+    ['rps','Requests Per Second','초당 요청 수. 요청이 짧고 일정한 서비스에 적합한 지표.'],
+    ['target','','Pod당 목표 지표값. 확장 계산의 분모. 부드러운 목표.'],
+    ['목표 사용률','target-utilization-percentage','target의 몇 %를 실제 계산 기준으로 쓸지. 기본 70%.'],
+    ['stable 윈도우','stable-window','평상시 판단에 쓰는 긴 평균 구간. 기본 60초.'],
+    ['panic 윈도우','','급증 감지용 짧은 평균 구간. stable의 10%, 기본 6초.'],
+    ['panic 모드','','필요 Pod가 현재의 2배 이상일 때 진입. 빠르게 늘리고 줄이지 않음.'],
+    ['max-scale-down-rate','','한 번에 줄일 수 있는 비율. 기본 2(절반까지).'],
+    ['scale-to-zero-grace-period','','0개로 가기 전 activator를 경로에 넣는 데 허용하는 최대 시간. 기본 30초.'],
+    ['min-scale','','유지할 최소 Pod 수. 트래픽을 받는 Revision에만 적용.'],
+    ['max-scale','','최대 Pod 수. 기본 무제한이라 반드시 설정 권장.'],
+    ['initial-scale','','Revision 생성 시 처음 띄울 Pod 수. 기본 1.'],
+    ['activation-scale','','0개에서 깨어날 때 한 번에 띄울 Pod 수.'],
+    ['scale-down-delay','','축소 결정을 미루는 시간. 출렁임과 콜드 스타트 완화.'],
+    ['target-burst-capacity','TBC','activator를 경로에 남길지 판단하는 여유 용량. 기본 211.'],
+    ['여유 버스트 용량','Excess Burst Capacity','준비된 용량 − 현재 동시성 − TBC. 음수면 Proxy 모드.'],
+    ['콜드 스타트','Cold Start','0개에서 첫 요청을 처리하기까지의 지연. 노드, 이미지, 초기화, 모델 로딩의 합.'],
+    ['HPA 클래스','','Knative가 쿠버네티스 HPA로 CPU·메모리 기준 확장을 위임하는 방식. 0개 축소 불가.'],
+    ['KEDA','','외부 지표(큐, Kafka lag 등)로 확장하는 CNCF 프로젝트. Knative용 확장으로 연동 가능.'],
+    ['오버프로비저닝','Overprovisioning','우선순위 낮은 빈 Pod로 노드 자리를 미리 확보해 두는 기법.'],
+    ['max-scale-limit','','사용자가 지정할 수 있는 max-scale의 클러스터 상한.']
+  ];
+  const gl=$('gloss');
+  GL.forEach(([t,s,d])=>{const g=document.createElement('div');g.className='g';g.dataset.s=(t+' '+s+' '+d).toLowerCase();g.innerHTML='<dt>'+t+(s?'<small>'+s+'</small>':'')+'</dt><dd>'+d+'</dd>';gl.appendChild(g)});
+  $('gsearch').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();gl.querySelectorAll('.g').forEach(g=>g.hidden=v&&!g.dataset.s.includes(v))});
+})();
+</script>
+</body>
+</html>

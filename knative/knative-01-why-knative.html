@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knative 1편 · 왜 Knative인가: 서버리스와 전체 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --font: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 16px);scroll-behavior:smooth}
+*,*::before,*::after{box-sizing:inherit}
+:root[data-theme="dark"]{
+  --bg:#0F1633; --bg2:#141D42; --surface:#1A2452; --surface2:#212C5E; --line:#2C3874;
+  --text:#E8ECFF; --muted:#A3ADDA; --faint:#6F7AAE;
+  --serving:#5B95FF; --eventing:#FFB443; --functions:#38D9A9; --hot:#FF6F91; --violet:#B18CFF;
+  --code:#0A0F27; --codetext:#D7DEFF; --codekey:#7FB0FF; --codestr:#5FE3BC; --codecom:#6E79A8;
+  --shadow:0 18px 50px -24px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FC; --bg2:#E8ECF9; --surface:#FFFFFF; --surface2:#F1F4FC; --line:#D2D8EF;
+  --text:#17204A; --muted:#525D8C; --faint:#8A93BB;
+  --serving:#2B66DB; --eventing:#B86F00; --functions:#0B9671; --hot:#D2345D; --violet:#7448D6;
+  --code:#141B3D; --codetext:#DCE3FF; --codekey:#8CB8FF; --codestr:#6BE6C1; --codecom:#7480B4;
+  --shadow:0 18px 40px -26px rgba(30,40,90,.35);
+}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--serving)}
+::selection{background:var(--serving);color:#fff}
+:focus-visible{outline:3px solid var(--eventing);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px}
+.series{font-size:14px;color:var(--muted)}
+.series b{color:var(--text);font-weight:700}
+.progress{flex:1;height:4px;background:var(--line);border-radius:4px;overflow:hidden}
+.progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--serving),var(--functions),var(--eventing))}
+.theme-btn{font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.theme-btn:hover{border-color:var(--serving)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow:auto;padding:32px 0;font-size:14px}
+.toc p{margin:0 0 10px;color:var(--faint);font-size:13px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a::before{content:counter(t);font-family:var(--mono);font-size:12px;color:var(--faint);min-width:16px;padding-top:2px}
+.toc a:hover{color:var(--text);background:var(--surface)}
+.toc a.on{color:var(--text);background:var(--surface);box-shadow:inset 3px 0 0 var(--serving)}
+main{min-width:0;padding-bottom:120px}
+@media (max-width:980px){.wrap{grid-template-columns:1fr;gap:0}.toc{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:56px 0 24px}
+.hero h1{font-size:clamp(44px,7vw,84px);line-height:1.05;letter-spacing:-.03em;margin:0 0 18px;font-weight:700}
+.hero .lede{font-size:20px;color:var(--muted);max-width:640px;margin:0 0 30px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px}
+.chip{font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg2)}
+
+/* simulator */
+.sim{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:var(--shadow)}
+.sim-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.sim-head h2{font-size:19px;margin:0}
+.sim-head p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.sim-btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:inherit;font-size:15px;font-weight:500;border-radius:12px;padding:9px 16px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;transition:transform .08s,border-color .15s}
+.btn:hover{border-color:var(--serving)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--serving);border-color:var(--serving);color:#fff}
+.btn.warn{background:transparent;border-color:var(--hot);color:var(--hot)}
+.sim-stage{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:stretch}
+@media (max-width:640px){.sim-stage{grid-template-columns:1fr}}
+.activator{border:1.5px dashed var(--eventing);border-radius:16px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;background:color-mix(in srgb,var(--eventing) 7%,transparent);transition:opacity .3s}
+.activator.dim{opacity:.38}
+.activator strong{font-size:15px;color:var(--eventing)}
+.activator small{font-size:12.5px;color:var(--muted);line-height:1.5}
+.queue{display:flex;flex-wrap:wrap;gap:4px;min-height:22px}
+.queue i{width:10px;height:10px;border-radius:50%;background:var(--eventing);display:block}
+.pods{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+@media (max-width:640px){.pods{grid-template-columns:repeat(4,1fr)}}
+.pod{aspect-ratio:1/1;border-radius:14px;border:1.5px solid var(--line);background:var(--bg2);position:relative;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--faint);transition:background .25s,border-color .25s,transform .25s}
+.pod.starting{border-color:var(--violet);border-style:dashed;color:var(--violet);animation:pulse 0.9s infinite}
+.pod.ready{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 14%,var(--bg2));color:var(--functions)}
+.pod.busy{background:color-mix(in srgb,var(--functions) 34%,var(--bg2));color:var(--text)}
+.pod.stopping{border-color:var(--hot);color:var(--hot);opacity:.5;transform:scale(.9)}
+@keyframes pulse{50%{opacity:.45}}
+.sim-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+@media (max-width:640px){.sim-stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-family:var(--mono);font-size:24px;line-height:1.2}
+.stat span{font-size:12.5px;color:var(--muted)}
+.sim-status{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--bg2);font-size:15px;display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--faint)}
+.idlebar{height:4px;border-radius:4px;background:var(--line);margin-top:10px;overflow:hidden}
+.idlebar span{display:block;height:100%;width:0;background:var(--hot);transition:width .1s linear}
+.sim-note{font-size:13px;color:var(--faint);margin:10px 2px 0}
+
+/* ---------- sections ---------- */
+section.lesson{padding:72px 0 0}
+.sec-no{font-family:var(--mono);font-size:14px;color:var(--faint);margin-bottom:6px}
+h2.h{font-size:clamp(28px,3.4vw,38px);line-height:1.25;letter-spacing:-.02em;margin:0 0 18px}
+h3{font-size:21px;margin:36px 0 10px;letter-spacing:-.01em}
+.prose{max-width:720px}
+.prose p{margin:0 0 16px}
+.muted{color:var(--muted)}
+strong{font-weight:700}
+.term{border-bottom:1.5px dotted var(--faint);cursor:help}
+code.i{font-family:var(--mono);font-size:.86em;background:var(--bg2);border:1px solid var(--line);padding:1px 6px;border-radius:6px}
+
+.callout{border-left:4px solid var(--serving);background:var(--surface);padding:16px 20px;border-radius:0 14px 14px 0;margin:22px 0;max-width:720px}
+.callout.amber{border-color:var(--eventing)}
+.callout.mint{border-color:var(--functions)}
+.callout.hot{border-color:var(--hot)}
+.callout b.t{display:block;margin-bottom:4px}
+.callout p{margin:0}
+
+/* traits */
+.traits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin:24px 0;max-width:820px}
+@media (max-width:640px){.traits{grid-template-columns:1fr}}
+.trait{background:var(--surface);padding:20px 22px}
+.trait h4{margin:0 0 6px;font-size:17px;display:flex;gap:10px;align-items:center}
+.trait h4 .sw{width:12px;height:12px;border-radius:3px}
+.trait p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* analogy */
+.analogy{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:820px;margin:20px 0}
+@media (max-width:640px){.analogy{grid-template-columns:1fr}}
+.analogy div{border-radius:18px;padding:20px;border:1px solid var(--line);background:var(--bg2)}
+.analogy div:last-child{background:color-mix(in srgb,var(--functions) 9%,var(--bg2));border-color:color-mix(in srgb,var(--functions) 45%,var(--line))}
+.analogy h4{margin:0 0 8px;font-size:17px}
+.analogy ul{margin:0;padding-left:18px;color:var(--muted);font-size:15.5px}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:16px;max-width:100%}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:15px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14px;color:var(--muted);font-weight:500}
+tbody th{font-weight:500;color:var(--muted);white-space:nowrap;background:var(--surface)}
+tbody td{background:var(--surface)}
+tr:last-child th,tr:last-child td{border-bottom:0}
+td.yes{color:var(--functions);font-weight:700}
+td.no{color:var(--hot);font-weight:700}
+td.mid{color:var(--eventing);font-weight:700}
+.colhead-k{color:var(--serving)!important}
+
+/* tabs + code */
+.tabs{display:flex;gap:6px;margin:20px 0 0;flex-wrap:wrap}
+.tab{font:inherit;font-size:15px;padding:8px 16px;border-radius:12px 12px 0 0;border:1px solid var(--line);border-bottom:0;background:var(--bg2);color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--code);color:var(--codetext)}
+.tabpanel[hidden]{display:none}
+.codebox{position:relative;background:var(--code);border-radius:0 14px 14px 14px;margin:0 0 20px;overflow:hidden}
+.codebox.solo{border-radius:14px}
+.codebox .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px;font-size:13px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07)}
+.copy{font:inherit;font-size:12.5px;color:var(--codetext);background:rgba(255,255,255,.08);border:0;border-radius:8px;padding:4px 10px;cursor:pointer}
+.copy:hover{background:rgba(255,255,255,.16)}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.65;color:var(--codetext)}
+pre .k{color:var(--codekey)}
+pre .s{color:var(--codestr)}
+pre .c{color:var(--codecom);font-style:italic}
+pre .p{color:#FFB86B}
+.linecount{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 4px;font-size:15px}
+.linecount b{font-family:var(--mono);font-size:26px;margin-right:4px}
+
+/* component map */
+.kmap{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.kmap-layers{display:flex;flex-direction:column;gap:10px}
+.kmap-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.kmap-top{grid-template-columns:1fr}}
+.kcomp{font:inherit;text-align:left;cursor:pointer;border-radius:16px;padding:16px;border:2px solid transparent;color:var(--text);background:var(--bg2);transition:border-color .15s,background .15s}
+.kcomp h4{margin:0 0 4px;font-size:18px}
+.kcomp p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.kcomp[data-c="serving"] h4{color:var(--serving)}
+.kcomp[data-c="eventing"] h4{color:var(--eventing)}
+.kcomp[data-c="functions"] h4{color:var(--functions)}
+.kcomp[aria-pressed="true"][data-c="serving"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="eventing"]{border-color:var(--eventing);background:color-mix(in srgb,var(--eventing) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="functions"]{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 12%,var(--bg2))}
+.klayer{border-radius:14px;padding:12px 16px;font-size:15px;background:var(--bg2);border:1px dashed var(--line);color:var(--muted)}
+.klayer b{color:var(--text)}
+.klayer.k8s{border-style:solid;background:color-mix(in srgb,var(--serving) 6%,var(--bg2))}
+.kdetail{margin-top:16px;padding:18px 20px;border-radius:16px;background:var(--bg);border:1px solid var(--line);min-height:150px}
+.kdetail h4{margin:0 0 8px;font-size:18px}
+.kdetail dl{display:grid;grid-template-columns:110px 1fr;gap:6px 14px;margin:0;font-size:15px}
+.kdetail dt{color:var(--faint)}
+.kdetail dd{margin:0}
+
+/* resource tree */
+.tree{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.tree-ctrl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tree-list{list-style:none;margin:0;padding:0;font-size:15px}
+.tree-list li{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;padding:9px 12px;border-radius:12px;opacity:.16;transition:opacity .35s,background .35s}
+.tree-list li.show{opacity:1}
+.tree-list li.flash{background:color-mix(in srgb,var(--functions) 14%,transparent)}
+.tree-list .kind{font-family:var(--mono);font-size:13px;padding:2px 9px;border-radius:7px;white-space:nowrap;background:var(--bg2);border:1px solid var(--line)}
+.kind.svc{color:var(--serving);border-color:var(--serving)}
+.kind.knative{color:var(--violet)}
+.kind.k8s{color:var(--functions)}
+.kind.net{color:var(--eventing)}
+.tree-list .nm{font-family:var(--mono);font-size:14px}
+.tree-list .why{display:block;color:var(--muted);font-size:14px;line-height:1.55}
+.tree-list li[data-d="1"]{margin-left:24px}
+.tree-list li[data-d="2"]{margin-left:48px}
+.tree-list li[data-d="3"]{margin-left:72px}
+@media (max-width:640px){.tree-list li[data-d="1"]{margin-left:10px}.tree-list li[data-d="2"]{margin-left:20px}.tree-list li[data-d="3"]{margin-left:30px}}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:14px}
+
+/* request path */
+.path{display:flex;align-items:stretch;gap:0;margin:24px 0;overflow-x:auto;padding-bottom:6px}
+.hop{flex:1 0 140px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;font-size:14px;color:var(--muted);position:relative}
+.hop b{display:block;color:var(--text);font-size:15.5px;margin-bottom:4px}
+.hop.act{border:1.5px dashed var(--eventing)}
+.hop.act b{color:var(--eventing)}
+.hop.qp b{color:var(--violet)}
+.hop.uc b{color:var(--functions)}
+.arrow{flex:0 0 28px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px}
+
+/* timeline */
+.timeline{list-style:none;margin:24px 0;padding:0;position:relative;max-width:760px}
+.timeline::before{content:"";position:absolute;left:84px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.timeline li{display:grid;grid-template-columns:72px 1fr;gap:28px;padding:0 0 22px;position:relative}
+.timeline .yr{font-family:var(--mono);font-weight:600;font-size:15px;text-align:right;padding-top:2px}
+.timeline li::after{content:"";position:absolute;left:79px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2.5px solid var(--serving)}
+.timeline li.big::after{background:var(--functions);border-color:var(--functions)}
+.timeline h4{margin:0 0 2px;font-size:17px}
+.timeline p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* ecosystem */
+.eco{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0;max-width:860px}
+@media (max-width:640px){.eco{grid-template-columns:1fr}}
+.eco div{padding:16px 18px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.eco h4{margin:0 0 2px;font-size:16.5px}
+.eco .rel{font-size:13px;color:var(--violet);margin-bottom:6px;display:block}
+.eco p{margin:0;font-size:15px;color:var(--muted)}
+
+/* steps */
+.steps{list-style:none;margin:20px 0;padding:0;counter-reset:s;max-width:820px}
+.steps>li{counter-increment:s;position:relative;padding-left:52px;margin-bottom:26px}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:36px;height:36px;border-radius:12px;background:var(--serving);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.steps h4{margin:4px 0 8px;font-size:18px}
+.steps p{margin:0 0 10px}
+
+/* uses */
+.uses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}
+@media (max-width:860px){.uses{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.uses{grid-template-columns:1fr}}
+.use{padding:18px;border-radius:16px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c,var(--serving))}
+.use h4{margin:0 0 6px;font-size:17px}
+.use p{margin:0;font-size:15px;color:var(--muted)}
+.use .ep{display:block;margin-top:10px;font-size:13px;color:var(--faint)}
+
+.nofit{max-width:820px;margin:18px 0}
+.nofit details{border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:10px}
+.nofit summary{cursor:pointer;padding:14px 18px;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.nofit summary::-webkit-details-marker{display:none}
+.nofit summary::after{content:"+";color:var(--faint);font-family:var(--mono)}
+.nofit details[open] summary::after{content:"−"}
+.nofit .body{padding:0 18px 16px;color:var(--muted);font-size:15.5px}
+.nofit .body b{color:var(--text)}
+
+/* quiz */
+.quiz{max-width:820px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px}
+.q h4{margin:0 0 12px;font-size:17px;line-height:1.55}
+.q .opts{display:grid;gap:8px}
+.q button{font:inherit;font-size:15.5px;text-align:left;padding:11px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer}
+.q button:hover:not(:disabled){border-color:var(--serving)}
+.q button.right{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 15%,var(--bg2))}
+.q button.wrong{border-color:var(--hot);background:color-mix(in srgb,var(--hot) 12%,var(--bg2))}
+.q button:disabled{cursor:default}
+.q .fb{margin-top:12px;font-size:15px;color:var(--muted);display:none}
+.q .fb.show{display:block}
+.q .fb b{color:var(--text)}
+.score{font-size:16px;margin:4px 0 18px;color:var(--muted)}
+.score b{color:var(--text);font-family:var(--mono)}
+
+/* glossary */
+.gsearch{font:inherit;font-size:16px;width:100%;max-width:420px;padding:11px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 18px}
+.gsearch:focus{border-color:var(--serving);outline:none}
+.gloss{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.gloss{grid-template-columns:1fr}}
+.g{padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.g dt{font-weight:700;margin-bottom:2px}
+.g dt small{font-weight:400;color:var(--faint);font-size:13px;margin-left:6px}
+.g dd{margin:0;font-size:15px;color:var(--muted)}
+.g[hidden]{display:none}
+
+/* summary */
+.recap{max-width:820px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:24px 26px;margin:22px 0}
+.recap ol{margin:0;padding-left:22px}
+.recap li{margin-bottom:8px}
+.next{max-width:820px;border-radius:20px;padding:24px 26px;background:linear-gradient(135deg,color-mix(in srgb,var(--serving) 22%,var(--surface)),var(--surface));border:1px solid var(--line)}
+.next h3{margin:0 0 8px}
+.next p{margin:0;color:var(--muted)}
+footer{margin-top:60px;color:var(--faint);font-size:13.5px;max-width:820px}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series"><b>Knative 강의</b> 1편 / 10편</div>
+    <div class="progress" aria-hidden="true"><span id="prog"></span></div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" aria-label="목차">
+    <p>이번 편의 흐름</p>
+    <ol>
+      <li><a href="#s1">서버리스, 정확히 무엇인가</a></li>
+      <li><a href="#s2">함수형 vs 컨테이너형 서버리스</a></li>
+      <li><a href="#s3">쿠버네티스만으로 부족한 이유</a></li>
+      <li><a href="#s4">Knative 한 장 지도</a></li>
+      <li><a href="#s5">apply 한 번에 생기는 것들</a></li>
+      <li><a href="#s6">요청 하나의 여행</a></li>
+      <li><a href="#s7">Knative가 걸어온 길</a></li>
+      <li><a href="#s8">생태계 속 Knative</a></li>
+      <li><a href="#s9">첫 실습: 내 노트북에서</a></li>
+      <li><a href="#s10">어디에 쓰고, 어디엔 안 쓰나</a></li>
+      <li><a href="#s11">확인 퀴즈</a></li>
+      <li><a href="#s12">용어 사전</a></li>
+      <li><a href="#s13">정리와 다음 편</a></li>
+    </ol>
+  </nav>
+
+<main>
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <h1>왜 Knative인가</h1>
+    <p class="lede">요청이 오면 늘어나고, 아무도 안 쓰면 0개까지 줄어드는 애플리케이션. 쿠버네티스 위에서 이걸 가능하게 만드는 Knative의 큰 그림을 그려 봅니다.</p>
+    <div class="meta">
+      <span class="chip">기준 버전 Knative v1.23</span>
+      <span class="chip">대상: 1~2년차 클라우드·AI 엔지니어</span>
+      <span class="chip">예상 학습 시간 60~80분</span>
+    </div>
+
+    <div class="sim" id="sim">
+      <div class="sim-head">
+        <div>
+          <h2>먼저 직접 눌러 보세요</h2>
+          <p>Knative 서비스 하나가 요청에 따라 Pod 수를 바꾸는 모습입니다.</p>
+        </div>
+        <div class="sim-btns">
+          <button class="btn primary" id="sendOne" type="button">요청 1개 보내기</button>
+          <button class="btn" id="sendBurst" type="button">트래픽 몰아 보내기</button>
+          <button class="btn warn" id="simReset" type="button">초기화</button>
+        </div>
+      </div>
+      <div class="sim-stage">
+        <div class="activator dim" id="actBox">
+          <strong>Activator</strong>
+          <small>Pod가 0개이거나 모자랄 때 요청을 잠시 붙잡아 두는 대기실</small>
+          <div class="queue" id="queueDots" aria-label="대기 중 요청"></div>
+        </div>
+        <div class="pods" id="pods" aria-label="Pod 슬롯"></div>
+      </div>
+      <div class="sim-stats">
+        <div class="stat"><b id="stPods">0</b><span>실행 중인 Pod</span></div>
+        <div class="stat"><b id="stInflight">0</b><span>처리 중인 요청</span></div>
+        <div class="stat"><b id="stQueue">0</b><span>Activator 대기 요청</span></div>
+        <div class="stat"><b id="stDone">0</b><span>누적 처리 완료</span></div>
+      </div>
+      <div class="sim-status" role="status" aria-live="polite"><span class="dot" id="stDot"></span><span id="stText">Pod 0개. 요청이 없으니 사용하는 자원도 0입니다.</span></div>
+      <div class="idlebar" aria-hidden="true"><span id="idleBar"></span></div>
+      <p class="sim-note">시뮬레이션은 이해를 위해 시간을 압축했습니다. Pod 1개당 동시 요청 2개를 목표로 늘어나고, 요청이 끊긴 뒤 5초가 지나면 0개로 줄어듭니다. 실제 기본값에서는 요청이 끊긴 뒤 0개가 되기까지 대략 60~90초가 걸립니다.</p>
+    </div>
+  </header>
+
+  <!-- ================= 1 ================= -->
+  <section class="lesson" id="s1">
+    <div class="sec-no">1 / 13</div>
+    <h2 class="h">서버리스, 정확히 무엇인가</h2>
+    <div class="prose">
+      <p>위 시뮬레이터에서 본 동작이 바로 <strong>서버리스(Serverless)</strong>의 핵심입니다. 이름 때문에 "서버가 없다"로 오해하기 쉽지만, 서버는 분명히 있습니다. 정확한 뜻은 <strong>"서버를 내가 신경 쓰지 않는다"</strong>입니다. 몇 대를 띄울지, 언제 늘리고 줄일지, 아무도 안 쓸 때 꺼 둘지를 플랫폼이 대신 판단합니다.</p>
+      <p>서버리스라고 부를 수 있는 플랫폼에는 보통 네 가지 성질이 있습니다.</p>
+    </div>
+    <div class="traits">
+      <div class="trait"><h4><span class="sw" style="background:var(--serving)"></span>요청에 따라 자동 확장</h4><p>들어오는 요청량을 보고 인스턴스 수를 스스로 늘리고 줄입니다. 운영자가 "몇 대"를 정하지 않습니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--functions)"></span>0개까지 축소 (Scale to Zero)</h4><p>아무 요청이 없으면 인스턴스를 전부 내립니다. 쓰지 않는 시간에는 CPU·메모리를 전혀 차지하지 않습니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--eventing)"></span>이벤트 기반 실행</h4><p>HTTP 요청뿐 아니라 "파일이 올라왔다", "메시지가 도착했다" 같은 사건이 코드를 깨웁니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--violet)"></span>쓴 만큼만 비용</h4><p>퍼블릭 클라우드에서는 실제 실행 시간만큼 과금되고, 자체 클러스터에서는 남는 자원을 다른 워크로드가 씁니다.</p></div>
+    </div>
+
+    <h3>택시로 이해하는 서버리스</h3>
+    <div class="analogy">
+      <div>
+        <h4>자가용 = 항상 켜진 서버</h4>
+        <ul>
+          <li>안 타도 주차비와 보험료가 나갑니다 (24시간 켜진 VM·Pod).</li>
+          <li>사람이 몰리면 차가 한 대뿐이라 못 태웁니다 (수동 확장).</li>
+          <li>대신 문 열면 바로 출발합니다 (지연 없음).</li>
+        </ul>
+      </div>
+      <div>
+        <h4>택시 = 서버리스</h4>
+        <ul>
+          <li>탄 만큼만 냅니다 (요청이 있을 때만 실행).</li>
+          <li>사람이 몰리면 택시가 여러 대 옵니다 (자동 확장).</li>
+          <li>다만 부르고 나서 도착까지 기다려야 합니다. 이것이 <strong>콜드 스타트(Cold Start)</strong>입니다.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout hot">
+      <b class="t">기억할 트레이드오프</b>
+      <p>0개까지 줄이면 자원은 아끼지만, 다음 첫 요청은 Pod가 새로 뜰 때까지 기다립니다. 이 시리즈 3편에서 콜드 스타트를 줄이는 설정(최소 Pod 수 유지 등)을 자세히 다룹니다. 시뮬레이터에서 Pod가 0개일 때 요청을 보내 보면, 요청이 Activator에 잠시 머무는 모습으로 이 대기를 볼 수 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 2 ================= -->
+  <section class="lesson" id="s2">
+    <div class="sec-no">2 / 13</div>
+    <h2 class="h">함수형 서버리스 vs 컨테이너형 서버리스</h2>
+    <div class="prose">
+      <p>서버리스는 크게 두 갈래로 나뉩니다. 하나는 <strong>함수 단위</strong>로 코드를 올리는 <span class="term" title="Function as a Service">FaaS</span>, 다른 하나는 <strong>컨테이너 이미지</strong>를 그대로 올리는 방식입니다. Knative는 두 번째 갈래의 대표 주자이고, 그 위에 함수형 경험(Knative Functions)도 얹었습니다.</p>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:150px">비교 항목</th><th>함수형 (FaaS)</th><th class="colhead-k">컨테이너형 (Knative 계열)</th></tr></thead>
+        <tbody>
+          <tr><th>올리는 것</th><td>함수(코드 조각)와 설정</td><td>HTTP를 받는 컨테이너 이미지</td></tr>
+          <tr><th>언어·라이브러리</th><td>제공자가 지원하는 런타임 위주. 컨테이너 이미지를 지원하는 경우도 제공자의 실행 규약을 따라야 함</td><td>컨테이너에 담기면 무엇이든 가능. 포트 하나로 HTTP만 받으면 됨</td></tr>
+          <tr><th>실행 시간</th><td>상한이 뚜렷함 (예: AWS Lambda 최대 15분)</td><td>요청 단위 타임아웃. Knative 기본 300초이고 운영자가 상한 조정 가능</td></tr>
+          <tr><th>이식성</th><td>낮음. 제공자의 이벤트 형식과 API에 묶이기 쉬움</td><td>높음. 같은 이미지와 YAML을 어느 쿠버네티스에서도 사용</td></tr>
+          <tr><th>대표 예</th><td>AWS Lambda, Azure Functions, Google Cloud Run functions</td><td>Knative, Google Cloud Run, Azure Container Apps</td></tr>
+          <tr><th>잘 맞는 일</th><td>짧은 이벤트 처리, 클라우드 서비스 간 접착 코드</td><td>웹 API, 마이크로서비스, 모델 추론 서버, 기존 앱의 서버리스 전환</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <b class="t">핵심 차이 한 줄</b>
+      <p>FaaS는 "내 코드를 플랫폼 모양에 맞추는" 방식이고, 컨테이너형은 "이미 있는 컨테이너를 그대로 서버리스로 굴리는" 방식입니다. MSP 입장에서는 고객사가 이미 컨테이너로 만든 앱을 고치지 않고 서버리스 운영으로 옮길 수 있다는 점이 큽니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 3 ================= -->
+  <section class="lesson" id="s3">
+    <div class="sec-no">3 / 13</div>
+    <h2 class="h">쿠버네티스만으로는 왜 부족한가</h2>
+    <div class="prose">
+      <p>"쿠버네티스에도 HPA(Horizontal Pod Autoscaler)가 있는데 굳이 Knative가 필요할까?" 좋은 질문입니다. 같은 hello 앱을 외부에 공개하고 자동 확장까지 붙여 보면 차이가 드러납니다. 아래 두 탭을 번갈아 눌러 보세요.</p>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="YAML 비교">
+      <button class="tab" role="tab" aria-selected="true" aria-controls="tp-k8s" id="t-k8s" type="button">순수 쿠버네티스 (4개 리소스)</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="tp-kn" id="t-kn" type="button">Knative (1개 리소스)</button>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="tp-k8s" aria-labelledby="t-k8s">
+      <div class="codebox">
+        <div class="cap"><span>hello-k8s.yaml</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      containers:
+        - name: hello
+          image: ghcr.io/knative/helloworld-go:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TARGET
+              value: "World"
+          resources:
+            requests:
+              cpu: 100m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  selector:
+    app: hello
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+spec:
+  rules:
+    - host: hello.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port:
+                  number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hello
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hello
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70</code></pre>
+      </div>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="tp-kn" aria-labelledby="t-kn" hidden>
+      <div class="codebox">
+        <div class="cap"><span>hello-knative.yaml</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/max-scale: "10"
+    spec:
+      containers:
+        - image: ghcr.io/knative/helloworld-go:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TARGET
+              value: "World"</code></pre>
+      </div>
+    </div>
+    <div class="linecount"><span><b id="lcK8s">0</b>줄 (순수 쿠버네티스)</span><span><b id="lcKn">0</b>줄 (Knative)</span></div>
+    <p class="muted" style="max-width:720px">Knative 쪽 어노테이션 두 줄도 사실 생략할 수 있습니다. 0개 축소는 기본 동작이기 때문입니다. 줄 수보다 더 중요한 건 아래 표의 차이입니다.</p>
+
+    <h3>줄 수보다 중요한 것: 그래도 남는 숙제</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:220px">필요한 기능</th><th>순수 쿠버네티스 + HPA</th><th class="colhead-k">Knative Serving</th></tr></thead>
+        <tbody>
+          <tr><th>요청이 없을 때 0개로 축소</th><td class="no">기본은 불가. 최소 1개 유지 (알파 기능 게이트 HPAScaleToZero 필요)</td><td class="yes">기본 동작</td></tr>
+          <tr><th>0개일 때 들어온 요청 보존</th><td class="no">받아 줄 Pod가 없어 연결 실패</td><td class="yes">Activator가 붙잡았다가 전달</td></tr>
+          <tr><th>요청량(동시성) 기준 확장</th><td class="mid">CPU·메모리 기준이 기본. 요청 기준은 별도 메트릭 어댑터 필요</td><td class="yes">동시 요청 수 또는 RPS 기준이 기본</td></tr>
+          <tr><th>배포 이력 스냅샷</th><td class="mid">ReplicaSet 이력은 있지만 트래픽과 연결되지 않음</td><td class="yes">설정이 바뀔 때마다 불변 Revision 생성</td></tr>
+          <tr><th>비율 기반 트래픽 분할</th><td class="no">Istio 같은 서비스 메시를 따로 구성</td><td class="yes">YAML 한 줄로 90:10 분할</td></tr>
+          <tr><th>버전별 테스트 URL</th><td class="no">Service와 Ingress를 버전마다 추가</td><td class="yes">태그 하나로 전용 URL 자동 생성</td></tr>
+          <tr><th>외부 URL 자동 부여</th><td class="no">Ingress 호스트를 직접 작성</td><td class="yes">이름 규칙에 따라 자동 생성</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout mint">
+      <b class="t">정리하면</b>
+      <p>Knative는 쿠버네티스를 대체하지 않습니다. 쿠버네티스가 이미 가진 Deployment, Pod, Service를 그대로 쓰면서, 그 위에 "요청 중심으로 생각하는 층"을 하나 더 얹습니다. 실제로 Knative 서비스를 만들면 그 아래에서 평범한 Deployment가 생기는 것을 5장에서 직접 확인합니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 4 ================= -->
+  <section class="lesson" id="s4">
+    <div class="sec-no">4 / 13</div>
+    <h2 class="h">Knative 한 장 지도</h2>
+    <div class="prose">
+      <p>한 문장으로 정의하면, <strong>Knative는 쿠버네티스 위에 얹는 서버리스·이벤트 기반 애플리케이션 계층</strong>입니다. 쿠버네티스에 새로운 리소스 종류(<span class="term" title="Custom Resource Definition">CRD</span>)를 추가해 "Knative Service" 같은 새 단어를 가르치고, <strong>컨트롤러</strong>가 그 단어를 Deployment·Pod 같은 기존 리소스로 번역해 줍니다.</p>
+      <p>Knative는 세 덩어리로 나뉘며, 각각 따로 설치할 수 있습니다. 아래 상자를 눌러 보세요.</p>
+    </div>
+    <div class="kmap">
+      <div class="kmap-layers">
+        <div class="kmap-top">
+          <button class="kcomp" data-c="serving" aria-pressed="true" type="button"><h4>Serving</h4><p>HTTP 앱 배포, 0개 축소, Revision, 트래픽 분할</p></button>
+          <button class="kcomp" data-c="eventing" aria-pressed="false" type="button"><h4>Eventing</h4><p>이벤트를 받아 원하는 곳으로 배달하는 우편망</p></button>
+          <button class="kcomp" data-c="functions" aria-pressed="false" type="button"><h4>Functions</h4><p>코드만 쓰면 이미지 빌드와 배포까지 대신</p></button>
+        </div>
+        <div class="klayer"><b>네트워킹 레이어</b> (플러그인 선택): Kourier · Istio · Contour · Gateway API 구현체</div>
+        <div class="klayer k8s"><b>쿠버네티스</b>: Deployment, Pod, Service, CRD, 컨트롤러 메커니즘</div>
+      </div>
+      <div class="kdetail" id="kdetail" aria-live="polite"></div>
+    </div>
+    <div class="callout amber">
+      <b class="t">설치 조합은 자유</b>
+      <p>Serving만 설치해서 "자동 확장되는 웹 서비스 플랫폼"으로 쓰는 경우가 가장 많습니다. Eventing만 따로 설치해 이벤트 라우터로만 쓰는 팀도 있고, Functions는 Serving 위에서 쓰는 개발자 도구에 가깝습니다. v1.21부터는 Functions로 만든 함수를 Serving 없이 일반 Deployment로 배포하는 옵션도 생겼습니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 5 ================= -->
+  <section class="lesson" id="s5">
+    <div class="sec-no">5 / 13</div>
+    <h2 class="h">kubectl apply 한 번에 생기는 것들</h2>
+    <div class="prose">
+      <p>3장의 Knative YAML을 적용하면 클러스터 안에서 무슨 일이 벌어질까요? 사용자가 만든 리소스는 단 하나지만, Knative 컨트롤러가 그 아래에 여러 리소스를 자동으로 만들어 냅니다. 버튼을 눌러 순서대로 따라가 보세요.</p>
+    </div>
+    <div class="tree">
+      <div class="tree-ctrl">
+        <button class="btn primary" id="treePlay" type="button">kubectl apply 실행</button>
+        <button class="btn" id="treeUpdate" type="button" disabled>환경 변수 바꿔 다시 배포</button>
+        <button class="btn warn" id="treeReset" type="button">처음으로</button>
+      </div>
+      <ul class="tree-list" id="treeList"></ul>
+      <div class="legend">
+        <span><span class="kind svc">파란 테두리</span> 사용자가 직접 만든 것</span>
+        <span><span class="kind knative">보라</span> Knative 내부 리소스</span>
+        <span><span class="kind k8s">초록</span> 평범한 쿠버네티스 리소스</span>
+        <span><span class="kind net">주황</span> 네트워킹·외부 노출</span>
+      </div>
+    </div>
+    <div class="prose">
+      <p>여기서 꼭 가져갈 개념은 세 가지입니다.</p>
+      <p><strong>Configuration</strong>은 "지금 원하는 최신 설정"이고, <strong>Revision</strong>은 그 설정이 바뀔 때마다 찍히는 <strong>변경 불가능한 스냅샷</strong>입니다. 그리고 <strong>Route</strong>는 "어느 Revision에 트래픽을 몇 퍼센트 보낼지"를 정합니다. 설정과 트래픽이 분리되어 있기 때문에, 새 버전을 배포해 놓고 트래픽은 천천히 옮기는 일이 자연스러워집니다. 2편에서 이 네 가지 리소스를 하나씩 해부합니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 6 ================= -->
+  <section class="lesson" id="s6">
+    <div class="sec-no">6 / 13</div>
+    <h2 class="h">요청 하나의 여행</h2>
+    <div class="prose">
+      <p>사용자가 <code class="i">curl http://hello.default.example.com</code>을 보냈을 때 요청이 거치는 길입니다. 점선 상자는 항상 거치는 곳이 아니라 <strong>Pod가 0개이거나 모자랄 때만</strong> 끼어드는 곳입니다.</p>
+    </div>
+    <div class="path" role="img" aria-label="클라이언트에서 네트워킹 레이어, Activator(필요할 때만), queue-proxy, 사용자 컨테이너 순으로 이어지는 요청 경로">
+      <div class="hop"><b>클라이언트</b>브라우저, curl, 다른 서비스</div>
+      <div class="arrow">›</div>
+      <div class="hop"><b>네트워킹 레이어</b>Kourier 등이 호스트 이름을 보고 Revision을 고름</div>
+      <div class="arrow">›</div>
+      <div class="hop act"><b>Activator</b>Pod가 없으면 요청을 붙잡고 확장을 요청</div>
+      <div class="arrow">›</div>
+      <div class="hop qp"><b>queue-proxy</b>모든 Pod에 붙는 사이드카. 동시 요청 수를 세어 보고</div>
+      <div class="arrow">›</div>
+      <div class="hop uc"><b>user-container</b>여러분의 앱. HTTP만 받으면 됨</div>
+    </div>
+    <div class="prose">
+      <p>Knative Pod 안을 들여다보면 컨테이너가 두 개입니다. 하나는 여러분의 앱(<strong>user-container</strong>)이고, 다른 하나는 Knative가 자동으로 끼워 넣는 <strong>queue-proxy</strong>입니다. queue-proxy가 "지금 동시에 몇 개의 요청을 처리 중인가"를 재서 <strong>Autoscaler</strong>에게 알려 주고, Autoscaler는 이 숫자로 Pod 수를 결정합니다. 시뮬레이터에서 Pod 수가 바뀐 원리가 바로 이것입니다.</p>
+    </div>
+    <div class="callout">
+      <b class="t">지원하는 프로토콜</b>
+      <p>Knative Serving은 HTTP/1.1, HTTP/2, gRPC, WebSocket을 다룹니다. 반대로 HTTP가 아닌 원시 TCP·UDP 서비스(게임 서버, DB 프로토콜 등)는 대상이 아닙니다. 10장의 "안 맞는 경우"에서 다시 짚습니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 7 ================= -->
+  <section class="lesson" id="s7">
+    <div class="sec-no">7 / 13</div>
+    <h2 class="h">Knative가 걸어온 길</h2>
+    <div class="prose"><p>역사를 알면 "왜 이런 구조가 됐는지"와 "왜 벤더마다 버전이 다른지"가 이해됩니다.</p></div>
+    <ol class="timeline">
+      <li><span class="yr">2018</span><div><h4>Google 주도로 공개</h4><p>Pivotal, IBM, Red Hat, SAP 등이 함께 시작했습니다. 처음에는 Serving, Eventing, Build 세 덩어리였습니다.</p></div></li>
+      <li><span class="yr">2019</span><div><h4>Build가 독립해 Tekton으로</h4><p>이미지 빌드 기능이 CI/CD 파이프라인 프로젝트 Tekton으로 떨어져 나갔습니다. 지금도 Knative와 Tekton은 기반 패키지를 공유합니다. 같은 해 Google Cloud Run이 Knative API 규격으로 정식 출시됐습니다.</p></div></li>
+      <li><span class="yr">2020</span><div><h4>상용 배포판의 등장</h4><p>Red Hat OpenShift Serverless 등 벤더 제품이 Knative를 감싸 출시되기 시작합니다. 한편 Google 중심 거버넌스에 대한 커뮤니티의 우려도 커졌습니다.</p></div></li>
+      <li class="big"><span class="yr">2021</span><div><h4>v1.0 출시</h4><p>운영 환경에서 써도 된다는 신호인 1.0이 나왔습니다. 이후 분기마다 마이너 버전이 나오고, 각 버전은 약 6개월간 지원됩니다.</p></div></li>
+      <li><span class="yr">2022</span><div><h4>CNCF 인큐베이팅 프로젝트로 합류</h4><p>중립 재단으로 옮겨 가며 거버넌스 논란이 정리되고 기여 기업이 늘었습니다.</p></div></li>
+      <li class="big"><span class="yr">2025</span><div><h4>CNCF 졸업 (Graduated)</h4><p>10월, 쿠버네티스·Prometheus와 같은 최상위 성숙도 등급을 받았습니다. 비슷한 시기에 메트릭과 트레이싱이 OpenCensus에서 OpenTelemetry로 완전히 전환됐습니다.</p></div></li>
+      <li><span class="yr">2026</span><div><h4>보안 기본값 강화와 v1.23</h4><p>v1.22부터 Pod 보안 기본값(secure-pod-defaults)이 AllowRootBounded로 바뀌었고, 이 강의의 기준인 v1.23에서는 Eventing이 EndpointSlice로 옮겨 가는 등 최신 쿠버네티스 흐름에 맞춰지고 있습니다.</p></div></li>
+    </ol>
+    <div class="callout amber">
+      <b class="t">MSP 실무 포인트: 버전 시차</b>
+      <p>업스트림은 분기마다 새 버전을 내지만, 벤더 제품은 검증을 거쳐 몇 버전 뒤를 따라갑니다. 예를 들어 OpenShift Serverless 1.37은 Knative 1.17 기반입니다. 고객사 문서를 볼 때 "제품 버전"과 "내부 Knative 버전"을 따로 확인하는 습관이 필요합니다. 9편에서 플랫폼별로 비교합니다.</p>
+    </div>
+  </section>
+
+  <!-- ================= 8 ================= -->
+  <section class="lesson" id="s8">
+    <div class="sec-no">8 / 13</div>
+    <h2 class="h">생태계 속 Knative</h2>
+    <div class="prose"><p>Knative는 혼자 일하지 않습니다. 강의를 듣다 보면 계속 마주칠 이웃 프로젝트들과의 관계를 미리 정리해 둡니다.</p></div>
+    <div class="eco">
+      <div><span class="rel">Eventing의 공용어</span><h4>CloudEvents</h4><p>이벤트를 담는 표준 봉투 형식입니다. Knative Eventing의 모든 이벤트가 이 형식을 따르기 때문에, 어느 시스템에서 왔든 같은 방식으로 다룰 수 있습니다.</p></div>
+      <div><span class="rel">Functions의 빌드 엔진</span><h4>Cloud Native Buildpacks</h4><p>Dockerfile 없이 소스 코드만 보고 언어를 알아내 컨테이너 이미지를 만들어 줍니다.</p></div>
+      <div><span class="rel">한 뿌리에서 나온 형제</span><h4>Tekton</h4><p>옛 Knative Build에서 독립한 CI/CD 파이프라인 도구입니다. Functions의 클러스터 내부 빌드에도 쓰입니다.</p></div>
+      <div><span class="rel">Knative 위에 지은 집</span><h4>KServe</h4><p>AI 모델 서빙 플랫폼입니다. 서버리스 배포 모드에서 Knative를 써서 추론 서버를 0개까지 줄이고 버전별 카나리 배포를 합니다.</p></div>
+      <div><span class="rel">교체 가능한 부품</span><h4>Kourier · Istio · Contour · Gateway API</h4><p>Knative가 트래픽을 실제로 나르는 데 쓰는 네트워킹 레이어입니다. 가벼운 걸 원하면 Kourier, 이미 서비스 메시가 있으면 Istio를 고르는 식입니다.</p></div>
+      <div><span class="rel">비교 대상이자 보완재</span><h4>KEDA</h4><p>큐 길이 같은 외부 지표로 기존 Deployment를 0개까지 줄이는 도구입니다. Knative는 HTTP 요청 중심, KEDA는 메시지·배치 중심이라고 기억하면 됩니다. 6편에서 비교합니다.</p></div>
+    </div>
+  </section>
+
+  <!-- ================= 9 ================= -->
+  <section class="lesson" id="s9">
+    <div class="sec-no">9 / 13</div>
+    <h2 class="h">첫 실습: 내 노트북에서 0개 축소 보기</h2>
+    <div class="prose">
+      <p>Knative 공식 퀵스타트 플러그인을 쓰면 로컬 kind 클러스터에 Knative Serving·Eventing과 Kourier가 한 번에 설치됩니다. 학습용 환경이니 마음껏 부수고 다시 만드세요.</p>
+    </div>
+    <div class="callout hot">
+      <b class="t">준비물</b>
+      <p>Docker(또는 호환 런타임), kind, kubectl이 필요합니다. Docker에 CPU 3개, 메모리 3GB 이상을 할당해 두는 것을 권장합니다. 회사 노트북이라면 프록시나 보안 정책 때문에 이미지 다운로드가 막히는 경우가 있으니 미리 확인하세요.</p>
+    </div>
+    <ol class="steps">
+      <li>
+        <h4>kn CLI와 퀵스타트 플러그인 설치</h4>
+        <p>macOS·Linux에서 Homebrew를 쓰는 경우입니다. 다른 환경은 GitHub 릴리스 페이지에서 바이너리를 받으면 됩니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">brew install knative/client/kn
+brew install knative-extensions/kn-plugins/quickstart
+
+# 설치 확인
+kn version
+kn quickstart --help</code></pre></div>
+      </li>
+      <li>
+        <h4>kind 클러스터에 Knative 설치</h4>
+        <p>명령 하나로 클러스터 생성부터 Serving, Kourier, Eventing 설치까지 끝납니다. 몇 분 걸립니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn quickstart kind
+
+# 무엇이 설치됐는지 확인
+kubectl get pods -n knative-serving
+kubectl get pods -n kourier-system
+kubectl get pods -n knative-eventing</code></pre></div>
+      </li>
+      <li>
+        <h4>첫 Knative 서비스 배포</h4>
+        <p>3장에서 본 YAML과 똑같은 일을 kn 명령 한 줄로 합니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn service create hello \
+  --image ghcr.io/knative/helloworld-go:latest \
+  --port 8080 \
+  --env TARGET=World
+
+# 출력된 URL로 호출
+curl http://hello.default.127.0.0.1.sslip.io
+# Hello World!</code></pre></div>
+        <p class="muted">퀵스타트는 <code class="i">sslip.io</code>라는 와일드카드 DNS를 써서, 별도 DNS 설정 없이 로컬 주소로 접속하게 해 줍니다.</p>
+      </li>
+      <li>
+        <h4>0개로 줄어드는 순간 지켜보기</h4>
+        <p>터미널을 하나 더 열어 Pod를 실시간으로 관찰합니다. 호출을 멈추고 1~2분 기다리면 Pod가 Terminating을 거쳐 사라집니다. 그 상태에서 다시 curl을 보내면 응답이 살짝 늦게 오는데, 이것이 콜드 스타트입니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kubectl get pod -l serving.knative.dev/service=hello -w
+
+# Pod 안의 컨테이너 2개 확인 (user-container, queue-proxy)
+kubectl get pod -l serving.knative.dev/service=hello \
+  -o jsonpath='{.items[0].spec.containers[*].name}'</code></pre></div>
+      </li>
+      <li>
+        <h4>설정을 바꿔 새 Revision 만들기</h4>
+        <p>환경 변수 하나만 바꿔도 새 Revision이 생깁니다. 5장의 "다시 배포" 버튼과 같은 일입니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn service update hello --env TARGET=Knative
+kn revisions list
+
+# 맛보기: 두 Revision에 트래픽 반반 (4편에서 자세히)
+kn service update hello \
+  --traffic hello-00001=50 \
+  --traffic @latest=50
+
+for i in $(seq 1 6); do curl -s http://hello.default.127.0.0.1.sslip.io; done</code></pre></div>
+      </li>
+      <li>
+        <h4>Knative가 만든 리소스 직접 보기</h4>
+        <p>5장의 트리를 실제 클러스터에서 확인합니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kubectl get ksvc,configuration,revision,route
+kubectl get deployment,podautoscaler
+kubectl get ingresses.networking.internal.knative.dev</code></pre></div>
+      </li>
+      <li>
+        <h4>정리</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn service delete hello
+kind delete cluster --name knative</code></pre></div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ================= 10 ================= -->
+  <section class="lesson" id="s10">
+    <div class="sec-no">10 / 13</div>
+    <h2 class="h">어디에 쓰고, 어디엔 안 쓰나</h2>
+    <div class="prose"><p>8편에서 깊이 다룰 응용 분야를 미리 훑어봅니다. 공통점은 "트래픽이 들쭉날쭉하거나, 버전을 자주 바꾸거나, 이벤트에 반응해야 한다"는 것입니다.</p></div>
+    <div class="uses">
+      <div class="use" style="--c:var(--violet)"><h4>AI 모델 추론</h4><p>KServe와 함께 써서 호출이 드문 모델은 0개로 내려 GPU를 아끼고, 새 모델은 일부 트래픽으로 먼저 검증합니다.</p><span class="ep">8편</span></div>
+      <div class="use" style="--c:var(--serving)"><h4>API·웹훅 백엔드</h4><p>GitHub 웹훅, 결제 콜백처럼 가끔 오는 요청을 받는 엔드포인트. 하루 대부분은 0개로 쉬게 둡니다.</p><span class="ep">4편, 8편</span></div>
+      <div class="use" style="--c:var(--eventing)"><h4>이벤트 처리 파이프라인</h4><p>파일 업로드, Kafka 메시지, 쿠버네티스 이벤트에 반응하는 작은 서비스들을 Broker와 Trigger로 엮습니다.</p><span class="ep">5~6편</span></div>
+      <div class="use" style="--c:var(--functions)"><h4>개발·프리뷰 환경</h4><p>브랜치마다 서비스를 띄워도 안 쓰는 동안 0개라서 클러스터 비용이 크게 늘지 않습니다.</p><span class="ep">8편</span></div>
+      <div class="use" style="--c:var(--hot)"><h4>AIOps 알람 처리</h4><p>모니터링 알람을 이벤트로 받아 조사·요약 서비스를 깨우는 구조. 장애가 없을 때는 자원을 쓰지 않습니다.</p><span class="ep">8편</span></div>
+      <div class="use" style="--c:var(--serving)"><h4>사내 도구와 관리 페이지</h4><p>하루 몇 번 쓰는 내부 대시보드, 배치 트리거 API 등을 상시 Pod 없이 운영합니다.</p><span class="ep">8편</span></div>
+    </div>
+
+    <h3>이럴 땐 다른 도구가 낫습니다</h3>
+    <div class="nofit">
+      <details><summary>항상 높은 트래픽이 꾸준히 들어오는 서비스</summary><div class="body">0개로 줄어들 일이 없으니 <b>서버리스의 비용 이점이 사라집니다</b>. 다만 Revision과 트래픽 분할이 필요해서 Knative를 쓰는 팀도 있습니다. 이 경우 최소 Pod 수(min-scale)를 높게 잡고 씁니다.</div></details>
+      <details><summary>상태를 직접 저장하는 서비스 (DB, 캐시, 메시지 브로커)</summary><div class="body">Knative Pod는 언제든 사라지고 다시 생길 수 있다고 가정합니다. <b>상태 저장 워크로드는 StatefulSet이나 오퍼레이터</b>로 운영하고, Knative 서비스는 그 앞에서 상태 없이 동작하게 설계하세요.</div></details>
+      <details><summary>수십 분 이상 도는 배치 작업</summary><div class="body">요청 하나를 오래 붙잡는 구조는 타임아웃과 맞지 않습니다. <b>쿠버네티스 Job, Argo Workflows, KEDA ScaledJob</b>이 더 자연스럽습니다.</div></details>
+      <details><summary>콜드 스타트를 절대 허용할 수 없는 서비스</summary><div class="body">첫 요청 지연이 SLA 위반이 되는 결제 승인 같은 경우입니다. <b>min-scale로 최소 1개 이상을 유지</b>하거나 일반 Deployment를 고려합니다. 특히 수십 GB 모델을 올리는 LLM 추론은 콜드 스타트가 분 단위가 될 수 있어 신중해야 합니다.</div></details>
+      <details><summary>HTTP가 아닌 프로토콜 (원시 TCP·UDP)</summary><div class="body">게임 서버, SIP, 데이터베이스 와이어 프로토콜 등은 Knative Serving의 대상이 아닙니다. <b>일반 Deployment와 LoadBalancer 서비스</b>를 쓰세요.</div></details>
+    </div>
+  </section>
+
+  <!-- ================= 11 ================= -->
+  <section class="lesson" id="s11">
+    <div class="sec-no">11 / 13</div>
+    <h2 class="h">확인 퀴즈</h2>
+    <p class="score" id="score">맞힌 문제 <b>0</b> / 6</p>
+    <div class="quiz" id="quiz"></div>
+  </section>
+
+  <!-- ================= 12 ================= -->
+  <section class="lesson" id="s12">
+    <div class="sec-no">12 / 13</div>
+    <h2 class="h">용어 사전</h2>
+    <input class="gsearch" id="gsearch" type="search" placeholder="용어 검색 (예: Revision, 콜드)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- ================= 13 ================= -->
+  <section class="lesson" id="s13">
+    <div class="sec-no">13 / 13</div>
+    <h2 class="h">정리와 다음 편</h2>
+    <div class="recap">
+      <ol>
+        <li>서버리스는 "서버가 없다"가 아니라 <strong>"서버 수와 수명을 플랫폼이 관리한다"</strong>는 뜻입니다.</li>
+        <li>Knative는 <strong>컨테이너형 서버리스</strong>입니다. 컨테이너에 담긴 HTTP 앱이면 언어와 상관없이 올라갑니다.</li>
+        <li>순수 쿠버네티스에 없는 <strong>0개 축소, 요청 보존, 요청 기반 확장, Revision, 트래픽 분할</strong>을 한 리소스로 제공합니다.</li>
+        <li>구성요소는 <strong>Serving, Eventing, Functions</strong> 셋이며, 아래에 교체 가능한 네트워킹 레이어가 있습니다.</li>
+        <li>Knative Service 하나가 <strong>Configuration, Revision, Route</strong>와 그 아래 평범한 Deployment·Pod를 만들어 냅니다.</li>
+        <li>요청은 네트워킹 레이어, (필요할 때) Activator, queue-proxy를 거쳐 앱에 도착합니다.</li>
+        <li>2025년 CNCF를 졸업한 성숙한 프로젝트이며, 벤더 제품은 업스트림보다 몇 버전 뒤를 따라간다는 점을 기억하세요.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편: Serving 해부</h3>
+      <p>Service, Configuration, Revision, Route 네 가지 CRD의 관계를 YAML 수준에서 뜯어보고, controller·webhook·autoscaler·activator가 각각 무슨 일을 하는지, 네트워킹 레이어 네 가지를 어떻게 고르는지, DomainMapping으로 내 도메인을 붙이는 법까지 다룹니다.</p>
+    </div>
+    <footer>Knative 강의 시리즈 1편. 내용은 Knative v1.23(2026년 기준)을 바탕으로 작성했습니다. 버전에 따라 기본값과 리소스 이름이 다를 수 있으니 실무에서는 공식 문서(knative.dev)를 함께 확인하세요.</footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+  /* ---------- theme ---------- */
+  const root=document.documentElement, tb=document.getElementById('themeBtn');
+  function setTheme(t){root.setAttribute('data-theme',t);tb.textContent=t==='dark'?'라이트 테마':'다크 테마';try{localStorage.setItem('kn-theme',t)}catch(e){}}
+  let saved=null;try{saved=localStorage.getItem('kn-theme')}catch(e){}
+  setTheme(saved==='light'?'light':'dark');
+  tb.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+
+  /* ---------- progress + toc ---------- */
+  const prog=document.getElementById('prog');
+  const links=[...document.querySelectorAll('.toc a')];
+  const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  function onScroll(){
+    const h=document.documentElement.scrollHeight-innerHeight;
+    prog.style.width=(h>0?scrollY/h*100:0)+'%';
+    let cur=0;secs.forEach((s,i)=>{if(s.getBoundingClientRect().top<160)cur=i});
+    links.forEach((a,i)=>a.classList.toggle('on',i===cur&&scrollY>200));
+  }
+  addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+  /* ---------- code highlight + copy ---------- */
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  document.querySelectorAll('code[data-lang]').forEach(c=>{
+    const lang=c.dataset.lang, raw=c.textContent; c.dataset.raw=raw;
+    c.innerHTML=raw.split('\n').map(line=>{
+      let l=esc(line);
+      if(lang==='yaml'){
+        l=l.replace(/"([^"]*)"/g,'<span class="s">"$1"</span>')
+           .replace(/^(\s*-?\s*)([A-Za-z0-9_.\/-]+)(:)/,'$1<span class="k">$2</span>$3');
+      }else{
+        if(/^\s*#/.test(line)) return '<span class="c">'+l+'</span>';
+        l=l.replace(/^(\s*)(kn|kubectl|brew|curl|kind|for)\b/,'$1<span class="k">$2</span>')
+           .replace(/(--[a-z-]+)/g,'<span class="p">$1</span>');
+      }
+      return l;
+    }).join('\n');
+  });
+  document.querySelectorAll('.copy').forEach(b=>b.addEventListener('click',()=>{
+    const code=b.closest('.codebox').querySelector('code');
+    const txt=code.dataset.raw||code.textContent;
+    const done=()=>{b.textContent='복사됨';setTimeout(()=>b.textContent='복사',1400)};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done,()=>fallback(txt,done))}else fallback(txt,done);
+  }));
+  function fallback(t,cb){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}ta.remove();cb()}
+
+  /* ---------- line counts + tabs ---------- */
+  const lc=id=>document.querySelector('#'+id+' code').dataset.raw.trim().split('\n').length;
+  document.getElementById('lcK8s').textContent=lc('tp-k8s');
+  document.getElementById('lcKn').textContent=lc('tp-kn');
+  const tabs=[...document.querySelectorAll('.tab')];
+  tabs.forEach(t=>t.addEventListener('click',()=>{
+    tabs.forEach(x=>{const on=x===t;x.setAttribute('aria-selected',on);document.getElementById(x.getAttribute('aria-controls')).hidden=!on});
+  }));
+
+  /* ---------- simulator ---------- */
+  const MAX=8, CAP=2, START_MS=1700, REQ_MS=1500, IDLE_MS=5000, STOP_MS=600;
+  const podsEl=document.getElementById('pods'), qEl=document.getElementById('queueDots'), act=document.getElementById('actBox');
+  const slots=[];for(let i=0;i<MAX;i++){const d=document.createElement('div');d.className='pod';podsEl.appendChild(d);slots.push(d)}
+  let S;function reset(){S={pods:[],queue:0,reqs:[],done:0,idle:0,down:0,seq:0,burst:0}}reset();
+  function add(n){S.queue+=n;S.idle=0}
+  document.getElementById('sendOne').onclick=()=>add(1);
+  document.getElementById('sendBurst').onclick=()=>{S.burst+=14};
+  document.getElementById('simReset').onclick=reset;
+  let last=performance.now(), acc=0;
+  function tick(now){
+    const dt=Math.min(100,now-last);last=now;
+    acc+=dt; if(S.burst>0&&acc>120){acc=0;add(1);S.burst--}
+    S.pods.forEach(p=>{p.t-=dt;if(p.state==='starting'&&p.t<=0)p.state='ready';if(p.state==='stopping'&&p.t<=0)p.dead=true});
+    S.pods=S.pods.filter(p=>!p.dead);
+    const ready=S.pods.filter(p=>p.state==='ready');
+    let capLeft=ready.length*CAP-S.reqs.length;
+    while(S.queue>0&&capLeft>0){S.reqs.push(REQ_MS);S.queue--;capLeft--}
+    S.reqs=S.reqs.map(r=>r-dt);const fin=S.reqs.filter(r=>r<=0).length;S.done+=fin;S.reqs=S.reqs.filter(r=>r>0);
+    const demand=S.reqs.length+S.queue, desired=Math.min(MAX,Math.ceil(demand/CAP));
+    const active=S.pods.filter(p=>p.state!=='stopping');
+    if(desired>active.length){for(let i=active.length;i<desired;i++)S.pods.push({id:++S.seq,state:'starting',t:START_MS})}
+    if(demand===0&&active.length>0){S.idle+=dt;if(S.idle>=IDLE_MS){active.forEach(p=>{p.state='stopping';p.t=STOP_MS});S.idle=0}}
+    else{S.idle=0;
+      if(desired<active.length){S.down+=dt;if(S.down>1800){const r=active.filter(p=>p.state==='ready').pop();if(r){r.state='stopping';r.t=STOP_MS}S.down=0}}else S.down=0}
+    render();requestAnimationFrame(tick);
+  }
+  function render(){
+    const ready=S.pods.filter(p=>p.state==='ready');let busyLeft=S.reqs.length;
+    slots.forEach((el,i)=>{const p=S.pods[i];
+      if(!p){el.className='pod';el.textContent='';return}
+      let cls='pod '+p.state;
+      if(p.state==='ready'){const b=Math.min(CAP,busyLeft);busyLeft-=b;if(b>0)cls+=' busy';el.textContent=b>0?b+'/'+CAP:'대기'}
+      else el.textContent=p.state==='starting'?'기동':'종료';
+      el.className=cls;
+    });
+    const running=S.pods.filter(p=>p.state!=='stopping').length;
+    document.getElementById('stPods').textContent=running;
+    document.getElementById('stInflight').textContent=S.reqs.length;
+    document.getElementById('stQueue').textContent=S.queue;
+    document.getElementById('stDone').textContent=S.done;
+    qEl.innerHTML='<i></i>'.repeat(Math.min(S.queue,40));
+    act.classList.toggle('dim',S.queue===0);
+    const dot=document.getElementById('stDot'), txt=document.getElementById('stText');
+    let msg,col;
+    if(running===0&&S.queue===0&&S.pods.length===0){msg='Pod 0개. 요청이 없으니 사용하는 자원도 0입니다.';col='var(--faint)'}
+    else if(S.queue>0&&ready.length===0){msg='콜드 스타트 중. Activator가 요청 '+S.queue+'개를 붙잡고 Pod가 뜨기를 기다립니다.';col='var(--eventing)'}
+    else if(S.queue>0){msg='Pod를 늘리는 중. 남은 요청 '+S.queue+'개는 Activator에서 잠시 대기합니다.';col='var(--violet)'}
+    else if(S.reqs.length>0){msg='요청 '+S.reqs.length+'개 처리 중. 동시 요청 수에 맞춰 Pod '+running+'개가 일합니다.';col='var(--functions)'}
+    else if(running>0){msg='유휴 상태. '+((IDLE_MS-S.idle)/1000).toFixed(1)+'초 뒤 0개로 줄어듭니다.';col='var(--hot)'}
+    else {msg='Pod를 정리하는 중입니다.';col='var(--hot)'}
+    txt.textContent=msg;dot.style.background=col;
+    document.getElementById('idleBar').style.width=(running>0&&S.reqs.length===0&&S.queue===0?S.idle/IDLE_MS*100:0)+'%';
+  }
+  requestAnimationFrame(tick);
+
+  /* ---------- component map ---------- */
+  const COMP={
+    serving:{t:'Serving',c:'var(--serving)',does:'HTTP 요청을 받는 컨테이너를 배포하고, 요청량에 따라 0개부터 N개까지 자동으로 늘리고 줄입니다. 설정이 바뀔 때마다 Revision을 남기고 트래픽을 비율로 나눕니다.',res:'Service, Configuration, Revision, Route, DomainMapping',parts:'controller, webhook, autoscaler, activator, 그리고 각 Pod의 queue-proxy',ep:'2편(해부), 3편(오토스케일링), 4편(트래픽·보안)'},
+    eventing:{t:'Eventing',c:'var(--eventing)',does:'이벤트를 만드는 쪽과 받는 쪽을 느슨하게 연결합니다. 이벤트를 Broker라는 우체국에 모아 두고, Trigger라는 조건으로 필요한 서비스에 배달합니다. 모든 이벤트는 CloudEvents 형식입니다.',res:'Broker, Trigger, Source(PingSource, ApiServerSource, KafkaSource 등), Channel, Subscription, Sequence, Parallel',parts:'eventing-controller, 브로커 구현체(인메모리, Kafka, RabbitMQ 등)',ep:'5편(구조), 6편(구현체와 패턴)'},
+    functions:{t:'Functions',c:'var(--functions)',does:'Dockerfile이나 YAML 없이 함수 코드만 작성하면 이미지를 빌드하고 Knative 서비스로 배포해 줍니다. 개발자 경험을 FaaS처럼 만들어 주는 도구입니다.',res:'func.yaml(함수 설정 파일), 결과물은 Knative Service 또는 일반 Deployment',parts:'func CLI, 언어 템플릿(Go, Node.js, Python, Quarkus, Rust, Spring Boot, TypeScript), Buildpacks·S2I 빌더, Tekton 기반 클러스터 내부 빌드',ep:'7편'}
+  };
+  const det=document.getElementById('kdetail');
+  function showComp(k){const d=COMP[k];
+    det.innerHTML='<h4 style="color:'+d.c+'">'+d.t+'</h4><dl><dt>하는 일</dt><dd>'+d.does+'</dd><dt>주요 리소스</dt><dd>'+d.res+'</dd><dt>구성 요소</dt><dd>'+d.parts+'</dd><dt>다루는 편</dt><dd>'+d.ep+'</dd></dl>';
+    document.querySelectorAll('.kcomp').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===k));
+  }
+  document.querySelectorAll('.kcomp').forEach(b=>b.addEventListener('click',()=>showComp(b.dataset.c)));
+  showComp('serving');
+
+  /* ---------- resource tree ---------- */
+  const TREE=[
+    {d:0,k:'svc',kind:'Service (ksvc)',n:'hello',w:'사용자가 직접 만든 유일한 리소스. 나머지는 모두 Knative가 이 한 장을 보고 만들어 냅니다.'},
+    {d:1,k:'knative',kind:'Configuration',n:'hello',w:'"지금 원하는 최신 설정"을 보관합니다. 이미지, 환경 변수, 리소스 요청 같은 템플릿입니다.'},
+    {d:2,k:'knative',kind:'Revision',n:'hello-00001',w:'그 시점 설정의 불변 스냅샷. 한 번 만들어지면 내용이 바뀌지 않습니다.',rev:1},
+    {d:3,k:'k8s',kind:'Deployment',n:'hello-00001-deployment',w:'평범한 쿠버네티스 Deployment. Revision 하나당 하나씩 생깁니다.',rev:1},
+    {d:3,k:'k8s',kind:'Pod',n:'hello-00001-deployment-xxxx',w:'컨테이너 2개: 여러분의 앱(user-container)과 Knative가 끼워 넣은 queue-proxy.',rev:1},
+    {d:3,k:'knative',kind:'PodAutoscaler',n:'hello-00001',w:'이 Revision의 Pod 수를 정하는 자동 확장 설정(KPA). 0개 축소도 여기서 결정됩니다.',rev:1},
+    {d:1,k:'knative',kind:'Route',n:'hello',w:'어느 Revision에 트래픽을 몇 퍼센트 보낼지 정합니다. 처음에는 최신 Revision 100%.'},
+    {d:2,k:'net',kind:'Ingress (Knative 내부)',n:'hello',w:'네트워킹 레이어(Kourier 등)가 알아듣도록 번역된 라우팅 규칙.'},
+    {d:2,k:'net',kind:'URL',n:'http://hello.default.127.0.0.1.sslip.io',w:'서비스이름.네임스페이스.도메인 규칙으로 자동 부여된 주소.'}
+  ];
+  const tl=document.getElementById('treeList'), playB=document.getElementById('treePlay'), updB=document.getElementById('treeUpdate');
+  let timers=[];
+  function li(n,extraCls){const e=document.createElement('li');e.dataset.d=n.d;if(extraCls)e.className=extraCls;
+    e.innerHTML='<span class="kind '+n.k+'">'+n.kind+'</span><span><span class="nm">'+n.n+'</span><span class="why">'+n.w+'</span></span>';return e}
+  function buildTree(){timers.forEach(clearTimeout);timers=[];tl.innerHTML='';TREE.forEach(n=>tl.appendChild(li(n)));playB.disabled=false;updB.disabled=true}
+  buildTree();
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  playB.onclick=()=>{playB.disabled=true;[...tl.children].forEach((e,i)=>timers.push(setTimeout(()=>{e.classList.add('show','flash');setTimeout(()=>e.classList.remove('flash'),700);if(i===tl.children.length-1)updB.disabled=false},reduce?0:i*550)))};
+  updB.onclick=()=>{updB.disabled=true;
+    const routeLi=[...tl.children].find(e=>e.textContent.includes('Route'));
+    const add=[
+      {d:2,k:'knative',kind:'Revision',n:'hello-00002',w:'TARGET=Knative로 바꾸자 새 스냅샷이 생겼습니다. 00001은 그대로 남아 언제든 되돌릴 수 있습니다.'},
+      {d:3,k:'k8s',kind:'Deployment',n:'hello-00002-deployment',w:'새 Revision을 위한 새 Deployment. 옛 Deployment는 트래픽이 없으니 Pod 0개로 줄어듭니다.'}
+    ];
+    add.reverse().forEach((n,i)=>{const e=li(n,'show flash');tl.insertBefore(e,routeLi);setTimeout(()=>e.classList.remove('flash'),900)});
+    const rw=routeLi.querySelector('.why');rw.textContent='Route가 최신 Revision을 따라가도록 설정되어 있어 트래픽 100%가 hello-00002로 넘어갔습니다.';
+    routeLi.classList.add('flash');setTimeout(()=>routeLi.classList.remove('flash'),900);
+  };
+  document.getElementById('treeReset').onclick=buildTree;
+
+  /* ---------- quiz ---------- */
+  const QZ=[
+    {q:'"서버리스(Serverless)"라는 말의 가장 정확한 뜻은?',o:['물리 서버가 전혀 없는 실행 환경','서버의 개수와 수명을 플랫폼이 대신 관리하는 실행 모델','쿠버네티스를 쓰지 않는 배포 방식','함수 코드만 실행할 수 있는 환경'],a:1,e:'서버는 존재합니다. 몇 개를 띄우고 언제 줄일지를 사용자가 아닌 플랫폼이 판단한다는 뜻입니다.'},
+    {q:'Knative Service의 이미지나 환경 변수를 바꾸면 무엇이 새로 생기나요?',o:['새 Route','새 Service','새 Revision','새 네임스페이스'],a:2,e:'설정이 바뀔 때마다 불변 스냅샷인 Revision이 새로 생깁니다. 예전 Revision은 남아 있어 롤백과 트래픽 분할에 쓸 수 있습니다.'},
+    {q:'Pod가 0개일 때 들어온 요청을 잃지 않도록 잠시 붙잡아 두는 구성 요소는?',o:['queue-proxy','Activator','webhook','kube-proxy'],a:1,e:'Activator가 요청을 버퍼링하면서 Autoscaler에 확장을 알리고, Pod가 준비되면 요청을 넘겨줍니다.'},
+    {q:'모든 Knative Pod에 자동으로 붙어 동시 요청 수를 측정하는 사이드카는?',o:['queue-proxy','istio-proxy','Activator','Kourier'],a:0,e:'queue-proxy가 측정한 동시 요청 수가 Autoscaler의 판단 근거가 됩니다.'},
+    {q:'초기 Knative의 Build 컴포넌트는 어떤 프로젝트로 독립했나요?',o:['Argo CD','Tekton','Buildpacks','KEDA'],a:1,e:'Knative Build는 2019년 Tekton으로 독립했고, 지금도 두 프로젝트는 기반 패키지를 공유합니다.'},
+    {q:'다음 중 Knative Serving으로 운영하기에 가장 적합하지 않은 것은?',o:['하루 몇 번 호출되는 웹훅 수신 API','트래픽이 들쭉날쭉한 모델 추론 서버','원시 TCP로 통신하는 멀티플레이 게임 서버','브랜치별 프리뷰 웹 앱'],a:2,e:'Knative Serving은 HTTP/1.1, HTTP/2, gRPC, WebSocket을 다룹니다. 원시 TCP·UDP 서비스는 일반 Deployment와 LoadBalancer가 맞습니다.'}
+  ];
+  const qz=document.getElementById('quiz'), sc=document.querySelector('#score b');let right=0;
+  QZ.forEach((it,qi)=>{
+    const box=document.createElement('div');box.className='q';
+    box.innerHTML='<h4>'+(qi+1)+'. '+it.q+'</h4><div class="opts"></div><div class="fb"></div>';
+    const opts=box.querySelector('.opts'), fb=box.querySelector('.fb');
+    it.o.forEach((o,oi)=>{const b=document.createElement('button');b.type='button';b.textContent=o;
+      b.onclick=()=>{opts.querySelectorAll('button').forEach((x,xi)=>{x.disabled=true;if(xi===it.a)x.classList.add('right')});
+        if(oi===it.a){right++;sc.textContent=right;fb.innerHTML='<b>정답입니다.</b> '+it.e}else{b.classList.add('wrong');fb.innerHTML='<b>아쉽네요.</b> '+it.e}
+        fb.classList.add('show')};
+      opts.appendChild(b)});
+    qz.appendChild(box);
+  });
+
+  /* ---------- glossary ---------- */
+  const GL=[
+    ['서버리스','Serverless','서버의 개수와 수명을 플랫폼이 관리하고, 사용자는 코드나 컨테이너만 신경 쓰는 실행 모델.'],
+    ['FaaS','Function as a Service','함수 단위로 코드를 올려 실행하는 서버리스 형태. AWS Lambda가 대표적.'],
+    ['0개 축소','Scale to Zero','요청이 없을 때 인스턴스를 모두 내려 자원을 쓰지 않는 동작.'],
+    ['콜드 스타트','Cold Start','인스턴스가 0개인 상태에서 첫 요청이 올 때, 새로 기동하느라 생기는 지연.'],
+    ['CRD','Custom Resource Definition','쿠버네티스에 새 리소스 종류를 추가하는 방법. Knative의 Service, Revision 등이 모두 CRD.'],
+    ['컨트롤러','Controller','리소스의 "원하는 상태"를 보고 실제 상태를 맞춰 가는 프로그램.'],
+    ['Knative Service','ksvc','Knative Serving의 최상위 리소스. 이 하나로 Configuration과 Route가 자동 생성됨. 쿠버네티스 Service와는 다른 것.'],
+    ['Configuration','','워크로드의 최신 원하는 설정(템플릿). 바뀔 때마다 Revision을 만든다.'],
+    ['Revision','','특정 시점 설정의 불변 스냅샷. 롤백과 트래픽 분할의 단위.'],
+    ['Route','','어떤 Revision에 트래픽을 몇 퍼센트 보낼지 정하는 리소스.'],
+    ['Activator','','Pod가 0개이거나 부족할 때 요청을 붙잡아 두었다가 전달하는 Knative 구성 요소.'],
+    ['queue-proxy','','모든 Knative Pod에 자동 주입되는 사이드카. 동시 요청 수를 측정하고 요청을 줄 세운다.'],
+    ['Autoscaler','KPA','queue-proxy가 보낸 지표로 Pod 수를 결정하는 Knative 구성 요소. Knative Pod Autoscaler.'],
+    ['HPA','Horizontal Pod Autoscaler','쿠버네티스 기본 자동 확장기. 주로 CPU·메모리 기준이며 기본적으로 1개 미만으로 줄이지 않는다.'],
+    ['동시성','Concurrency','한 Pod가 같은 순간에 처리 중인 요청 수. Knative 확장의 기본 기준.'],
+    ['트래픽 분할','Traffic Splitting','여러 Revision에 요청을 비율로 나눠 보내는 것. 카나리 배포의 기반.'],
+    ['네트워킹 레이어','Networking Layer','Knative가 트래픽을 실제로 나르는 데 쓰는 교체 가능한 부품. Kourier, Istio, Contour, Gateway API.'],
+    ['Kourier','','Knative 전용으로 만든 가벼운 Envoy 기반 인그레스. 퀵스타트 기본값.'],
+    ['CloudEvents','','이벤트 데이터를 담는 표준 형식. Knative Eventing의 공용어.'],
+    ['Broker','','이벤트를 모아 두는 우체국 역할의 Eventing 리소스.'],
+    ['Trigger','','Broker에서 조건에 맞는 이벤트를 골라 특정 서비스로 배달하는 규칙.'],
+    ['Source','','외부 시스템(Kafka, 쿠버네티스 API, 타이머 등)의 사건을 CloudEvents로 바꿔 보내는 리소스.'],
+    ['Sink','','이벤트를 받는 쪽. Knative Service, Broker 등 주소를 가진 리소스.'],
+    ['kn','Knative CLI','Knative 리소스를 다루는 명령줄 도구.'],
+    ['func','Knative Functions CLI','함수 프로젝트 생성, 빌드, 배포를 담당하는 명령줄 도구.'],
+    ['Buildpacks','Cloud Native Buildpacks','Dockerfile 없이 소스를 분석해 컨테이너 이미지를 만드는 도구.'],
+    ['sslip.io','','IP 주소가 들어간 호스트 이름을 그 IP로 풀어 주는 와일드카드 DNS. 로컬 실습에 편리.'],
+    ['CNCF 졸업','Graduated','CNCF의 최상위 성숙도 등급. Knative는 2025년에 졸업.']
+  ];
+  const gl=document.getElementById('gloss');
+  GL.forEach(([t,s,d])=>{const g=document.createElement('div');g.className='g';g.dataset.s=(t+' '+s+' '+d).toLowerCase();
+    g.innerHTML='<dt>'+t+(s?'<small>'+s+'</small>':'')+'</dt><dd>'+d+'</dd>';gl.appendChild(g)});
+  document.getElementById('gsearch').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();
+    gl.querySelectorAll('.g').forEach(g=>g.hidden=v&&!g.dataset.s.includes(v))});
+})();
+</script>
+</body>
+</html>

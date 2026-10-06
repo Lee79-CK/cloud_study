@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TEE·Trustee 6편 — Trustee 아키텍처 해부</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#12162A; --surface:#1B2138; --surface2:#242B47; --line:#323B5E;
+  --text:#E6E8F2; --muted:#9AA3C0; --strong:#FFFFFF;
+  --seal:#3DD6C4; --seal-bg:rgba(61,214,196,.12);
+  --leak:#FF6F61; --leak-bg:rgba(255,111,97,.12);
+  --warn:#F5C04E; --warn-bg:rgba(245,192,78,.12);
+  --trust:#A98BFF; --trust-bg:rgba(169,139,255,.13);
+  --link:#7CB8FF; --link-bg:rgba(124,184,255,.12);
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FA; --surface:#FFFFFF; --surface2:#E9EDF6; --line:#CDD4E5;
+  --text:#1A2036; --muted:#55607F; --strong:#0B1024;
+  --seal:#0B8F81; --seal-bg:rgba(11,143,129,.10);
+  --leak:#CF3E31; --leak-bg:rgba(207,62,49,.09);
+  --warn:#A87807; --warn-bg:rgba(168,120,7,.11);
+  --trust:#6440D4; --trust-bg:rgba(100,64,212,.09);
+  --link:#2160C4; --link-bg:rgba(33,96,196,.09);
+  --shadow:0 8px 24px rgba(20,30,70,.10);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere;-webkit-font-smoothing:antialiased}
+a{color:var(--link)}
+img,svg{max-width:100%}
+:focus-visible{outline:3px solid var(--link);outline-offset:2px;border-radius:4px}
+code,kbd{font-family:var(--mono);font-size:.88em;background:var(--surface2);padding:.1em .38em;border-radius:5px}
+strong{color:var(--strong);font-weight:700}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:10px 20px}
+.brand{font-weight:700;font-size:15px;white-space:nowrap}
+.brand span{color:var(--muted);font-weight:500}
+.spacer{flex:1}
+.btn{font:inherit;font-size:14px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:7px 14px;border-radius:999px;transition:background .15s,border-color .15s}
+.btn:hover{border-color:var(--link)}
+.btn[aria-pressed="true"],.btn.on{background:var(--link-bg);border-color:var(--link);color:var(--strong)}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--leak),var(--warn),var(--seal),var(--trust))}
+.toc-toggle{display:none}
+
+/* layout */
+.wrap{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:250px minmax(0,1fr);gap:48px;padding:0 20px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 70px);align-self:start;max-height:calc(100vh - 90px);overflow:auto;padding:28px 0 40px;font-size:14px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc li a b{font-weight:600;color:inherit;min-width:22px;font-variant-numeric:tabular-nums}
+nav.toc li a:hover{background:var(--surface)}
+nav.toc li a.active{background:var(--surface);color:var(--strong);box-shadow:inset 3px 0 0 var(--seal)}
+main{min-width:0;padding-bottom:120px}
+.col{max-width:780px}
+
+/* hero */
+.hero{padding:56px 0 30px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.series{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:26px}
+.series span{font-size:12.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.series span.now{border-color:var(--seal);color:var(--seal);background:var(--seal-bg);font-weight:600}
+.hero h1{font-size:clamp(30px,4.6vw,48px);line-height:1.22;letter-spacing:-.02em;margin:0 0 14px;font-weight:700;color:var(--strong)}
+.hero .lede{font-size:19px;color:var(--muted);max-width:680px;margin:0 0 30px}
+
+/* signature: memory strip */
+.memstrip{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 18px 16px;box-shadow:var(--shadow)}
+.memhead{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;font-size:14px;color:var(--muted)}
+.memhead .state{font-weight:700;padding:3px 10px;border-radius:999px}
+.memhead .state.leak{color:var(--leak);background:var(--leak-bg)}
+.memhead .state.seal{color:var(--seal);background:var(--seal-bg)}
+.memgrid{font-family:var(--mono);font-size:13.5px;line-height:1.75;display:grid;grid-template-columns:auto 1fr;gap:0 16px;overflow-x:auto}
+.memgrid .addr{color:var(--muted);opacity:.7;user-select:none}
+.memgrid .bytes{white-space:pre}
+.memgrid .pt{color:var(--leak);font-weight:600}
+.memgrid .ct{color:var(--seal)}
+.memfoot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.memfoot p{margin:0;font-size:14.5px;color:var(--muted);flex:1;min-width:220px}
+
+/* sections */
+section.lec{padding:64px 0 10px;border-bottom:1px dashed var(--line)}
+section.lec:last-of-type{border-bottom:0}
+.secnum{font-family:var(--mono);font-size:14px;color:var(--seal);font-weight:600}
+h2{font-size:clamp(25px,3.2vw,32px);line-height:1.3;letter-spacing:-.015em;margin:6px 0 18px;color:var(--strong)}
+h3{font-size:21px;line-height:1.4;margin:38px 0 12px;color:var(--strong)}
+h4{font-size:17px;margin:20px 0 6px;color:var(--strong)}
+p{margin:0 0 16px}
+ul,ol{padding-left:1.3em;margin:0 0 16px}
+li{margin:4px 0}
+.muted{color:var(--muted)}
+
+/* callouts */
+.note{border-radius:14px;padding:16px 18px 6px;margin:22px 0;border:1px solid var(--line);background:var(--surface)}
+.note>.nt{font-weight:700;margin-bottom:6px;display:block}
+.note.analogy{border-color:color-mix(in srgb,var(--warn) 45%,var(--line));background:var(--warn-bg)}
+.note.analogy>.nt{color:var(--warn)}
+.note.key{border-color:color-mix(in srgb,var(--seal) 45%,var(--line));background:var(--seal-bg)}
+.note.key>.nt{color:var(--seal)}
+.note.danger{border-color:color-mix(in srgb,var(--leak) 45%,var(--line));background:var(--leak-bg)}
+.note.danger>.nt{color:var(--leak)}
+.note.msp{border-color:color-mix(in srgb,var(--trust) 45%,var(--line));background:var(--trust-bg)}
+.note.msp>.nt{color:var(--trust)}
+.note.term{border-color:color-mix(in srgb,var(--link) 45%,var(--line));background:var(--link-bg)}
+.note.term>.nt{color:var(--link)}
+
+/* generic panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin:22px 0}
+.panel h4:first-child{margin-top:0}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
+
+/* tables */
+.tbl{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:14px}
+table{border-collapse:collapse;width:100%;font-size:15px;min-width:560px}
+th,td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--line)}
+th{background:var(--surface2);font-weight:600;color:var(--strong)}
+tr:last-child td{border-bottom:0}
+td.ok{color:var(--seal)} td.no{color:var(--leak)}
+
+/* pills */
+.pill{display:inline-block;font-size:12.5px;font-weight:600;padding:2px 9px;border-radius:999px;line-height:1.6;white-space:nowrap}
+.pill.leak{color:var(--leak);background:var(--leak-bg)}
+.pill.seal{color:var(--seal);background:var(--seal-bg)}
+.pill.warn{color:var(--warn);background:var(--warn-bg)}
+.pill.trust{color:var(--trust);background:var(--trust-bg)}
+
+/* data states */
+.states .stv{display:none}
+.states .stv.show{display:block}
+.flowline{display:flex;align-items:stretch;gap:0;overflow-x:auto;margin:6px 0 16px;padding-bottom:4px}
+.fl{flex:1;min-width:120px;text-align:center;padding:14px 8px;border:1px solid var(--line);background:var(--surface2);font-size:14px}
+.fl:first-child{border-radius:12px 0 0 12px}.fl:last-child{border-radius:0 12px 12px 0}
+.fl+.fl{border-left:0}
+.fl .ic{font-size:24px;display:block}
+.fl.hot{background:var(--leak-bg);border-color:var(--leak);color:var(--strong)}
+.fl.cool{background:var(--seal-bg)}
+
+/* memdump terminal */
+.term{background:#0A0D19;color:#C9D1E8;border-radius:14px;padding:16px;font-family:var(--mono);font-size:13px;line-height:1.65;min-height:220px;overflow-x:auto;white-space:pre;border:1px solid var(--line)}
+:root[data-theme="light"] .term{background:#151A2E}
+.term .c{color:#7E8AAE}.term .r{color:#FF8A7D;font-weight:600}.term .g{color:#56E0CF}.term .y{color:#F7CD63}
+
+/* journey */
+.journey{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;margin:10px 0 16px}
+.jn{cursor:pointer;border:1px solid var(--line);background:var(--surface2);border-radius:10px;padding:10px 4px;text-align:center;font-size:12.5px;line-height:1.35;color:var(--muted);font:inherit;font-size:12.5px}
+.jn .ic{display:block;font-size:22px;margin-bottom:4px}
+.jn.pt{border-color:color-mix(in srgb,var(--leak) 55%,var(--line))}
+.jn.enc{border-color:color-mix(in srgb,var(--seal) 55%,var(--line))}
+.jn.sel{background:var(--surface);color:var(--strong);box-shadow:0 0 0 2px var(--link)}
+@media (max-width:720px){.journey{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.jdetail h4{margin-top:0}
+.jmeta{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px}
+
+/* asset & actor cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h4{margin:0 0 6px;display:flex;align-items:center;gap:8px}
+.card h4 .ic{font-size:22px}
+.card dl{margin:8px 0 0;font-size:15px}
+.card dt{font-weight:600;color:var(--muted);font-size:13px;margin-top:8px}
+.card dd{margin:2px 0 0}
+details.card{padding:0}
+details.card>summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;font-weight:600}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::after{content:"+";margin-left:auto;font-size:20px;color:var(--muted)}
+details.card[open]>summary::after{content:"−"}
+details.card>.body{padding:0 18px 14px;font-size:15.5px}
+
+/* matrix */
+.mx-actors,.mx-modes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.mx-assets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+@media (max-width:620px){.mx-assets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mxa{border-radius:12px;padding:12px;border:1px solid var(--line);background:var(--surface2);transition:background .25s,border-color .25s}
+.mxa .nm{font-weight:600;font-size:15px;display:flex;align-items:center;gap:6px}
+.mxa .st{font-size:13px;font-weight:700;margin-top:4px}
+.mxa.exp{border-color:var(--leak);background:var(--leak-bg)} .mxa.exp .st{color:var(--leak)}
+.mxa.part{border-color:var(--warn);background:var(--warn-bg)} .mxa.part .st{color:var(--warn)}
+.mxa.safe{border-color:var(--seal);background:var(--seal-bg)} .mxa.safe .st{color:var(--seal)}
+.mx-note{font-size:15.5px;border-left:3px solid var(--trust);padding:4px 0 4px 14px;margin:6px 0 0}
+.mx-score{font-size:14px;color:var(--muted);margin-top:10px}
+
+/* scenario */
+.scn{border:1px solid var(--line);border-radius:16px;overflow:hidden;margin:18px 0;background:var(--surface)}
+.scn-h{padding:14px 18px;background:var(--surface2);display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.scn-h b{font-size:17px;color:var(--strong)}
+.scn-b{padding:16px 18px 6px}
+.tl{list-style:none;padding:0;margin:0 0 14px;border-left:2px solid var(--line)}
+.tl li{position:relative;padding:2px 0 8px 18px;font-size:15.5px}
+.tl li::before{content:"";position:absolute;left:-6px;top:10px;width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.tl li.bad::before{background:var(--leak)}
+.tl li .t{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-right:6px}
+
+/* TCB stack */
+.stack{display:flex;flex-direction:column;gap:6px;margin:14px 0}
+.layer{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);transition:background .25s,border-color .25s,opacity .25s}
+.layer .nm{flex:1;font-weight:600;font-size:15px}
+.layer .who{font-size:13px;color:var(--muted)}
+.layer .tag{font-size:12.5px;font-weight:700;white-space:nowrap}
+.layer.in{border-color:var(--warn);background:var(--warn-bg)} .layer.in .tag{color:var(--warn)}
+.layer.out{opacity:.62;border-style:dashed} .layer.out .tag{color:var(--seal)}
+.layer.enc{border-color:var(--seal);background:var(--seal-bg)}
+.tcbcount{font-size:15px;margin-top:6px}
+.tcbcount b{font-size:22px;color:var(--warn)}
+
+/* diagram */
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;margin:22px 0;overflow-x:auto}
+.diagram svg{display:block;min-width:620px;width:100%;height:auto}
+.diagram text{font-family:var(--sans)}
+.cap{font-size:14px;color:var(--muted);margin:8px 4px 0}
+
+/* myth */
+.myth{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:12px 0}
+.myth>div{padding:14px 16px;font-size:15.5px}
+.myth .m{background:var(--leak-bg)} .myth .f{background:var(--seal-bg)}
+.myth .lb{display:block;font-weight:700;font-size:13px;margin-bottom:4px}
+.myth .m .lb{color:var(--leak)} .myth .f .lb{color:var(--seal)}
+@media (max-width:620px){.myth{grid-template-columns:1fr}}
+
+/* compare dialog */
+.chat{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.bub{max-width:88%;padding:12px 15px;border-radius:16px;font-size:15.5px}
+.bub.q{align-self:flex-start;background:var(--surface2);border-bottom-left-radius:4px}
+.bub.a{align-self:flex-end;border-bottom-right-radius:4px}
+.bub.a.old{background:var(--leak-bg);border:1px solid color-mix(in srgb,var(--leak) 40%,var(--line))}
+.bub.a.new{background:var(--seal-bg);border:1px solid color-mix(in srgb,var(--seal) 40%,var(--line))}
+.bub .who{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:3px}
+
+/* self check */
+.chk{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:15.5px}
+.chk:last-of-type{border-bottom:0}
+.chk .yn{display:flex;gap:6px;flex-shrink:0}
+.chk .yn button{font:inherit;font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer}
+.chk .yn button.yes.on{background:var(--seal-bg);border-color:var(--seal);color:var(--seal)}
+.chk .yn button.no.on{background:var(--leak-bg);border-color:var(--leak);color:var(--leak)}
+.result{margin-top:16px;padding:16px;border-radius:12px;background:var(--surface2);font-size:15.5px}
+.meter{height:10px;border-radius:999px;background:var(--line);overflow:hidden;margin:8px 0 10px}
+.meter i{display:block;height:100%;width:0;background:var(--seal);transition:width .4s}
+
+/* quiz */
+.qz{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+.qz .qq{font-weight:600;margin-bottom:10px}
+.qz .opts{display:flex;flex-direction:column;gap:8px}
+.qz .opts button{font:inherit;font-size:15.5px;text-align:left;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer}
+.qz .opts button:hover:not([disabled]){border-color:var(--link)}
+.qz .opts button.right{border-color:var(--seal);background:var(--seal-bg)}
+.qz .opts button.wrong{border-color:var(--leak);background:var(--leak-bg)}
+.qz .opts button[disabled]{cursor:default}
+.qz .ex{display:none;margin-top:10px;font-size:15px;padding:10px 12px;border-radius:10px;background:var(--surface2)}
+.qz .ex.show{display:block}
+.qscore{font-weight:700;font-size:18px}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:6px 0 14px}
+.gl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:720px){.gl{grid-template-columns:1fr}}
+.gi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px}
+.gi b{display:block;color:var(--strong);margin-bottom:3px}
+.gi .en{font-weight:400;color:var(--muted);font-size:13px;margin-left:6px}
+.gi.hide{display:none}
+
+/* steps (worksheet) */
+.ws{counter-reset:ws;list-style:none;padding:0}
+.ws>li{counter-increment:ws;position:relative;padding:0 0 18px 52px;margin:0}
+.ws>li::before{content:counter(ws);position:absolute;left:0;top:0;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--trust-bg);color:var(--trust);border:1px solid var(--trust)}
+.ws>li>b{display:block;font-size:17px;color:var(--strong);margin:4px 0 6px}
+
+.next{background:linear-gradient(135deg,var(--trust-bg),var(--seal-bg));border:1px solid var(--line);border-radius:18px;padding:24px;margin-top:20px}
+footer{color:var(--muted);font-size:13.5px;padding:30px 0 0}
+
+@media (max-width:980px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{position:fixed;inset:calc(env(safe-area-inset-top,0px) + 54px) 0 auto 0;max-height:70vh;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 20px 18px;display:none;z-index:40;box-shadow:var(--shadow)}
+  nav.toc.open{display:block}
+  .toc-toggle{display:inline-block}
+  body{font-size:16px}
+}
+
+
+/* ---- 2편 추가 컴포넌트 ---- */
+.chipwrap{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+.chiplane{display:grid;grid-template-columns:minmax(0,1.25fr) 60px minmax(0,1fr);align-items:stretch;gap:0}
+@media (max-width:640px){.chiplane{grid-template-columns:1fr;gap:8px}.bus{min-height:46px}}
+.chip{border:2px solid var(--trust);border-radius:14px;padding:12px;background:var(--trust-bg);position:relative}
+.chip .lbl{font-size:13px;font-weight:700;color:var(--trust);margin-bottom:8px;display:block}
+.chip .row{display:flex;gap:8px;flex-wrap:wrap}
+.blk{flex:1;min-width:110px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 10px;font-size:13px}
+.blk b{display:block;font-size:13.5px;color:var(--strong)}
+.blk .v{font-family:var(--mono);font-size:12.5px;margin-top:4px;word-break:break-all}
+.blk.mee{border-color:var(--seal)}
+.bus{display:flex;align-items:center;justify-content:center;position:relative}
+.bus::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;background:var(--line);border-radius:2px}
+@media (max-width:640px){.bus::before{left:50%;right:auto;top:0;bottom:0;width:4px;height:auto}}
+.bus .pk{position:relative;font-size:20px}
+.dram{border:2px dashed var(--line);border-radius:14px;padding:12px;background:var(--surface2)}
+.dram .lbl{font-size:13px;font-weight:700;color:var(--muted);display:block;margin-bottom:8px}
+.probes{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.probe-out{margin-top:10px;font-size:15px;min-height:48px}
+.v.pt{color:var(--leak);font-weight:600}.v.ct{color:var(--seal)}
+
+.ringstack{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.ring{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)}
+.ring .nm{font-weight:600;font-size:15px}
+.ring .nm small{display:block;font-weight:400;color:var(--muted);font-size:13px}
+.ring .eye{font-size:13px;font-weight:700;white-space:nowrap}
+.ring.see{border-color:var(--leak);background:var(--leak-bg)} .ring.see .eye{color:var(--leak)}
+.ring.blind{border-color:var(--seal);background:var(--seal-bg)} .ring.blind .eye{color:var(--seal)}
+.ring.self{border-color:var(--trust);background:var(--trust-bg)} .ring.self .eye{color:var(--trust)}
+
+.encdemo input{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);margin-bottom:12px}
+.encout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:640px){.encout{grid-template-columns:1fr}}
+.encout .blk .v{color:var(--seal)}
+
+.story{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+@media (max-width:640px){.story{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.sframe{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface2);font-size:13.5px;opacity:.4;transition:opacity .25s,border-color .25s}
+.sframe.on{opacity:1}
+.sframe.bad{border-color:var(--leak);background:var(--leak-bg)}
+.sframe.good{border-color:var(--seal);background:var(--seal-bg)}
+.sframe b{display:block;font-size:14px;color:var(--strong);margin-bottom:4px}
+.sframe .v{font-family:var(--mono);font-size:12px}
+
+.gen{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin:16px 0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+@media (max-width:720px){.gen{grid-template-columns:1fr}}
+.gen>div{padding:14px 16px;border-right:1px solid var(--line);background:var(--surface)}
+.gen>div:last-child{border-right:0}
+.gen h4{margin:0 0 4px}
+.gen .yr{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.gen p{font-size:15px;margin:6px 0 0}
+
+.evs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.vx{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:720px){.vx{grid-template-columns:1fr}}
+.vx .side{border-radius:12px;padding:14px 16px;font-size:15px}
+.vx .side.old{background:var(--leak-bg);border:1px solid color-mix(in srgb,var(--leak) 40%,var(--line))}
+.vx .side.new{background:var(--seal-bg);border:1px solid color-mix(in srgb,var(--seal) 40%,var(--line))}
+.vx .side h4{margin:0 0 6px;font-size:15px}
+.vx .side ol{margin:0;padding-left:1.2em}
+.vx .sees{margin-top:8px;font-size:14px;color:var(--muted)}
+
+.mchain{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.mc{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface2)}
+.mc.bad{border-color:var(--leak);background:var(--leak-bg)}
+.mc .nm{font-weight:600;font-size:15px}
+.mc .h{font-family:var(--mono);font-size:12px;color:var(--muted);word-break:break-all}
+.mc label{font-size:13px;display:flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.mfinal{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--surface2);font-size:15px}
+.mfinal code{font-size:13px}
+
+.rep{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:14px}
+@media (max-width:720px){.rep{grid-template-columns:1fr}}
+.rfields{display:flex;flex-direction:column;gap:5px;font-family:var(--mono);font-size:13px}
+.rfields button{font:inherit;text-align:left;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+.rfields button .k{color:var(--trust);font-weight:600}
+.rfields button .val{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:50%}
+.rfields button.sel{border-color:var(--link);box-shadow:0 0 0 1px var(--link)}
+.rdetail{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--surface);font-size:15.5px}
+.rdetail h4{margin-top:0;font-family:var(--mono);font-size:15px;color:var(--trust)}
+
+
+/* ---- 3편 추가 컴포넌트 ---- */
+.dlg{display:flex;flex-direction:column;gap:10px;margin:4px 0 6px}
+.msg{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);opacity:.28;transition:opacity .3s,border-color .3s}
+.msg.on{opacity:1}
+.msg .who{font-weight:700;font-size:13px;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.msg .who.rp{color:var(--link);background:var(--link-bg)}
+.msg .who.at{color:var(--seal);background:var(--seal-bg)}
+.msg .who.vf{color:var(--trust);background:var(--trust-bg)}
+.msg .tx{font-size:15px}
+.msg .tx code{font-size:12.5px}
+
+.roles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+@media (max-width:720px){.roles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.roles button{font:inherit;font-size:14px;line-height:1.35;padding:10px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;text-align:center}
+.roles button .ic{display:block;font-size:22px}
+.roles button.sel{border-color:var(--link);box-shadow:0 0 0 2px var(--link);background:var(--surface);color:var(--strong)}
+.rolebox{border-left:3px solid var(--trust);padding:4px 0 4px 16px}
+.rolebox h4{margin:0 0 6px}
+.rolebox .ex{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+@media (max-width:720px){.rolebox .ex{grid-template-columns:1fr}}
+.rolebox .ex div{background:var(--surface2);border-radius:10px;padding:9px 11px;font-size:14px}
+.rolebox .ex b{display:block;font-size:12.5px;color:var(--muted);font-weight:600}
+
+.chainv{display:flex;flex-direction:column;align-items:stretch;gap:0;margin:12px 0}
+.cert{border:1px solid var(--line);border-radius:12px;padding:11px 14px;background:var(--surface2);cursor:pointer;text-align:left;font:inherit;color:var(--text)}
+.cert b{display:block;color:var(--strong);font-size:15px}
+.cert span{font-size:13.5px;color:var(--muted)}
+.cert.sel{border-color:var(--link);box-shadow:0 0 0 2px var(--link)}
+.cert.root{border-color:var(--trust);background:var(--trust-bg)}
+.cert.leaf{border-color:var(--seal)}
+.link{align-self:center;font-size:13px;color:var(--muted);padding:3px 0}
+
+.lab-sc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.checks{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.ck{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);font-size:15px;transition:background .25s,border-color .25s}
+.ck .ic{font-size:18px;text-align:center}
+.ck .r{font-size:13px;font-weight:700;white-space:nowrap}
+.ck.pass{border-color:var(--seal);background:var(--seal-bg)} .ck.pass .r{color:var(--seal)}
+.ck.fail{border-color:var(--leak);background:var(--leak-bg)} .ck.fail .r{color:var(--leak)}
+.ck.skip{opacity:.45}
+.ck small{display:block;color:var(--muted);font-size:13.5px}
+.verdict{margin-top:10px;padding:14px 16px;border-radius:12px;font-size:15.5px;border:1px solid var(--line);background:var(--surface)}
+.verdict.ok{border-color:var(--seal)} .verdict.no{border-color:var(--leak)}
+
+.seq{width:100%;border-collapse:separate;border-spacing:0;min-width:620px}
+.seqwrap{overflow-x:auto;margin:10px 0}
+.seq th{background:none;border:0;text-align:center;font-size:14px;padding:6px}
+.seq td{border:0;padding:4px 6px;font-size:13.5px;vertical-align:middle}
+.arrow{position:relative;text-align:center;padding:8px 6px 10px!important;border-radius:8px;opacity:.25;transition:opacity .3s}
+.arrow.on{opacity:1}
+.arrow.cur{background:var(--link-bg)}
+.arrow .ln{display:block;height:2px;background:currentColor;margin-top:4px;position:relative}
+.arrow.r .ln::after,.arrow.l .ln::before{content:"";position:absolute;top:-5px;border:6px solid transparent}
+.arrow.r .ln::after{right:-2px;border-left-color:currentColor;border-right:0}
+.arrow.l .ln::before{left:-2px;border-right-color:currentColor;border-left:0}
+.arrow.at{color:var(--seal)} .arrow.kb{color:var(--link)} .arrow.as{color:var(--trust)}
+.arrow .lb{color:var(--text);font-weight:600}
+
+.jwt{font-family:var(--mono);font-size:13px;line-height:1.7;background:#0A0D19;color:#C9D1E8;border-radius:12px;padding:14px 16px;overflow-x:auto;white-space:pre;border:1px solid var(--line)}
+:root[data-theme="light"] .jwt{background:#151A2E}
+.jwt .k{color:#B79CFF}.jwt .s{color:#56E0CF}.jwt .n{color:#F7CD63}.jwt .c{color:#7E8AAE}
+.tier{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+@media (max-width:620px){.tier{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tier div{border-radius:10px;padding:10px 12px;font-size:14px;border:1px solid var(--line)}
+.tier b{display:block;font-size:15px}
+
+
+/* ---- 4편 추가 컴포넌트 ---- */
+.path{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:6px 0 10px}
+@media (max-width:720px){.path{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.seg{font:inherit;cursor:pointer;text-align:center;border-radius:12px;padding:10px 6px;border:2px solid var(--line);background:var(--surface2);color:var(--text);font-size:13px;line-height:1.35;transition:background .25s,border-color .25s}
+.seg .ic{display:block;font-size:22px;margin-bottom:3px}
+.seg .st{display:block;font-size:12px;font-weight:700;margin-top:4px}
+.seg.pt{border-color:var(--leak);background:var(--leak-bg)} .seg.pt .st{color:var(--leak)}
+.seg.ct{border-color:var(--seal);background:var(--seal-bg)} .seg.ct .st{color:var(--seal)}
+.seg.pr{border-color:var(--trust);background:var(--trust-bg)} .seg.pr .st{color:var(--trust)}
+.seg.na{opacity:.45} .seg.na .st{color:var(--muted)}
+.seg.sel{box-shadow:0 0 0 2px var(--link)}
+.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:13px;margin:4px 0 8px}
+
+.bars{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.bar{display:grid;grid-template-columns:140px minmax(0,1fr) 80px;gap:10px;align-items:center;font-size:14px}
+@media (max-width:560px){.bar{grid-template-columns:100px minmax(0,1fr) 64px}}
+.bar .tr{height:18px;border-radius:999px;background:var(--line);overflow:hidden}
+.bar .tr i{display:block;height:100%;border-radius:999px;transition:width .5s}
+.bar .num{font-family:var(--mono);font-size:13px;text-align:right}
+
+.gpus{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0;position:relative}
+.gpu{border-radius:12px;padding:12px 8px;text-align:center;border:2px solid var(--line);background:var(--surface2);font-size:13px}
+.gpu b{display:block;font-size:15px;color:var(--strong)}
+.gpu.c0{border-color:var(--seal);background:var(--seal-bg)}
+.gpu.c1{border-color:var(--trust);background:var(--trust-bg)}
+.gpu.c2{border-color:var(--warn);background:var(--warn-bg)}
+.gpu.c3{border-color:var(--link);background:var(--link-bg)}
+.gpu.idle{opacity:.45}
+.nvl{text-align:center;font-size:14px;font-weight:600;padding:8px;border-radius:10px;margin-top:4px}
+.nvl.enc{color:var(--seal);background:var(--seal-bg)} .nvl.pt{color:var(--leak);background:var(--leak-bg)} .nvl.na{color:var(--muted);background:var(--surface2)}
+
+.meter2{display:flex;gap:4px;margin:10px 0}
+.meter2 i{flex:1;height:14px;border-radius:4px;background:var(--line)}
+.meter2 i.on1{background:var(--seal)} .meter2 i.on2{background:var(--warn)} .meter2 i.on3{background:var(--leak)}
+
+.combo{display:grid;grid-template-columns:auto repeat(2,minmax(0,1fr));gap:6px;margin:12px 0;font-size:14.5px}
+.combo>div{padding:12px;border-radius:10px;text-align:center;border:1px solid var(--line);background:var(--surface2)}
+.combo .h{background:none;border:0;font-weight:700;color:var(--strong)}
+.combo .y{border-color:var(--seal);background:var(--seal-bg)} .combo .n{border-color:var(--leak);background:var(--leak-bg)}
+.combo b{display:block}
+
+.clist .chk{cursor:pointer}
+.clist .chk input{margin-top:6px;width:18px;height:18px;accent-color:var(--seal);flex-shrink:0}
+
+
+/* ---- 5편 추가 컴포넌트 ---- */
+.anat{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:8px 0}
+@media (max-width:680px){.anat{grid-template-columns:1fr}}
+.zone{border-radius:14px;padding:12px;border:2px dashed var(--line);background:var(--surface2)}
+.zone.tee{border:2px solid var(--seal);background:var(--seal-bg)}
+.zone.vm{border:2px solid var(--warn);background:var(--warn-bg)}
+.zone.none{opacity:.5}
+.zone .zl{font-size:13px;font-weight:700;display:block;margin-bottom:8px}
+.zone.tee .zl{color:var(--seal)} .zone.vm .zl{color:var(--warn)} .zone .zl{color:var(--muted)}
+.comps{display:flex;flex-direction:column;gap:6px}
+.comp{font:inherit;font-size:14px;text-align:left;cursor:pointer;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);display:flex;justify-content:space-between;gap:8px;align-items:center}
+.comp .tg{font-size:12px;font-weight:700;white-space:nowrap}
+.comp.host .tg{color:var(--muted)}
+.comp.trust{border-color:var(--seal)} .comp.trust .tg{color:var(--seal)}
+.comp.exp{border-color:var(--leak);background:var(--leak-bg)} .comp.exp .tg{color:var(--leak)}
+.comp.half{border-color:var(--warn)} .comp.half .tg{color:var(--warn)}
+.comp.na{opacity:.35;cursor:default}
+.comp.sel{box-shadow:0 0 0 2px var(--link)}
+
+.reqs{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.req{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);font-size:15px;transition:background .25s,border-color .25s}
+.req code{font-size:12.5px}
+.req small{display:block;color:var(--muted);font-size:13.5px}
+.req .r{font-size:13px;font-weight:700;white-space:nowrap}
+.req.allow{border-color:var(--leak);background:var(--leak-bg)} .req.allow .r{color:var(--leak)}
+.req.ok{border-color:var(--seal);background:var(--seal-bg)} .req.ok .r{color:var(--seal)}
+.req.deny{border-color:var(--seal);background:var(--seal-bg)} .req.deny .r{color:var(--seal)}
+.req.lim{border-color:var(--warn);background:var(--warn-bg)} .req.lim .r{color:var(--warn)}
+
+.code{font-family:var(--mono);font-size:13px;line-height:1.7;background:#0A0D19;color:#C9D1E8;border-radius:12px;padding:14px 16px;overflow-x:auto;white-space:pre;border:1px solid var(--line);margin:12px 0}
+:root[data-theme="light"] .code{background:#151A2E}
+.code .k{color:#B79CFF}.code .s{color:#56E0CF}.code .c{color:#7E8AAE}.code .r{color:#FF8A7D;font-weight:600}.code .y{color:#F7CD63}
+.toggles{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.toggles label{display:flex;gap:10px;align-items:center;font-size:15px;cursor:pointer}
+.toggles input{width:18px;height:18px;accent-color:var(--leak)}
+.path.p7{grid-template-columns:repeat(7,minmax(0,1fr))}@media (max-width:720px){.path.p7{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.seg.go{border-color:var(--link);background:var(--link-bg)} .seg.go .st{color:var(--link)}
+.vec{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}@media (max-width:560px){.vec{grid-template-columns:1fr}}
+.vec div{border-radius:10px;padding:10px 12px;border:1px solid var(--line);font-size:14px}.vec b{display:block;font-family:var(--mono);font-size:13px}.vec .a{border-color:var(--seal);background:var(--seal-bg)}.vec .w{border-color:var(--warn);background:var(--warn-bg)}.vec .x{border-color:var(--leak);background:var(--leak-bg)}
+.selrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}.selrow select{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text)}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <button class="btn toc-toggle" id="tocBtn" aria-expanded="false" aria-controls="toc">목차</button>
+    <div class="brand">TEE·Trustee 강의 <span>6편 / 12편</span></div>
+    <div class="spacer"></div>
+    <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="wrap">
+<nav class="toc" id="toc" aria-label="강의 목차">
+  <ol>
+    <li><a href="#s0"><b>0</b>시작하기 전에</a></li>
+    <li><a href="#s1"><b>1</b>Trustee 한 장 지도</a></li>
+    <li><a href="#s2"><b>2</b>KBS: Trustee의 정문</a></li>
+    <li><a href="#s3"><b>3</b>AS: 증거 감정소</a></li>
+    <li><a href="#s4"><b>4</b>RVPS: 정품 기준표 관리실</a></li>
+    <li><a href="#s5"><b>5</b>정책은 왜 세 개인가</a></li>
+    <li><a href="#s6"><b>6</b>1단계: Verifier와 TCB 클레임</a></li>
+    <li><a href="#s7"><b>7</b>2단계: 증명 정책과 신뢰도 벡터</a></li>
+    <li><a href="#s8"><b>8</b>3단계: EAR 토큰</a></li>
+    <li><a href="#s9"><b>9</b>4단계: 리소스 정책</a></li>
+    <li><a href="#s10"><b>10</b>5단계: 플러그인과 백엔드</a></li>
+    <li><a href="#s11"><b>11</b>CPU와 GPU 증거 합치기</a></li>
+    <li><a href="#s12"><b>12</b>API와 관리 도구</a></li>
+    <li><a href="#s13"><b>13</b>설치 형태</a></li>
+    <li><a href="#s14"><b>14</b>보안·운영 체크포인트</a></li>
+    <li><a href="#s15"><b>15</b>확인 퀴즈</a></li>
+    <li><a href="#s16"><b>16</b>용어 사전</a></li>
+    <li><a href="#s17"><b>17</b>정리와 다음 편</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="col">
+
+<header class="hero">
+  <div class="series" aria-label="시리즈 구성">
+    <span>1 위협 모델</span><span>2 TEE 하드웨어</span><span>3 원격 증명</span><span>4 GPU 기밀 컴퓨팅</span><span>5 CoCo 지도</span><span class="now">6 Trustee 해부</span><span>7 Trustee 구축</span><span>8 참조값·정책</span><span>9 기밀 추론 구축</span><span>10 신뢰 사슬</span><span>11 공격과 한계</span><span>12 MSP 운영</span>
+  </div>
+  <h1>Trustee 아키텍처 해부</h1>
+  <p class="lede">칩이 서명한 바이너리 증거가 어떻게 "모델 키를 줘도 된다"는 결정으로 바뀔까요? Trustee 안에서는 증거가 <strong>다섯 번의 변신</strong>을 거칩니다. 이번 편은 그 공장의 생산 라인을 따라갑니다.</p>
+
+  <div class="memstrip">
+    <div class="memhead"><span>증거가 열쇠가 되기까지 (단계를 누르거나 재생하세요)</span><span class="state seal" id="pipeState">1 / 7</span></div>
+    <div class="path p7" id="pipe"></div>
+    <div class="probe-out" id="pipeOut" aria-live="polite"></div>
+    <div class="memfoot"><p>이 일곱 칸이 이번 편의 목차입니다. 6장부터 10장까지 한 칸씩 열어봅니다.</p><button class="btn" id="pipePlay">처음부터 재생</button></div>
+  </div>
+</header>
+
+<!-- 0 -->
+<section class="lec" id="s0">
+  <div class="secnum">0</div>
+  <h2>시작하기 전에</h2>
+  <p>3편에서 RATS 아키텍처로 원격 증명의 원리를 배웠고, 5편에서 CoCo 파드 안의 AA·CDH가 "KBS에 요청한다"는 것까지 봤습니다. 이번 편은 그 요청을 받는 쪽, <strong>Trustee</strong>의 내부를 엽니다.</p>
+  <div class="grid2">
+    <div class="card"><h4><span class="ic">🎯</span>이번 편을 마치면</h4>
+      <ul style="margin:6px 0 0;font-size:15.5px">
+        <li>KBS·AS·RVPS의 내부 구조와 역할 분담을 설명할 수 있습니다.</li>
+        <li>에이전트 정책, 증명 정책, 리소스 정책을 구분할 수 있습니다.</li>
+        <li>증거 → TCB 클레임 → 신뢰도 벡터 → 토큰 → 리소스의 흐름을 그릴 수 있습니다.</li>
+        <li>간단한 리소스 정책을 Rego로 읽고 쓸 수 있습니다.</li>
+        <li>CPU와 GPU 증거가 어떻게 묶여 검증되는지 설명할 수 있습니다.</li>
+      </ul></div>
+    <div class="card"><h4><span class="ic">📌</span>이번 편의 기준</h4>
+      <ul style="margin:6px 0 0;font-size:15.5px">
+        <li>CoCo 공식 문서의 Trustee 아키텍처·정책·참조값 설명을 기준으로 합니다.</li>
+        <li>코드와 명령 예시는 원리를 보여주기 위해 단순화했습니다. 정확한 문법과 옵션은 7편에서 실제 버전으로 확인합니다.</li>
+        <li>Trustee는 빠르게 발전하는 프로젝트라 필드 이름이나 관리 방식이 바뀔 수 있습니다.</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- 1 -->
+<section class="lec" id="s1">
+  <div class="secnum">1</div>
+  <h2>Trustee 한 장 지도</h2>
+  <p>Trustee는 세 개의 주요 구성 요소와 관리 도구 하나로 이뤄집니다.</p>
+  <div class="diagram">
+    <svg viewBox="0 0 760 330" role="img" aria-label="게스트의 AA와 CDH가 KBS와 통신하고, KBS는 AS에 검증을 맡기며, RVPS가 AS에 참조값을 제공하고, 관리 도구가 KBS를 설정하는 구조">
+      <defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g font-size="13.5">
+        <rect x="16" y="40" width="190" height="250" rx="16" fill="var(--seal-bg)" stroke="var(--seal)" stroke-width="2"/>
+        <text x="36" y="68" fill="var(--seal)" font-weight="700" font-size="14.5">게스트 (TEE 파드)</text>
+        <rect x="36" y="90" width="150" height="56" rx="10" fill="var(--surface)" stroke="var(--line)"/>
+        <text x="111" y="114" text-anchor="middle" fill="var(--text)" font-weight="700">AA</text>
+        <text x="111" y="134" text-anchor="middle" fill="var(--muted)" font-size="12">증명 담당</text>
+        <rect x="36" y="180" width="150" height="56" rx="10" fill="var(--surface)" stroke="var(--line)"/>
+        <text x="111" y="204" text-anchor="middle" fill="var(--text)" font-weight="700">CDH</text>
+        <text x="111" y="224" text-anchor="middle" fill="var(--muted)" font-size="12">리소스 요청</text>
+
+        <rect x="270" y="20" width="474" height="290" rx="16" fill="var(--trust-bg)" stroke="var(--trust)" stroke-width="2"/>
+        <text x="290" y="48" fill="var(--trust)" font-weight="700" font-size="14.5">Trustee</text>
+        <rect x="296" y="110" width="170" height="80" rx="12" fill="var(--surface)" stroke="var(--link)" stroke-width="2"/>
+        <text x="381" y="142" text-anchor="middle" fill="var(--link)" font-weight="700" font-size="15">KBS</text>
+        <text x="381" y="164" text-anchor="middle" fill="var(--muted)" font-size="12">정문 · 리소스 정책</text>
+        <rect x="548" y="66" width="170" height="70" rx="12" fill="var(--surface)" stroke="var(--trust)" stroke-width="2"/>
+        <text x="633" y="96" text-anchor="middle" fill="var(--trust)" font-weight="700" font-size="15">AS</text>
+        <text x="633" y="117" text-anchor="middle" fill="var(--muted)" font-size="12">검증 · 증명 정책</text>
+        <rect x="548" y="196" width="170" height="70" rx="12" fill="var(--surface)" stroke="var(--warn)" stroke-width="2"/>
+        <text x="633" y="226" text-anchor="middle" fill="var(--warn)" font-weight="700" font-size="15">RVPS</text>
+        <text x="633" y="247" text-anchor="middle" fill="var(--muted)" font-size="12">참조값 관리</text>
+        <rect x="296" y="236" width="170" height="52" rx="12" fill="var(--surface2)" stroke="var(--line)"/>
+        <text x="381" y="267" text-anchor="middle" fill="var(--text)" font-size="13">관리 도구 (kbs-client)</text>
+
+        <g style="color:var(--seal)" stroke="currentColor" stroke-width="2" fill="none"><path d="M186,118 L294,138" marker-end="url(#a6)"/><path d="M186,208 L294,166" marker-end="url(#a6)"/></g>
+        <text x="200" y="116" fill="var(--seal)" font-size="12">증명</text>
+        <text x="200" y="214" fill="var(--seal)" font-size="12">리소스</text>
+        <g style="color:var(--trust)" stroke="currentColor" stroke-width="2" fill="none"><path d="M466,138 L546,106" marker-end="url(#a6)"/></g>
+        <text x="478" y="112" fill="var(--trust)" font-size="12">검증</text>
+        <g style="color:var(--warn)" stroke="currentColor" stroke-width="2" fill="none"><path d="M633,196 L633,138" marker-end="url(#a6)"/></g>
+        <text x="640" y="172" fill="var(--warn)" font-size="12">참조값</text>
+        <g style="color:var(--muted)" stroke="currentColor" stroke-width="2" fill="none"><path d="M381,236 L381,192" marker-end="url(#a6)"/></g>
+        <text x="388" y="220" fill="var(--muted)" font-size="12">설정</text>
+      </g>
+    </svg>
+    <p class="cap">CoCo 공식 문서의 Trustee 구조도를 바탕으로 다시 그렸습니다.</p>
+  </div>
+  <div class="note analogy">
+    <span class="nt">비유: 은행 대여금고 (1편의 비유를 확장)</span>
+    <p><strong>KBS</strong>는 은행 창구입니다. 손님(게스트)을 맞고, 서류를 받고, 최종적으로 금고 열쇠를 건넵니다. <strong>AS</strong>는 은행 뒤편의 감정소로, 서류가 진짜인지 판정해 판정서를 써 줍니다. <strong>RVPS</strong>는 감정소가 참고하는 정품 기준표를 관리하는 기록실입니다. <strong>관리 도구</strong>는 지점장이 창구 규칙과 금고 내용물을 설정하는 사무실 단말기입니다. 손님은 창구하고만 대화하고, 감정소와 기록실은 직접 만나지 않습니다.</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="lec" id="s2">
+  <div class="secnum">2</div>
+  <h2>KBS: Trustee의 정문</h2>
+  <p>KBS(Key Broker Service)는 게스트가 만나는 유일한 창구입니다. 게스트와 <strong>KBS 프로토콜</strong>(3편의 RCAR)로 대화하는데, 이 프로토콜은 방금 받은 증거에 묶인 안전한 통로를 만들도록 설계되어 있습니다.</p>
+  <div class="grid2">
+    <div class="card" style="border-color:var(--link)"><h4><span class="ic">🚪</span>증명 창구</h4><p style="font-size:15.5px;margin:0">RCAR 대화를 진행합니다. nonce를 주고, 증거를 받아 AS에 넘기고, 판정 토큰을 받아 세션에 기억합니다.</p></div>
+    <div class="card" style="border-color:var(--link)"><h4><span class="ic">⚖️</span>리소스 정책 엔진</h4><p style="font-size:15.5px;margin:0">리소스를 내주기 전에 OPA 정책을 실행합니다. 입력은 <strong>요청한 리소스 경로</strong>와 <strong>증명 토큰</strong>입니다(9장).</p></div>
+    <div class="card" style="border-color:var(--link)"><h4><span class="ic">🧩</span>플러그인</h4><p style="font-size:15.5px;margin:0">실제로 리소스를 꺼내 주는 부분입니다. 로컬 저장소, 외부 KMS·HSM 연동, 즉석 생성 등이 있습니다(10장).</p></div>
+    <div class="card" style="border-color:var(--link)"><h4><span class="ic">🛠️</span>관리 API</h4><p style="font-size:15.5px;margin:0">정책 설정, 리소스 등록, 참조값 설정 같은 관리 작업을 받습니다. 관리자 인증이 필요하며, 관리 도구(kbs-client)가 이 API를 씁니다(12장).</p></div>
+  </div>
+  <p>KBS는 정적 설정 파일로 구성합니다. 어떤 AS를 쓸지(같은 프로세스 안에 내장할지, 원격 AS를 쓸지), 어떤 플러그인과 저장소를 쓸지, 관리자 인증과 HTTPS를 어떻게 할지가 이 파일에 들어갑니다.</p>
+</section>
+
+<!-- 3 -->
+<section class="lec" id="s3">
+  <div class="secnum">3</div>
+  <h2>AS: 증거 감정소</h2>
+  <p>AS(Attestation Service)는 하드웨어 증거를 처리해 TCB 상태를 나타내는 <strong>EAR 증명 토큰</strong>을 돌려줍니다. 내부는 크게 두 층입니다.</p>
+  <div class="grid2">
+    <div class="card" style="border-color:var(--trust)"><h4><span class="ic">🔬</span>Verifier (검증기)</h4><p style="font-size:15.5px;margin:0">하드웨어 플랫폼마다 따로 있는 검증 모듈입니다. TDX, SEV-SNP, IBM SE, 클라우드 vTPM 기반 방식, NVIDIA GPU 등이 있습니다. 증거의 서명을 제조사 체인으로 검증하고(3편 7장), 바이너리 증거에서 측정값 같은 정보를 <strong>TCB 클레임</strong>으로 뽑아냅니다. 바이너리를 다루므로 Rust로 작성되어 있습니다.</p></div>
+    <div class="card" style="border-color:var(--trust)"><h4><span class="ic">📐</span>증명 정책</h4><p style="font-size:15.5px;margin:0">Verifier가 뽑은 TCB 클레임을 RVPS의 참조값과 비교해 <strong>신뢰도 벡터</strong>를 계산하는 OPA 정책입니다. 장치마다 한 번씩 평가되어, 장치마다 벡터가 하나씩 나옵니다(7장).</p></div>
+  </div>
+  <div class="note key">
+    <span class="nt">왜 두 층으로 나눴을까?</span>
+    <p>Verifier는 <strong>하드웨어</strong>에 맞춰져 있습니다. TDX의 보고서 형식은 잘 바뀌지 않으니 한 번 잘 만들면 오래 씁니다. 증명 정책은 <strong>런타임</strong>에 맞춰져 있습니다. 게스트가 어떻게 부팅하느냐에 따라 "어느 측정값을 무엇과 비교할지"가 달라지기 때문입니다. CoCo 기본 정책은 Kata로 부팅한 TDX·SNP 게스트에 맞춰져 있어서, CoCo 사용자는 대부분 증명 정책을 고칠 필요가 없습니다.</p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="lec" id="s4">
+  <div class="secnum">4</div>
+  <h2>RVPS: 정품 기준표 관리실</h2>
+  <p>RVPS(Reference Value Provider Service)는 참조값을 관리합니다. 여러 형식의 매니페스트에서 참조값을 뽑아 저장하고, AS가 증명 정책을 평가할 때 제공합니다.</p>
+  <ul>
+    <li><strong>추출기(extractor):</strong> 들어온 메시지의 형식에 맞춰 참조값을 뽑아내는 모듈입니다. 테스트용 sample 추출기부터 공급망 증명 형식을 다루는 추출기까지 있습니다.</li>
+    <li><strong>서명된 메시지:</strong> RVPS는 기본적으로 참조값이 <strong>서명된 메시지</strong>로 전달되기를 기대합니다. 누구나 "이게 정상 값이야"라고 넣을 수 있으면 안 되기 때문입니다.</li>
+    <li><strong>등록 방법:</strong> 관리 도구로 간단한 값을 넣거나, 전용 RVPS 도구로 복잡한 값을 등록하거나, 오퍼레이터 환경에서는 ConfigMap으로 넣습니다.</li>
+  </ul>
+  <div class="note analogy">
+    <span class="nt">예제: 기준값 하나가 들어가는 과정</span>
+    <p>이미지 빌드 파이프라인이 새 게스트 펌웨어를 빌드합니다. 빌드가 끝나면 그 펌웨어를 넣었을 때 나올 측정값(예: MRTD)을 계산하고, 그 값을 담은 메시지에 빌드 시스템의 키로 서명해 RVPS에 등록합니다. 이후 그 펌웨어로 부팅한 게스트의 증거가 들어오면, AS의 정책이 RVPS에서 이 값을 꺼내 비교합니다. 이 파이프라인 설계가 8편의 주제입니다.</p>
+  </div>
+  <div class="note danger">
+    <span class="nt">RVPS는 공격 대상이다</span>
+    <p>RVPS에 공격자의 측정값을 넣을 수 있다면, 공격자의 커널도 "승인된 커널"이 됩니다. AS와 KBS가 아무리 정확해도 기준표가 오염되면 끝입니다. RVPS 접근 권한과 서명 키 관리는 KBS 관리자 권한만큼 중요합니다.</p>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="lec" id="s5">
+  <div class="secnum">5</div>
+  <h2>정책은 왜 세 개인가</h2>
+  <p>Trustee를 처음 보면 정책이 많아서 헷갈립니다. 하지만 각 정책은 <strong>지키는 위치</strong>와 <strong>판단하는 질문</strong>이 다릅니다.</p>
+  <div class="tbl"><table>
+    <tr><th>정책</th><th>어디서 집행</th><th>묻는 질문</th><th>어디에 설정</th></tr>
+    <tr><td><strong>에이전트 정책</strong></td><td>TEE 안의 kata-agent</td><td>"호스트의 이 요청을 들어줘도 되나?"</td><td>Init-Data (5편)</td></tr>
+    <tr><td><strong>증명 정책</strong></td><td>Trustee AS</td><td>"이 증거가 나타내는 TCB는 신뢰할 만한가?"</td><td>AS (관리 도구 또는 설정 파일)</td></tr>
+    <tr><td><strong>리소스 정책</strong></td><td>Trustee KBS</td><td>"이 판정을 받은 워크로드에게 이 비밀을 줘도 되나?"</td><td>KBS (관리 도구 또는 설정 파일)</td></tr>
+  </table></div>
+  <p>세 정책은 사슬처럼 이어집니다. 에이전트 정책은 Init-Data에 담겨 측정되고, 증명 정책은 그 측정을 포함한 증거로 토큰을 만들고, 리소스 정책은 토큰 안의 Init-Data 해시까지 확인할 수 있습니다. 그래서 Trustee는 에이전트 정책을 직접 관리하지 않지만, <strong>올바른 에이전트 정책이 적용된 워크로드에만</strong> 비밀을 줄 수 있습니다.</p>
+  <div class="panel">
+    <h4>직접 해보기: 어느 정책이 막을까?</h4>
+    <div class="tabs" id="whoTabs"></div>
+    <div class="vx" id="whoBody" aria-live="polite"></div>
+  </div>
+</section>
+<!-- 6 -->
+<section class="lec" id="s6">
+  <div class="secnum">6</div>
+  <h2>1단계: Verifier와 TCB 클레임</h2>
+  <p>KBS가 증거를 AS에 넘기면, 먼저 그 하드웨어 종류에 맞는 Verifier가 일을 시작합니다. Verifier는 두 가지를 합니다.</p>
+  <ol>
+    <li><strong>보증 확인:</strong> 증거가 제조사(또는 제조사에 뿌리를 둔 신뢰 체인)로 서명되었는지 확인합니다. 3편 7장의 인증서 체인 검증이 바로 이 일입니다. 실패하면 여기서 끝납니다.</li>
+    <li><strong>클레임 추출:</strong> 바이너리로 된 증거를 읽기 좋은 키-값 묶음, 즉 <strong>TCB 클레임</strong>으로 풀어냅니다.</li>
+  </ol>
+  <div class="code"><span class="c">// TDX 증거에서 뽑아낸 TCB 클레임의 예시 형태 (학습용으로 단순화)</span>
+{
+  <span class="k">"tdx.quote.body.mr_td"</span>:        <span class="s">"a3f1…9c07"</span>,   <span class="c">// 초기 펌웨어 측정값</span>
+  <span class="k">"tdx.quote.body.rtmr_1"</span>:      <span class="s">"5be2…7d10"</span>,   <span class="c">// 커널 등 부팅 측정값</span>
+  <span class="k">"tdx.quote.body.rtmr_2"</span>:      <span class="s">"0c44…e1a9"</span>,   <span class="c">// 커맨드라인·initrd</span>
+  <span class="k">"tdx.quote.body.mr_config_id"</span>: <span class="s">"77d0…41bb"</span>,   <span class="c">// Init-Data 해시 (5편 8장)</span>
+  <span class="k">"tdx.td_attributes.debug"</span>:     <span class="y">false</span>,         <span class="c">// 디버그 모드 여부</span>
+  <span class="k">"tdx.tcb_status"</span>:              <span class="s">"UpToDate"</span>,    <span class="c">// 3편 8장의 TCB 상태</span>
+  <span class="k">"report_data"</span>:                 <span class="s">"hash(nonce + 공개키)"</span>
+}</div>
+  <p class="cap">실제 클레임 이름과 구조는 플랫폼과 Trustee 버전에 따라 다릅니다. 플랫폼별 클레임 목록은 Trustee 저장소의 문서에 정리되어 있습니다.</p>
+  <div class="note key">
+    <span class="nt">이 단계의 결과물</span>
+    <p>Verifier는 "좋다, 나쁘다"를 판정하지 않습니다. <strong>"이 증거는 진짜이고, 안에 이런 값들이 있다"</strong>까지만 말합니다. 판정은 다음 단계인 증명 정책의 몫입니다. 감정소에 비유하면 Verifier는 "이 서류는 위조가 아니고, 적힌 내용은 이것"이라고 읽어주는 사람입니다.</p>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="lec" id="s7">
+  <div class="secnum">7</div>
+  <h2>2단계: 증명 정책과 신뢰도 벡터</h2>
+  <p>증명 정책은 TCB 클레임을 RVPS의 참조값과 비교해 <strong>AR4SI 신뢰도 벡터</strong>를 계산합니다. 3편 10장에서 본 "건강검진 결과표"를 실제로 채우는 단계입니다. EAR은 TCB를 여덟 가지 측면으로 나눠 표현할 수 있는데, CoCo에서 주로 다루는 것은 하드웨어, 실행 파일, 설정 같은 측면입니다.</p>
+  <div class="panel">
+    <h4>직접 해보기: 증명 정책 계산기</h4>
+    <div class="toggles" id="asTog">
+      <label><input type="checkbox" data-k="hwbad"> 하드웨어 서명 검증 실패</label>
+      <label><input type="checkbox" data-k="tcbold"> 펌웨어 TCB가 구버전 (OutOfDate)</label>
+      <label><input type="checkbox" data-k="exe"> 커널 측정값이 RVPS 참조값과 다름</label>
+      <label><input type="checkbox" data-k="dbg"> 디버그 모드 켜짐</label>
+    </div>
+    <div class="vec" id="vec"></div>
+    <div class="mfinal" id="asOut"></div>
+    <p class="mx-note" id="asNote"></p>
+    <p class="cap">숫자는 등급을 보여주기 위한 학습용 예시입니다. AR4SI에서 숫자는 범위로 등급을 나타내며(낮은 값은 affirming, 중간은 warning, 높은 값은 contraindicated), 정확한 값과 의미는 AR4SI 정의와 Trustee 기본 정책을 따릅니다.</p>
+  </div>
+  <div class="note analogy">
+    <span class="nt">"모르는 것"과 "나쁜 것"은 다르다</span>
+    <p>커널 측정값이 참조값과 다르다고 해서 그 커널이 악성이라는 뜻은 아닙니다. 새로 빌드했는데 참조값 등록을 깜빡했을 수도 있습니다. 그래서 정책은 이를 "알 수 없는 실행 파일"로 보고 <strong>warning</strong> 정도로 표시할 수 있습니다. 반면 디버그 모드처럼 "명백히 안전하지 않은 상태"는 <strong>contraindicated</strong>로 표시합니다. 리소스 정책이 affirming만 허용한다면 둘 다 거부되지만, 운영자가 원인을 파악할 때는 이 구분이 큰 도움이 됩니다.</p>
+  </div>
+  <p>증명 정책은 신뢰도 벡터 외에도 워크로드를 식별하는 정보(어떤 워크로드가 실행 중인지 나타내는 식별자 등)를 토큰에 추가로 담을 수 있습니다. 장치가 여러 개면 장치마다 평가가 한 번씩 이뤄지고, 벡터도 장치마다 하나씩 나옵니다.</p>
+</section>
+
+<!-- 8 -->
+<section class="lec" id="s8">
+  <div class="secnum">8</div>
+  <h2>3단계: EAR 토큰</h2>
+  <p>AS는 평가 결과를 <strong>EAR 형식의 증명 토큰</strong>으로 만들어 서명합니다. 이 토큰은 AS와 KBS 사이의 표준 인터페이스이면서, 원본 증거와 TCB 클레임까지 함께 담습니다. 3편 10장의 단순한 예를 실제 구조에 가깝게 다시 그려 봅니다.</p>
+  <div class="jwt" id="jwt6"></div>
+  <p class="cap">학습용으로 단순화한 구조입니다. 실제 필드 구성은 Trustee 버전과 플랫폼에 따라 다릅니다.</p>
+  <div class="tbl"><table>
+    <tr><th>부분</th><th>들어 있는 것</th><th>리소스 정책에서 쓰는 예</th></tr>
+    <tr><td><code>submods.cpu0</code></td><td>장치 하나의 판정. GPU가 있으면 <code>gpu0</code> 등이 추가됨</td><td>장치별로 따로 확인</td></tr>
+    <tr><td><code>ear.status</code></td><td>그 장치의 종합 등급</td><td>"affirming일 때만"</td></tr>
+    <tr><td><code>ear.trustworthiness-vector</code></td><td>측면별 숫자 판정</td><td>"실행 파일 측면이 승인 상태일 때만"</td></tr>
+    <tr><td><code>ear.veraison.annotated-evidence</code></td><td>플랫폼별 TCB 클레임 (tdx, snp 등), Init-Data 클레임</td><td>"TDX일 때만", "Init-Data의 워크로드 이름이 llm-prod일 때만"</td></tr>
+  </table></div>
+</section>
+
+<!-- 9 -->
+<section class="lec" id="s9">
+  <div class="secnum">9</div>
+  <h2>4단계: 리소스 정책</h2>
+  <p>리소스 정책(KBS 정책이라고도 부릅니다)은 <strong>요청한 리소스 경로</strong>와 <strong>증명 토큰</strong>을 입력으로 받아, 그 리소스를 내줄지 결정합니다. 보통 하드웨어 세부 사항보다는 토큰의 신뢰도 등급으로 판단합니다.</p>
+  <div class="note danger">
+    <span class="nt">기본 정책의 함정</span>
+    <p>CoCo 문서에 따르면 KBS 리소스 정책의 기본값은 <strong>증거가 샘플 증명자(sample attester)에서 온 것만 아니면 모든 요청을 허용</strong>합니다. 즉 "어떤 TEE에서든 요청했다"는 것만 보고, TCB가 건강한지는 따지지 않습니다. 실습에는 편하지만 운영 환경에서 그대로 쓰면 디버그 모드 TEE나 미승인 커널에도 키가 나갑니다. 운영에서는 최소한 affirming을 요구하는 정책으로 바꿔야 합니다.</p>
+  </div>
+  <div class="panel">
+    <h4>직접 해보기: 리소스 정책 시뮬레이터</h4>
+    <div class="tabs" id="rpTabs6"></div>
+    <div class="code" id="rpCode"></div>
+    <div class="reqs" id="rpReqs"></div>
+    <p class="mx-note" id="rpNote6"></p>
+  </div>
+  <h3>리소스 경로</h3>
+  <p>KBS의 리소스는 <code>저장소/종류/태그</code> 세 부분으로 된 경로로 가리킵니다. 예를 들어 <code>llm-prod/model-key/v1</code>은 "llm-prod 저장소의 model-key 종류, v1 태그"입니다. 리소스 정책은 이 경로의 각 부분을 확인할 수 있으므로, <strong>팀별·서비스별로 저장소를 나누고 정책도 저장소별로 쓰는 것</strong>이 관리하기 좋습니다.</p>
+  <div class="note term">
+    <span class="nt">Init-Data로 워크로드 이름표 붙이기</span>
+    <p>리소스 정책은 토큰에 담긴 Init-Data 클레임까지 볼 수 있습니다. 이 기능은 SEV-SNP의 HostData, TDX의 mrconfigid 같은 하드웨어 Init-Data 칸이 있는 플랫폼에서 지원됩니다. Init-Data에는 원하는 내용을 넣을 수 있으므로, 예를 들어 <code>workload = "llm-prod"</code> 같은 이름표를 넣고 "이 이름표가 붙은 파드에만 이 키를 준다"는 식의 <strong>워크로드 식별 체계</strong>를 직접 만들 수 있습니다. 같은 게스트 이미지로 부팅하는 서로 다른 워크로드를 구분하는 현실적인 방법입니다.</p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="lec" id="s10">
+  <div class="secnum">10</div>
+  <h2>5단계: 플러그인과 백엔드</h2>
+  <p>리소스 정책이 허용하면, <strong>KBS 플러그인</strong>이 실제 리소스를 꺼내 줍니다. 어떤 플러그인을 쓰든 리소스 정책은 항상 먼저 실행됩니다.</p>
+  <div class="grid3">
+    <div class="card"><h4><span class="ic">🗄️</span>리소스 백엔드</h4><p style="font-size:15px;margin:0">가장 흔한 형태. 미리 등록해 둔 키와 시크릿을 저장소에서 꺼내 줍니다. 로컬 저장소 외에 외부 키 저장소와 연동할 수 있습니다.</p></div>
+    <div class="card"><h4><span class="ic">🏦</span>외부 KMS·HSM</h4><p style="font-size:15px;margin:0">이미 운영 중인 키 관리 시스템에 요청을 넘깁니다. CoCo 문서에는 Azure Key Vault 연동 예가 있습니다.</p></div>
+    <div class="card"><h4><span class="ic">⚙️</span>즉석 생성</h4><p style="font-size:15px;margin:0">요청할 때 리소스를 만들어 주는 플러그인도 있습니다. 예를 들어 증명된 워크로드에게 인증서를 발급하는 식입니다.</p></div>
+  </div>
+  <p>마지막으로 KBS는 꺼낸 리소스를 <strong>TEE의 임시 공개키로 암호화</strong>해(JWE) 돌려줍니다. 3편 6장의 공개키 바인딩 덕분에, 그 TEE 안의 개인키로만 열 수 있습니다.</p>
+  <div class="note msp">
+    <span class="nt">MSP 관점: 기존 키 관리 체계와 연결하기</span>
+    <p>고객사가 이미 KMS나 HSM을 운영하고 있다면, 키를 Trustee 로컬 저장소에 복사하기보다 외부 백엔드로 연결하는 편이 키 수명 주기와 감사 측면에서 유리할 수 있습니다. 다만 그 KMS를 누가 운영하는지가 다시 신뢰 경계를 결정합니다(3편 13장).</p>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="lec" id="s11">
+  <div class="secnum">11</div>
+  <h2>CPU와 GPU 증거 합치기</h2>
+  <p>4편 9장에서 "CPU 증거와 GPU 증거를 묶어야 한다"고 했습니다. Trustee는 이를 위해 KBS 프로토콜에 <strong>합성 증거(composite evidence)</strong> 형식을 정의하고 있습니다. 4편에서 "같은 요청에서 묶는다"고 단순화했던 부분의 실제 방식입니다.</p>
+  <ol class="ws">
+    <li><b>장치 찾기</b><p>게스트 안의 클라이언트가 붙어 있는 기밀 장치를 찾습니다. 보통 CPU를 <strong>주 장치</strong>로 정합니다.</p></li>
+    <li><b>부 장치 증거 먼저</b><p>GPU 같은 다른 장치들의 증거를 먼저 모읍니다.</p></li>
+    <li><b>해시를 주 장치 증거에 넣기</b><p>부 장치 증거들의 해시를 CPU 증거의 REPORT_DATA에 넣습니다. 그래서 GPU 증거를 빼거나, 바꾸거나, 다른 조합으로 섞으면 CPU 증거와 맞지 않게 됩니다.</p></li>
+    <li><b>KBS가 다시 나누기</b><p>KBS는 합성 증거를 장치별 독립 증거로 다시 나눠 AS에 넘깁니다.</p></li>
+    <li><b>장치마다 판정</b><p>AS는 장치마다 증명 정책을 평가하고, 토큰에는 장치마다 <code>submod</code>와 신뢰도 벡터가 하나씩 생깁니다. GPU 흐름에는 기본 GPU 증명 정책이 쓰입니다.</p></li>
+  </ol>
+  <div class="note key">
+    <span class="nt">리소스 정책에서는</span>
+    <p>결과적으로 리소스 정책은 "<code>cpu0</code>도 affirming이고 <code>gpu0</code>도 affirming일 때만 모델 키를 준다"처럼 쓰면 됩니다. 묶음 확인은 프로토콜이 이미 해 주었기 때문입니다.</p>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="lec" id="s12">
+  <div class="secnum">12</div>
+  <h2>API와 관리 도구</h2>
+  <h3>게스트가 쓰는 API (KBS 프로토콜)</h3>
+  <div class="tbl"><table>
+    <tr><th>요청</th><th>하는 일</th></tr>
+    <tr><td><code>POST /kbs/v0/auth</code></td><td>RCAR의 Request. TEE 종류를 알리고 nonce를 받음</td></tr>
+    <tr><td><code>POST /kbs/v0/attest</code></td><td>RCAR의 Attestation. 증거와 TEE 공개키 제출, 판정 토큰 받음</td></tr>
+    <tr><td><code>GET /kbs/v0/resource/&lt;저장소&gt;/&lt;종류&gt;/&lt;태그&gt;</code></td><td>리소스 요청. 리소스 정책 통과 시 JWE로 암호화된 리소스 받음</td></tr>
+  </table></div>
+  <h3>관리자가 쓰는 도구 (kbs-client)</h3>
+  <p>관리 작업은 kbs-client의 <code>config</code> 하위 명령으로 합니다. 최근 문서는 관리자 인증에 <strong>관리자 토큰</strong> 파일을 쓰는 방식으로 안내합니다.</p>
+  <div class="code"><span class="c"># 리소스 정책 설정 (파일로)</span>
+kbs-client --url &lt;kbs-url&gt; config --admin-token-file &lt;토큰파일&gt; \
+    set-resource-policy --policy-file resource-policy.rego
+
+<span class="c"># 내장 정책으로 간단히: --allow-all / --deny-all / --default / --affirming</span>
+kbs-client --url &lt;kbs-url&gt; config --admin-token-file &lt;토큰파일&gt; \
+    set-resource-policy <span class="r">--affirming</span>
+
+<span class="c"># 증명 정책 설정</span>
+kbs-client --url &lt;kbs-url&gt; config --admin-token-file &lt;토큰파일&gt; \
+    set-attestation-policy --policy-file attestation-policy.rego
+
+<span class="c"># 간단한 참조값 등록·조회 (sample 추출기 사용)</span>
+kbs-client config --admin-token-file &lt;토큰파일&gt; set-sample-reference-value &lt;이름&gt; &lt;값&gt;
+kbs-client config --admin-token-file &lt;토큰파일&gt; get-reference-values</div>
+  <p class="cap">명령 형식은 CoCo 문서의 예를 바탕으로 정리했습니다. 리소스 등록 등 나머지 명령과 정확한 옵션은 7편에서 실제 버전으로 실습합니다.</p>
+  <p>복잡한 참조값은 RVPS에 직접 붙는 <strong>rvps-tool</strong>로 등록합니다. 이 도구는 KBS 관리자 권한과 분리되어 있어서, "KBS 정책 관리자"와 "참조값 공급자(빌드 파이프라인)"를 서로 다른 사람·시스템으로 나눌 수 있습니다. 3편의 RATS 역할 분리가 도구 수준에서도 구현된 셈입니다.</p>
+</section>
+
+<!-- 13 -->
+<section class="lec" id="s13">
+  <div class="secnum">13</div>
+  <h2>설치 형태</h2>
+  <div class="grid3">
+    <div class="card"><h4><span class="ic">🐳</span>Docker Compose</h4><p style="font-size:15px;margin:0">한 대의 머신에 KBS·AS·RVPS를 컨테이너로 띄웁니다. 실습과 개발에 가장 쉽고, TEE 하드웨어가 없어도 됩니다. 7편 실습의 출발점입니다.</p></div>
+    <div class="card"><h4><span class="ic">⛵</span>Helm</h4><p style="font-size:15px;margin:0">Kubernetes에 차트로 설치합니다. 기존 Helm 기반 운영 체계에 맞추기 좋습니다.</p></div>
+    <div class="card"><h4><span class="ic">🤖</span>오퍼레이터</h4><p style="font-size:15px;margin:0">Trustee 오퍼레이터가 <code>KbsConfig</code> 같은 커스텀 리소스로 구성을 관리합니다. Red Hat 배포판은 <code>TrusteeConfig</code>로 CPU·GPU 증명 정책과 리소스 정책 ConfigMap까지 자동으로 만들어 줍니다.</p></div>
+  </div>
+  <div class="note key">
+    <span class="nt">어디에 설치할까?</span>
+    <p>Trustee는 <strong>믿을 수 있는 곳</strong>에 있어야 합니다. 기밀 파드가 도는 같은 클러스터에, 같은 관리자가 관리하는 형태로 두면 CoCo로 빼낸 클러스터 관리자가 Trustee를 통해 다시 들어옵니다. 고객 소유 환경, 별도 클러스터, 또는 그 자체가 기밀 환경 안에서 돌아가는 Trustee 같은 선택지를 3편 13장의 운영 모델과 함께 검토해야 합니다.</p>
+  </div>
+</section>
+
+<!-- 14 -->
+<section class="lec" id="s14">
+  <div class="secnum">14</div>
+  <h2>보안·운영 체크포인트</h2>
+  <div class="grid2">
+    <details class="card"><summary><span class="ic">🔐</span>관리자 인증 보호</summary><div class="body"><p>관리자 토큰을 가진 사람은 정책을 바꾸고 리소스를 등록할 수 있습니다. 사실상 모든 비밀의 열쇠입니다. 발급 대상, 보관 위치, 교체 주기를 정하고 사용 기록을 남겨야 합니다.</p></div></details>
+    <details class="card"><summary><span class="ic">🌐</span>HTTPS</summary><div class="body"><p>KBS 프로토콜 자체가 증거에 묶인 보호를 제공하지만, 관리 API와 전체 통신은 HTTPS로 운영해야 합니다. 실습용 HTTP 설정이 운영으로 넘어오지 않게 주의하세요.</p></div></details>
+    <details class="card"><summary><span class="ic">🧪</span>정책 테스트</summary><div class="body"><p>Rego 정책은 OPA 테스트로 미리 검증할 수 있습니다. 허용 사례뿐 아니라 <strong>거부되어야 하는 사례</strong>를 반드시 테스트에 넣고, 실제 하드웨어로 확인할 때는 운영 키가 아닌 시험용 리소스를 쓰는 것이 안전합니다.</p></div></details>
+    <details class="card"><summary><span class="ic">📜</span>정책 버전 관리</summary><div class="body"><p>정책은 코드입니다. Git으로 관리하고, 변경은 리뷰와 승인을 거쳐 배포하며, 어느 시점에 어떤 정책이 적용되었는지 기록해야 고객에게 설명할 수 있습니다(8편).</p></div></details>
+    <details class="card"><summary><span class="ic">⚡</span>고가용성</summary><div class="body"><p>Trustee가 멈추면 새 파드가 키를 받지 못해 서비스가 시작되지 않습니다. 이중화, 백엔드 저장소 백업, 장애 시 절차를 설계해야 합니다.</p></div></details>
+    <details class="card"><summary><span class="ic">🩹</span>버전과 취약점</summary><div class="body"><p>Trustee도 소프트웨어이므로 취약점이 발견되고 패치됩니다. 예를 들어 과거 일부 버전에서는 증명 정책 설정 경로가 요청자의 관리자 인증을 제대로 확인하지 않던 문제가 보고되어 수정된 바 있습니다. 사용 중인 버전과 보안 공지를 추적하세요(11편).</p></div></details>
+  </div>
+</section>
+<!-- 15 -->
+<section class="lec" id="s15">
+  <div class="secnum">15</div>
+  <h2>확인 퀴즈</h2>
+  <p>보기를 누르면 바로 정답과 해설이 나옵니다.</p>
+  <div id="quiz"></div>
+  <p class="qscore" id="qscore"></p>
+</section>
+
+<!-- 16 -->
+<section class="lec" id="s16">
+  <div class="secnum">16</div>
+  <h2>용어 사전</h2>
+  <input class="gsearch" id="gsearch" type="search" placeholder="예: Verifier, 리소스 정책, RVPS" aria-label="용어 검색">
+  <div class="gl" id="glossary"></div>
+</section>
+
+<!-- 17 -->
+<section class="lec" id="s17">
+  <div class="secnum">17</div>
+  <h2>정리와 다음 편</h2>
+  <ol>
+    <li>Trustee는 <strong>KBS(정문·리소스 정책)</strong>, <strong>AS(검증·증명 정책)</strong>, <strong>RVPS(참조값)</strong>와 관리 도구로 이뤄지며, 게스트는 KBS하고만 대화합니다.</li>
+    <li>증거는 <strong>Verifier → TCB 클레임 → 증명 정책 + 참조값 → 신뢰도 벡터 → EAR 토큰 → 리소스 정책 → 플러그인</strong>의 순서로 열쇠가 됩니다.</li>
+    <li>Verifier는 하드웨어별로 서명을 검증하고 클레임을 뽑을 뿐 판정하지 않습니다. 판정은 런타임별 <strong>증명 정책</strong>이 합니다.</li>
+    <li>정책은 세 가지입니다. <strong>에이전트 정책</strong>(TEE 안), <strong>증명 정책</strong>(AS), <strong>리소스 정책</strong>(KBS). Init-Data를 통해 사슬처럼 이어집니다.</li>
+    <li>리소스 정책은 <strong>경로와 토큰</strong>을 입력으로 받습니다. 기본 정책은 TCB를 따지지 않으므로 운영에서는 affirming 이상을 요구해야 합니다.</li>
+    <li>RVPS의 참조값은 서명된 메시지로 받아야 하며, 오염되면 모든 검증이 무너집니다.</li>
+    <li>CPU·GPU 증거는 <strong>합성 증거</strong>로 묶여 오고, 토큰에는 장치마다 submod가 생깁니다.</li>
+  </ol>
+  <div class="next">
+    <h3 style="margin-top:0">7편 예고: Trustee 구축 실습</h3>
+    <p style="margin-bottom:0">이번 편의 지도를 손으로 따라갑니다. Docker Compose로 TEE 하드웨어 없이 Trustee를 띄우고, kbs-client로 리소스를 등록하고, 샘플 증거로 요청을 보내 기본 정책이 거부하는 것을 확인한 뒤, 리소스 정책과 참조값을 바꿔가며 결과가 어떻게 달라지는지 실험합니다. 마지막으로 Kubernetes에 오퍼레이터나 Helm으로 올리는 방법과 CoCo 파드를 연결하는 설정을 다룹니다.</p>
+  </div>
+  <footer>TEE·Trustee 강의 시리즈 6편. Trustee 구조와 정책 설명은 CoCo 공식 문서를 바탕으로 했으며, 예시 코드·토큰·클레임은 학습용으로 단순화했습니다. 필드 이름과 명령 옵션은 버전에 따라 다를 수 있으니 실제 구축 시 사용하는 버전의 문서를 확인하세요.</footer>
+</section>
+
+</div>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function $(s,r){return (r||document).querySelector(s);}
+function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
+function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function tabs(sel,attr,cur){$$(sel).forEach(function(b){var on=b.getAttribute(attr)===cur;b.classList.toggle("on",on);b.setAttribute("aria-pressed",on?"true":"false");});}
+
+/* theme */
+var root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=(t==="dark")?"라이트 테마":"다크 테마";}
+var saved=null;try{saved=localStorage.getItem("tee-lecture-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",function(){var t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("tee-lecture-theme",t);}catch(e){}});
+
+/* toc */
+var toc=$("#toc"),tocBtn=$("#tocBtn");
+tocBtn.addEventListener("click",function(){var o=toc.classList.toggle("open");tocBtn.setAttribute("aria-expanded",o?"true":"false");});
+$$("#toc a").forEach(function(a){a.addEventListener("click",function(){toc.classList.remove("open");tocBtn.setAttribute("aria-expanded","false");});});
+var secs=$$("section.lec"),links={};
+$$("#toc a").forEach(function(a){links[a.getAttribute("href").slice(1)]=a;});
+function onScroll(){var h=document.documentElement,max=h.scrollHeight-h.clientHeight;$("#progress").style.width=(max>0?h.scrollTop/max*100:0)+"%";var cur=secs[0].id;secs.forEach(function(s){if(s.getBoundingClientRect().top<140)cur=s.id;});Object.keys(links).forEach(function(k){links[k].classList.toggle("active",k===cur);});}
+window.addEventListener("scroll",onScroll,{passive:true});onScroll();
+
+/* pipeline */
+var PIPE=[
+ ["🧾","증거","KBS","게스트의 AA가 RCAR 대화로 칩이 서명한 증거를 KBS에 제출합니다. GPU가 있으면 합성 증거로 함께 옵니다(11장).","ct"],
+ ["🔬","Verifier","AS","하드웨어 종류에 맞는 Verifier가 서명을 제조사 체인으로 검증합니다(6장).","pr"],
+ ["🏷️","TCB 클레임","AS","Verifier가 바이너리 증거를 측정값, 디버그 여부, TCB 상태 같은 키-값으로 풀어냅니다. 아직 판정은 없습니다(6장).","pr"],
+ ["📐","증명 정책","AS + RVPS","OPA 정책이 클레임을 RVPS의 참조값과 비교해 장치별 신뢰도 벡터를 계산합니다(7장).","pr"],
+ ["🎫","EAR 토큰","AS → KBS","판정 등급, 신뢰도 벡터, 클레임, Init-Data 정보를 담아 서명한 토큰이 KBS로 갑니다(8장).","go"],
+ ["⚖️","리소스 정책","KBS","요청한 리소스 경로와 토큰을 입력으로 '이 비밀을 줘도 되나'를 결정합니다(9장).","go"],
+ ["🔑","플러그인","KBS","허용되면 플러그인이 리소스를 꺼내 TEE 공개키로 암호화해 돌려줍니다(10장).","ct"]
+];
+var pI=0,pT=null;
+function renderPipe(){
+  var h="";PIPE.forEach(function(p,i){h+='<button class="seg '+(i<=pI?p[4]:"na")+(i===pI?" sel":"")+'" data-i="'+i+'"><span class="ic">'+p[0]+'</span>'+esc(p[1])+'<span class="st">'+esc(p[2])+'</span></button>';});
+  $("#pipe").innerHTML=h;$("#pipeState").textContent=(pI+1)+" / "+PIPE.length;
+  var p=PIPE[pI];$("#pipeOut").innerHTML="<strong>"+(pI+1)+". "+esc(p[1])+" ("+esc(p[2])+"):</strong> "+esc(p[3]);
+  $$("#pipe .seg").forEach(function(b){b.addEventListener("click",function(){clearInterval(pT);pI=+b.getAttribute("data-i");renderPipe();});});
+}
+$("#pipePlay").addEventListener("click",function(){clearInterval(pT);pI=0;renderPipe();if(reduce){pI=PIPE.length-1;renderPipe();return;}pT=setInterval(function(){if(pI>=PIPE.length-1){clearInterval(pT);return;}pI++;renderPipe();},1400);});
+renderPipe();
+
+/* which policy */
+var WHO=[
+ ["🐚 kubectl exec 시도","에이전트 정책","호스트의 kata shim이 보낸 ExecProcess 요청을 TEE 안의 kata-agent가 정책으로 거부합니다. Trustee까지 가지도 않습니다."],
+ ["🧬 미승인 커널로 부팅","증명 정책 → 리소스 정책","증명 정책이 커널 측정값을 참조값과 비교해 실행 파일 측면을 affirming이 아닌 등급으로 매기고, affirming을 요구하는 리소스 정책이 키를 거부합니다."],
+ ["🐞 디버그 모드 TEE","증명 정책 → 리소스 정책","증명 정책이 디버그 플래그를 보고 설정 측면을 부적합으로 매기고, 리소스 정책이 거부합니다. 기본 리소스 정책이라면 그대로 통과할 수 있다는 점에 주의하세요."],
+ ["🏢 다른 팀의 키 요청","리소스 정책","TEE도 건강하고 판정도 affirming이지만, 요청한 경로의 저장소가 이 워크로드의 몫이 아니라서 리소스 정책이 거부합니다."],
+ ["✏️ Init-Data 바꿔치기","리소스 정책","증명 정책은 증거 속 Init-Data 해시를 토큰에 담아 줄 뿐입니다. 리소스 정책이 그 Init-Data 클레임(또는 해시)을 승인값과 비교해 거부합니다."],
+ ["🧪 TEE 없는 샘플 증거","리소스 정책 (기본 정책도)","기본 리소스 정책은 샘플 증명자에서 온 요청을 거부합니다. 실습할 때 기본 정책으로는 키를 받을 수 없는 이유입니다."]
+];
+var wI=0;
+function renderWho(){
+  var h="";WHO.forEach(function(w,i){h+='<button class="btn'+(i===wI?" on":"")+'" data-i="'+i+'" aria-pressed="'+(i===wI)+'">'+esc(w[0])+'</button>';});
+  $("#whoTabs").innerHTML=h;var w=WHO[wI];
+  $("#whoBody").innerHTML='<div class="side new"><h4>막는 정책</h4><p style="margin:0;font-size:17px;font-weight:700">'+esc(w[1])+'</p></div><div class="side old" style="background:var(--surface2);border-color:var(--line)"><h4>어떻게</h4><p style="margin:0">'+esc(w[2])+'</p></div>';
+  $$("#whoTabs .btn").forEach(function(b){b.addEventListener("click",function(){wI=+b.getAttribute("data-i");renderWho();});});
+}
+renderWho();
+
+/* AS calculator */
+var asT={};
+function tier(v){return v<2?"none":v<32?"affirming":v<96?"warning":"contraindicated";}
+var TCLS={affirming:"a",warning:"w",contraindicated:"x",none:""};
+var RANK={none:0,affirming:1,warning:2,contraindicated:3};
+function renderAs(){
+  var hw=asT.hwbad?97:(asT.tcbold?32:2),exe=asT.exe?33:2,cfg=asT.dbg?96:2;
+  var v=[["hardware",hw,asT.hwbad?"서명 검증 실패: 정품 하드웨어로 볼 수 없음":asT.tcbold?"정품이지만 패치가 필요한 TCB":"정품 하드웨어, 최신 TCB"],["executables",exe,asT.exe?"참조값에 없는 커널: 알 수 없는 실행 파일":"승인된 펌웨어·커널로 부팅"],["configuration",cfg,asT.dbg?"디버그 모드: 안전하지 않은 설정":"안전한 설정"]];
+  var h="",worst="affirming";
+  v.forEach(function(x){var t=tier(x[1]);if(RANK[t]>RANK[worst])worst=t;h+='<div class="'+TCLS[t]+'"><b>'+x[0]+': '+x[1]+'</b>'+t+'<br><small class="muted">'+esc(x[2])+'</small></div>';});
+  $("#vec").innerHTML=h;
+  if(asT.hwbad)worst="contraindicated";
+  var pill=worst==="affirming"?"seal":worst==="warning"?"warn":"leak";
+  $("#asOut").innerHTML='<span>토큰의 <code>submods.cpu0["ear.status"]</code></span><span class="pill '+pill+'">'+worst+'</span>';
+  var n=worst==="affirming"?"모든 측면이 긍정입니다. affirming을 요구하는 리소스 정책이 키를 내줍니다.":worst==="warning"?"가장 나쁜 측면이 경고 등급이라 종합 판정도 warning입니다. affirming만 허용하는 정책이라면 거부되고, 경고까지 허용하는 정책(예: TCB 패치 유예 기간)이라면 통과할 수 있습니다.":"부적합 등급이 하나라도 있으면 종합 판정이 contraindicated가 됩니다. 신뢰하면 안 되는 상태로, 어떤 합리적인 리소스 정책도 키를 내주지 않아야 합니다.";
+  if(asT.hwbad)n="하드웨어 서명이 검증되지 않으면 사실 Verifier 단계에서 막히며, 그 뒤의 측면은 의미가 없습니다. "+n;
+  $("#asNote").textContent=n;
+}
+$$("#asTog input").forEach(function(cb){cb.addEventListener("change",function(){asT[cb.getAttribute("data-k")]=cb.checked;renderAs();});});
+renderAs();
+
+/* jwt */
+$("#jwt6").innerHTML=[
+'<span class="c">// 헤더: 서명 알고리즘 등   ·   서명: AS의 키로 서명 → KBS가 검증</span>',
+'{',
+'  <span class="k">"eat_profile"</span>: <span class="s">"tag:github.com,2023:veraison/ear"</span>,',
+'  <span class="k">"iat"</span>: <span class="n">1790917200</span>,  <span class="k">"exp"</span>: <span class="n">1790917500</span>,',
+'  <span class="k">"ear.verifier-id"</span>: { … },',
+'  <span class="k">"submods"</span>: {',
+'    <span class="k">"cpu0"</span>: {',
+'      <span class="k">"ear.status"</span>: <span class="s">"affirming"</span>,                 <span class="c">// 7장의 종합 등급</span>',
+'      <span class="k">"ear.trustworthiness-vector"</span>: {                 <span class="c">// 7장의 측면별 판정</span>',
+'        <span class="k">"hardware"</span>: <span class="n">2</span>, <span class="k">"executables"</span>: <span class="n">2</span>, <span class="k">"configuration"</span>: <span class="n">2</span>',
+'      },',
+'      <span class="k">"ear.veraison.annotated-evidence"</span>: {',
+'        <span class="k">"tdx"</span>: { <span class="k">"quote"</span>: { … 6장의 TCB 클레임 … } },',
+'        <span class="k">"init_data_claims"</span>: {                         <span class="c">// 5편 8장의 Init-Data 내용</span>',
+'          <span class="k">"workload"</span>: <span class="s">"llm-prod"</span>, …',
+'        }',
+'      }',
+'    },',
+'    <span class="k">"gpu0"</span>: { <span class="k">"ear.status"</span>: <span class="s">"affirming"</span>, … }          <span class="c">// GPU가 있으면 장치별로 추가</span>',
+'  }',
+'}'
+].join("\n");
+
+/* resource policy simulator */
+var RPOL=[
+ {k:"all",nm:"모두 허용",code:'package policy\n\n<span class="r">default allow = true</span>   <span class="c"># 어떤 요청이든 허용</span>',ev:function(r){return true;},n:"테스트 외에는 절대 쓰면 안 되는 정책입니다. TEE가 없는 요청에도 키가 나갑니다."},
+ {k:"def",nm:"기본 정책 (개념)",code:'package policy\n<span class="k">import</span> rego.v1\n\n<span class="c"># 기본 정책의 뜻을 단순화: 샘플 증명자만 아니면 허용</span>\n<span class="k">default</span> allow = <span class="r">false</span>\nallow <span class="k">if</span> {\n    <span class="k">not</span> from_sample_attester\n}',ev:function(r){return !r.sample;},n:"어떤 TEE에서 왔는지만 보고 TCB 건강 상태는 따지지 않습니다. 미승인 커널, 디버그 모드, 다른 팀 경로까지 모두 통과합니다."},
+ {k:"aff",nm:"affirming 요구",code:'package policy\n<span class="k">import</span> rego.v1\n\n<span class="k">default</span> allow = <span class="r">false</span>\nallow <span class="k">if</span> {\n    input[<span class="s">"submods"</span>][<span class="s">"cpu0"</span>][<span class="s">"ear.status"</span>] == <span class="s">"affirming"</span>\n}',ev:function(r){return r.status==="affirming";},n:"TCB가 건강한 경우만 허용합니다. 운영의 최소 기준입니다. 하지만 어떤 경로를 요청하든 허용하므로 다른 팀의 키도 나가고, Init-Data 바꿔치기도 걸러내지 못합니다."},
+ {k:"path",nm:"경로 + 플랫폼",code:'package policy\n<span class="k">import</span> rego.v1\n\n<span class="k">default</span> allow = <span class="r">false</span>\nallow <span class="k">if</span> {\n    data.plugin == <span class="s">"resource"</span>\n    data[<span class="s">"resource-path"</span>][0] == <span class="s">"llm-prod"</span>      <span class="c"># 저장소 확인</span>\n    input[<span class="s">"submods"</span>][<span class="s">"cpu0"</span>][<span class="s">"ear.status"</span>] == <span class="s">"affirming"</span>\n    input[<span class="s">"submods"</span>][<span class="s">"cpu0"</span>][<span class="s">"ear.veraison.annotated-evidence"</span>][<span class="s">"tdx"</span>]   <span class="c"># TDX만</span>\n}',ev:function(r){return r.repo==="llm-prod"&&r.status==="affirming"&&r.plat==="tdx";},n:"저장소별로 키를 나눠 다른 팀 요청을 막습니다. 플랫폼을 TDX로 제한했기 때문에 정상적인 SNP 파드도 거부됩니다. 의도한 설계인지 확인해야 합니다. Init-Data 바꿔치기는 여전히 통과합니다."},
+ {k:"init",nm:"Init-Data 바인딩",code:'package policy\n<span class="k">import</span> rego.v1\n\n<span class="k">default</span> allow = <span class="r">false</span>\nallow <span class="k">if</span> {\n    data.plugin == <span class="s">"resource"</span>\n    data[<span class="s">"resource-path"</span>][0] == <span class="s">"llm-prod"</span>\n    cpu := input[<span class="s">"submods"</span>][<span class="s">"cpu0"</span>]\n    cpu[<span class="s">"ear.status"</span>] == <span class="s">"affirming"</span>\n    cpu[<span class="s">"ear.veraison.annotated-evidence"</span>][<span class="s">"init_data_claims"</span>][<span class="s">"workload"</span>] == <span class="s">"llm-prod"</span>\n}',ev:function(r){return r.repo==="llm-prod"&&r.status==="affirming"&&r.init;},n:"측정된 Init-Data의 워크로드 이름표까지 확인합니다. 승인된 에이전트 정책과 설정으로 시작한 llm-prod 파드에만 llm-prod 키가 나갑니다. 플랫폼은 묻지 않으므로 SNP 파드도 정상 허용됩니다."}
+];
+var RREQ=[
+ {d:"정상 TDX 파드 · 승인된 구성",path:"llm-prod/model-key/v1",sample:false,status:"affirming",plat:"tdx",init:true,repo:"llm-prod",want:true},
+ {d:"정상 SNP 파드 · 승인된 구성",path:"llm-prod/model-key/v1",sample:false,status:"affirming",plat:"snp",init:true,repo:"llm-prod",want:true},
+ {d:"TEE 없는 샘플 증거",path:"llm-prod/model-key/v1",sample:true,status:"contraindicated",plat:"sample",init:false,repo:"llm-prod",want:false},
+ {d:"진짜 TDX · 미승인 커널",path:"llm-prod/model-key/v1",sample:false,status:"warning",plat:"tdx",init:true,repo:"llm-prod",want:false},
+ {d:"진짜 TDX · 디버그 모드",path:"llm-prod/model-key/v1",sample:false,status:"contraindicated",plat:"tdx",init:true,repo:"llm-prod",want:false},
+ {d:"진짜 TDX · Init-Data 바꿔치기",path:"llm-prod/model-key/v1",sample:false,status:"affirming",plat:"tdx",init:false,repo:"llm-prod",want:false},
+ {d:"진짜 TDX · 다른 팀 경로 요청",path:"finance/db-password/v1",sample:false,status:"affirming",plat:"tdx",init:true,repo:"finance",want:false}
+];
+var rpI=0;
+function renderRp(){
+  var h="";RPOL.forEach(function(p,i){h+='<button class="btn'+(i===rpI?" on":"")+'" data-i="'+i+'" aria-pressed="'+(i===rpI)+'">'+esc(p.nm)+'</button>';});
+  $("#rpTabs6").innerHTML=h;var p=RPOL[rpI];$("#rpCode").innerHTML=p.code;
+  var r="",bad=0;
+  RREQ.forEach(function(q){var a=p.ev(q),cls,lab;
+    if(a&&q.want){cls="ok";lab="허용 (정상)";}else if(a&&!q.want){cls="allow";lab="허용됨 ⚠";bad++;}else if(!a&&!q.want){cls="deny";lab="거부";}else{cls="lim";lab="거부 (의도 확인)";}
+    r+='<div class="req '+cls+'"><div>'+esc(q.d)+'<small>경로 <code>'+esc(q.path)+'</code> · 판정 '+esc(q.status)+'</small></div><span class="r">'+lab+'</span></div>';});
+  $("#rpReqs").innerHTML=r;
+  $("#rpNote6").textContent=(bad?"막아야 할 요청 "+bad+"건이 통과했습니다. ":"막아야 할 요청을 모두 막았습니다. ")+p.n;
+  $$("#rpTabs6 .btn").forEach(function(b){b.addEventListener("click",function(){rpI=+b.getAttribute("data-i");renderRp();});});
+}
+renderRp();
+
+/* quiz */
+var quiz=[
+ {q:"게스트(AA·CDH)가 직접 대화하는 Trustee 구성 요소는?",o:["AS","RVPS","KBS","Verifier"],a:2,e:"KBS가 Trustee의 정문입니다. AS와 RVPS는 KBS 뒤에서 일합니다."},
+ {q:"AS 안의 Verifier가 하는 일로 옳은 것은?",o:["신뢰도 벡터를 계산해 최종 판정을 내린다","증거의 서명을 검증하고 TCB 클레임을 추출한다","리소스를 암호화해 전달한다","참조값을 저장한다"],a:1,e:"Verifier는 '진짜이고 이런 값이 들어 있다'까지만 말합니다. 판정은 증명 정책이 합니다."},
+ {q:"증명 정책의 출력은?",o:["장치별 AR4SI 신뢰도 벡터","리소스 경로","관리자 토큰","컨테이너 이미지"],a:0,e:"증명 정책은 TCB 클레임과 참조값을 비교해 장치마다 신뢰도 벡터를 계산합니다. 이것이 EAR 토큰의 핵심입니다."},
+ {q:"KBS 리소스 정책의 입력은?",o:["원본 하드웨어 증거만","요청한 리소스 경로와 증명 토큰","RVPS의 참조값","에이전트 정책"],a:1,e:"리소스 정책은 '어떤 리소스를'과 '어떤 판정을 받은 워크로드가'를 함께 보고 결정합니다."},
+ {q:"CoCo 문서에 설명된 KBS 기본 리소스 정책의 동작은?",o:["모든 요청을 거부한다","affirming일 때만 허용한다","샘플 증명자에서 온 것만 아니면 허용한다","GPU가 있을 때만 허용한다"],a:2,e:"기본 정책은 TCB 건강 상태를 따지지 않습니다. 운영에서는 affirming 이상을 요구하도록 바꿔야 합니다."},
+ {q:"RVPS가 참조값을 서명된 메시지로 받기를 기대하는 이유는?",o:["저장 공간을 줄이려고","공격자가 자기 측정값을 '승인된 값'으로 넣지 못하게 하려고","검증 속도를 높이려고","GPU를 지원하려고"],a:1,e:"기준표가 오염되면 공격자의 커널도 승인된 것처럼 통과합니다."},
+ {q:"합성 증거에서 GPU 증거를 CPU 증거에 묶는 방법은?",o:["GPU 증거를 별도 세션으로 보낸다","GPU 증거의 해시를 CPU 증거의 REPORT_DATA에 넣는다","GPU 증거를 KBS 설정 파일에 저장한다","CPU와 GPU가 같은 인증서를 쓴다"],a:1,e:"그래서 GPU 증거를 빼거나 바꾸거나 다른 조합으로 섞으면 CPU 증거와 맞지 않게 됩니다."},
+ {q:"리소스 정책에서 Init-Data 클레임을 활용하는 대표적인 이유는?",o:["이미지 다운로드 속도를 높이려고","같은 게스트 이미지로 부팅하는 서로 다른 워크로드를 구분하려고","GPU 모드를 바꾸려고","관리자 토큰을 저장하려고"],a:1,e:"측정된 Init-Data에 워크로드 이름표 같은 정보를 넣으면, 워크로드별로 다른 키를 안전하게 나눠 줄 수 있습니다."}
+];
+var qDone={},qRight=0,qh="";
+quiz.forEach(function(x,i){qh+='<div class="qz" id="qz'+i+'"><div class="qq">Q'+(i+1)+'. '+esc(x.q)+'</div><div class="opts">';x.o.forEach(function(o,j){qh+='<button data-q="'+i+'" data-o="'+j+'">'+esc(o)+'</button>';});qh+='</div><div class="ex" aria-live="polite"></div></div>';});
+$("#quiz").innerHTML=qh;
+$$("#quiz .opts button").forEach(function(b){b.addEventListener("click",function(){
+  var i=+b.getAttribute("data-q"),j=+b.getAttribute("data-o");if(qDone[i])return;qDone[i]=true;var x=quiz[i],box=$("#qz"+i);
+  $$(".opts button",box).forEach(function(bb,k){bb.disabled=true;if(k===x.a)bb.classList.add("right");});
+  if(j!==x.a)b.classList.add("wrong");else qRight++;
+  var ex=$(".ex",box);ex.innerHTML='<strong>'+(j===x.a?"정답입니다.":"아쉽습니다.")+'</strong> '+esc(x.e);ex.classList.add("show");
+  if(Object.keys(qDone).length===quiz.length)$("#qscore").textContent="결과: "+quiz.length+"문제 중 "+qRight+"문제 정답";
+});});
+
+/* glossary */
+var gloss=[
+ ["Trustee","Trustee","CoCo의 원격 증명·시크릿 전달 서비스 묶음. KBS, AS, RVPS로 구성."],
+ ["KBS","Key Broker Service","Trustee의 정문. KBS 프로토콜로 게스트와 대화하고, 리소스 정책을 실행한 뒤 리소스를 내준다."],
+ ["KBS 프로토콜","KBS protocol","게스트와 KBS 사이의 증명·리소스 요청 프로토콜. RCAR 흐름을 따른다."],
+ ["AS","Attestation Service","하드웨어 증거를 검증하고 EAR 토큰을 발급하는 Trustee 구성 요소."],
+ ["Verifier","Verifier","AS 안의 플랫폼별 검증 모듈. 서명을 검증하고 TCB 클레임을 추출한다."],
+ ["TCB 클레임","TCB claims","Verifier가 증거에서 뽑아낸 측정값·설정·상태 정보의 키-값 묶음."],
+ ["증명 정책","Attestation policy","TCB 클레임을 참조값과 비교해 신뢰도 벡터를 계산하는 AS의 OPA 정책. 런타임에 맞춰져 있다."],
+ ["리소스 정책","Resource policy / KBS policy","리소스 경로와 토큰을 보고 리소스를 내줄지 결정하는 KBS의 OPA 정책."],
+ ["에이전트 정책","Agent policy","TEE 안의 kata-agent가 호스트 요청을 검사하는 정책. Trustee가 아니라 Init-Data로 전달된다."],
+ ["RVPS","Reference Value Provider Service","참조값을 추출·저장하고 AS에 제공하는 Trustee 구성 요소."],
+ ["추출기","Extractor","RVPS에서 메시지 형식에 맞춰 참조값을 뽑아내는 모듈."],
+ ["rvps-tool","rvps-tool","RVPS에 직접 연결해 참조값을 등록·조회하는 도구. KBS 관리자 권한과 분리되어 있다."],
+ ["kbs-client","kbs-client","KBS 관리(정책·리소스·참조값 설정)와 테스트 요청에 쓰는 명령줄 도구."],
+ ["관리자 토큰","Admin token","KBS 관리 API에 쓰는 관리자 인증 정보. 최근 문서 기준 방식."],
+ ["OPA","Open Policy Agent","범용 정책 엔진. Trustee의 증명·리소스 정책과 kata 에이전트 정책에 쓰인다."],
+ ["AR4SI","Attestation Results for Secure Interactions","증명 결과를 측면별 숫자 등급으로 표현하는 IETF 정보 모델."],
+ ["신뢰도 벡터","Trustworthiness vector","하드웨어, 실행 파일, 설정 등 측면별 AR4SI 판정 묶음."],
+ ["EAR","EAT Attestation Result","AR4SI 판정을 담는 증명 결과 형식. Trustee AS의 토큰 형식."],
+ ["submod","Submodule","EAR 토큰 안의 장치별 판정 단위. cpu0, gpu0 등."],
+ ["annotated-evidence","ear.veraison.annotated-evidence","EAR 토큰 안에 플랫폼별 TCB 클레임과 Init-Data 클레임이 담기는 부분."],
+ ["Init-Data 클레임","init_data_claims","토큰에 담긴 측정된 Init-Data 내용. 리소스 정책이 워크로드 식별에 활용할 수 있다."],
+ ["리소스 경로","Resource path","저장소/종류/태그로 이뤄진 KBS 리소스 주소. 예: llm-prod/model-key/v1."],
+ ["KBS 플러그인","KBS plugin","리소스 요청을 실제로 처리하는 모듈. 리소스 백엔드, 외부 KMS 연동, 즉석 생성 등."],
+ ["리소스 백엔드","Resource backend","미리 등록된 리소스를 저장하고 꺼내 주는 가장 흔한 플러그인."],
+ ["합성 증거","Composite evidence","CPU와 GPU 등 여러 장치의 증거를 묶은 형식. 부 장치 증거의 해시를 주 장치 증거에 넣는다."],
+ ["샘플 증명자","Sample attester","TEE 하드웨어 없이 흉내 낸 증거를 만드는 테스트용 증명자."],
+ ["KbsConfig","KbsConfig","Trustee 오퍼레이터가 쓰는 KBS 구성 커스텀 리소스."],
+ ["TrusteeConfig","TrusteeConfig","Red Hat 배포판에서 Trustee 구성을 단순화하는 커스텀 리소스."]
+];
+var gh="";gloss.forEach(function(g){gh+='<div class="gi" data-s="'+esc((g[0]+" "+g[1]+" "+g[2]).toLowerCase())+'"><b>'+esc(g[0])+(g[1]!==g[0]?'<span class="en">'+esc(g[1])+'</span>':'')+'</b>'+esc(g[2])+'</div>';});
+$("#glossary").innerHTML=gh;
+$("#gsearch").addEventListener("input",function(){var v=this.value.trim().toLowerCase();$$("#glossary .gi").forEach(function(el){el.classList.toggle("hide",v&&el.getAttribute("data-s").indexOf(v)<0);});});
+})();
+</script>
+</body>
+</html>

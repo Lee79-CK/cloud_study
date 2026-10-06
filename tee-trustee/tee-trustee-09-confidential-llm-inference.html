@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TEE·Trustee 9편 — 기밀 LLM 추론 파이프라인 구축</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#12162A; --surface:#1B2138; --surface2:#242B47; --line:#323B5E;
+  --text:#E6E8F2; --muted:#9AA3C0; --strong:#FFFFFF;
+  --seal:#3DD6C4; --seal-bg:rgba(61,214,196,.12);
+  --leak:#FF6F61; --leak-bg:rgba(255,111,97,.12);
+  --warn:#F5C04E; --warn-bg:rgba(245,192,78,.12);
+  --trust:#A98BFF; --trust-bg:rgba(169,139,255,.13);
+  --link:#7CB8FF; --link-bg:rgba(124,184,255,.12);
+  --shadow:0 10px 30px rgba(0,0,0,.35);
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FA; --surface:#FFFFFF; --surface2:#E9EDF6; --line:#CDD4E5;
+  --text:#1A2036; --muted:#55607F; --strong:#0B1024;
+  --seal:#0B8F81; --seal-bg:rgba(11,143,129,.10);
+  --leak:#CF3E31; --leak-bg:rgba(207,62,49,.09);
+  --warn:#A87807; --warn-bg:rgba(168,120,7,.11);
+  --trust:#6440D4; --trust-bg:rgba(100,64,212,.09);
+  --link:#2160C4; --link-bg:rgba(33,96,196,.09);
+  --shadow:0 8px 24px rgba(20,30,70,.10);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere;-webkit-font-smoothing:antialiased}
+a{color:var(--link)}
+img,svg{max-width:100%}
+:focus-visible{outline:3px solid var(--link);outline-offset:2px;border-radius:4px}
+code,kbd{font-family:var(--mono);font-size:.88em;background:var(--surface2);padding:.1em .38em;border-radius:5px}
+strong{color:var(--strong);font-weight:700}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:14px;padding:10px 20px}
+.brand{font-weight:700;font-size:15px;white-space:nowrap}
+.brand span{color:var(--muted);font-weight:500}
+.spacer{flex:1}
+.btn{font:inherit;font-size:14px;cursor:pointer;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:7px 14px;border-radius:999px;transition:background .15s,border-color .15s}
+.btn:hover{border-color:var(--link)}
+.btn[aria-pressed="true"],.btn.on{background:var(--link-bg);border-color:var(--link);color:var(--strong)}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--leak),var(--warn),var(--seal),var(--trust))}
+.toc-toggle{display:none}
+
+/* layout */
+.wrap{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:250px minmax(0,1fr);gap:48px;padding:0 20px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 70px);align-self:start;max-height:calc(100vh - 90px);overflow:auto;padding:28px 0 40px;font-size:14px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc li a b{font-weight:600;color:inherit;min-width:22px;font-variant-numeric:tabular-nums}
+nav.toc li a:hover{background:var(--surface)}
+nav.toc li a.active{background:var(--surface);color:var(--strong);box-shadow:inset 3px 0 0 var(--seal)}
+main{min-width:0;padding-bottom:120px}
+.col{max-width:780px}
+
+/* hero */
+.hero{padding:56px 0 30px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.series{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:26px}
+.series span{font-size:12.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.series span.now{border-color:var(--seal);color:var(--seal);background:var(--seal-bg);font-weight:600}
+.hero h1{font-size:clamp(30px,4.6vw,48px);line-height:1.22;letter-spacing:-.02em;margin:0 0 14px;font-weight:700;color:var(--strong)}
+.hero .lede{font-size:19px;color:var(--muted);max-width:680px;margin:0 0 30px}
+
+/* signature: memory strip */
+.memstrip{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 18px 16px;box-shadow:var(--shadow)}
+.memhead{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px;font-size:14px;color:var(--muted)}
+.memhead .state{font-weight:700;padding:3px 10px;border-radius:999px}
+.memhead .state.leak{color:var(--leak);background:var(--leak-bg)}
+.memhead .state.seal{color:var(--seal);background:var(--seal-bg)}
+.memgrid{font-family:var(--mono);font-size:13.5px;line-height:1.75;display:grid;grid-template-columns:auto 1fr;gap:0 16px;overflow-x:auto}
+.memgrid .addr{color:var(--muted);opacity:.7;user-select:none}
+.memgrid .bytes{white-space:pre}
+.memgrid .pt{color:var(--leak);font-weight:600}
+.memgrid .ct{color:var(--seal)}
+.memfoot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.memfoot p{margin:0;font-size:14.5px;color:var(--muted);flex:1;min-width:220px}
+
+/* sections */
+section.lec{padding:64px 0 10px;border-bottom:1px dashed var(--line)}
+section.lec:last-of-type{border-bottom:0}
+.secnum{font-family:var(--mono);font-size:14px;color:var(--seal);font-weight:600}
+h2{font-size:clamp(25px,3.2vw,32px);line-height:1.3;letter-spacing:-.015em;margin:6px 0 18px;color:var(--strong)}
+h3{font-size:21px;line-height:1.4;margin:38px 0 12px;color:var(--strong)}
+h4{font-size:17px;margin:20px 0 6px;color:var(--strong)}
+p{margin:0 0 16px}
+ul,ol{padding-left:1.3em;margin:0 0 16px}
+li{margin:4px 0}
+.muted{color:var(--muted)}
+
+/* callouts */
+.note{border-radius:14px;padding:16px 18px 6px;margin:22px 0;border:1px solid var(--line);background:var(--surface)}
+.note>.nt{font-weight:700;margin-bottom:6px;display:block}
+.note.analogy{border-color:color-mix(in srgb,var(--warn) 45%,var(--line));background:var(--warn-bg)}
+.note.analogy>.nt{color:var(--warn)}
+.note.key{border-color:color-mix(in srgb,var(--seal) 45%,var(--line));background:var(--seal-bg)}
+.note.key>.nt{color:var(--seal)}
+.note.danger{border-color:color-mix(in srgb,var(--leak) 45%,var(--line));background:var(--leak-bg)}
+.note.danger>.nt{color:var(--leak)}
+.note.msp{border-color:color-mix(in srgb,var(--trust) 45%,var(--line));background:var(--trust-bg)}
+.note.msp>.nt{color:var(--trust)}
+.note.term{border-color:color-mix(in srgb,var(--link) 45%,var(--line));background:var(--link-bg)}
+.note.term>.nt{color:var(--link)}
+
+/* generic panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin:22px 0}
+.panel h4:first-child{margin-top:0}
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
+
+/* tables */
+.tbl{overflow-x:auto;margin:20px 0;border:1px solid var(--line);border-radius:14px}
+table{border-collapse:collapse;width:100%;font-size:15px;min-width:560px}
+th,td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--line)}
+th{background:var(--surface2);font-weight:600;color:var(--strong)}
+tr:last-child td{border-bottom:0}
+td.ok{color:var(--seal)} td.no{color:var(--leak)}
+
+/* pills */
+.pill{display:inline-block;font-size:12.5px;font-weight:600;padding:2px 9px;border-radius:999px;line-height:1.6;white-space:nowrap}
+.pill.leak{color:var(--leak);background:var(--leak-bg)}
+.pill.seal{color:var(--seal);background:var(--seal-bg)}
+.pill.warn{color:var(--warn);background:var(--warn-bg)}
+.pill.trust{color:var(--trust);background:var(--trust-bg)}
+
+/* data states */
+.states .stv{display:none}
+.states .stv.show{display:block}
+.flowline{display:flex;align-items:stretch;gap:0;overflow-x:auto;margin:6px 0 16px;padding-bottom:4px}
+.fl{flex:1;min-width:120px;text-align:center;padding:14px 8px;border:1px solid var(--line);background:var(--surface2);font-size:14px}
+.fl:first-child{border-radius:12px 0 0 12px}.fl:last-child{border-radius:0 12px 12px 0}
+.fl+.fl{border-left:0}
+.fl .ic{font-size:24px;display:block}
+.fl.hot{background:var(--leak-bg);border-color:var(--leak);color:var(--strong)}
+.fl.cool{background:var(--seal-bg)}
+
+/* memdump terminal */
+.term{background:#0A0D19;color:#C9D1E8;border-radius:14px;padding:16px;font-family:var(--mono);font-size:13px;line-height:1.65;min-height:220px;overflow-x:auto;white-space:pre;border:1px solid var(--line)}
+:root[data-theme="light"] .term{background:#151A2E}
+.term .c{color:#7E8AAE}.term .r{color:#FF8A7D;font-weight:600}.term .g{color:#56E0CF}.term .y{color:#F7CD63}
+
+/* journey */
+.journey{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;margin:10px 0 16px}
+.jn{cursor:pointer;border:1px solid var(--line);background:var(--surface2);border-radius:10px;padding:10px 4px;text-align:center;font-size:12.5px;line-height:1.35;color:var(--muted);font:inherit;font-size:12.5px}
+.jn .ic{display:block;font-size:22px;margin-bottom:4px}
+.jn.pt{border-color:color-mix(in srgb,var(--leak) 55%,var(--line))}
+.jn.enc{border-color:color-mix(in srgb,var(--seal) 55%,var(--line))}
+.jn.sel{background:var(--surface);color:var(--strong);box-shadow:0 0 0 2px var(--link)}
+@media (max-width:720px){.journey{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.jdetail h4{margin-top:0}
+.jmeta{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px}
+
+/* asset & actor cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card h4{margin:0 0 6px;display:flex;align-items:center;gap:8px}
+.card h4 .ic{font-size:22px}
+.card dl{margin:8px 0 0;font-size:15px}
+.card dt{font-weight:600;color:var(--muted);font-size:13px;margin-top:8px}
+.card dd{margin:2px 0 0}
+details.card{padding:0}
+details.card>summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;font-weight:600}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::after{content:"+";margin-left:auto;font-size:20px;color:var(--muted)}
+details.card[open]>summary::after{content:"−"}
+details.card>.body{padding:0 18px 14px;font-size:15.5px}
+
+/* matrix */
+.mx-actors,.mx-modes{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.mx-assets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+@media (max-width:620px){.mx-assets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mxa{border-radius:12px;padding:12px;border:1px solid var(--line);background:var(--surface2);transition:background .25s,border-color .25s}
+.mxa .nm{font-weight:600;font-size:15px;display:flex;align-items:center;gap:6px}
+.mxa .st{font-size:13px;font-weight:700;margin-top:4px}
+.mxa.exp{border-color:var(--leak);background:var(--leak-bg)} .mxa.exp .st{color:var(--leak)}
+.mxa.part{border-color:var(--warn);background:var(--warn-bg)} .mxa.part .st{color:var(--warn)}
+.mxa.safe{border-color:var(--seal);background:var(--seal-bg)} .mxa.safe .st{color:var(--seal)}
+.mx-note{font-size:15.5px;border-left:3px solid var(--trust);padding:4px 0 4px 14px;margin:6px 0 0}
+.mx-score{font-size:14px;color:var(--muted);margin-top:10px}
+
+/* scenario */
+.scn{border:1px solid var(--line);border-radius:16px;overflow:hidden;margin:18px 0;background:var(--surface)}
+.scn-h{padding:14px 18px;background:var(--surface2);display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.scn-h b{font-size:17px;color:var(--strong)}
+.scn-b{padding:16px 18px 6px}
+.tl{list-style:none;padding:0;margin:0 0 14px;border-left:2px solid var(--line)}
+.tl li{position:relative;padding:2px 0 8px 18px;font-size:15.5px}
+.tl li::before{content:"";position:absolute;left:-6px;top:10px;width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.tl li.bad::before{background:var(--leak)}
+.tl li .t{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-right:6px}
+
+/* TCB stack */
+.stack{display:flex;flex-direction:column;gap:6px;margin:14px 0}
+.layer{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);transition:background .25s,border-color .25s,opacity .25s}
+.layer .nm{flex:1;font-weight:600;font-size:15px}
+.layer .who{font-size:13px;color:var(--muted)}
+.layer .tag{font-size:12.5px;font-weight:700;white-space:nowrap}
+.layer.in{border-color:var(--warn);background:var(--warn-bg)} .layer.in .tag{color:var(--warn)}
+.layer.out{opacity:.62;border-style:dashed} .layer.out .tag{color:var(--seal)}
+.layer.enc{border-color:var(--seal);background:var(--seal-bg)}
+.tcbcount{font-size:15px;margin-top:6px}
+.tcbcount b{font-size:22px;color:var(--warn)}
+
+/* diagram */
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;margin:22px 0;overflow-x:auto}
+.diagram svg{display:block;min-width:620px;width:100%;height:auto}
+.diagram text{font-family:var(--sans)}
+.cap{font-size:14px;color:var(--muted);margin:8px 4px 0}
+
+/* myth */
+.myth{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:12px 0}
+.myth>div{padding:14px 16px;font-size:15.5px}
+.myth .m{background:var(--leak-bg)} .myth .f{background:var(--seal-bg)}
+.myth .lb{display:block;font-weight:700;font-size:13px;margin-bottom:4px}
+.myth .m .lb{color:var(--leak)} .myth .f .lb{color:var(--seal)}
+@media (max-width:620px){.myth{grid-template-columns:1fr}}
+
+/* compare dialog */
+.chat{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.bub{max-width:88%;padding:12px 15px;border-radius:16px;font-size:15.5px}
+.bub.q{align-self:flex-start;background:var(--surface2);border-bottom-left-radius:4px}
+.bub.a{align-self:flex-end;border-bottom-right-radius:4px}
+.bub.a.old{background:var(--leak-bg);border:1px solid color-mix(in srgb,var(--leak) 40%,var(--line))}
+.bub.a.new{background:var(--seal-bg);border:1px solid color-mix(in srgb,var(--seal) 40%,var(--line))}
+.bub .who{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:3px}
+
+/* self check */
+.chk{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:15.5px}
+.chk:last-of-type{border-bottom:0}
+.chk .yn{display:flex;gap:6px;flex-shrink:0}
+.chk .yn button{font:inherit;font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer}
+.chk .yn button.yes.on{background:var(--seal-bg);border-color:var(--seal);color:var(--seal)}
+.chk .yn button.no.on{background:var(--leak-bg);border-color:var(--leak);color:var(--leak)}
+.result{margin-top:16px;padding:16px;border-radius:12px;background:var(--surface2);font-size:15.5px}
+.meter{height:10px;border-radius:999px;background:var(--line);overflow:hidden;margin:8px 0 10px}
+.meter i{display:block;height:100%;width:0;background:var(--seal);transition:width .4s}
+
+/* quiz */
+.qz{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+.qz .qq{font-weight:600;margin-bottom:10px}
+.qz .opts{display:flex;flex-direction:column;gap:8px}
+.qz .opts button{font:inherit;font-size:15.5px;text-align:left;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer}
+.qz .opts button:hover:not([disabled]){border-color:var(--link)}
+.qz .opts button.right{border-color:var(--seal);background:var(--seal-bg)}
+.qz .opts button.wrong{border-color:var(--leak);background:var(--leak-bg)}
+.qz .opts button[disabled]{cursor:default}
+.qz .ex{display:none;margin-top:10px;font-size:15px;padding:10px 12px;border-radius:10px;background:var(--surface2)}
+.qz .ex.show{display:block}
+.qscore{font-weight:700;font-size:18px}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:6px 0 14px}
+.gl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:720px){.gl{grid-template-columns:1fr}}
+.gi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px}
+.gi b{display:block;color:var(--strong);margin-bottom:3px}
+.gi .en{font-weight:400;color:var(--muted);font-size:13px;margin-left:6px}
+.gi.hide{display:none}
+
+/* steps (worksheet) */
+.ws{counter-reset:ws;list-style:none;padding:0}
+.ws>li{counter-increment:ws;position:relative;padding:0 0 18px 52px;margin:0}
+.ws>li::before{content:counter(ws);position:absolute;left:0;top:0;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--trust-bg);color:var(--trust);border:1px solid var(--trust)}
+.ws>li>b{display:block;font-size:17px;color:var(--strong);margin:4px 0 6px}
+
+.next{background:linear-gradient(135deg,var(--trust-bg),var(--seal-bg));border:1px solid var(--line);border-radius:18px;padding:24px;margin-top:20px}
+footer{color:var(--muted);font-size:13.5px;padding:30px 0 0}
+
+@media (max-width:980px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{position:fixed;inset:calc(env(safe-area-inset-top,0px) + 54px) 0 auto 0;max-height:70vh;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 20px 18px;display:none;z-index:40;box-shadow:var(--shadow)}
+  nav.toc.open{display:block}
+  .toc-toggle{display:inline-block}
+  body{font-size:16px}
+}
+
+
+/* ---- 2편 추가 컴포넌트 ---- */
+.chipwrap{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+.chiplane{display:grid;grid-template-columns:minmax(0,1.25fr) 60px minmax(0,1fr);align-items:stretch;gap:0}
+@media (max-width:640px){.chiplane{grid-template-columns:1fr;gap:8px}.bus{min-height:46px}}
+.chip{border:2px solid var(--trust);border-radius:14px;padding:12px;background:var(--trust-bg);position:relative}
+.chip .lbl{font-size:13px;font-weight:700;color:var(--trust);margin-bottom:8px;display:block}
+.chip .row{display:flex;gap:8px;flex-wrap:wrap}
+.blk{flex:1;min-width:110px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 10px;font-size:13px}
+.blk b{display:block;font-size:13.5px;color:var(--strong)}
+.blk .v{font-family:var(--mono);font-size:12.5px;margin-top:4px;word-break:break-all}
+.blk.mee{border-color:var(--seal)}
+.bus{display:flex;align-items:center;justify-content:center;position:relative}
+.bus::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;background:var(--line);border-radius:2px}
+@media (max-width:640px){.bus::before{left:50%;right:auto;top:0;bottom:0;width:4px;height:auto}}
+.bus .pk{position:relative;font-size:20px}
+.dram{border:2px dashed var(--line);border-radius:14px;padding:12px;background:var(--surface2)}
+.dram .lbl{font-size:13px;font-weight:700;color:var(--muted);display:block;margin-bottom:8px}
+.probes{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.probe-out{margin-top:10px;font-size:15px;min-height:48px}
+.v.pt{color:var(--leak);font-weight:600}.v.ct{color:var(--seal)}
+
+.ringstack{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.ring{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)}
+.ring .nm{font-weight:600;font-size:15px}
+.ring .nm small{display:block;font-weight:400;color:var(--muted);font-size:13px}
+.ring .eye{font-size:13px;font-weight:700;white-space:nowrap}
+.ring.see{border-color:var(--leak);background:var(--leak-bg)} .ring.see .eye{color:var(--leak)}
+.ring.blind{border-color:var(--seal);background:var(--seal-bg)} .ring.blind .eye{color:var(--seal)}
+.ring.self{border-color:var(--trust);background:var(--trust-bg)} .ring.self .eye{color:var(--trust)}
+
+.encdemo input{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);margin-bottom:12px}
+.encout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:640px){.encout{grid-template-columns:1fr}}
+.encout .blk .v{color:var(--seal)}
+
+.story{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+@media (max-width:640px){.story{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.sframe{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface2);font-size:13.5px;opacity:.4;transition:opacity .25s,border-color .25s}
+.sframe.on{opacity:1}
+.sframe.bad{border-color:var(--leak);background:var(--leak-bg)}
+.sframe.good{border-color:var(--seal);background:var(--seal-bg)}
+.sframe b{display:block;font-size:14px;color:var(--strong);margin-bottom:4px}
+.sframe .v{font-family:var(--mono);font-size:12px}
+
+.gen{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin:16px 0;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+@media (max-width:720px){.gen{grid-template-columns:1fr}}
+.gen>div{padding:14px 16px;border-right:1px solid var(--line);background:var(--surface)}
+.gen>div:last-child{border-right:0}
+.gen h4{margin:0 0 4px}
+.gen .yr{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.gen p{font-size:15px;margin:6px 0 0}
+
+.evs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.vx{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:720px){.vx{grid-template-columns:1fr}}
+.vx .side{border-radius:12px;padding:14px 16px;font-size:15px}
+.vx .side.old{background:var(--leak-bg);border:1px solid color-mix(in srgb,var(--leak) 40%,var(--line))}
+.vx .side.new{background:var(--seal-bg);border:1px solid color-mix(in srgb,var(--seal) 40%,var(--line))}
+.vx .side h4{margin:0 0 6px;font-size:15px}
+.vx .side ol{margin:0;padding-left:1.2em}
+.vx .sees{margin-top:8px;font-size:14px;color:var(--muted)}
+
+.mchain{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.mc{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface2)}
+.mc.bad{border-color:var(--leak);background:var(--leak-bg)}
+.mc .nm{font-weight:600;font-size:15px}
+.mc .h{font-family:var(--mono);font-size:12px;color:var(--muted);word-break:break-all}
+.mc label{font-size:13px;display:flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.mfinal{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:10px;padding:12px 14px;border-radius:12px;background:var(--surface2);font-size:15px}
+.mfinal code{font-size:13px}
+
+.rep{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:14px}
+@media (max-width:720px){.rep{grid-template-columns:1fr}}
+.rfields{display:flex;flex-direction:column;gap:5px;font-family:var(--mono);font-size:13px}
+.rfields button{font:inherit;text-align:left;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;display:flex;justify-content:space-between;gap:8px}
+.rfields button .k{color:var(--trust);font-weight:600}
+.rfields button .val{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:50%}
+.rfields button.sel{border-color:var(--link);box-shadow:0 0 0 1px var(--link)}
+.rdetail{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--surface);font-size:15.5px}
+.rdetail h4{margin-top:0;font-family:var(--mono);font-size:15px;color:var(--trust)}
+
+
+/* ---- 3편 추가 컴포넌트 ---- */
+.dlg{display:flex;flex-direction:column;gap:10px;margin:4px 0 6px}
+.msg{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);opacity:.28;transition:opacity .3s,border-color .3s}
+.msg.on{opacity:1}
+.msg .who{font-weight:700;font-size:13px;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.msg .who.rp{color:var(--link);background:var(--link-bg)}
+.msg .who.at{color:var(--seal);background:var(--seal-bg)}
+.msg .who.vf{color:var(--trust);background:var(--trust-bg)}
+.msg .tx{font-size:15px}
+.msg .tx code{font-size:12.5px}
+
+.roles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+@media (max-width:720px){.roles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.roles button{font:inherit;font-size:14px;line-height:1.35;padding:10px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;text-align:center}
+.roles button .ic{display:block;font-size:22px}
+.roles button.sel{border-color:var(--link);box-shadow:0 0 0 2px var(--link);background:var(--surface);color:var(--strong)}
+.rolebox{border-left:3px solid var(--trust);padding:4px 0 4px 16px}
+.rolebox h4{margin:0 0 6px}
+.rolebox .ex{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+@media (max-width:720px){.rolebox .ex{grid-template-columns:1fr}}
+.rolebox .ex div{background:var(--surface2);border-radius:10px;padding:9px 11px;font-size:14px}
+.rolebox .ex b{display:block;font-size:12.5px;color:var(--muted);font-weight:600}
+
+.chainv{display:flex;flex-direction:column;align-items:stretch;gap:0;margin:12px 0}
+.cert{border:1px solid var(--line);border-radius:12px;padding:11px 14px;background:var(--surface2);cursor:pointer;text-align:left;font:inherit;color:var(--text)}
+.cert b{display:block;color:var(--strong);font-size:15px}
+.cert span{font-size:13.5px;color:var(--muted)}
+.cert.sel{border-color:var(--link);box-shadow:0 0 0 2px var(--link)}
+.cert.root{border-color:var(--trust);background:var(--trust-bg)}
+.cert.leaf{border-color:var(--seal)}
+.link{align-self:center;font-size:13px;color:var(--muted);padding:3px 0}
+
+.lab-sc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.checks{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.ck{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);font-size:15px;transition:background .25s,border-color .25s}
+.ck .ic{font-size:18px;text-align:center}
+.ck .r{font-size:13px;font-weight:700;white-space:nowrap}
+.ck.pass{border-color:var(--seal);background:var(--seal-bg)} .ck.pass .r{color:var(--seal)}
+.ck.fail{border-color:var(--leak);background:var(--leak-bg)} .ck.fail .r{color:var(--leak)}
+.ck.skip{opacity:.45}
+.ck small{display:block;color:var(--muted);font-size:13.5px}
+.verdict{margin-top:10px;padding:14px 16px;border-radius:12px;font-size:15.5px;border:1px solid var(--line);background:var(--surface)}
+.verdict.ok{border-color:var(--seal)} .verdict.no{border-color:var(--leak)}
+
+.seq{width:100%;border-collapse:separate;border-spacing:0;min-width:620px}
+.seqwrap{overflow-x:auto;margin:10px 0}
+.seq th{background:none;border:0;text-align:center;font-size:14px;padding:6px}
+.seq td{border:0;padding:4px 6px;font-size:13.5px;vertical-align:middle}
+.arrow{position:relative;text-align:center;padding:8px 6px 10px!important;border-radius:8px;opacity:.25;transition:opacity .3s}
+.arrow.on{opacity:1}
+.arrow.cur{background:var(--link-bg)}
+.arrow .ln{display:block;height:2px;background:currentColor;margin-top:4px;position:relative}
+.arrow.r .ln::after,.arrow.l .ln::before{content:"";position:absolute;top:-5px;border:6px solid transparent}
+.arrow.r .ln::after{right:-2px;border-left-color:currentColor;border-right:0}
+.arrow.l .ln::before{left:-2px;border-right-color:currentColor;border-left:0}
+.arrow.at{color:var(--seal)} .arrow.kb{color:var(--link)} .arrow.as{color:var(--trust)}
+.arrow .lb{color:var(--text);font-weight:600}
+
+.jwt{font-family:var(--mono);font-size:13px;line-height:1.7;background:#0A0D19;color:#C9D1E8;border-radius:12px;padding:14px 16px;overflow-x:auto;white-space:pre;border:1px solid var(--line)}
+:root[data-theme="light"] .jwt{background:#151A2E}
+.jwt .k{color:#B79CFF}.jwt .s{color:#56E0CF}.jwt .n{color:#F7CD63}.jwt .c{color:#7E8AAE}
+.tier{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+@media (max-width:620px){.tier{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tier div{border-radius:10px;padding:10px 12px;font-size:14px;border:1px solid var(--line)}
+.tier b{display:block;font-size:15px}
+
+
+/* ---- 4편 추가 컴포넌트 ---- */
+.path{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:6px 0 10px}
+@media (max-width:720px){.path{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.seg{font:inherit;cursor:pointer;text-align:center;border-radius:12px;padding:10px 6px;border:2px solid var(--line);background:var(--surface2);color:var(--text);font-size:13px;line-height:1.35;transition:background .25s,border-color .25s}
+.seg .ic{display:block;font-size:22px;margin-bottom:3px}
+.seg .st{display:block;font-size:12px;font-weight:700;margin-top:4px}
+.seg.pt{border-color:var(--leak);background:var(--leak-bg)} .seg.pt .st{color:var(--leak)}
+.seg.ct{border-color:var(--seal);background:var(--seal-bg)} .seg.ct .st{color:var(--seal)}
+.seg.pr{border-color:var(--trust);background:var(--trust-bg)} .seg.pr .st{color:var(--trust)}
+.seg.na{opacity:.45} .seg.na .st{color:var(--muted)}
+.seg.sel{box-shadow:0 0 0 2px var(--link)}
+.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:13px;margin:4px 0 8px}
+
+.bars{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.bar{display:grid;grid-template-columns:140px minmax(0,1fr) 80px;gap:10px;align-items:center;font-size:14px}
+@media (max-width:560px){.bar{grid-template-columns:100px minmax(0,1fr) 64px}}
+.bar .tr{height:18px;border-radius:999px;background:var(--line);overflow:hidden}
+.bar .tr i{display:block;height:100%;border-radius:999px;transition:width .5s}
+.bar .num{font-family:var(--mono);font-size:13px;text-align:right}
+
+.gpus{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0;position:relative}
+.gpu{border-radius:12px;padding:12px 8px;text-align:center;border:2px solid var(--line);background:var(--surface2);font-size:13px}
+.gpu b{display:block;font-size:15px;color:var(--strong)}
+.gpu.c0{border-color:var(--seal);background:var(--seal-bg)}
+.gpu.c1{border-color:var(--trust);background:var(--trust-bg)}
+.gpu.c2{border-color:var(--warn);background:var(--warn-bg)}
+.gpu.c3{border-color:var(--link);background:var(--link-bg)}
+.gpu.idle{opacity:.45}
+.nvl{text-align:center;font-size:14px;font-weight:600;padding:8px;border-radius:10px;margin-top:4px}
+.nvl.enc{color:var(--seal);background:var(--seal-bg)} .nvl.pt{color:var(--leak);background:var(--leak-bg)} .nvl.na{color:var(--muted);background:var(--surface2)}
+
+.meter2{display:flex;gap:4px;margin:10px 0}
+.meter2 i{flex:1;height:14px;border-radius:4px;background:var(--line)}
+.meter2 i.on1{background:var(--seal)} .meter2 i.on2{background:var(--warn)} .meter2 i.on3{background:var(--leak)}
+
+.combo{display:grid;grid-template-columns:auto repeat(2,minmax(0,1fr));gap:6px;margin:12px 0;font-size:14.5px}
+.combo>div{padding:12px;border-radius:10px;text-align:center;border:1px solid var(--line);background:var(--surface2)}
+.combo .h{background:none;border:0;font-weight:700;color:var(--strong)}
+.combo .y{border-color:var(--seal);background:var(--seal-bg)} .combo .n{border-color:var(--leak);background:var(--leak-bg)}
+.combo b{display:block}
+
+.clist .chk{cursor:pointer}
+.clist .chk input{margin-top:6px;width:18px;height:18px;accent-color:var(--seal);flex-shrink:0}
+
+
+/* ---- 5편 추가 컴포넌트 ---- */
+.anat{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:8px 0}
+@media (max-width:680px){.anat{grid-template-columns:1fr}}
+.zone{border-radius:14px;padding:12px;border:2px dashed var(--line);background:var(--surface2)}
+.zone.tee{border:2px solid var(--seal);background:var(--seal-bg)}
+.zone.vm{border:2px solid var(--warn);background:var(--warn-bg)}
+.zone.none{opacity:.5}
+.zone .zl{font-size:13px;font-weight:700;display:block;margin-bottom:8px}
+.zone.tee .zl{color:var(--seal)} .zone.vm .zl{color:var(--warn)} .zone .zl{color:var(--muted)}
+.comps{display:flex;flex-direction:column;gap:6px}
+.comp{font:inherit;font-size:14px;text-align:left;cursor:pointer;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);display:flex;justify-content:space-between;gap:8px;align-items:center}
+.comp .tg{font-size:12px;font-weight:700;white-space:nowrap}
+.comp.host .tg{color:var(--muted)}
+.comp.trust{border-color:var(--seal)} .comp.trust .tg{color:var(--seal)}
+.comp.exp{border-color:var(--leak);background:var(--leak-bg)} .comp.exp .tg{color:var(--leak)}
+.comp.half{border-color:var(--warn)} .comp.half .tg{color:var(--warn)}
+.comp.na{opacity:.35;cursor:default}
+.comp.sel{box-shadow:0 0 0 2px var(--link)}
+
+.reqs{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.req{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);font-size:15px;transition:background .25s,border-color .25s}
+.req code{font-size:12.5px}
+.req small{display:block;color:var(--muted);font-size:13.5px}
+.req .r{font-size:13px;font-weight:700;white-space:nowrap}
+.req.allow{border-color:var(--leak);background:var(--leak-bg)} .req.allow .r{color:var(--leak)}
+.req.ok{border-color:var(--seal);background:var(--seal-bg)} .req.ok .r{color:var(--seal)}
+.req.deny{border-color:var(--seal);background:var(--seal-bg)} .req.deny .r{color:var(--seal)}
+.req.lim{border-color:var(--warn);background:var(--warn-bg)} .req.lim .r{color:var(--warn)}
+
+.code{font-family:var(--mono);font-size:13px;line-height:1.7;background:#0A0D19;color:#C9D1E8;border-radius:12px;padding:14px 16px;overflow-x:auto;white-space:pre;border:1px solid var(--line);margin:12px 0}
+:root[data-theme="light"] .code{background:#151A2E}
+.code .k{color:#B79CFF}.code .s{color:#56E0CF}.code .c{color:#7E8AAE}.code .r{color:#FF8A7D;font-weight:600}.code .y{color:#F7CD63}
+.toggles{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.toggles label{display:flex;gap:10px;align-items:center;font-size:15px;cursor:pointer}
+.toggles input{width:18px;height:18px;accent-color:var(--leak)}
+.path.p7{grid-template-columns:repeat(7,minmax(0,1fr))}@media (max-width:720px){.path.p7{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.seg.go{border-color:var(--link);background:var(--link-bg)} .seg.go .st{color:var(--link)}
+.vec{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}@media (max-width:560px){.vec{grid-template-columns:1fr}}
+.vec div{border-radius:10px;padding:10px 12px;border:1px solid var(--line);font-size:14px}.vec b{display:block;font-family:var(--mono);font-size:13px}.vec .a{border-color:var(--seal);background:var(--seal-bg)}.vec .w{border-color:var(--warn);background:var(--warn-bg)}.vec .x{border-color:var(--leak);background:var(--leak-bg)}
+.selrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}.selrow select{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--text)}
+.lab{display:grid;grid-template-columns:230px minmax(0,1fr);gap:12px}@media (max-width:760px){.lab{grid-template-columns:1fr}}
+.lsteps{display:flex;flex-direction:column;gap:5px}.lsteps button{font:inherit;font-size:13.5px;text-align:left;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);cursor:pointer;line-height:1.35}.lsteps button.done{color:var(--text);border-color:color-mix(in srgb,var(--seal) 50%,var(--line))}.lsteps button.cur{color:var(--strong);background:var(--surface);box-shadow:0 0 0 2px var(--link)}
+.state3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}@media (max-width:560px){.state3{grid-template-columns:1fr}}.state3 div{border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13.5px;background:var(--surface2)}.state3 b{display:block;font-size:12px;color:var(--muted);font-weight:600}
+.term.small{min-height:260px;font-size:12.5px}
+.cmd{position:relative}.cmd .cp{position:absolute;top:8px;right:8px;font-size:12px;padding:3px 10px}
+.ts td:first-child{font-weight:600}
+.bundle{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:8px 0}@media (max-width:720px){.bundle{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.art{border-radius:12px;padding:10px;border:2px solid var(--line);background:var(--surface2);font-size:13px;text-align:center;transition:border-color .25s,background .25s}.art .ic{display:block;font-size:22px}.art b{display:block;font-size:13.5px;color:var(--strong)}.art .vv{font-family:var(--mono);font-size:11.5px;color:var(--muted)}.art.chg{border-color:var(--link);background:var(--link-bg)}.art.bad{border-color:var(--leak);background:var(--leak-bg)}.art.ok{border-color:var(--seal);background:var(--seal-bg)}
+.chgs{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.mx2{width:100%;border-collapse:collapse;min-width:640px;font-size:13.5px}.mx2 th,.mx2 td{text-align:center;padding:8px 6px;border-bottom:1px solid var(--line)}.mx2 th:first-child,.mx2 td:first-child{text-align:left}.mx2 tr.sel td{background:var(--link-bg)}.mx2 td.hit{color:var(--leak);font-weight:700}.mx2 tbody tr{cursor:pointer}
+.diff{font-family:var(--mono);font-size:13px;line-height:1.65;background:#0A0D19;color:#C9D1E8;border-radius:12px;padding:12px 14px;overflow-x:auto;white-space:pre;border:1px solid var(--line)}:root[data-theme="light"] .diff{background:#151A2E}.diff .p{color:#56E0CF}.diff .m{color:#FF8A7D}.diff .c{color:#7E8AAE}
+.pods{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.pod{width:46px;height:40px;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:700;border:2px solid var(--line);background:var(--surface2)}.pod.a{border-color:var(--trust);color:var(--trust)}.pod.b{border-color:var(--seal);color:var(--seal)}.pod.x{border-color:var(--leak);background:var(--leak-bg);color:var(--leak)}
+.allow-list{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
+.tree{font-family:var(--mono);font-size:13px;line-height:1.7;white-space:pre;background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px 16px;overflow-x:auto}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <button class="btn toc-toggle" id="tocBtn" aria-expanded="false" aria-controls="toc">목차</button>
+    <div class="brand">TEE·Trustee 강의 <span>9편 / 12편</span></div>
+    <div class="spacer"></div>
+    <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  </div>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="wrap">
+<nav class="toc" id="toc" aria-label="강의 목차">
+  <ol>
+    <li><a href="#s0"><b>0</b>시작하기 전에</a></li>
+    <li><a href="#s1"><b>1</b>목표 아키텍처 한 장</a></li>
+    <li><a href="#s2"><b>2</b>무엇을 무엇으로 지키나</a></li>
+    <li><a href="#s3"><b>3</b>가중치 보호 방식 고르기</a></li>
+    <li><a href="#s4"><b>4</b>키 설계</a></li>
+    <li><a href="#s5"><b>5</b>복호화 위치와 메모리 예산</a></li>
+    <li><a href="#s6"><b>6</b>vLLM 기밀 파드 구성</a></li>
+    <li><a href="#s7"><b>7</b>KServe로 옮기기</a></li>
+    <li><a href="#s8"><b>8</b>모델 키 리소스 정책</a></li>
+    <li><a href="#s9"><b>9</b>기동 시간 분석</a></li>
+    <li><a href="#s10"><b>10</b>확장·버전·키 교체 운영</a></li>
+    <li><a href="#s11"><b>11</b>로그와 관측</a></li>
+    <li><a href="#s12"><b>12</b>구축 체크리스트</a></li>
+    <li><a href="#s13"><b>13</b>오해 바로잡기</a></li>
+    <li><a href="#s14"><b>14</b>확인 퀴즈</a></li>
+    <li><a href="#s15"><b>15</b>정리와 다음 편</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="col">
+
+<header class="hero">
+  <div class="series" aria-label="시리즈 구성">
+    <span>1 위협 모델</span><span>2 TEE 하드웨어</span><span>3 원격 증명</span><span>4 GPU 기밀 컴퓨팅</span><span>5 CoCo 지도</span><span>6 Trustee 해부</span><span>7 Trustee 구축</span><span>8 참조값·정책</span><span class="now">9 기밀 추론 구축</span><span>10 신뢰 사슬</span><span>11 공격과 한계</span><span>12 MSP 운영</span>
+  </div>
+  <h1>기밀 LLM 추론 파이프라인 구축</h1>
+  <p class="lede">지금까지 배운 부품을 모두 조립합니다. 목표는 하나입니다. <strong>모델 가중치는 TEE 밖에서는 언제나 암호문이고, 증명을 통과한 GPU 기밀 파드 안에서만 평문이 된다.</strong></p>
+
+  <div class="memstrip">
+    <div class="memhead"><span>모델 가중치의 여정 (단계를 눌러보세요)</span><span class="state seal" id="wjState">1 / 8</span></div>
+    <div class="journey" id="wj"></div>
+    <div class="jdetail" id="wjD" aria-live="polite"></div>
+  </div>
+</header>
+
+<!-- 0 -->
+<section class="lec" id="s0">
+  <div class="secnum">0</div>
+  <h2>시작하기 전에</h2>
+  <p>이번 편은 1~8편의 종합편입니다. 새로운 개념보다는 <strong>조립 순서와 설계 선택</strong>이 중심이고, KServe 강의에서 다룬 InferenceService와 vLLM이 기밀 환경 위에 올라갑니다.</p>
+  <div class="grid2">
+    <div class="card"><h4><span class="ic">🎯</span>이번 편을 마치면</h4>
+      <ul style="margin:6px 0 0;font-size:15.5px">
+        <li>기밀 LLM 추론의 목표 아키텍처를 그릴 수 있습니다.</li>
+        <li>가중치 보호 방식(암호화 이미지 vs 암호화 파일)을 상황에 맞게 고를 수 있습니다.</li>
+        <li>모델 키를 봉투 암호화로 설계하고 KBS 경로를 정할 수 있습니다.</li>
+        <li>복호화 위치에 따른 메모리 예산을 계산할 수 있습니다.</li>
+        <li>vLLM 파드와 KServe InferenceService를 기밀 환경에 맞게 구성할 수 있습니다.</li>
+      </ul></div>
+    <div class="card"><h4><span class="ic">🧩</span>이번 편에서 쓰는 부품</h4>
+      <ul style="margin:6px 0 0;font-size:15.5px">
+        <li>4편: GPU CC 모드, 바운스 버퍼, 합성 증명</li>
+        <li>5편: RuntimeClass, Init-Data, 에이전트 정책, ASR·CDH, 보호 스토리지</li>
+        <li>6편: 리소스 정책, 리소스 경로, <code>cpu0</code>·<code>gpu0</code></li>
+        <li>8편: 기밀 릴리스 번들, 추가 → 배포 → 제거</li>
+        <li>KServe 강의: InferenceService, ServingRuntime, 스토리지 초기화</li>
+      </ul></div>
+  </div>
+  <div class="note term">
+    <span class="nt">이번 편의 기준</span>
+    <p>NVIDIA의 Confidential Containers 참조 아키텍처는 가중치를 암호화된 상태로 두고 하드웨어로 보호되는 영역 안에서만 복호화하는 것을 기본 그림으로 제시합니다. 이번 편은 이 그림을 MSP가 실제로 구성할 때 필요한 선택지와 주의점으로 풀어냅니다. 매니페스트와 스크립트는 구조를 보여주기 위한 예시이며, 실제 필드와 옵션은 사용하는 버전의 문서를 따르세요.</p>
+  </div>
+</section>
+
+<!-- 1 -->
+<section class="lec" id="s1">
+  <div class="secnum">1</div>
+  <h2>목표 아키텍처 한 장</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 760 400" role="img" aria-label="사용자 요청이 TLS로 기밀 파드에 들어오고, 기밀 파드는 Trustee에서 키를 받아 스토리지의 암호화된 가중치를 복호화해 GPU에 올리는 구조">
+      <defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g font-size="13">
+        <rect x="14" y="40" width="120" height="56" rx="10" fill="var(--surface2)" stroke="var(--line)"/>
+        <text x="74" y="64" text-anchor="middle" fill="var(--text)" font-weight="700">사용자 앱</text>
+        <text x="74" y="84" text-anchor="middle" fill="var(--muted)" font-size="11.5">프롬프트</text>
+
+        <rect x="190" y="20" width="370" height="250" rx="16" fill="var(--seal-bg)" stroke="var(--seal)" stroke-width="2"/>
+        <text x="206" y="44" fill="var(--seal)" font-weight="700" font-size="14">기밀 파드 (TDX·SNP + GPU CC)</text>
+        <rect x="206" y="58" width="160" height="50" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+        <text x="286" y="80" text-anchor="middle" fill="var(--text)" font-weight="600">TLS 종료</text>
+        <text x="286" y="98" text-anchor="middle" fill="var(--muted)" font-size="11">파드 안에서 (10편)</text>
+        <rect x="206" y="122" width="160" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+        <text x="286" y="146" text-anchor="middle" fill="var(--text)" font-weight="600">init: 키 받기·복호화</text>
+        <text x="286" y="166" text-anchor="middle" fill="var(--muted)" font-size="11">ASR → CDH → KBS</text>
+        <rect x="384" y="58" width="160" height="120" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+        <text x="464" y="86" text-anchor="middle" fill="var(--text)" font-weight="700">vLLM</text>
+        <text x="464" y="106" text-anchor="middle" fill="var(--muted)" font-size="11">평문 가중치 로드</text>
+        <text x="464" y="124" text-anchor="middle" fill="var(--muted)" font-size="11">요청 로그 끔</text>
+        <rect x="206" y="196" width="338" height="58" rx="9" fill="var(--trust-bg)" stroke="var(--trust)"/>
+        <text x="375" y="221" text-anchor="middle" fill="var(--trust)" font-weight="700">GPU (CC 모드) · 보호 메모리</text>
+        <text x="375" y="241" text-anchor="middle" fill="var(--muted)" font-size="11">가중치 · KV 캐시</text>
+
+        <rect x="610" y="30" width="136" height="110" rx="12" fill="var(--trust-bg)" stroke="var(--trust)" stroke-width="2"/>
+        <text x="678" y="58" text-anchor="middle" fill="var(--trust)" font-weight="700">Trustee</text>
+        <text x="678" y="80" text-anchor="middle" fill="var(--muted)" font-size="11.5">KBS · AS · RVPS</text>
+        <text x="678" y="100" text-anchor="middle" fill="var(--muted)" font-size="11.5">모델 키 (DEK)</text>
+        <text x="678" y="120" text-anchor="middle" fill="var(--muted)" font-size="11.5">고객 소유 위치</text>
+
+        <rect x="610" y="190" width="136" height="80" rx="12" fill="var(--surface2)" stroke="var(--line)"/>
+        <text x="678" y="218" text-anchor="middle" fill="var(--text)" font-weight="700">모델 저장소</text>
+        <text x="678" y="240" text-anchor="middle" fill="var(--seal)" font-size="11.5">암호화된 가중치</text>
+        <text x="678" y="258" text-anchor="middle" fill="var(--muted)" font-size="11.5">S3·PVC·레지스트리</text>
+
+        <rect x="190" y="300" width="370" height="80" rx="14" fill="none" stroke="var(--line)" stroke-dasharray="6 5"/>
+        <text x="375" y="328" text-anchor="middle" fill="var(--muted)" font-weight="700">호스트 · Kubernetes · MSP 운영 영역</text>
+        <text x="375" y="350" text-anchor="middle" fill="var(--muted)" font-size="11.5">파드를 배치하고 VM을 띄우지만 안은 못 봄</text>
+        <text x="375" y="368" text-anchor="middle" fill="var(--muted)" font-size="11.5">암호문과 메트릭만 통과</text>
+
+        <g stroke-width="2" fill="none">
+          <path d="M134,68 L204,80" stroke="var(--seal)" marker-end="url(#a9)" style="color:var(--seal)"/>
+          <path d="M366,150 L608,92" stroke="var(--trust)" marker-end="url(#a9)" style="color:var(--trust)"/>
+          <path d="M608,230 L368,166" stroke="var(--muted)" marker-end="url(#a9)" style="color:var(--muted)"/>
+          <path d="M464,178 L464,194" stroke="var(--trust)" marker-end="url(#a9)" style="color:var(--trust)"/>
+        </g>
+        <text x="140" y="60" fill="var(--seal)" font-size="11.5">TLS</text>
+        <text x="470" y="112" fill="var(--trust)" font-size="11.5" transform="translate(0,-14)">증명 → 키</text>
+        <text x="470" y="216" fill="var(--muted)" font-size="11.5" transform="translate(30,-20)">암호문 다운로드</text>
+      </g>
+    </svg>
+    <p class="cap">점선 영역(호스트·클러스터)을 지나가는 것은 TLS 암호문, 암호화된 가중치, 메트릭뿐이도록 설계하는 것이 목표입니다.</p>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="lec" id="s2">
+  <div class="secnum">2</div>
+  <h2>무엇을 무엇으로 지키나</h2>
+  <p>1편 4장의 자산 7가지를 이번 구성의 보호 장치에 대응시켜 봅니다. 빈칸이 없어야 완성입니다.</p>
+  <div class="tbl"><table style="min-width:700px">
+    <tr><th>자산</th><th>저장·전송 중</th><th>사용 중</th><th>담당 편</th></tr>
+    <tr><td>모델 가중치</td><td>암호화된 파일·이미지, 키는 KBS</td><td>CPU TEE + GPU CC (CPR)</td><td>4·6·9편</td></tr>
+    <tr><td>프롬프트</td><td>파드 안에서 TLS 종료</td><td>CPU TEE + GPU CC</td><td>10편</td></tr>
+    <tr><td>시스템 프롬프트·RAG 문서</td><td>KBS 리소스 또는 봉인된 시크릿, 벡터 DB 연결은 TLS</td><td>CPU TEE</td><td>5·10편</td></tr>
+    <tr><td>KV 캐시</td><td>(GPU 밖으로 나가지 않게)</td><td>GPU CC, 테넌트별 분리</td><td>4·11편</td></tr>
+    <tr><td>출력</td><td>파드 안에서 TLS로 응답</td><td>CPU TEE</td><td>10편</td></tr>
+    <tr><td>로그·텔레메트리</td><td>프롬프트·출력을 남기지 않는 설계</td><td>-</td><td>9·10편</td></tr>
+    <tr><td>시크릿·키</td><td>KBS → TEE 공개키로 암호화 전달</td><td>CPU TEE</td><td>3·6편</td></tr>
+  </table></div>
+</section>
+
+<!-- 3 -->
+<section class="lec" id="s3">
+  <div class="secnum">3</div>
+  <h2>가중치 보호 방식 고르기</h2>
+  <p>가중치를 TEE까지 암호화된 채로 가져오는 방법은 크게 세 가지입니다.</p>
+  <div class="grid3">
+    <div class="card" style="border-color:var(--seal)"><h4><span class="ic">📦</span>A. 암호화된 컨테이너 이미지</h4><p style="font-size:15px;margin:0">가중치를 이미지 레이어에 넣고 레이어를 암호화합니다. CoCo가 TEE 안에서 이미지를 받으며(guest pull) KBS에서 키를 받아 복호화합니다(5편 9장). <strong>앱 수정이 필요 없습니다.</strong></p></div>
+    <div class="card" style="border-color:var(--link)"><h4><span class="ic">🗄️</span>B. 암호화된 가중치 파일</h4><p style="font-size:15px;margin:0">가중치 파일을 암호화해 오브젝트 스토리지나 볼륨에 둡니다. 파드 안의 init 컨테이너가 ASR로 키를 받아 복호화한 뒤 vLLM이 읽습니다. <strong>모델과 이미지를 분리</strong>할 수 있습니다.</p></div>
+    <div class="card" style="border-color:var(--trust)"><h4><span class="ic">🌊</span>C. 로딩 중 복호화</h4><p style="font-size:15px;margin:0">모델 로더가 암호화된 파일을 읽으면서 바로 메모리에 복호화합니다. 평문 사본이 디스크에 남지 않고 시간도 아낄 수 있지만, 로더나 서빙 엔진 쪽 개발이 필요합니다.</p></div>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>비교</th><th>A. 암호화 이미지</th><th>B. 암호화 파일</th><th>C. 로딩 중 복호화</th></tr>
+    <tr><td>앱·스크립트 수정</td><td class="ok">거의 없음</td><td>init 스크립트 필요</td><td class="no">로더 개발 필요</td></tr>
+    <tr><td>큰 모델(수백 GB)</td><td class="no">이미지가 매우 커짐, 레지스트리 부담</td><td class="ok">스토리지에 맞게 분할·병렬 다운로드</td><td class="ok">가장 유리</td></tr>
+    <tr><td>모델 버전 교체</td><td>이미지 재빌드 → 정책·Init-Data 연쇄 변경</td><td class="ok">키 경로·파일만 교체 가능</td><td class="ok">파일만 교체</td></tr>
+    <tr><td>평문 사본</td><td>TEE 안 이미지 저장소</td><td>TEE 안 보호 스토리지·메모리</td><td class="ok">메모리만</td></tr>
+    <tr><td>잘 맞는 경우</td><td>작은 모델, 모델이 코드와 함께 배포되는 경우</td><td>대부분의 MSP 운영 환경</td><td>대규모 서비스, 기동 시간이 중요한 경우</td></tr>
+  </table></div>
+  <div class="panel">
+    <h4>직접 해보기: 우리 상황에 맞는 방식은?</h4>
+    <div class="selrow">
+      <label>모델 크기 <select id="chSize"><option value="s">~15GB (7B 이하)</option><option value="m">~150GB (70B급)</option><option value="l">400GB 이상</option></select></label>
+      <label>모델 교체 빈도 <select id="chFreq"><option value="low">분기 1회 이하</option><option value="high">주 단위 이상</option></select></label>
+      <label>개발 여력 <select id="chDev"><option value="low">스크립트 정도</option><option value="high">로더 개발 가능</option></select></label>
+      <button class="btn" id="chGo">추천 보기</button>
+    </div>
+    <div class="verdict" id="chOut">조건을 고르고 추천 보기를 누르세요.</div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="lec" id="s4">
+  <div class="secnum">4</div>
+  <h2>키 설계: 봉투 암호화</h2>
+  <p>수백 GB 파일을 KBS가 직접 다루지는 않습니다. 대신 <strong>봉투 암호화(envelope encryption)</strong>를 씁니다.</p>
+  <div class="note analogy">
+    <span class="nt">비유: 금고 열쇠를 넣은 작은 봉투</span>
+    <p>큰 창고(가중치 파일)는 창고 열쇠(DEK, 데이터 암호화 키)로 잠급니다. 창고 열쇠는 작은 봉투에 넣어 은행 대여금고(KBS)에 맡깁니다. 창고는 어디에 있든, 누가 지키든 상관없습니다. 열쇠를 받으려면 은행 창구에서 증명을 통과해야 하니까요. 창고를 다른 곳으로 옮겨도(스토리지 이전) 열쇠 관리 방식은 바뀌지 않습니다.</p>
+  </div>
+  <div class="tbl"><table>
+    <tr><th>키</th><th>무엇을 암호화하나</th><th>어디에 있나</th><th>누가 만드나</th></tr>
+    <tr><td><strong>DEK</strong> (데이터 키)</td><td>가중치 파일 자체</td><td>KBS 리소스로 등록 (또는 KEK로 감싸 파일 옆에 저장)</td><td>모델 소유자의 암호화 도구 (신뢰 환경)</td></tr>
+    <tr><td><strong>KEK</strong> (키 암호화 키, 선택)</td><td>DEK</td><td>KBS 리소스 또는 KBS와 연동된 KMS·HSM</td><td>모델 소유자·고객 보안팀</td></tr>
+  </table></div>
+  <h3>KBS 리소스 경로 설계 예시</h3>
+  <div class="tbl"><table>
+    <tr><th>경로 (저장소/종류/태그)</th><th>용도</th></tr>
+    <tr><td><code>llm-prod/model-key/llama70b-v3</code></td><td>운영 모델 v3의 DEK</td></tr>
+    <tr><td><code>llm-prod/model-key/llama70b-v4</code></td><td>다음 버전 (8편: 추가 → 배포 → 제거)</td></tr>
+    <tr><td><code>llm-prod/tls/server</code></td><td>파드 안 TLS 서버 인증서·개인키 (10편)</td></tr>
+    <tr><td><code>llm-prod/rag/vectordb-cred</code></td><td>벡터 DB 접속 정보</td></tr>
+    <tr><td><code>llm-stage/model-key/llama70b-v4</code></td><td>스테이징 전용 (운영 저장소와 분리)</td></tr>
+  </table></div>
+  <div class="note key">
+    <span class="nt">설계 원칙</span>
+    <ul>
+      <li><strong>모델 버전마다 다른 DEK:</strong> 한 버전의 키가 새도 다른 버전은 안전합니다. 버전 교체가 곧 키 교체가 됩니다.</li>
+      <li><strong>저장소로 환경·고객 분리:</strong> 리소스 정책을 저장소 단위로 쓰기 쉬워집니다(6편 9장).</li>
+      <li><strong>모델 소유자가 암호화:</strong> 모델 개발사와 운영 고객이 다르다면, 개발사가 직접 암호화하고 DEK를 개발사가 통제하는 KBS(또는 개발사 정책이 적용된 KBS)에 등록하는 구성이 4편·1편의 "가중치 주인" 요구에 맞습니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="lec" id="s5">
+  <div class="secnum">5</div>
+  <h2>복호화 위치와 메모리 예산</h2>
+  <p>복호화한 평문 가중치는 반드시 <strong>TEE 안</strong>에 있어야 합니다. 그런데 "TEE 안"에도 여러 선택지가 있고, 각각 자원이 다르게 듭니다.</p>
+  <div class="tbl"><table>
+    <tr><th>위치</th><th>보호 원리</th><th>자원 비용</th></tr>
+    <tr><td>파드 VM 메모리 (tmpfs)</td><td>CPU TEE 메모리 암호화</td><td class="no">가중치 크기만큼 VM 메모리가 추가로 필요</td></tr>
+    <tr><td>보호 스토리지 (기밀 emptyDir 등)</td><td>TEE 안에서 만든 키로 디스크를 암호화</td><td>노드 디스크 사용, 암호화 I/O 비용</td></tr>
+    <tr><td>로딩 중 복호화 (방식 C)</td><td>메모리에서 바로 GPU로</td><td class="ok">추가 사본 없음</td></tr>
+    <tr><td class="no">일반 emptyDir·hostPath</td><td class="no">호스트 디스크에 평문</td><td class="no">절대 금지</td></tr>
+  </table></div>
+  <div class="panel">
+    <h4>직접 해보기: 파드 VM 메모리 예산 계산</h4>
+    <div class="selrow">
+      <label>파라미터 수 <select id="mbP"><option value="8">8B</option><option value="70" selected>70B</option><option value="405">405B</option></select></label>
+      <label>정밀도 <select id="mbQ"><option value="2">FP16·BF16 (2바이트)</option><option value="1">FP8·INT8 (1바이트)</option><option value="0.5">INT4 (0.5바이트)</option></select></label>
+      <label>복호화 위치 <select id="mbW"><option value="tmpfs">파드 VM 메모리 (tmpfs)</option><option value="disk">보호 스토리지</option><option value="stream">로딩 중 복호화</option></select></label>
+    </div>
+    <div class="bars" id="mbBars"></div>
+    <p class="mx-note" id="mbNote"></p>
+    <p class="cap">어림 계산입니다. 실제 필요량은 서빙 엔진, 로딩 방식, 페이지 캐시 동작, 기밀 VM 오버헤드에 따라 달라지므로 PoC에서 측정해야 합니다.</p>
+  </div>
+</section>
+<!-- 6 -->
+<section class="lec" id="s6">
+  <div class="secnum">6</div>
+  <h2>vLLM 기밀 파드 구성</h2>
+  <p>방식 B(암호화된 가중치 파일)를 기준으로, 기밀 파드 하나를 조립해 봅니다. KServe 없이 Deployment로 먼저 구성하면 구조가 잘 보입니다.</p>
+  <div class="code"><span class="k">apiVersion</span>: apps/v1
+<span class="k">kind</span>: Deployment
+<span class="k">metadata</span>:
+  <span class="k">name</span>: llm-prod
+<span class="k">spec</span>:
+  <span class="k">replicas</span>: 2
+  <span class="k">template</span>:
+    <span class="k">metadata</span>:
+      <span class="k">annotations</span>:
+        <span class="c"># 5편 8장: 에이전트 정책 + AA·CDH 설정 (workload = "llm-prod" 이름표 포함)</span>
+        <span class="k">io.katacontainers.config.hypervisor.cc_init_data</span>: <span class="s">"&lt;gzip+base64 Init-Data&gt;"</span>
+    <span class="k">spec</span>:
+      <span class="r">runtimeClassName: kata-qemu-nvidia-gpu-tdx</span>   <span class="c"># GPU + TDX 기밀 VM (이름은 설치 버전 확인)</span>
+      <span class="k">initContainers</span>:
+      - <span class="k">name</span>: fetch-and-decrypt
+        <span class="k">image</span>: registry.example.com/model-fetcher@sha256:…     <span class="c"># digest 고정</span>
+        <span class="k">command</span>: [<span class="s">"/bin/sh"</span>, <span class="s">"/scripts/fetch.sh"</span>]
+        <span class="k">volumeMounts</span>: [{ <span class="k">name</span>: models, <span class="k">mountPath</span>: /models }]
+      <span class="k">containers</span>:
+      - <span class="k">name</span>: vllm
+        <span class="k">image</span>: registry.example.com/vllm@sha256:…              <span class="c"># digest 고정</span>
+        <span class="k">args</span>: [<span class="s">"--model"</span>, <span class="s">"/models/llama70b-v3"</span>, <span class="s">"--tensor-parallel-size"</span>, <span class="s">"4"</span>]
+        <span class="c"># 요청 내용 로깅은 끈다 (옵션 이름은 vLLM 버전마다 다름 → 11장)</span>
+        <span class="k">resources</span>:
+          <span class="k">limits</span>:
+            <span class="k">nvidia.com/pgpu</span>: 4      <span class="c"># GPU 리소스 이름은 GPU Operator 설정에 따라 다름</span>
+            <span class="k">memory</span>: 320Gi             <span class="c"># 5장 계산기로 산정 (파드 VM 메모리 = 이 값 기준)</span>
+        <span class="k">volumeMounts</span>: [{ <span class="k">name</span>: models, <span class="k">mountPath</span>: /models, <span class="k">readOnly</span>: true }]
+      <span class="k">volumes</span>:
+      - <span class="k">name</span>: models
+        <span class="k">emptyDir</span>: { <span class="k">medium</span>: Memory }   <span class="c"># TEE 안 메모리(tmpfs). 디스크를 쓰려면 CoCo 보호 스토리지 기능 사용</span></div>
+  <p class="cap">구조를 보여주는 예시입니다. RuntimeClass 이름, GPU 리소스 이름, 보호 스토리지 설정 방법은 설치한 Kata·GPU Operator·CoCo 버전의 문서를 확인하세요.</p>
+
+  <div class="note danger">
+    <span class="nt">볼륨 선택 주의</span>
+    <p>Kata 환경에서 일반 디스크 기반 볼륨은 구성에 따라 <strong>호스트의 디스크를 공유</strong>하는 방식으로 연결될 수 있습니다. 그곳에 평문 가중치를 쓰면 TEE를 우회해 호스트에 평문이 남습니다. 평문은 TEE 안의 메모리(<code>medium: Memory</code>)나 CoCo의 보호 스토리지 기능으로만 다루고, 볼륨 종류마다 데이터가 실제로 어디에 저장되는지 반드시 확인하세요.</p>
+  </div>
+
+  <h3>init 컨테이너가 하는 일</h3>
+  <div class="code"><span class="c">#!/bin/sh  — /scripts/fetch.sh (흐름을 보여주는 의사 코드)</span>
+set -eu
+CDH=http://127.0.0.1:8006/cdh/resource
+
+<span class="c"># 1) 증명을 통과해야만 받을 수 있는 리소스들 (CDH가 필요하면 AA로 증명부터 진행)</span>
+DEK=$(curl -sf $CDH/llm-prod/model-key/llama70b-v3)
+S3_CRED=$(curl -sf $CDH/llm-prod/storage/read-cred)
+
+<span class="c"># 2) 암호화된 가중치 조각을 내려받는다 (암호문이므로 경로가 노출되어도 안전)</span>
+download-shards --cred "$S3_CRED" s3://models/llama70b-v3.enc/ /tmp/enc/
+
+<span class="c"># 3) TEE 안에서 복호화해 /models 에 쓴다 (인증 태그로 변조 여부 확인)</span>
+decrypt-shards --key "$DEK" --in /tmp/enc/ --out /models/llama70b-v3/
+rm -rf /tmp/enc/
+
+<span class="c"># 4) 키는 로그에 남기지 않는다. 해시만 남겨 버전을 확인</span>
+echo "model llama70b-v3 ready: $(cat /models/llama70b-v3/manifest.sha256)"</div>
+  <p class="cap"><code>download-shards</code>, <code>decrypt-shards</code>는 설명용 가상의 도구입니다. 실제로는 인증 암호화(AES-GCM 등)를 조각 단위로 적용하는 사내 도구나 검증된 라이브러리를 씁니다.</p>
+  <div class="note key">
+    <span class="nt">여기서 지켜야 할 것</span>
+    <ul>
+      <li><strong>인증 암호화를 쓴다:</strong> 복호화와 함께 위변조를 검사해야 바꿔치기한 가중치(백도어 모델)를 걸러낼 수 있습니다.</li>
+      <li><strong>키와 평문은 TEE 밖으로 내보내지 않는다:</strong> 환경 변수 출력, 디버그 로그, 임시 파일 위치를 점검합니다.</li>
+      <li><strong>init 컨테이너도 정책 대상이다:</strong> genpolicy로 만드는 에이전트 정책에 init 컨테이너의 이미지와 명령도 포함됩니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="lec" id="s7">
+  <div class="secnum">7</div>
+  <h2>KServe로 옮기기</h2>
+  <p>KServe 강의에서 본 InferenceService도 결국 파드를 만듭니다. 그래서 같은 요소(RuntimeClass, Init-Data 어노테이션, init 컨테이너, 볼륨)를 InferenceService에 넣으면 됩니다. 다만 KServe가 파드에 <strong>자동으로 추가하는 것들</strong>을 의식해야 합니다.</p>
+  <div class="code"><span class="k">apiVersion</span>: serving.kserve.io/v1beta1
+<span class="k">kind</span>: InferenceService
+<span class="k">metadata</span>:
+  <span class="k">name</span>: llm-prod
+  <span class="k">annotations</span>:
+    <span class="k">serving.kserve.io/deploymentMode</span>: RawDeployment     <span class="c"># 사이드카가 적은 방식 권장</span>
+    <span class="k">io.katacontainers.config.hypervisor.cc_init_data</span>: <span class="s">"&lt;gzip+base64 Init-Data&gt;"</span>
+<span class="k">spec</span>:
+  <span class="k">predictor</span>:
+    <span class="r">runtimeClassName: kata-qemu-nvidia-gpu-tdx</span>
+    <span class="k">initContainers</span>: [ … 6장의 fetch-and-decrypt … ]
+    <span class="k">containers</span>:
+    - <span class="k">name</span>: kserve-container
+      <span class="k">image</span>: registry.example.com/vllm@sha256:…
+      <span class="k">args</span>: [<span class="s">"--model"</span>, <span class="s">"/models/llama70b-v3"</span>]
+      <span class="k">resources</span>: { … }
+    <span class="k">volumes</span>: [ … ]</div>
+  <p class="cap">구조 예시입니다. 어노테이션이 파드까지 전달되는 방식, predictor에 넣을 수 있는 필드는 KServe 버전 문서를 확인하세요.</p>
+  <div class="grid2">
+    <div class="card"><h4><span class="ic">🧩</span>자동 추가 컨테이너</h4><p style="font-size:15.5px;margin:0">KServe는 스토리지 초기화(storage-initializer) init 컨테이너나, 서버리스 모드의 queue-proxy 사이드카를 넣을 수 있습니다. 이들도 TEE 안에서 돌고 <strong>에이전트 정책의 대상</strong>입니다. 방식 B에서는 <code>storageUri</code> 대신 직접 만든 init 컨테이너로 내려받기와 복호화를 함께 처리하면 구성이 단순해집니다.</p></div>
+    <div class="card"><h4><span class="ic">📜</span>정책은 "최종 파드"로 만든다</h4><p style="font-size:15.5px;margin:0">genpolicy는 실제로 만들어질 파드 스펙을 기준으로 정책을 만들어야 합니다. KServe가 덧붙이는 컨테이너·환경 변수·볼륨까지 반영된 최종 파드 스펙을 스테이징에서 뽑아 정책 생성 입력으로 쓰는 절차를 파이프라인에 넣으세요(8편 5장).</p></div>
+  </div>
+  <div class="note msp">
+    <span class="nt">MSP 관점: 서버리스 모드와 기밀 환경</span>
+    <p>0으로 축소(scale to zero)는 비용에는 좋지만, 기밀 파드는 기동 시간이 깁니다(9장). 첫 요청이 수 분을 기다리게 될 수 있으므로, 기밀 추론에서는 최소 복제본을 유지하는 RawDeployment 방식이 운영상 다루기 쉽습니다.</p>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="lec" id="s8">
+  <div class="secnum">8</div>
+  <h2>모델 키 리소스 정책</h2>
+  <p>6편에서 배운 리소스 정책을 이 구성에 맞게 씁니다. 모델 키는 가장 중요한 리소스이므로 조건을 모두 겁니다.</p>
+  <div class="code"><span class="c"># llm-prod.rego (학습용 예시)</span>
+<span class="k">package</span> policy
+<span class="k">import</span> rego.v1
+
+<span class="k">default</span> allow = <span class="r">false</span>
+
+approved_models := {<span class="s">"llama70b-v3"</span>, <span class="s">"llama70b-v4"</span>}   <span class="c"># 8편: 전환 중에는 두 버전</span>
+
+allow <span class="k">if</span> {
+    data.plugin == <span class="s">"resource"</span>
+    path := data[<span class="s">"resource-path"</span>]
+    path[0] == <span class="s">"llm-prod"</span>
+    path[1] == <span class="s">"model-key"</span>
+    approved_models[path[2]]                                   <span class="c"># 승인된 모델 버전만</span>
+
+    cpu := input[<span class="s">"submods"</span>][<span class="s">"cpu0"</span>]
+    cpu[<span class="s">"ear.status"</span>] == <span class="s">"affirming"</span>                         <span class="c"># CPU TEE 건강</span>
+    input[<span class="s">"submods"</span>][<span class="s">"gpu0"</span>][<span class="s">"ear.status"</span>] == <span class="s">"affirming"</span>   <span class="c"># GPU도 건강 (4편·6편 11장)</span>
+
+    cpu[<span class="s">"ear.veraison.annotated-evidence"</span>][<span class="s">"init_data_claims"</span>][<span class="s">"workload"</span>] == <span class="s">"llm-prod"</span>
+}</div>
+  <p class="cap">경로 인덱스, Init-Data 클레임 구조, GPU submod 이름은 Trustee 버전과 Init-Data 작성 방식에 따라 다를 수 있습니다. GPU가 여러 장이면 모든 GPU submod를 확인하도록 작성합니다.</p>
+  <div class="note key">
+    <span class="nt">이 정책이 막아주는 것</span>
+    <ul>
+      <li>GPU CC가 꺼진 노드에서 뜬 파드 → <code>gpu0</code> 조건에서 거부</li>
+      <li>미승인 커널·디버그 모드 → <code>cpu0</code> 판정에서 거부</li>
+      <li>같은 이미지로 띄운 다른 워크로드 → Init-Data 이름표에서 거부</li>
+      <li>제거된 옛 모델 버전 요청 → 승인 목록에서 거부</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="lec" id="s9">
+  <div class="secnum">9</div>
+  <h2>기동 시간 분석</h2>
+  <p>기밀 추론 파드는 일반 파드보다 늦게 뜹니다. 어느 단계가 길고 무엇으로 줄일 수 있는지 보세요.</p>
+  <div class="panel">
+    <div class="tabs" id="stTabs">
+      <button class="btn on" data-m="base">기본 구성</button>
+      <button class="btn" data-m="opt">최적화 적용</button>
+    </div>
+    <div class="bars" id="stBars"></div>
+    <p class="mx-note" id="stNote"></p>
+    <p class="cap">단계별 상대적인 크기를 보여주는 학습용 그림이며 실제 시간이 아닙니다. 모델 크기, 스토리지, 네트워크, GPU 수에 따라 크게 달라지므로 PoC에서 단계별로 측정하세요.</p>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="lec" id="s10">
+  <div class="secnum">10</div>
+  <h2>확장·버전·키 교체 운영</h2>
+  <div class="grid2">
+    <details class="card"><summary><span class="ic">📈</span>확장 (스케일 아웃)</summary><div class="body"><p>새 파드가 서비스에 들어오기까지 오래 걸리므로, 트래픽 증가를 예측해 미리 늘리거나 최소 여유 복제본을 유지합니다. 오토스케일러의 기준 지표와 대기 시간을 기밀 파드 기동 시간에 맞게 조정하세요.</p></div></details>
+    <details class="card"><summary><span class="ic">💾</span>노드 캐시는 암호문으로</summary><div class="body"><p>가중치 다운로드 시간을 줄이려 노드에 캐시를 두는 것은 괜찮습니다. 단 <strong>암호화된 파일</strong>을 캐시해야 합니다. 평문 캐시를 노드에 두는 순간 모든 보호가 무너집니다.</p></div></details>
+    <details class="card"><summary><span class="ic">🔄</span>모델 버전 교체</summary><div class="body"><p>새 모델 버전은 새 DEK, 새 KBS 경로를 갖습니다. 8편의 릴리스 번들에 "모델 키 경로와 리소스 정책의 승인 모델 목록"을 포함시키고, 추가 → 배포 → 제거 순서로 진행합니다.</p></div></details>
+    <details class="card"><summary><span class="ic">🔑</span>키 교체</summary><div class="body"><p>DEK를 바꾸려면 가중치를 새 키로 다시 암호화해야 합니다. 그래서 키 교체는 보통 "같은 모델의 새 버전 배포"로 처리하는 것이 깔끔합니다. KEK를 쓰는 구성이라면 KEK만 교체하고 DEK를 다시 감싸는 방식도 가능합니다.</p></div></details>
+    <details class="card"><summary><span class="ic">🏢</span>여러 고객사 서빙</summary><div class="body"><p>여러 고객의 요청을 한 파드에서 처리하면 KV 캐시·프리픽스 캐시를 통한 정보 유추 위험이 있습니다(1편 시나리오 F). 고객사별로 파드(즉 기밀 VM)를 나누고, KBS 저장소와 Init-Data 이름표도 고객사별로 분리하는 것이 기본입니다.</p></div></details>
+    <details class="card"><summary><span class="ic">🧯</span>장애 대응</summary><div class="body"><p>8편 11장의 런북을 그대로 씁니다. 여기에 "GPU 판정이 affirming이 아님"(CC 모드 꺼짐, 드라이버·RIM 불일치) 분기를 추가하세요.</p></div></details>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="lec" id="s11">
+  <div class="secnum">11</div>
+  <h2>로그와 관측</h2>
+  <p>기밀 파드 안에서 무엇을 내보내도 되는지가 1편 시나리오 C(로그에 다 있었다)를 막는 마지막 관문입니다. OpenTelemetry 강의에서 다룬 신호들을 기준으로 정리합니다.</p>
+  <div class="tbl"><table>
+    <tr><th>신호</th><th>내보내도 되는 것</th><th>내보내면 안 되는 것</th></tr>
+    <tr><td>메트릭</td><td>요청 수, 지연 시간, 토큰 수, GPU 사용률, 큐 길이, 오류율</td><td>고객별 매우 세밀한 레이블(사용자 ID 등)은 신중히</td></tr>
+    <tr><td>로그</td><td>요청 ID, 상태 코드, 처리 시간, 모델 버전, 오류 유형</td><td class="no">프롬프트, 출력, 시스템 프롬프트, 키, 토큰 원문</td></tr>
+    <tr><td>트레이스</td><td>단계별 시간(토큰화, 프리필, 디코드), 모델 이름</td><td class="no">프롬프트·출력이 담긴 속성(attribute), RAG 문서 내용</td></tr>
+    <tr><td>덤프·디버그</td><td>-</td><td class="no">코어 덤프, 메모리 덤프 (운영 정책상 금지)</td></tr>
+  </table></div>
+  <div class="note danger">
+    <span class="nt">서빙 엔진의 요청 로깅</span>
+    <p>서빙 엔진은 버전에 따라 요청 내용을 로그로 남기는 기능의 기본값과 옵션 이름이 다릅니다. vLLM도 마찬가지이니, 사용하는 버전에서 요청·프롬프트 로깅이 꺼져 있는지 <strong>실제 로그를 보고</strong> 확인하세요. 게이트웨이, 사이드카, 로깅 라이브러리의 디버그 레벨도 함께 점검해야 합니다.</p>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="lec" id="s12">
+  <div class="secnum">12</div>
+  <h2>구축 체크리스트</h2>
+  <div class="panel clist" id="clist"></div>
+</section>
+
+<!-- 13 -->
+<section class="lec" id="s13">
+  <div class="secnum">13</div>
+  <h2>오해 바로잡기</h2>
+  <div class="myth"><div class="m"><span class="lb">오해</span>기밀 파드 안에 있으니 어떤 볼륨에 가중치를 풀어도 된다.</div><div class="f"><span class="lb">사실</span>볼륨 종류에 따라 데이터가 호스트 디스크에 저장될 수 있습니다. 평문은 TEE 안 메모리나 보호 스토리지에만 둡니다.</div></div>
+  <div class="myth"><div class="m"><span class="lb">오해</span>가중치를 암호화해 두면 GPU 쪽은 신경 쓰지 않아도 된다.</div><div class="f"><span class="lb">사실</span>복호화한 가중치는 GPU 메모리에 평문으로 올라갑니다. GPU CC가 꺼져 있으면 호스트가 읽을 수 있으므로 리소스 정책에서 GPU 판정까지 요구해야 합니다.</div></div>
+  <div class="myth"><div class="m"><span class="lb">오해</span>KServe의 storageUri로 받으면 알아서 안전하다.</div><div class="f"><span class="lb">사실</span>저장소에서 받는 것 자체는 괜찮지만, 받은 파일이 평문이라면 저장 위치와 경로가 모두 보호되어야 합니다. 암호문으로 받고 TEE 안에서 복호화하는 흐름을 분명히 설계하세요.</div></div>
+  <div class="myth"><div class="m"><span class="lb">오해</span>모델 키 하나로 모든 버전을 암호화하면 관리가 편하다.</div><div class="f"><span class="lb">사실</span>편하지만 한 번 새면 모든 버전이 노출되고, 키 교체가 전체 재암호화가 됩니다. 버전마다 DEK를 나누는 편이 운영도 보안도 낫습니다.</div></div>
+</section>
+<!-- 14 -->
+<section class="lec" id="s14">
+  <div class="secnum">14</div>
+  <h2>확인 퀴즈</h2>
+  <p>보기를 누르면 바로 정답과 해설이 나옵니다.</p>
+  <div id="quiz"></div>
+  <p class="qscore" id="qscore"></p>
+</section>
+
+<!-- 15 -->
+<section class="lec" id="s15">
+  <div class="secnum">15</div>
+  <h2>정리와 다음 편</h2>
+  <ol>
+    <li>목표는 <strong>가중치가 TEE 밖에서는 늘 암호문, 증명을 통과한 GPU 기밀 파드 안에서만 평문</strong>이 되는 것입니다.</li>
+    <li>가중치 보호는 <strong>암호화 이미지, 암호화 파일, 로딩 중 복호화</strong> 중에서 모델 크기·교체 빈도·개발 여력으로 고릅니다. MSP 환경에서는 암호화 파일 방식이 무난합니다.</li>
+    <li>키는 <strong>봉투 암호화</strong>로 설계하고, 모델 버전마다 다른 DEK와 KBS 경로를 둡니다.</li>
+    <li>평문은 <strong>TEE 안 메모리나 보호 스토리지</strong>에만 두고, 위치에 따라 VM 메모리·디스크 예산을 잡습니다.</li>
+    <li>vLLM 파드·KServe InferenceService에는 <strong>기밀 RuntimeClass, Init-Data, init 컨테이너</strong>를 넣고, 정책은 최종 파드 스펙으로 만듭니다.</li>
+    <li>모델 키 리소스 정책은 <strong>CPU·GPU 판정, Init-Data 이름표, 승인 모델 목록</strong>을 모두 확인합니다.</li>
+    <li>기동 시간이 길므로 암호문 노드 캐시, 병렬 처리, 최소 복제본으로 운영하고, 로그에는 프롬프트·출력을 남기지 않습니다.</li>
+  </ol>
+  <div class="next">
+    <h3 style="margin-top:0">10편 예고: 엔드투엔드 신뢰 사슬</h3>
+    <p style="margin-bottom:0">지금까지는 "서버 쪽이 키를 받아도 되는가"를 Trustee가 판단했습니다. 그런데 프롬프트를 보내는 <strong>사용자</strong>는 무엇을 믿고 보낼까요? 10편에서는 TLS를 TEE 안에서 종료하는 방법, 클라이언트가 직접 증명을 확인하고 접속하는 방식(증명된 TLS), 투명성 로그, 그리고 관측 데이터를 통한 유출 경로를 막는 설계를 다룹니다.</p>
+  </div>
+  <footer>TEE·Trustee 강의 시리즈 9편. 매니페스트, 스크립트, 정책, 계산기는 구조와 원리를 보여주기 위한 학습용 예시입니다. RuntimeClass·GPU 리소스 이름, 보호 스토리지 설정, KServe 필드, vLLM 옵션은 사용하는 버전의 공식 문서를 확인하세요.</footer>
+</section>
+
+</div>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function $(s,r){return (r||document).querySelector(s);}
+function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}
+function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function tabs(sel,attr,cur){$$(sel).forEach(function(b){var on=b.getAttribute(attr)===cur;b.classList.toggle("on",on);b.setAttribute("aria-pressed",on?"true":"false");});}
+
+/* theme */
+var root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=(t==="dark")?"라이트 테마":"다크 테마";}
+var saved=null;try{saved=localStorage.getItem("tee-lecture-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",function(){var t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("tee-lecture-theme",t);}catch(e){}});
+
+/* toc */
+var toc=$("#toc"),tocBtn=$("#tocBtn");
+tocBtn.addEventListener("click",function(){var o=toc.classList.toggle("open");tocBtn.setAttribute("aria-expanded",o?"true":"false");});
+$$("#toc a").forEach(function(a){a.addEventListener("click",function(){toc.classList.remove("open");tocBtn.setAttribute("aria-expanded","false");});});
+var secs=$$("section.lec"),links={};
+$$("#toc a").forEach(function(a){links[a.getAttribute("href").slice(1)]=a;});
+function onScroll(){var h=document.documentElement,max=h.scrollHeight-h.clientHeight;$("#progress").style.width=(max>0?h.scrollTop/max*100:0)+"%";var cur=secs[0].id;secs.forEach(function(s){if(s.getBoundingClientRect().top<140)cur=s.id;});Object.keys(links).forEach(function(k){links[k].classList.toggle("active",k===cur);});}
+window.addEventListener("scroll",onScroll,{passive:true});onScroll();
+
+/* weight journey */
+var WJ=[
+ {ic:"🏭",nm:"원본",st:["warn","평문 · 소유자 환경"],d:"모델 소유자(개발사 또는 고객)의 신뢰할 수 있는 환경에 원본 가중치가 있습니다. 여기가 평문이 TEE 밖에 존재하는 유일한 곳이어야 합니다.",k:"키: 아직 없음"},
+ {ic:"🔐",nm:"암호화",st:["seal","암호문 생성"],d:"모델 버전마다 새 DEK를 만들고, 가중치를 조각 단위 인증 암호화(AES-GCM 등)로 암호화합니다. 조각마다 위변조 검사 값이 붙습니다.",k:"키: DEK는 소유자만 보유"},
+ {ic:"☁️",nm:"저장소 업로드",st:["seal","암호문"],d:"암호화된 조각을 S3, PVC, 레지스트리 어디에 두어도 됩니다. 스토리지 운영자, MSP, 클라우드가 파일을 봐도 의미 없는 바이트입니다.",k:"키: 소유자만 보유"},
+ {ic:"🗝️",nm:"DEK를 KBS에",st:["trust","키는 KBS에만"],d:"DEK를 KBS 리소스(예: llm-prod/model-key/llama70b-v3)로 등록하고, 리소스 정책으로 '어떤 판정의 어떤 워크로드에게 줄지'를 정합니다(8장).",k:"키: KBS가 보관, 정책으로 보호"},
+ {ic:"🚀",nm:"기동·증명",st:["trust","CPU+GPU 합성 증명"],d:"GPU 기밀 RuntimeClass로 파드 VM이 뜨고, Init-Data가 측정됩니다. AA가 CPU와 GPU 증거를 묶어 KBS에 제출하고 판정 토큰을 받습니다.",k:"키: 아직 KBS에"},
+ {ic:"📥",nm:"키 수령·다운로드",st:["seal","TEE 공개키로 암호화된 DEK"],d:"init 컨테이너가 ASR로 DEK를 요청합니다. KBS는 리소스 정책을 확인하고 TEE 공개키로 감싸 보냅니다. 동시에 암호화된 가중치 조각을 내려받습니다.",k:"키: TEE 안에서만 평문"},
+ {ic:"🔓",nm:"TEE 안 복호화",st:["trust","평문 · TEE 안"],d:"TEE 안에서 복호화하고 위변조 검사를 통과한 가중치만 TEE 메모리나 보호 스토리지에 둡니다. 호스트에서는 암호문만 보입니다.",k:"키: 사용 후 메모리에서 지움"},
+ {ic:"🟩",nm:"GPU 로드·서빙",st:["trust","GPU 보호 메모리"],d:"vLLM이 가중치를 GPU로 올립니다. CPU→GPU 구간은 바운스 버퍼와 암호화(4편)를 거치고, GPU 안에서는 보호 영역(CPR)에 들어갑니다. 이제 서빙을 시작합니다.",k:"키: 더 이상 필요 없음"}
+];
+var wjI=0;
+function renderWj(){
+  var h="";WJ.forEach(function(s,i){h+='<button class="jn enc'+(i===wjI?" sel":"")+'" data-i="'+i+'" aria-pressed="'+(i===wjI)+'"><span class="ic">'+s.ic+'</span>'+(i+1)+'. '+esc(s.nm)+'</button>';});
+  $("#wj").innerHTML=h;var s=WJ[wjI];
+  $("#wjD").innerHTML='<h4>'+(wjI+1)+'. '+esc(s.nm)+'</h4><div class="jmeta"><span class="pill '+s.st[0]+'">'+esc(s.st[1])+'</span><span class="pill trust">'+esc(s.k)+'</span></div><p>'+esc(s.d)+'</p>';
+  $("#wjState").textContent=(wjI+1)+" / "+WJ.length;
+  $$("#wj .jn").forEach(function(b){b.addEventListener("click",function(){wjI=+b.getAttribute("data-i");renderWj();});});
+}
+renderWj();
+
+/* chooser */
+$("#chGo").addEventListener("click",function(){
+  var s=$("#chSize").value,f=$("#chFreq").value,d=$("#chDev").value,r,why;
+  if(s==="l"&&d==="high"){r="C. 로딩 중 복호화";why="모델이 매우 크면 평문 사본을 하나 더 두는 비용(메모리·디스크·시간)이 큽니다. 개발 여력이 있다면 복호화하면서 바로 로드하는 방식이 기동 시간과 자원 모두에 유리합니다.";}
+  else if(s==="s"&&f==="low"){r="A. 암호화된 컨테이너 이미지";why="모델이 작고 자주 바뀌지 않으면 CoCo의 이미지 암호화 기능만으로 앱 수정 없이 구성할 수 있습니다. 이미지 재빌드가 곧 릴리스 번들이 됩니다.";}
+  else {r="B. 암호화된 가중치 파일";why="모델과 이미지를 분리해 모델만 따로 교체할 수 있고, 큰 모델도 조각으로 나눠 병렬로 받을 수 있습니다. init 스크립트 정도의 작업으로 구성할 수 있어 MSP 운영 환경에서 가장 무난합니다.";if(s==="l")why+=" 다만 모델이 매우 크므로 평문 사본 위치(5장)와 기동 시간(9장)을 특히 따져 보세요.";}
+  var o=$("#chOut");o.className="verdict ok";o.innerHTML="<strong>추천: "+esc(r)+"</strong><br>"+esc(why);
+});
+
+/* memory budget */
+function renderMb(){
+  var P=+$("#mbP").value,Q=+$("#mbQ").value,W=Math.round(P*Q),base=16,vm,disk,note;
+  var where=$("#mbW").value;
+  if(where==="tmpfs"){vm=base+W;disk=0;note="복호화한 가중치 사본이 파드 VM 메모리에 통째로 올라갑니다. VM 메모리를 가중치 크기만큼 더 잡아야 하고, 노드의 물리 메모리도 그만큼 필요합니다. 작은 모델에는 간단하고 빠른 선택입니다.";}
+  else if(where==="disk"){vm=base+Math.round(W*0.1);disk=W;note="평문 사본은 TEE 안에서 만든 키로 암호화된 디스크에 놓입니다. VM 메모리 부담은 줄지만 노드 디스크와 암호화 I/O 비용이 듭니다. 큰 모델에 현실적입니다.";}
+  else {vm=base;disk=0;note="복호화하면서 바로 로드하므로 추가 사본이 없습니다. 자원은 가장 적게 들지만 로더 개발이 필요합니다.";}
+  var gpu=Math.round(W*1.2),max=Math.max(W,vm,disk,gpu,1);
+  var rows=[["가중치 크기",W,"var(--trust)"],["파드 VM 메모리(추정)",vm,"var(--seal)"],["노드 디스크 (보호 스토리지, 암호화됨)",disk,"var(--warn)"],["GPU 메모리 합계(추정)",gpu,"var(--link)"]];
+  $("#mbBars").innerHTML=rows.map(function(r){return '<div class="bar"><span>'+esc(r[0])+'</span><span class="tr"><i style="width:'+(r[1]/max*100)+'%;background:'+r[2]+'"></i></span><span class="num">~'+r[1]+' GB</span></div>';}).join("");
+  $("#mbNote").textContent=note+" GPU 메모리는 가중치에 KV 캐시 여유(여기서는 20%로 가정)를 더한 값이며, 여러 GPU에 나눠 담습니다.";
+}
+["#mbP","#mbQ","#mbW"].forEach(function(s){$(s).addEventListener("change",renderMb);});
+renderMb();
+
+/* startup */
+var ST={
+ base:{r:[["VM 기동·메모리 수락",3],["증명·키 수령",1],["가중치 다운로드",6],["TEE 안 복호화",4],["GPU 로드 (바운스 버퍼)",4],["워밍업",1.5]],n:"가중치 다운로드와 복호화, GPU 로드가 대부분을 차지합니다. 증명 자체는 상대적으로 짧습니다. 큰 VM은 메모리 수락(2편 10장) 때문에 기동이 늦어질 수 있습니다."},
+ opt:{r:[["VM 기동·메모리 수락",2],["증명·키 수령",1],["가중치 다운로드",2],["TEE 안 복호화",1.5],["GPU 로드 (바운스 버퍼)",3.5],["워밍업",1.5]],n:"노드 로컬 암호문 캐시로 다운로드를 줄이고, 조각 병렬 복호화나 로딩 중 복호화로 복호화 시간을 줄였습니다. 사본을 줄이면 VM도 작게 잡을 수 있습니다. GPU 로드의 CC 비용은 크게 줄지 않으며, TEE-I/O가 보급되면 개선될 수 있습니다(4편 7장)."}
+};
+function renderSt(m){var d=ST[m],max=6;$("#stBars").innerHTML=d.r.map(function(r){return '<div class="bar"><span>'+esc(r[0])+'</span><span class="tr"><i style="width:'+(r[1]/max*100)+'%;background:'+(r[1]>=4?"var(--leak)":r[1]>=2?"var(--warn)":"var(--seal)")+'"></i></span><span class="num">'+r[1]+'</span></div>';}).join("");$("#stNote").textContent=d.n;tabs("#stTabs .btn","data-m",m);}
+$$("#stTabs .btn").forEach(function(b){b.addEventListener("click",function(){renderSt(b.getAttribute("data-m"));});});
+renderSt("base");
+
+/* checklist */
+var CL=["가중치는 저장소에 인증 암호화된 암호문으로만 있다.","모델 버전마다 DEK가 다르고, KBS 리소스 경로가 정해져 있다.","파드는 GPU용 기밀 RuntimeClass로 뜬다.","Init-Data에 에이전트 정책과 워크로드 이름표가 들어 있다.","에이전트 정책은 KServe 등이 덧붙인 것까지 반영한 최종 파드 스펙으로 만들었다.","리소스 정책이 cpu0·gpu0 판정, Init-Data 이름표, 승인 모델 목록을 모두 확인한다.","평문 가중치는 TEE 안 메모리나 보호 스토리지에만 있다.","노드 캐시에는 암호문만 둔다.","서빙 엔진·게이트웨이 로그에 프롬프트·출력이 남지 않는 것을 실제 로그로 확인했다.","TLS가 파드 안에서 종료된다 (10편).","고객사별로 파드와 KBS 저장소가 분리되어 있다.","단계별 기동 시간을 측정하고 최소 복제본 수를 정했다."];
+var clOn={};
+function renderCl(){
+  var h="";CL.forEach(function(c,i){h+='<label class="chk"><input type="checkbox" data-i="'+i+'"'+(clOn[i]?" checked":"")+'><div>'+esc(c)+'</div></label>';});
+  var n=Object.keys(clOn).filter(function(k){return clOn[k];}).length;
+  var msg=n===CL.length?"<strong>구성 완료.</strong> 이제 사용자 쪽 신뢰 사슬(10편)을 연결하면 엔드투엔드가 완성됩니다.":n>=8?"<strong>거의 다 왔습니다.</strong> 남은 항목은 대부분 '어디서 평문이 새는가'와 관련이 있으니 꼭 채우세요.":"<strong>아직 빈틈이 많습니다.</strong> 2장의 자산 표와 함께 하나씩 채워 나가세요.";
+  h+='<div class="result"><div>'+n+' / '+CL.length+' 확인</div><div class="meter"><i style="width:'+(n/CL.length*100)+'%"></i></div>'+msg+'</div>';
+  $("#clist").innerHTML=h;
+  $$("#clist input").forEach(function(cb){cb.addEventListener("change",function(){clOn[+cb.getAttribute("data-i")]=cb.checked;renderCl();});});
+}
+renderCl();
+
+/* quiz */
+var quiz=[
+ {q:"기밀 LLM 추론 파이프라인의 핵심 목표로 가장 적절한 것은?",o:["가중치를 GPU에 올리지 않는다","가중치가 TEE 밖에서는 늘 암호문이고, 증명을 통과한 기밀 파드 안에서만 평문이 된다","모든 로그를 암호화해 보관한다","KServe를 쓰지 않는다"],a:1,e:"저장소·네트워크·호스트 어디에서도 평문이 보이지 않고, 키는 증명된 TEE에만 전달되는 것이 목표입니다."},
+ {q:"모델이 400GB 이상이고 자주 교체된다. 가장 부적합한 방식은?",o:["암호화된 가중치 파일","로딩 중 복호화","가중치를 넣은 암호화 컨테이너 이미지","조각 단위 병렬 다운로드"],a:2,e:"이미지가 매우 커지고, 모델을 바꿀 때마다 이미지 재빌드와 정책·Init-Data 연쇄 변경이 생깁니다."},
+ {q:"봉투 암호화에서 KBS에 맡기는 것은?",o:["가중치 파일 전체","가중치를 암호화한 DEK(또는 DEK를 감싼 KEK)","컨테이너 이미지","GPU 펌웨어"],a:1,e:"큰 데이터는 DEK로 잠그고, 작은 키만 KBS가 증명 기반으로 관리합니다."},
+ {q:"복호화한 70B 모델(FP16)을 파드 VM 메모리(tmpfs)에 둔다면 무엇을 고려해야 할까?",o:["GPU 수만 늘리면 된다","가중치 크기만큼 VM 메모리와 노드 물리 메모리가 추가로 필요하다","디스크 용량만 늘리면 된다","아무 영향이 없다"],a:1,e:"평문 사본이 VM 메모리에 통째로 올라가므로 약 140GB가 추가로 필요합니다."},
+ {q:"기밀 파드에서 일반 디스크 기반 볼륨에 평문 가중치를 쓰면 안 되는 이유는?",o:["속도가 느려서","구성에 따라 호스트 디스크에 저장되어 TEE를 우회할 수 있어서","용량 제한 때문에","Kubernetes가 허용하지 않아서"],a:1,e:"평문은 TEE 안 메모리나 CoCo 보호 스토리지에만 두어야 합니다."},
+ {q:"KServe InferenceService에 쓸 에이전트 정책은 무엇을 기준으로 생성해야 할까?",o:["InferenceService YAML 원본","KServe가 덧붙인 컨테이너·환경 변수까지 반영된 최종 파드 스펙","vLLM 이미지 Dockerfile","Trustee 설정 파일"],a:1,e:"KServe는 init 컨테이너나 사이드카를 자동으로 추가할 수 있으므로, 실제 만들어질 파드 기준이어야 정책이 맞습니다."},
+ {q:"모델 키 리소스 정책에 GPU 판정(gpu0 affirming)까지 요구하는 이유는?",o:["GPU 성능을 확인하려고","복호화한 가중치가 GPU 메모리에 평문으로 올라가므로, GPU CC가 꺼져 있으면 호스트가 읽을 수 있어서","정책을 길게 만들려고","KServe가 요구해서"],a:1,e:"CPU TEE만 확인하면 GPU CC가 꺼진 노드에서도 키가 나가 가중치가 노출될 수 있습니다."},
+ {q:"가중치 다운로드 시간을 줄이려 노드 로컬 캐시를 둘 때 올바른 방법은?",o:["복호화한 평문을 캐시한다","암호화된 파일만 캐시한다","캐시를 hostPath에 평문으로 둔다","DEK도 함께 캐시한다"],a:1,e:"암호문 캐시는 안전합니다. 평문이나 키를 노드에 두는 순간 보호가 무너집니다."}
+];
+var qDone={},qRight=0,qh="";
+quiz.forEach(function(x,i){qh+='<div class="qz" id="qz'+i+'"><div class="qq">Q'+(i+1)+'. '+esc(x.q)+'</div><div class="opts">';x.o.forEach(function(o,j){qh+='<button data-q="'+i+'" data-o="'+j+'">'+esc(o)+'</button>';});qh+='</div><div class="ex" aria-live="polite"></div></div>';});
+$("#quiz").innerHTML=qh;
+$$("#quiz .opts button").forEach(function(b){b.addEventListener("click",function(){
+  var i=+b.getAttribute("data-q"),j=+b.getAttribute("data-o");if(qDone[i])return;qDone[i]=true;var x=quiz[i],box=$("#qz"+i);
+  $$(".opts button",box).forEach(function(bb,k){bb.disabled=true;if(k===x.a)bb.classList.add("right");});
+  if(j!==x.a)b.classList.add("wrong");else qRight++;
+  var ex=$(".ex",box);ex.innerHTML='<strong>'+(j===x.a?"정답입니다.":"아쉽습니다.")+'</strong> '+esc(x.e);ex.classList.add("show");
+  if(Object.keys(qDone).length===quiz.length)$("#qscore").textContent="결과: "+quiz.length+"문제 중 "+qRight+"문제 정답";
+});});
+})();
+</script>
+</body>
+</html>

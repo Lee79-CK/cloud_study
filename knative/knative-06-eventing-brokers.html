@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knative 6편 · Eventing 2: Broker 구현체와 아키텍처 패턴</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --font: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 16px);scroll-behavior:smooth}
+*,*::before,*::after{box-sizing:inherit}
+:root[data-theme="dark"]{
+  --bg:#0F1633; --bg2:#141D42; --surface:#1A2452; --surface2:#212C5E; --line:#2C3874;
+  --text:#E8ECFF; --muted:#A3ADDA; --faint:#6F7AAE;
+  --serving:#5B95FF; --eventing:#FFB443; --functions:#38D9A9; --hot:#FF6F91; --violet:#B18CFF;
+  --code:#0A0F27; --codetext:#D7DEFF; --codekey:#7FB0FF; --codestr:#5FE3BC; --codecom:#6E79A8;
+  --shadow:0 18px 50px -24px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#F3F5FC; --bg2:#E8ECF9; --surface:#FFFFFF; --surface2:#F1F4FC; --line:#D2D8EF;
+  --text:#17204A; --muted:#525D8C; --faint:#8A93BB;
+  --serving:#2B66DB; --eventing:#B86F00; --functions:#0B9671; --hot:#D2345D; --violet:#7448D6;
+  --code:#141B3D; --codetext:#DCE3FF; --codekey:#8CB8FF; --codestr:#6BE6C1; --codecom:#7480B4;
+  --shadow:0 18px 40px -26px rgba(30,40,90,.35);
+}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--serving)}
+::selection{background:var(--serving);color:#fff}
+:focus-visible{outline:3px solid var(--eventing);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px}
+.series{font-size:14px;color:var(--muted)}
+.series b{color:var(--text);font-weight:700}
+.progress{flex:1;height:4px;background:var(--line);border-radius:4px;overflow:hidden}
+.progress span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--serving),var(--functions),var(--eventing))}
+.theme-btn{font:inherit;font-size:14px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.theme-btn:hover{border-color:var(--serving)}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+.toc{position:sticky;top:76px;align-self:start;max-height:calc(100vh - 96px);overflow:auto;padding:32px 0;font-size:14px}
+.toc p{margin:0 0 10px;color:var(--faint);font-size:13px}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+.toc li{counter-increment:t}
+.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a::before{content:counter(t);font-family:var(--mono);font-size:12px;color:var(--faint);min-width:16px;padding-top:2px}
+.toc a:hover{color:var(--text);background:var(--surface)}
+.toc a.on{color:var(--text);background:var(--surface);box-shadow:inset 3px 0 0 var(--serving)}
+main{min-width:0;padding-bottom:120px}
+@media (max-width:980px){.wrap{grid-template-columns:1fr;gap:0}.toc{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:56px 0 24px}
+.hero h1{font-size:clamp(44px,7vw,84px);line-height:1.05;letter-spacing:-.03em;margin:0 0 18px;font-weight:700}
+.hero .lede{font-size:20px;color:var(--muted);max-width:640px;margin:0 0 30px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px}
+.chip{font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg2)}
+
+/* simulator */
+.sim{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:var(--shadow)}
+.sim-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.sim-head h2{font-size:19px;margin:0}
+.sim-head p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.sim-btns{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:inherit;font-size:15px;font-weight:500;border-radius:12px;padding:9px 16px;border:1px solid var(--line);background:var(--surface2);color:var(--text);cursor:pointer;transition:transform .08s,border-color .15s}
+.btn:hover{border-color:var(--serving)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--serving);border-color:var(--serving);color:#fff}
+.btn.warn{background:transparent;border-color:var(--hot);color:var(--hot)}
+.sim-stage{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:stretch}
+@media (max-width:640px){.sim-stage{grid-template-columns:1fr}}
+.activator{border:1.5px dashed var(--eventing);border-radius:16px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:8px;background:color-mix(in srgb,var(--eventing) 7%,transparent);transition:opacity .3s}
+.activator.dim{opacity:.38}
+.activator strong{font-size:15px;color:var(--eventing)}
+.activator small{font-size:12.5px;color:var(--muted);line-height:1.5}
+.queue{display:flex;flex-wrap:wrap;gap:4px;min-height:22px}
+.queue i{width:10px;height:10px;border-radius:50%;background:var(--eventing);display:block}
+.pods{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+@media (max-width:640px){.pods{grid-template-columns:repeat(4,1fr)}}
+.pod{aspect-ratio:1/1;border-radius:14px;border:1.5px solid var(--line);background:var(--bg2);position:relative;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;color:var(--faint);transition:background .25s,border-color .25s,transform .25s}
+.pod.starting{border-color:var(--violet);border-style:dashed;color:var(--violet);animation:pulse 0.9s infinite}
+.pod.ready{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 14%,var(--bg2));color:var(--functions)}
+.pod.busy{background:color-mix(in srgb,var(--functions) 34%,var(--bg2));color:var(--text)}
+.pod.stopping{border-color:var(--hot);color:var(--hot);opacity:.5;transform:scale(.9)}
+@keyframes pulse{50%{opacity:.45}}
+.sim-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+@media (max-width:640px){.sim-stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.stat b{display:block;font-family:var(--mono);font-size:24px;line-height:1.2}
+.stat span{font-size:12.5px;color:var(--muted)}
+.sim-status{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--bg2);font-size:15px;display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--faint)}
+.idlebar{height:4px;border-radius:4px;background:var(--line);margin-top:10px;overflow:hidden}
+.idlebar span{display:block;height:100%;width:0;background:var(--hot);transition:width .1s linear}
+.sim-note{font-size:13px;color:var(--faint);margin:10px 2px 0}
+
+/* ---------- sections ---------- */
+section.lesson{padding:72px 0 0}
+.sec-no{font-family:var(--mono);font-size:14px;color:var(--faint);margin-bottom:6px}
+h2.h{font-size:clamp(28px,3.4vw,38px);line-height:1.25;letter-spacing:-.02em;margin:0 0 18px}
+h3{font-size:21px;margin:36px 0 10px;letter-spacing:-.01em}
+.prose{max-width:720px}
+.prose p{margin:0 0 16px}
+.muted{color:var(--muted)}
+strong{font-weight:700}
+.term{border-bottom:1.5px dotted var(--faint);cursor:help}
+code.i{font-family:var(--mono);font-size:.86em;background:var(--bg2);border:1px solid var(--line);padding:1px 6px;border-radius:6px}
+
+.callout{border-left:4px solid var(--serving);background:var(--surface);padding:16px 20px;border-radius:0 14px 14px 0;margin:22px 0;max-width:720px}
+.callout.amber{border-color:var(--eventing)}
+.callout.mint{border-color:var(--functions)}
+.callout.hot{border-color:var(--hot)}
+.callout b.t{display:block;margin-bottom:4px}
+.callout p{margin:0}
+
+/* traits */
+.traits{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin:24px 0;max-width:820px}
+@media (max-width:640px){.traits{grid-template-columns:1fr}}
+.trait{background:var(--surface);padding:20px 22px}
+.trait h4{margin:0 0 6px;font-size:17px;display:flex;gap:10px;align-items:center}
+.trait h4 .sw{width:12px;height:12px;border-radius:3px}
+.trait p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* analogy */
+.analogy{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:820px;margin:20px 0}
+@media (max-width:640px){.analogy{grid-template-columns:1fr}}
+.analogy div{border-radius:18px;padding:20px;border:1px solid var(--line);background:var(--bg2)}
+.analogy div:last-child{background:color-mix(in srgb,var(--functions) 9%,var(--bg2));border-color:color-mix(in srgb,var(--functions) 45%,var(--line))}
+.analogy h4{margin:0 0 8px;font-size:17px}
+.analogy ul{margin:0;padding-left:18px;color:var(--muted);font-size:15.5px}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:16px;max-width:100%}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:15px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--surface2);font-size:14px;color:var(--muted);font-weight:500}
+tbody th{font-weight:500;color:var(--muted);white-space:nowrap;background:var(--surface)}
+tbody td{background:var(--surface)}
+tr:last-child th,tr:last-child td{border-bottom:0}
+td.yes{color:var(--functions);font-weight:700}
+td.no{color:var(--hot);font-weight:700}
+td.mid{color:var(--eventing);font-weight:700}
+.colhead-k{color:var(--serving)!important}
+
+/* tabs + code */
+.tabs{display:flex;gap:6px;margin:20px 0 0;flex-wrap:wrap}
+.tab{font:inherit;font-size:15px;padding:8px 16px;border-radius:12px 12px 0 0;border:1px solid var(--line);border-bottom:0;background:var(--bg2);color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--code);color:var(--codetext)}
+.tabpanel[hidden]{display:none}
+.codebox{position:relative;background:var(--code);border-radius:0 14px 14px 14px;margin:0 0 20px;overflow:hidden}
+.codebox.solo{border-radius:14px}
+.codebox .cap{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px;font-size:13px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07)}
+.copy{font:inherit;font-size:12.5px;color:var(--codetext);background:rgba(255,255,255,.08);border:0;border-radius:8px;padding:4px 10px;cursor:pointer}
+.copy:hover{background:rgba(255,255,255,.16)}
+pre{margin:0;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.65;color:var(--codetext)}
+pre .k{color:var(--codekey)}
+pre .s{color:var(--codestr)}
+pre .c{color:var(--codecom);font-style:italic}
+pre .p{color:#FFB86B}
+.linecount{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 4px;font-size:15px}
+.linecount b{font-family:var(--mono);font-size:26px;margin-right:4px}
+
+/* component map */
+.kmap{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.kmap-layers{display:flex;flex-direction:column;gap:10px}
+.kmap-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.kmap-top{grid-template-columns:1fr}}
+.kcomp{font:inherit;text-align:left;cursor:pointer;border-radius:16px;padding:16px;border:2px solid transparent;color:var(--text);background:var(--bg2);transition:border-color .15s,background .15s}
+.kcomp h4{margin:0 0 4px;font-size:18px}
+.kcomp p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.kcomp[data-c="serving"] h4{color:var(--serving)}
+.kcomp[data-c="eventing"] h4{color:var(--eventing)}
+.kcomp[data-c="functions"] h4{color:var(--functions)}
+.kcomp[aria-pressed="true"][data-c="serving"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="eventing"]{border-color:var(--eventing);background:color-mix(in srgb,var(--eventing) 12%,var(--bg2))}
+.kcomp[aria-pressed="true"][data-c="functions"]{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 12%,var(--bg2))}
+.klayer{border-radius:14px;padding:12px 16px;font-size:15px;background:var(--bg2);border:1px dashed var(--line);color:var(--muted)}
+.klayer b{color:var(--text)}
+.klayer.k8s{border-style:solid;background:color-mix(in srgb,var(--serving) 6%,var(--bg2))}
+.kdetail{margin-top:16px;padding:18px 20px;border-radius:16px;background:var(--bg);border:1px solid var(--line);min-height:150px}
+.kdetail h4{margin:0 0 8px;font-size:18px}
+.kdetail dl{display:grid;grid-template-columns:110px 1fr;gap:6px 14px;margin:0;font-size:15px}
+.kdetail dt{color:var(--faint)}
+.kdetail dd{margin:0}
+
+/* resource tree */
+.tree{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.tree-ctrl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.tree-list{list-style:none;margin:0;padding:0;font-size:15px}
+.tree-list li{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;padding:9px 12px;border-radius:12px;opacity:.16;transition:opacity .35s,background .35s}
+.tree-list li.show{opacity:1}
+.tree-list li.flash{background:color-mix(in srgb,var(--functions) 14%,transparent)}
+.tree-list .kind{font-family:var(--mono);font-size:13px;padding:2px 9px;border-radius:7px;white-space:nowrap;background:var(--bg2);border:1px solid var(--line)}
+.kind.svc{color:var(--serving);border-color:var(--serving)}
+.kind.knative{color:var(--violet)}
+.kind.k8s{color:var(--functions)}
+.kind.net{color:var(--eventing)}
+.tree-list .nm{font-family:var(--mono);font-size:14px}
+.tree-list .why{display:block;color:var(--muted);font-size:14px;line-height:1.55}
+.tree-list li[data-d="1"]{margin-left:24px}
+.tree-list li[data-d="2"]{margin-left:48px}
+.tree-list li[data-d="3"]{margin-left:72px}
+@media (max-width:640px){.tree-list li[data-d="1"]{margin-left:10px}.tree-list li[data-d="2"]{margin-left:20px}.tree-list li[data-d="3"]{margin-left:30px}}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:14px}
+
+/* request path */
+.path{display:flex;align-items:stretch;gap:0;margin:24px 0;overflow-x:auto;padding-bottom:6px}
+.hop{flex:1 0 140px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;font-size:14px;color:var(--muted);position:relative}
+.hop b{display:block;color:var(--text);font-size:15.5px;margin-bottom:4px}
+.hop.act{border:1.5px dashed var(--eventing)}
+.hop.act b{color:var(--eventing)}
+.hop.qp b{color:var(--violet)}
+.hop.uc b{color:var(--functions)}
+.arrow{flex:0 0 28px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px}
+
+/* timeline */
+.timeline{list-style:none;margin:24px 0;padding:0;position:relative;max-width:760px}
+.timeline::before{content:"";position:absolute;left:84px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.timeline li{display:grid;grid-template-columns:72px 1fr;gap:28px;padding:0 0 22px;position:relative}
+.timeline .yr{font-family:var(--mono);font-weight:600;font-size:15px;text-align:right;padding-top:2px}
+.timeline li::after{content:"";position:absolute;left:79px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2.5px solid var(--serving)}
+.timeline li.big::after{background:var(--functions);border-color:var(--functions)}
+.timeline h4{margin:0 0 2px;font-size:17px}
+.timeline p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* ecosystem */
+.eco{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0;max-width:860px}
+@media (max-width:640px){.eco{grid-template-columns:1fr}}
+.eco div{padding:16px 18px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.eco h4{margin:0 0 2px;font-size:16.5px}
+.eco .rel{font-size:13px;color:var(--violet);margin-bottom:6px;display:block}
+.eco p{margin:0;font-size:15px;color:var(--muted)}
+
+/* steps */
+.steps{list-style:none;margin:20px 0;padding:0;counter-reset:s;max-width:820px}
+.steps>li{counter-increment:s;position:relative;padding-left:52px;margin-bottom:26px}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:36px;height:36px;border-radius:12px;background:var(--serving);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+.steps h4{margin:4px 0 8px;font-size:18px}
+.steps p{margin:0 0 10px}
+
+/* uses */
+.uses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}
+@media (max-width:860px){.uses{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.uses{grid-template-columns:1fr}}
+.use{padding:18px;border-radius:16px;background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c,var(--serving))}
+.use h4{margin:0 0 6px;font-size:17px}
+.use p{margin:0;font-size:15px;color:var(--muted)}
+.use .ep{display:block;margin-top:10px;font-size:13px;color:var(--faint)}
+
+.nofit{max-width:820px;margin:18px 0}
+.nofit details{border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:10px}
+.nofit summary{cursor:pointer;padding:14px 18px;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:10px}
+.nofit summary::-webkit-details-marker{display:none}
+.nofit summary::after{content:"+";color:var(--faint);font-family:var(--mono)}
+.nofit details[open] summary::after{content:"−"}
+.nofit .body{padding:0 18px 16px;color:var(--muted);font-size:15.5px}
+.nofit .body b{color:var(--text)}
+
+/* quiz */
+.quiz{max-width:820px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:16px}
+.q h4{margin:0 0 12px;font-size:17px;line-height:1.55}
+.q .opts{display:grid;gap:8px}
+.q button{font:inherit;font-size:15.5px;text-align:left;padding:11px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer}
+.q button:hover:not(:disabled){border-color:var(--serving)}
+.q button.right{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 15%,var(--bg2))}
+.q button.wrong{border-color:var(--hot);background:color-mix(in srgb,var(--hot) 12%,var(--bg2))}
+.q button:disabled{cursor:default}
+.q .fb{margin-top:12px;font-size:15px;color:var(--muted);display:none}
+.q .fb.show{display:block}
+.q .fb b{color:var(--text)}
+.score{font-size:16px;margin:4px 0 18px;color:var(--muted)}
+.score b{color:var(--text);font-family:var(--mono)}
+
+/* glossary */
+.gsearch{font:inherit;font-size:16px;width:100%;max-width:420px;padding:11px 16px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 18px}
+.gsearch:focus{border-color:var(--serving);outline:none}
+.gloss{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:700px){.gloss{grid-template-columns:1fr}}
+.g{padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)}
+.g dt{font-weight:700;margin-bottom:2px}
+.g dt small{font-weight:400;color:var(--faint);font-size:13px;margin-left:6px}
+.g dd{margin:0;font-size:15px;color:var(--muted)}
+.g[hidden]{display:none}
+
+/* summary */
+.recap{max-width:820px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:24px 26px;margin:22px 0}
+.recap ol{margin:0;padding-left:22px}
+.recap li{margin-bottom:8px}
+.next{max-width:820px;border-radius:20px;padding:24px 26px;background:linear-gradient(135deg,color-mix(in srgb,var(--serving) 22%,var(--surface)),var(--surface));border:1px solid var(--line)}
+.next h3{margin:0 0 8px}
+.next p{margin:0;color:var(--muted)}
+footer{margin-top:60px;color:var(--faint);font-size:13.5px;max-width:820px}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation:none!important;transition:none!important}
+}
+
+/* ---------- 2편 전용 ---------- */
+.zone-s{--z:var(--serving)} .zone-c{--z:var(--violet)} .zone-r{--z:var(--eventing)}
+
+/* CRD relation diagram */
+.rel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.rel-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rel-top{grid-column:1/-1;display:flex;justify-content:center}
+.rnode{font:inherit;text-align:left;border-radius:16px;padding:14px 16px;border:2px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer;transition:border-color .15s,background .15s,opacity .2s}
+.rnode h4{margin:0 0 2px;font-size:17px}
+.rnode p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+.rnode.svc{max-width:420px;width:100%;border-color:var(--serving)}
+.rnode.svc h4{color:var(--serving)}
+.rnode.cfg h4{color:var(--violet)}
+.rnode.rt h4{color:var(--eventing)}
+.rnode.rev h4{color:var(--functions)}
+.rnode.on{background:color-mix(in srgb,var(--z2,var(--serving)) 14%,var(--bg2));border-color:var(--z2,var(--serving))}
+.rnode.cfg{--z2:var(--violet)} .rnode.rt{--z2:var(--eventing)} .rnode.rev{--z2:var(--functions)}
+.rel.focus .rnode:not(.on){opacity:.4}
+.revs{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:640px){.rel-grid{grid-template-columns:1fr}.revs{grid-template-columns:1fr}}
+.rel-links{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13.5px;color:var(--faint);text-align:center}
+.rel-out{margin-top:14px;padding:14px 18px;border-radius:14px;background:var(--bg);border:1px solid var(--line);font-size:15.5px;min-height:74px}
+
+/* annotated yaml */
+.ay{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:16px;margin:24px 0}
+@media (max-width:900px){.ay{grid-template-columns:1fr}}
+.ay-code{background:var(--code);border-radius:16px;padding:12px 0;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.7;color:var(--codetext)}
+.ay-line{display:block;width:100%;text-align:left;font:inherit;color:inherit;background:none;border:0;border-left:4px solid var(--z);padding:0 16px;white-space:pre;cursor:pointer}
+.ay-line:hover{background:rgba(255,255,255,.05)}
+.ay-line.on{background:rgba(255,255,255,.11)}
+.ay-line .k{color:var(--codekey)} .ay-line .s{color:var(--codestr)}
+.ay-note{position:sticky;top:80px;align-self:start;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.ay-note .zt{font-size:13px;color:var(--z);margin-bottom:4px;display:block}
+.ay-note h4{margin:0 0 8px;font-size:18px;font-family:var(--mono);word-break:break-all}
+.ay-note p{margin:0 0 10px;font-size:15.5px;color:var(--muted)}
+.ay-note p b{color:var(--text)}
+.ay-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin-top:-8px}
+.ay-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+/* reconcile */
+.recon{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.actors{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.actor{font-size:14px;padding:6px 12px;border-radius:10px;border:1.5px solid var(--line);color:var(--muted);background:var(--bg2);transition:all .2s}
+.actor.on{border-color:var(--functions);color:var(--text);background:color-mix(in srgb,var(--functions) 18%,var(--bg2))}
+.rsteps{list-style:none;margin:0;padding:0;counter-reset:r}
+.rsteps li{counter-increment:r;display:grid;grid-template-columns:34px 1fr;gap:12px;padding:10px 12px;border-radius:12px;opacity:.18;transition:opacity .3s,background .3s}
+.rsteps li::before{content:counter(r);width:28px;height:28px;border-radius:9px;background:var(--bg2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px}
+.rsteps li.show{opacity:1}
+.rsteps li.cur{background:color-mix(in srgb,var(--functions) 10%,transparent)}
+.rsteps li.cur::before{background:var(--functions);color:#062018;border-color:var(--functions)}
+.rsteps b{display:block;font-size:15.5px}
+.rsteps span{font-size:14.5px;color:var(--muted)}
+.rctrl{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+
+/* components */
+.term-out{background:var(--code);color:var(--codetext);border-radius:14px;font-family:var(--mono);font-size:13.5px;overflow-x:auto;margin:20px 0 6px}
+.term-out .hd{padding:10px 16px;color:var(--codecom);border-bottom:1px solid rgba(255,255,255,.07);white-space:pre}
+.term-row{display:block;width:100%;font:inherit;color:inherit;text-align:left;background:none;border:0;padding:3px 16px;white-space:pre;cursor:pointer}
+.term-row:hover,.term-row.on{background:rgba(255,255,255,.09)}
+.term-row .ns{color:var(--codecom)}
+.term-row .nm{color:var(--codekey)}
+.comp-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:12px 0 20px;max-width:820px}
+.comp-card h4{margin:0 0 6px;font-size:18px;font-family:var(--mono)}
+.comp-card .tag2{display:inline-block;font-size:12.5px;padding:2px 9px;border-radius:7px;margin-left:8px;vertical-align:2px;font-family:var(--font)}
+.tag2.cp{background:color-mix(in srgb,var(--violet) 20%,transparent);color:var(--violet)}
+.tag2.dp{background:color-mix(in srgb,var(--functions) 20%,transparent);color:var(--functions)}
+.comp-card dl{display:grid;grid-template-columns:96px 1fr;gap:6px 14px;margin:8px 0 0;font-size:15px}
+.comp-card dt{color:var(--faint)}
+.comp-card dd{margin:0}
+.comp-card dd.fail{color:var(--hot)}
+
+/* SKS */
+.sks{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0}
+.sks-flow{display:flex;align-items:center;gap:0;overflow-x:auto;margin:16px 0;padding-bottom:4px}
+.sks-flow .hop{flex:1 0 120px}
+.sks-flow .hop.gone{opacity:.25;border-style:dashed}
+.sks-out{font-size:15.5px;color:var(--muted);max-width:760px}
+.sks-out b{color:var(--text)}
+
+/* traffic editor */
+.tedit{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.trow{display:grid;grid-template-columns:120px 1fr 64px 150px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+@media (max-width:640px){.trow{grid-template-columns:1fr 64px;}.trow input[type=range]{grid-column:1/-1}.trow .tg{grid-column:1/-1}}
+.trow .rv{font-family:var(--mono);font-size:14px}
+.trow .rv small{display:block;font-family:var(--font);color:var(--faint);font-size:12.5px}
+.trow output{font-family:var(--mono);font-size:18px;text-align:right}
+.trow input[type=text]{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);width:100%}
+input[type=range]{width:100%;accent-color:var(--serving)}
+.tsum{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+.tsum .bad{color:var(--hot)} .tsum .good{color:var(--functions)}
+.tbar{display:flex;height:14px;border-radius:8px;overflow:hidden;background:var(--line);margin:4px 0 14px}
+.tbar span{display:block;height:100%;transition:width .2s}
+.tsplit{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.tsplit{grid-template-columns:1fr}}
+.urls{font-family:var(--mono);font-size:13.5px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.urls div{padding:3px 0;word-break:break-all}
+.urls div span{color:var(--faint);font-family:var(--font);font-size:12.5px;margin-left:6px}
+.hits{display:flex;flex-wrap:wrap;gap:4px;min-height:20px;margin-top:10px}
+.hits i{width:14px;height:14px;border-radius:4px;display:block}
+
+/* net compare & cm grid */
+.cms{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:20px 0 0}
+@media (max-width:760px){.cms{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cm{font:inherit;font-family:var(--mono);font-size:13.5px;text-align:left;padding:12px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.cm[aria-pressed="true"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 12%,var(--surface))}
+.cm small{display:block;font-family:var(--font);color:var(--muted);font-size:12.5px;margin-top:2px}
+.cm-out{margin:12px 0 20px}
+.cm-out .desc{background:var(--surface);border:1px solid var(--line);border-radius:14px 14px 0 0;padding:14px 18px;font-size:15.5px;color:var(--muted);border-bottom:0}
+.cm-out .desc b{color:var(--text)}
+.cm-out .codebox{border-radius:0 0 14px 14px}
+
+/* ---------- 3편 전용 ---------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:22px;margin:24px 0;box-shadow:var(--shadow)}
+.panel h3{margin-top:0}
+.ctrls{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 18px;margin-bottom:16px}
+.ctrl label{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:2px}
+.ctrl label output{font-family:var(--mono);color:var(--text)}
+.ctrl select{font:inherit;font-size:14.5px;width:100%;padding:7px 10px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text)}
+.ctrl.chk label{justify-content:flex-start;gap:8px;align-items:center;color:var(--text);cursor:pointer}
+.presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.presets .btn[aria-pressed="true"]{background:var(--serving);border-color:var(--serving);color:#fff}
+.chart{width:100%;height:auto;display:block;background:var(--bg);border:1px solid var(--line);border-radius:14px}
+.chart text{font-family:var(--mono);font-size:11px;fill:var(--faint)}
+.legend2{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);margin:10px 0 0}
+.legend2 i{display:inline-block;width:18px;height:4px;border-radius:2px;margin-right:6px;vertical-align:3px}
+.legend2 i.box{height:12px;width:12px;vertical-align:-1px;opacity:.6}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+@media (max-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--bg2);border-radius:12px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--mono);font-size:22px;line-height:1.25}
+.kpi span{font-size:12.5px;color:var(--muted)}
+.kpi.warn b{color:var(--hot)} .kpi.ok b{color:var(--functions)}
+
+.calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+@media (max-width:760px){.calc{grid-template-columns:1fr}}
+.formula{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font-size:15px}
+.formula .eq{font-family:var(--mono);font-size:14px;line-height:1.9;color:var(--muted)}
+.formula .eq b{color:var(--text)}
+.formula .big{font-family:var(--mono);font-size:40px;font-weight:600;color:var(--functions);line-height:1.1;margin:6px 0}
+.formula .why{font-size:14.5px;color:var(--muted);margin:8px 0 0}
+.mode{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;font-size:15px}
+.mode.proxy{background:color-mix(in srgb,var(--eventing) 22%,transparent);color:var(--eventing)}
+.mode.serve{background:color-mix(in srgb,var(--functions) 22%,transparent);color:var(--functions)}
+
+.cold{margin:8px 0}
+.cold-toggles{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:15px}
+.cold-toggles label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.cbar{display:flex;height:40px;border-radius:10px;overflow:hidden;background:var(--line)}
+.cbar span{display:flex;align-items:center;justify-content:center;font-size:12px;color:#0b1028;font-weight:600;white-space:nowrap;overflow:hidden;transition:width .3s}
+.cleg{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 18px;margin-top:12px;font-size:14px;color:var(--muted)}
+.cleg i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cleg b{color:var(--text);font-family:var(--mono);font-weight:500}
+.ctotal{font-size:16px;margin-top:12px}
+.ctotal b{font-family:var(--mono);font-size:24px;color:var(--hot)}
+
+.recipes .tabpanel pre{font-size:13px}
+.recipe-desc{background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:0 14px 0 0;padding:14px 18px;font-size:15.5px;color:var(--muted)}
+.recipe-desc b{color:var(--text)}
+.recipes .codebox{border-radius:0 0 14px 14px}
+code.i.nowrap{white-space:nowrap}
+
+
+/* ---------- 6편 전용 ---------- */
+.patt{display:flex;align-items:center;flex-wrap:wrap;gap:0;margin:14px 0}
+.patt .node{padding:10px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);font-size:14px}
+.patt .node.src{border-color:var(--serving);color:var(--serving)}
+.patt .node.mid{border-color:var(--eventing);color:var(--eventing)}
+.patt .node.dst{border-color:var(--functions);color:var(--functions)}
+.patt .node.vi{border-color:var(--violet);color:var(--violet)}
+.patt .ar{padding:0 8px;color:var(--faint);font-size:18px}
+.patt .col{display:flex;flex-direction:column;gap:6px}
+
+.wiz{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+@media (max-width:860px){.wiz{grid-template-columns:1fr}}
+.wq{margin-bottom:14px}
+.wq p{margin:0 0 6px;font-size:15px;font-weight:500}
+.wopts{display:flex;flex-wrap:wrap;gap:6px}
+.wopts button{font:inherit;font-size:14px;padding:6px 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg2);color:var(--text);cursor:pointer}
+.wopts button[aria-pressed="true"]{border-color:var(--serving);background:color-mix(in srgb,var(--serving) 16%,var(--bg2))}
+.wres{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:18px 20px;align-self:start}
+.wres .pick{font-size:24px;font-weight:700;margin:2px 0 8px}
+.wres .cls{font-family:var(--mono);font-size:13.5px;color:var(--violet)}
+.wres ul{margin:8px 0 0;padding-left:18px;color:var(--muted);font-size:15px}
+
+.ks-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.lanes{display:grid;gap:8px}
+.lane{display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center}
+.lane .ln{font-family:var(--mono);font-size:13px;color:var(--faint)}
+.chips{display:flex;flex-wrap:wrap;gap:5px;min-height:30px;padding:5px;border-radius:10px;background:var(--bg2)}
+.chip2{font-family:var(--mono);font-size:12.5px;padding:3px 8px;border-radius:7px;color:#0b1028;font-weight:600}
+.chip2.A{background:var(--serving)} .chip2.B{background:var(--eventing)} .chip2.C{background:var(--functions)}
+.chip2.bad{outline:2.5px solid var(--hot);outline-offset:1px}
+.recv{margin-top:14px}
+.recv p{margin:0 0 6px;font-size:14px;color:var(--muted)}
+.ks-res{margin-top:12px;font-size:15px;color:var(--muted)}
+.ks-res b{color:var(--text)}
+
+.flow{display:flex;align-items:center;gap:0;overflow-x:auto;padding:6px 0 10px}
+.fnode{flex:0 0 auto;min-width:118px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--bg2);font-size:13.5px;text-align:center;transition:all .25s}
+.fnode b{display:block;font-size:14px}
+.fnode small{color:var(--faint);font-size:12px}
+.fnode.on{border-color:var(--functions);background:color-mix(in srgb,var(--functions) 18%,var(--bg2));transform:translateY(-2px)}
+.fnode.ch{border-style:dashed;min-width:72px}
+.far{flex:0 0 22px;text-align:center;color:var(--faint)}
+.fev{font-family:var(--mono);font-size:13px;background:var(--code);color:var(--codetext);border-radius:12px;padding:12px 14px;margin-top:10px;white-space:pre-wrap;min-height:90px}
+.par{display:grid;grid-template-columns:110px 1fr 110px;gap:10px;align-items:center}
+@media (max-width:640px){.par{grid-template-columns:1fr}}
+.branches{display:grid;gap:8px}
+.branch{display:grid;grid-template-columns:1fr 24px 1fr;gap:6px;align-items:center}
+.branch .fnode{min-width:0}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series"><b>Knative 강의</b> 6편 / 10편</div>
+    <div class="progress" aria-hidden="true"><span id="prog"></span></div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" aria-label="목차">
+    <p>이번 편의 흐름</p>
+    <ol>
+      <li><a href="#s1">Broker는 인터페이스, 구현은 여럿</a></li>
+      <li><a href="#s2">구현체 한눈에 비교</a></li>
+      <li><a href="#s3">Kafka Broker 해부</a></li>
+      <li><a href="#s4">순서 보장 실험</a></li>
+      <li><a href="#s5">RabbitMQ Broker</a></li>
+      <li><a href="#s6">우리 고객사엔 무엇이?</a></li>
+      <li><a href="#s7">Sequence와 Parallel</a></li>
+      <li><a href="#s8">기존 Kafka와 잇기</a></li>
+      <li><a href="#s9">Knative Eventing vs KEDA</a></li>
+      <li><a href="#s10">아키텍처 패턴 모음</a></li>
+      <li><a href="#s11">로드맵: RequestReply</a></li>
+      <li><a href="#s12">실습: Kafka Broker 구축</a></li>
+      <li><a href="#s13">운영 체크포인트</a></li>
+      <li><a href="#s14">확인 퀴즈</a></li>
+      <li><a href="#s15">용어 사전</a></li>
+      <li><a href="#s16">정리와 다음 편</a></li>
+    </ol>
+  </nav>
+
+<main>
+  <header class="hero">
+    <h1>Eventing 2: Broker 구현체와 아키텍처 패턴</h1>
+    <p class="lede">5편에서 Broker와 Trigger의 "사용법"을 익혔다면, 이번 편은 그 아래를 고르는 일입니다. 고객사의 이벤트를 잃지 않고, 순서를 지키고, 고객끼리 섞이지 않게 하려면 어떤 Broker를 깔아야 할까요. 그리고 그 위에 어떤 구조를 올리면 좋을까요.</p>
+    <div class="meta">
+      <span class="chip">기준 버전 Knative v1.23</span>
+      <span class="chip">선수 지식: 5편, Kafka 기본 개념</span>
+      <span class="chip">예상 학습 시간 100~120분</span>
+    </div>
+  </header>
+
+  <!-- 1 -->
+  <section class="lesson" id="s1">
+    <div class="sec-no">1 / 16</div>
+    <h2 class="h">Broker는 인터페이스, 구현은 여럿</h2>
+    <div class="prose">
+      <p>사용자 입장에서 Broker는 언제나 같습니다. 주소가 있고, CloudEvents를 받고, Trigger로 배달합니다. 하지만 그 뒤에서 이벤트를 <strong>어디에 저장하고 어떻게 나르는지</strong>는 Broker 클래스에 따라 완전히 다릅니다. 콘센트 모양은 같아도 뒤에 연결된 발전소가 다른 셈입니다.</p>
+    </div>
+    <div class="codebox solo"><div class="cap"><span>Broker 클래스 지정</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: eventing.knative.dev/v1
+kind: Broker
+metadata:
+  name: orders
+  namespace: customer-a
+  annotations:
+    eventing.knative.dev/broker.class: Kafka   # 구현체 선택
+spec:
+  config:                                      # 구현체별 설정 참조
+    apiVersion: v1
+    kind: ConfigMap
+    name: kafka-broker-config
+    namespace: knative-eventing
+  delivery:
+    deadLetterSink:
+      ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: dlq-handler</code></pre></div>
+    <div class="callout">
+      <b class="t">클래스를 안 적으면?</b>
+      <p><code class="i">knative-eventing</code> 네임스페이스의 <code class="i">config-br-defaults</code>가 정한 기본 클래스가 쓰입니다. 클러스터 전체 기본값과 네임스페이스별 기본값을 따로 둘 수 있어서, 예를 들어 개발 네임스페이스는 인메모리, 고객사 운영 네임스페이스는 Kafka로 나눌 수 있습니다.</p>
+    </div>
+    <div class="codebox solo"><div class="cap"><span>config-br-defaults 예시</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-br-defaults
+  namespace: knative-eventing
+data:
+  default-br-config: |
+    clusterDefault:
+      brokerClass: Kafka
+      apiVersion: v1
+      kind: ConfigMap
+      name: kafka-broker-config
+      namespace: knative-eventing
+    namespaceDefaults:
+      dev-sandbox:
+        brokerClass: MTChannelBasedBroker
+        apiVersion: v1
+        kind: ConfigMap
+        name: config-br-default-channel
+        namespace: knative-eventing</code></pre></div>
+  </section>
+
+  <!-- 2 -->
+  <section class="lesson" id="s2">
+    <div class="sec-no">2 / 16</div>
+    <h2 class="h">구현체 한눈에 비교</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:130px">항목</th><th>MT Channel Based<br><small class="muted">+ InMemoryChannel</small></th><th>MT Channel Based<br><small class="muted">+ KafkaChannel</small></th><th class="colhead-k">Kafka Broker</th><th>RabbitMQ Broker</th></tr></thead>
+        <tbody>
+          <tr><th>클래스 이름</th><td>MTChannelBasedBroker</td><td>MTChannelBasedBroker</td><td>Kafka<br>KafkaNamespaced</td><td>RabbitMQBroker</td></tr>
+          <tr><th>영속성</th><td class="no">없음</td><td class="yes">Kafka에 저장</td><td class="yes">Kafka에 저장</td><td class="yes">RabbitMQ 큐에 저장</td></tr>
+          <tr><th>구조</th><td>Channel 위에 Broker를 얹음</td><td>Channel 위에 Broker를 얹음 (홉이 많음)</td><td>Broker 전용 수신기·배달기가 Kafka 토픽과 직접 통신</td><td>Broker당 Exchange, Trigger당 Queue</td></tr>
+          <tr><th>순서 보장</th><td class="no">없음</td><td class="mid">제한적</td><td class="yes">Trigger별 ordered 옵션 (키 단위)</td><td class="mid">병렬도 1일 때 큐 순서</td></tr>
+          <tr><th>처리량</th><td>중간</td><td>중간</td><td class="yes">높음</td><td>중간</td></tr>
+          <tr><th>필요한 것</th><td>없음</td><td>Kafka 클러스터</td><td>Kafka 클러스터</td><td>RabbitMQ 클러스터와 관련 오퍼레이터</td></tr>
+          <tr><th>권장 용도</th><td>학습, 개발</td><td>예전 구성 유지</td><td>운영 환경의 기본 선택지</td><td>RabbitMQ를 이미 운영하는 조직</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout amber">
+      <b class="t">KafkaChannel 기반 Broker보다 Kafka Broker</b>
+      <p>둘 다 Kafka를 쓰지만, Channel 기반은 "Broker → Channel → Broker 필터 → 구독자"로 내부 홉이 많고 HTTP 왕복이 늘어납니다. Kafka Broker는 Broker 전용으로 설계되어 홉이 적고 필터를 배달기 안에서 처리합니다. 새로 구축한다면 Kafka Broker가 기본 선택입니다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="lesson" id="s3">
+    <div class="sec-no">3 / 16</div>
+    <h2 class="h">Kafka Broker 해부</h2>
+    <div class="patt" aria-label="Kafka Broker 구조">
+      <div class="node src">생산자<br><small>HTTP CloudEvent</small></div><div class="ar">›</div>
+      <div class="node mid">kafka-broker-receiver<br><small>수신·검증·토픽에 기록</small></div><div class="ar">›</div>
+      <div class="node vi">Kafka 토픽<br><small>Broker당 하나</small></div><div class="ar">›</div>
+      <div class="node mid">kafka-broker-dispatcher<br><small>Trigger당 컨슈머 그룹</small></div><div class="ar">›</div>
+      <div class="col"><div class="node dst">Trigger A 구독자</div><div class="node dst">Trigger B 구독자</div></div>
+    </div>
+    <div class="traits">
+      <div class="trait"><h4><span class="sw" style="background:var(--eventing)"></span>receiver (수신기)</h4><p>Broker 주소로 들어온 CloudEvent를 받아 Kafka 토픽에 씁니다. 토픽 기록이 확인된 뒤에야 생산자에게 202를 돌려주므로, 202를 받았다면 이벤트는 디스크에 있습니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--violet)"></span>토픽</h4><p>Broker마다 하나씩 자동 생성됩니다(이름은 보통 knative-broker-네임스페이스-이름). 파티션 수와 복제 수는 Broker가 참조하는 ConfigMap에서 정합니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--eventing)"></span>dispatcher (배달기)</h4><p>Trigger마다 별도의 컨슈머 그룹으로 토픽을 읽고, 필터를 적용한 뒤 구독자에게 HTTP로 보냅니다. Trigger별로 진행 위치(오프셋)가 따로라 한 구독자가 느려도 다른 구독자는 영향이 없습니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--functions)"></span>controller</h4><p>Broker, Trigger, KafkaSource 등을 보고 토픽 생성, 컨슈머 그룹 구성, 데이터 플레인 설정을 맞춥니다.</p></div>
+    </div>
+    <div class="codebox solo"><div class="cap"><span>kafka-broker-config</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-broker-config
+  namespace: knative-eventing
+data:
+  bootstrap.servers: "my-cluster-kafka-bootstrap.kafka:9092"
+  default.topic.partitions: "10"          # 순서 보장 시 최대 병렬도
+  default.topic.replication.factor: "3"   # 운영은 3 이상</code></pre></div>
+    <div class="callout hot">
+      <b class="t">멀티테넌트라면 KafkaNamespaced</b>
+      <p>기본 Kafka 클래스는 receiver와 dispatcher를 <code class="i">knative-eventing</code>에 하나만 두고 모든 고객사의 Broker가 공유합니다. 한 고객의 폭주가 다른 고객의 배달을 늦출 수 있습니다. <strong>KafkaNamespaced</strong> 클래스를 쓰면 데이터 플레인이 Broker가 있는 네임스페이스에 따로 뜹니다. 자원은 더 들지만 고객사 간 성능과 장애가 격리됩니다.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="lesson" id="s4">
+    <div class="sec-no">4 / 16</div>
+    <h2 class="h">순서 보장 실험</h2>
+    <div class="prose">
+      <p>Kafka Broker의 Trigger는 기본적으로 <strong>unordered</strong>입니다. 이벤트를 동시에 여러 개 보내 처리량이 높지만, 도착 순서는 섞일 수 있습니다. <code class="i">kafka.eventing.knative.dev/delivery.order: ordered</code> 어노테이션을 주면 <strong>같은 파티션 안에서는</strong> 앞 이벤트가 성공해야 다음 이벤트를 보냅니다. 어느 파티션에 들어갈지는 CloudEvent의 <code class="i">partitionkey</code> 확장 속성으로 정합니다.</p>
+      <p>고객 A, B, C의 주문 이벤트가 1번부터 4번까지 섞여 들어옵니다. 두 모드를 비교해 보세요. 빨간 테두리는 같은 고객의 이벤트가 순서를 어긴 경우입니다.</p>
+    </div>
+    <div class="panel">
+      <div class="ks-top">
+        <div class="tabs" role="tablist" id="ksTabs" style="margin:0">
+          <button class="tab" role="tab" aria-selected="true" data-m="unordered" type="button">unordered (기본)</button>
+          <button class="tab" role="tab" aria-selected="false" data-m="ordered" type="button">ordered</button>
+        </div>
+        <button class="btn" id="ksRun" type="button">다시 실행</button>
+      </div>
+      <div class="lanes" id="ksLanes"></div>
+      <div class="recv"><p>구독자가 받은 순서</p><div class="chips" id="ksRecv"></div></div>
+      <div class="ks-res" id="ksRes" aria-live="polite"></div>
+    </div>
+    <div class="codebox solo"><div class="cap"><span>ordered Trigger와 partitionkey</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: ledger
+  annotations:
+    kafka.eventing.knative.dev/delivery.order: ordered
+spec:
+  broker: orders
+  filter:
+    attributes:
+      type: com.mycorp.order.updated
+  subscriber:
+    ref:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      name: ledger
+# 생산자는 이벤트에 Ce-Partitionkey: customer-a 처럼 키를 붙인다</code></pre></div>
+    <div class="callout amber">
+      <b class="t">ordered의 대가</b>
+      <p>ordered에서는 파티션 하나에 이벤트가 한 번에 하나씩만 흐르므로, 최대 병렬도는 파티션 수입니다. 구독자 하나가 느리거나 실패해 재시도하면 같은 파티션의 뒤 이벤트가 모두 기다립니다. 정말 순서가 필요한 흐름(원장, 상태 전이)에만 쓰고, 파티션 수는 필요한 병렬도를 고려해 처음부터 넉넉히 잡으세요. Kafka 파티션은 늘릴 수는 있어도 늘리는 순간 키와 파티션의 대응이 바뀝니다.</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="lesson" id="s5">
+    <div class="sec-no">5 / 16</div>
+    <h2 class="h">RabbitMQ Broker</h2>
+    <div class="prose">
+      <p>RabbitMQ Broker는 Broker마다 RabbitMQ <strong>Exchange</strong>를 만들고, Trigger마다 그 Exchange에 묶인 <strong>Queue</strong>를 만듭니다. 필터는 RabbitMQ의 바인딩 규칙으로 처리되어, 조건에 맞는 이벤트만 각 큐에 쌓입니다. RabbitMQ 클러스터 오퍼레이터와 메시징 토폴로지 오퍼레이터를 함께 설치해 운영합니다.</p>
+    </div>
+    <div class="traits">
+      <div class="trait"><h4><span class="sw" style="background:var(--functions)"></span>잘 맞는 경우</h4><p>고객사가 이미 RabbitMQ를 운영하고 있고 운영 노하우가 있을 때. 이벤트 양이 Kafka가 필요할 만큼 많지 않을 때. 큐 단위 관리 화면에 익숙한 팀.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--eventing)"></span>순서와 병렬</h4><p>Trigger의 병렬도(parallelism) 설정이 1이면 큐 순서대로 하나씩 보내고, 늘리면 동시에 여러 개를 보냅니다. Kafka의 키 단위 순서와 달리 큐 전체 단위입니다.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--violet)"></span>재처리</h4><p>Kafka는 오프셋을 되돌려 과거 이벤트를 다시 읽을 수 있지만, RabbitMQ는 소비된 메시지가 큐에서 사라집니다. 사후 재처리가 중요하면 DLS 보관을 꼼꼼히 하거나 Kafka를 고려하세요.</p></div>
+      <div class="trait"><h4><span class="sw" style="background:var(--hot)"></span>확인할 점</h4><p>Knative 본체와 별도 저장소(knative-extensions)의 확장이라 지원 버전과 릴리스 주기를 따로 확인해야 합니다.</p></div>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="lesson" id="s6">
+    <div class="sec-no">6 / 16</div>
+    <h2 class="h">우리 고객사엔 무엇이?</h2>
+    <div class="prose"><p>질문에 답하면 출발점으로 삼을 Broker를 추천합니다. 최종 결정은 고객사의 운영 역량과 비용을 함께 봐야 합니다.</p></div>
+    <div class="panel">
+      <div class="wiz">
+        <div id="wizQ"></div>
+        <div class="wres" id="wizR" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="lesson" id="s7">
+    <div class="sec-no">7 / 16</div>
+    <h2 class="h">Sequence와 Parallel</h2>
+    <div class="prose">
+      <p>5편에서 답장(reply)으로 처리 단계를 이을 수 있다고 했습니다. 이 사슬을 리소스 하나로 선언하는 것이 <strong>Sequence</strong>입니다. 한 이벤트를 여러 갈래로 동시에 보내고 각 갈래의 결과를 모으는 것은 <strong>Parallel</strong>입니다. 둘 다 내부적으로 Channel과 Subscription을 자동으로 만들어 연결합니다.</p>
+    </div>
+    <div class="panel">
+      <div class="tabs" role="tablist" id="flTabs" style="margin-top:0">
+        <button class="tab" role="tab" aria-selected="true" data-f="seq" type="button">Sequence</button>
+        <button class="tab" role="tab" aria-selected="false" data-f="par" type="button">Parallel</button>
+      </div>
+      <div id="flStage"></div>
+      <div class="sim-btns" style="margin-top:8px"><button class="btn primary" id="flRun" type="button">이벤트 흘려 보내기</button></div>
+      <div class="fev" id="flEv"></div>
+    </div>
+    <div class="tsplit" style="margin-top:16px">
+      <div class="codebox solo"><div class="cap"><span>sequence.yaml</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: flows.knative.dev/v1
+kind: Sequence
+metadata:
+  name: order-pipeline
+spec:
+  channelTemplate:
+    apiVersion: messaging.knative.dev/v1
+    kind: InMemoryChannel   # 운영은 KafkaChannel
+  steps:
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: validate
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: enrich
+    - ref:
+        apiVersion: serving.knative.dev/v1
+        kind: Service
+        name: fraud-score
+  reply:
+    ref:
+      kind: Broker
+      apiVersion: eventing.knative.dev/v1
+      name: orders</code></pre></div>
+      <div class="codebox solo"><div class="cap"><span>parallel.yaml</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: flows.knative.dev/v1
+kind: Parallel
+metadata:
+  name: notify-all
+spec:
+  channelTemplate:
+    apiVersion: messaging.knative.dev/v1
+    kind: InMemoryChannel
+  branches:
+    - filter:                     # 선택: 이 갈래로 보낼지 판단
+        ref:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+          name: is-vip
+      subscriber:
+        ref:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+          name: send-sms
+    - subscriber:
+        ref:
+          apiVersion: serving.knative.dev/v1
+          kind: Service
+          name: send-email
+  reply:
+    ref:
+      kind: Broker
+      apiVersion: eventing.knative.dev/v1
+      name: orders</code></pre></div>
+    </div>
+    <div class="callout">
+      <b class="t">Sequence의 실패는 어디서 멈추나</b>
+      <p>중간 단계가 재시도를 다 실패하면 그 이벤트는 다음 단계로 가지 않고, 해당 단계 Subscription의 DLS로 갑니다. 단계마다 delivery를 설정할 수 있으므로 중요한 단계에는 DLS를 꼭 지정하세요. 단계별 상태를 기록하며 보상 처리까지 해야 하는 긴 업무 흐름이라면 Sequence보다 워크플로 엔진(예: OpenShift Serverless Logic 같은 Serverless Workflow 구현)이 더 맞습니다.</p>
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="lesson" id="s8">
+    <div class="sec-no">8 / 16</div>
+    <h2 class="h">기존 Kafka와 잇기: KafkaSource와 KafkaSink</h2>
+    <div class="prose"><p>고객사에 이미 Kafka가 있고 다른 시스템들이 토픽에 메시지를 쓰고 있다면, Knative는 그 토픽을 <strong>읽어서</strong> 이벤트로 만들 수도, Knative 이벤트를 토픽에 <strong>써서</strong> 다른 시스템에 넘길 수도 있습니다.</p></div>
+    <div class="patt">
+      <div class="node vi">기존 토픽<br><small>legacy-orders</small></div><div class="ar">›</div>
+      <div class="node src">KafkaSource</div><div class="ar">›</div>
+      <div class="node mid">Broker</div><div class="ar">›</div>
+      <div class="node dst">Knative 서비스들</div><div class="ar">›</div>
+      <div class="node src">KafkaSink</div><div class="ar">›</div>
+      <div class="node vi">분석용 토픽<br><small>analytics-events</small></div>
+    </div>
+    <div class="tsplit">
+      <div class="codebox solo"><div class="cap"><span>kafkasource.yaml</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: sources.knative.dev/v1beta1   # kubectl api-resources로 버전 확인
+kind: KafkaSource
+metadata:
+  name: legacy-orders
+spec:
+  consumerGroup: knative-legacy-orders
+  bootstrapServers:
+    - my-cluster-kafka-bootstrap.kafka:9092
+  topics:
+    - legacy-orders
+  sink:
+    ref:
+      apiVersion: eventing.knative.dev/v1
+      kind: Broker
+      name: orders</code></pre></div>
+      <div class="codebox solo"><div class="cap"><span>kafkasink.yaml</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="yaml">apiVersion: eventing.knative.dev/v1alpha1
+kind: KafkaSink
+metadata:
+  name: analytics
+spec:
+  topic: analytics-events
+  bootstrapServers:
+    - my-cluster-kafka-bootstrap.kafka:9092
+  contentMode: binary   # 또는 structured
+# 다른 리소스의 sink로 이 KafkaSink를 지정하면
+# 받은 CloudEvent가 토픽에 기록된다</code></pre></div>
+    </div>
+    <div class="callout mint">
+      <b class="t">CloudEvents가 아닌 메시지는?</b>
+      <p>기존 시스템이 쓴 메시지가 CloudEvents 형식이 아니어도 KafkaSource는 받아들입니다. 이때 Knative가 type(<code class="i">dev.knative.kafka.event</code>), source(토픽 정보), id 같은 속성을 채워 CloudEvent로 감쌉니다. Trigger 필터에서 type 구분이 어렵다면 앞단에 변환 서비스를 두어 의미 있는 type으로 바꿔 Broker에 다시 넣는 패턴이 흔합니다.</p>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="lesson" id="s9">
+    <div class="sec-no">9 / 16</div>
+    <h2 class="h">Knative Eventing vs KEDA</h2>
+    <div class="prose"><p>둘 다 "메시지가 오면 처리한다"를 다루지만 방향이 다릅니다. Knative Eventing은 이벤트를 HTTP로 <strong>밀어 주고(push)</strong>, KEDA는 소비자가 큐에서 직접 <strong>당겨 가게(pull)</strong> 하면서 큐 길이에 맞춰 소비자 수를 조절합니다.</p></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:150px">항목</th><th class="colhead-k">Knative Eventing + Serving</th><th>KEDA</th></tr></thead>
+        <tbody>
+          <tr><th>전달 방식</th><td>Push. 소비자는 HTTP 서버만 있으면 됨</td><td>Pull. 소비자가 Kafka·SQS 등 클라이언트 라이브러리로 직접 읽음</td></tr>
+          <tr><th>소비자 코드</th><td>메시징 라이브러리 불필요. 언어 무관</td><td>메시징 시스템별 클라이언트 코드 필요</td></tr>
+          <tr><th>확장 기준</th><td>들어오는 HTTP 동시성 (KPA)</td><td>큐 길이, 컨슈머 랙 등 외부 지표</td></tr>
+          <tr><th>필터·라우팅</th><td>Trigger로 선언적 필터</td><td>없음. 소비자가 직접 처리</td></tr>
+          <tr><th>강점</th><td>느슨한 결합, 여러 소비자에 팬아웃, 소비자 단순화</td><td>대량 배치, 긴 작업, 처리량 극대화, 기존 컨슈머 코드 재사용</td></tr>
+          <tr><th>함께 쓰기</th><td colspan="2">KafkaSource 같은 소스의 데이터 플레인 수를 KEDA로 조절하는 연동 확장이 있습니다. "Eventing으로 라우팅, KEDA로 소스 확장"처럼 역할을 나눌 수 있습니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="lesson" id="s10">
+    <div class="sec-no">10 / 16</div>
+    <h2 class="h">아키텍처 패턴 모음</h2>
+    <div class="panel">
+      <div class="tabs" role="tablist" id="paTabs" style="margin-top:0"></div>
+      <div id="paOut"></div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="lesson" id="s11">
+    <div class="sec-no">11 / 16</div>
+    <h2 class="h">로드맵: RequestReply</h2>
+    <div class="prose">
+      <p>이벤트 기반 구조의 오래된 고민은 "호출하는 쪽은 동기 응답을 원하는데 처리는 비동기로 흐른다"는 것입니다. 웹 화면은 결과를 기다리는데 뒤에서는 Broker를 거쳐 여러 서비스가 일합니다. Knative 커뮤니티는 이를 위해 <strong>RequestReply</strong> 리소스를 로드맵에 올려 두었습니다.</p>
+    </div>
+    <div class="patt">
+      <div class="node src">HTTP 클라이언트<br><small>동기 요청</small></div><div class="ar">›</div>
+      <div class="node mid">RequestReply<br><small>이벤트로 변환, 대기</small></div><div class="ar">›</div>
+      <div class="node vi">Broker</div><div class="ar">›</div>
+      <div class="node dst">처리 서비스들</div><div class="ar">›</div>
+      <div class="node vi">응답 이벤트<br><small>상관관계 ID 일치</small></div><div class="ar">›</div>
+      <div class="node mid">HTTP 응답 반환</div>
+    </div>
+    <div class="callout amber">
+      <b class="t">현재 위치</b>
+      <p>개념은 요청을 CloudEvent로 바꿔 Broker에 넣고, 같은 상관관계 ID를 가진 응답 이벤트가 돌아오면 원래 HTTP 요청에 돌려주는 것입니다. 이 강의 기준 시점에 정식 기능이 아니므로, 사용 전 해당 버전의 릴리스 노트와 기능 상태를 확인하세요. 그 전까지는 응답 이벤트를 저장소에 기록하고 클라이언트가 폴링하거나 웹소켓으로 받는 방식이 일반적입니다.</p>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="lesson" id="s12">
+    <div class="sec-no">12 / 16</div>
+    <h2 class="h">실습: Kafka Broker 구축</h2>
+    <div class="callout hot">
+      <b class="t">자원 주의</b>
+      <p>kind 위에 Kafka까지 올리면 메모리를 꽤 씁니다. Docker에 메모리 6GB 이상을 권장합니다. 아래 명령의 릴리스 경로와 버전 표기는 설치 시점에 공식 문서에서 다시 확인하세요.</p>
+    </div>
+    <ol class="steps">
+      <li><h4>Strimzi로 단일 노드 Kafka 띄우기</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kubectl create namespace kafka
+kubectl create -f 'https://strimzi.io/install/latest?namespace=kafka' -n kafka
+kubectl apply -f https://strimzi.io/examples/latest/kafka/kafka-single-node.yaml -n kafka
+
+kubectl wait kafka/my-cluster --for=condition=Ready --timeout=600s -n kafka</code></pre></div></li>
+      <li><h4>Knative Kafka Broker 설치</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">REL=https://github.com/knative-extensions/eventing-kafka-broker/releases/download/knative-v1.23.0
+kubectl apply -f $REL/eventing-kafka-controller.yaml
+kubectl apply -f $REL/eventing-kafka-broker.yaml
+
+kubectl get pods -n knative-eventing | grep kafka</code></pre></div></li>
+      <li><h4>설정 ConfigMap과 Broker 만들기</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">cat &lt;&lt;'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-broker-config
+  namespace: knative-eventing
+data:
+  bootstrap.servers: "my-cluster-kafka-bootstrap.kafka:9092"
+  default.topic.partitions: "3"
+  default.topic.replication.factor: "1"
+---
+apiVersion: eventing.knative.dev/v1
+kind: Broker
+metadata:
+  name: orders
+  annotations:
+    eventing.knative.dev/broker.class: Kafka
+spec:
+  config:
+    apiVersion: v1
+    kind: ConfigMap
+    name: kafka-broker-config
+    namespace: knative-eventing
+EOF
+kubectl get broker orders</code></pre></div></li>
+      <li><h4>ordered Trigger와 받는 쪽</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn service create event-display \
+  --image gcr.io/knative-releases/knative.dev/eventing/cmd/event_display --scale-min 1
+
+cat &lt;&lt;'EOF' | kubectl apply -f -
+apiVersion: eventing.knative.dev/v1
+kind: Trigger
+metadata:
+  name: ledger
+  annotations:
+    kafka.eventing.knative.dev/delivery.order: ordered
+spec:
+  broker: orders
+  subscriber:
+    ref:
+      apiVersion: serving.knative.dev/v1
+      kind: Service
+      name: event-display
+EOF</code></pre></div></li>
+      <li><h4>partitionkey를 붙여 이벤트 발행</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">BROKER=$(kubectl get broker orders -o jsonpath='{.status.address.url}')
+echo $BROKER
+
+kubectl run curl --image=curlimages/curl --rm -it --restart=Never --env="B=$BROKER" -- sh -c '
+for i in 1 2 3 4; do for k in customer-a customer-b; do
+  curl -s -o /dev/null -w "%{http_code} " $B \
+    -H "Ce-Specversion: 1.0" -H "Ce-Id: $k-$i" -H "Ce-Source: /lab" \
+    -H "Ce-Type: com.mycorp.order.updated" -H "Ce-Partitionkey: $k" \
+    -H "Content-Type: application/json" -d "{\"seq\":$i,\"key\":\"$k\"}"
+done; done; echo'
+
+kubectl logs -l serving.knative.dev/service=event-display -c user-container --tail=80 | grep seq</code></pre></div></li>
+      <li><h4>Kafka 쪽에서 토픽과 컨슈머 그룹 보기</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kubectl exec -n kafka -it my-cluster-dual-role-0 -- \
+  bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | grep knative
+
+kubectl exec -n kafka -it my-cluster-dual-role-0 -- \
+  bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups</code></pre></div>
+        <p class="muted">Pod 이름은 Strimzi 예제 버전에 따라 다를 수 있으니 <code class="i">kubectl get pods -n kafka</code>로 먼저 확인하세요.</p></li>
+      <li><h4>Sequence 맛보기 (기본 인메모리 Channel)</h4>
+        <p>Knative 예제 이미지 appender는 받은 메시지 뒤에 문자열을 덧붙여 답장합니다.</p>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">for n in 1 2 3; do
+  kn service create step-$n \
+    --image gcr.io/knative-releases/knative.dev/eventing/cmd/appender \
+    --env MESSAGE=" - step $n"
+done
+
+cat &lt;&lt;'EOF' | kubectl apply -f -
+apiVersion: flows.knative.dev/v1
+kind: Sequence
+metadata:
+  name: lab-seq
+spec:
+  channelTemplate:
+    apiVersion: messaging.knative.dev/v1
+    kind: InMemoryChannel
+  steps:
+    - ref: {apiVersion: serving.knative.dev/v1, kind: Service, name: step-1}
+    - ref: {apiVersion: serving.knative.dev/v1, kind: Service, name: step-2}
+    - ref: {apiVersion: serving.knative.dev/v1, kind: Service, name: step-3}
+  reply:
+    ref: {apiVersion: serving.knative.dev/v1, kind: Service, name: event-display}
+EOF
+
+kn source ping create seq-ping --schedule "*/1 * * * *" \
+  --data '{"message":"hello"}' --sink sequence:lab-seq
+# 1~2분 뒤 event-display 로그에서 "hello - step 1 - step 2 - step 3" 확인</code></pre></div></li>
+      <li><h4>정리</h4>
+        <div class="codebox solo"><div class="cap"><span>bash</span><button class="copy" type="button">복사</button></div>
+<pre><code data-lang="bash">kn source ping delete seq-ping
+kubectl delete sequence lab-seq
+kubectl delete trigger ledger
+kubectl delete broker orders
+for n in 1 2 3; do kn service delete step-$n; done
+kn service delete event-display</code></pre></div></li>
+    </ol>
+  </section>
+
+  <!-- 13 -->
+  <section class="lesson" id="s13">
+    <div class="sec-no">13 / 16</div>
+    <h2 class="h">운영 체크포인트</h2>
+    <div class="nofit">
+      <details><summary>컨슈머 랙을 첫 번째 지표로</summary><div class="body">Kafka Broker에서 <b>Trigger별 컨슈머 그룹의 랙</b>(읽지 못하고 쌓인 이벤트 수)은 "구독자가 따라가지 못한다"는 가장 직접적인 신호입니다. 랙이 계속 늘면 구독자 max-scale, 동시성 설정, 하위 시스템 병목을 확인하세요.</div></details>
+      <details><summary>토픽 보존 기간과 재처리</summary><div class="body">Broker 토픽의 보존 기간이 짧으면 장애가 길어졌을 때 아직 배달 못 한 이벤트가 지워질 수 있습니다. 고객사 장애 대응 목표 시간보다 <b>보존 기간을 넉넉하게</b> 잡으세요.</div></details>
+      <details><summary>복제 수와 min.insync.replicas</summary><div class="body">운영은 복제 3 이상을 기본으로 하고, Kafka 쪽 <b>min.insync.replicas</b> 설정과 함께 봐야 "202를 받았다면 디스크에 있다"가 진짜가 됩니다.</div></details>
+      <details><summary>이벤트 크기 상한과 Claim Check</summary><div class="body">Kafka 기본 메시지 최대 크기는 약 1MB입니다. 파일이나 큰 문서를 이벤트에 직접 담지 말고, <b>객체 저장소에 올린 뒤 위치만 이벤트로</b> 보내는 Claim Check 패턴을 쓰세요.</div></details>
+      <details><summary>데이터 플레인 Pod 자원과 격리</summary><div class="body">공유 Kafka 클래스에서는 kafka-broker-receiver와 dispatcher가 모든 고객 트래픽을 처리합니다. HPA와 자원 요청을 점검하고, 고객사 간 격리가 계약 요건이면 <b>KafkaNamespaced</b>를 쓰세요.</div></details>
+      <details><summary>업그레이드 순서</summary><div class="body">Knative Eventing 본체와 eventing-kafka-broker 같은 확장은 <b>버전을 맞춰</b> 함께 올려야 합니다. 본체만 먼저 올리면 확장이 동작하지 않을 수 있습니다. 10편 운영 편에서 업그레이드 절차를 다룹니다.</div></details>
+    </div>
+  </section>
+
+  <!-- 14 -->
+  <section class="lesson" id="s14">
+    <div class="sec-no">14 / 16</div>
+    <h2 class="h">확인 퀴즈</h2>
+    <p class="score" id="score">맞힌 문제 <b>0</b> / 7</p>
+    <div class="quiz" id="quiz"></div>
+  </section>
+
+  <!-- 15 -->
+  <section class="lesson" id="s15">
+    <div class="sec-no">15 / 16</div>
+    <h2 class="h">용어 사전</h2>
+    <input class="gsearch" id="gsearch" type="search" placeholder="용어 검색 (예: 파티션, Sequence)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- 16 -->
+  <section class="lesson" id="s16">
+    <div class="sec-no">16 / 16</div>
+    <h2 class="h">정리와 다음 편</h2>
+    <div class="recap">
+      <ol>
+        <li>Broker는 같은 인터페이스에 여러 구현이 있으며, <strong>broker.class</strong>와 <strong>config-br-defaults</strong>로 고릅니다.</li>
+        <li>운영 환경의 기본 선택은 <strong>Kafka Broker</strong>입니다. receiver가 토픽에 쓰고, dispatcher가 Trigger별 컨슈머 그룹으로 배달합니다.</li>
+        <li>멀티테넌트 격리가 필요하면 <strong>KafkaNamespaced</strong>로 데이터 플레인을 네임스페이스별로 띄웁니다.</li>
+        <li>순서가 필요하면 Trigger를 <strong>ordered</strong>로, 생산자는 <strong>partitionkey</strong>를 붙입니다. 병렬도는 파티션 수가 상한입니다.</li>
+        <li><strong>Sequence</strong>는 단계 사슬, <strong>Parallel</strong>은 갈래 분기를 선언적으로 만듭니다.</li>
+        <li>기존 Kafka와는 <strong>KafkaSource·KafkaSink</strong>로 잇고, 대량 pull 처리는 KEDA와 역할을 나눕니다.</li>
+        <li>컨슈머 랙, 보존 기간, 복제 수, 이벤트 크기가 운영의 핵심 점검 항목입니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편: Knative Functions</h3>
+      <p>Dockerfile도 YAML도 없이 함수 코드만으로 Knative 서비스를 만드는 func CLI를 다룹니다. 언어 템플릿, Buildpacks와 S2I 빌드, 클러스터 내부 빌드, CloudEvents를 받는 함수 작성, 그리고 v1.21에 추가된 일반 Deployment 배포 옵션까지 실습합니다.</p>
+    </div>
+    <footer>Knative 강의 시리즈 6편. Knative v1.23을 기준으로 작성했습니다. Broker 확장(eventing-kafka-broker, eventing-rabbitmq)의 리소스 버전, 어노테이션, 설치 경로는 릴리스에 따라 바뀔 수 있으니 설치 시점의 공식 문서를 함께 확인하세요.</footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+  const root=document.documentElement, tb=document.getElementById('themeBtn');
+  function setTheme(t){root.setAttribute('data-theme',t);tb.textContent=t==='dark'?'라이트 테마':'다크 테마';try{localStorage.setItem('kn-theme',t)}catch(e){}}
+  let saved=null;try{saved=localStorage.getItem('kn-theme')}catch(e){}
+  setTheme(saved==='light'?'light':'dark');
+  tb.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+  const prog=document.getElementById('prog'), links=[...document.querySelectorAll('.toc a')], secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  function onScroll(){const h=document.documentElement.scrollHeight-innerHeight;prog.style.width=(h>0?scrollY/h*100:0)+'%';
+    let cur=0;secs.forEach((s,i)=>{if(s.getBoundingClientRect().top<160)cur=i});links.forEach((a,i)=>a.classList.toggle('on',i===cur&&scrollY>200))}
+  addEventListener('scroll',onScroll,{passive:true});onScroll();
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function hlYaml(line){let l=esc(line);if(/^\s*#/.test(line)||/^---$/.test(line))return '<span class="c">'+l+'</span>';
+    l=l.replace(/"([^"]*)"/g,'<span class="s">"$1"</span>');l=l.replace(/^(\s*-?\s*)([A-Za-z0-9_.\/-]+)(:)/,'$1<span class="k">$2</span>$3');l=l.replace(/(\s#\s.*)$/,'<span class="c">$1</span>');return l}
+  function hlBash(line){let l=esc(line);if(/^\s*#/.test(line))return '<span class="c">'+l+'</span>';
+    l=l.replace(/^(\s*)(kn|kubectl|curl|cat|for|REL|BROKER|echo)\b/,'$1<span class="k">$2</span>').replace(/(\s)(--?[a-zA-Z][a-zA-Z-]*)/g,'$1<span class="p">$2</span>').replace(/(\s#\s.*)$/,'<span class="c">$1</span>');return l}
+  function hl(c){const lang=c.dataset.lang||'yaml',raw=c.textContent;c.dataset.raw=raw;c.innerHTML=raw.split('\n').map(x=>lang==='yaml'?hlYaml(x):hlBash(x)).join('\n')}
+  document.querySelectorAll('code[data-lang]').forEach(hl);
+  function fallback(t,cb){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}ta.remove();cb()}
+  document.addEventListener('click',e=>{const b=e.target.closest('.copy');if(!b)return;const code=b.closest('.codebox').querySelector('code');const txt=code.dataset.raw||code.textContent;
+    const done=()=>{b.textContent='복사됨';setTimeout(()=>b.textContent='복사',1400)};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(done,()=>fallback(txt,done));else fallback(txt,done)});
+  const $=id=>document.getElementById(id);
+
+  /* 4. ordering sim */
+  let ksMode='unordered', seed=7;
+  function rnd(){seed=(seed*16807)%2147483647;return (seed-1)/2147483646}
+  const KEYS=['A','B','C'], PART={A:0,B:1,C:2};
+  function ks(){
+    const evs=[];for(let s=1;s<=4;s++)KEYS.forEach(k=>evs.push({k,s,lat:150+Math.round(rnd()*800)}));
+    $('ksLanes').innerHTML=[0,1,2].map(p=>'<div class="lane"><div class="ln">파티션 '+p+'</div><div class="chips">'+evs.filter(e=>PART[e.k]===p).map(e=>'<span class="chip2 '+e.k+'">'+e.k+e.s+'</span>').join('')+'</div></div>').join('');
+    let arr=[];
+    if(ksMode==='unordered'){evs.forEach((e,i)=>arr.push({...e,t:i*40+e.lat}))}
+    else{[0,1,2].forEach(p=>{let t=0;evs.filter(e=>PART[e.k]===p).forEach(e=>{t+=e.lat;arr.push({...e,t})})})}
+    arr.sort((a,b)=>a.t-b.t);
+    const last={};let bad=0;
+    const html=arr.map(e=>{const ok=!(last[e.k]>e.s);if(!ok)bad++;last[e.k]=Math.max(last[e.k]||0,e.s);return '<span class="chip2 '+e.k+(ok?'':' bad')+'">'+e.k+e.s+'</span>'}).join('');
+    $('ksRecv').innerHTML=html;
+    const total=Math.max(...arr.map(e=>e.t));
+    $('ksRes').innerHTML=ksMode==='unordered'?'<b>순서 위반 '+bad+'건.</b> 모든 이벤트를 동시에 보내 약 '+total+'ms 만에 끝났지만, 같은 고객의 이벤트가 뒤바뀔 수 있습니다. "다시 실행"으로 지연이 바뀌면 결과도 달라집니다.':'<b>순서 위반 0건.</b> 파티션마다 앞 이벤트가 끝나야 다음을 보내서 고객별 순서가 지켜집니다. 대신 약 '+total+'ms가 걸려 unordered보다 느립니다. 서로 다른 고객(파티션)끼리는 여전히 병렬입니다.'}
+  document.querySelectorAll('#ksTabs .tab').forEach(t=>t.addEventListener('click',()=>{ksMode=t.dataset.m;document.querySelectorAll('#ksTabs .tab').forEach(x=>x.setAttribute('aria-selected',x===t));seed=7;ks()}));
+  $('ksRun').onclick=()=>{seed=Math.floor(Math.random()*100000)+1;ks()};ks();
+
+  /* 6. wizard */
+  const WQ=[
+    ['loss','이벤트를 잃어도 괜찮나요?',[['ok','괜찮음 (개발·테스트)'],['no','절대 안 됨']]],
+    ['infra','이미 운영 중인 메시징 시스템은?',[['kafka','Kafka'],['rabbit','RabbitMQ'],['none','없음']]],
+    ['tput','예상 이벤트 양은?',[['low','적음 (초당 수십 건)'],['high','많음 (초당 수천 건 이상)']]],
+    ['order','같은 대상의 이벤트 순서가 중요한가요?',[['no','아니오'],['yes','예']]],
+    ['iso','고객사 간 데이터 플레인 격리가 필요한가요?',[['no','아니오'],['yes','예 (멀티테넌트)']]]
+  ];
+  const ans={loss:'no',infra:'none',tput:'low',order:'no',iso:'no'};
+  const wq=$('wizQ');
+  WQ.forEach(([k,q,opts])=>{const d=document.createElement('div');d.className='wq';d.innerHTML='<p>'+q+'</p><div class="wopts"></div>';
+    const o=d.querySelector('.wopts');opts.forEach(([v,l])=>{const b=document.createElement('button');b.type='button';b.textContent=l;b.dataset.v=v;b.setAttribute('aria-pressed',ans[k]===v);
+      b.onclick=()=>{ans[k]=v;[...o.children].forEach(x=>x.setAttribute('aria-pressed',x.dataset.v===v));wiz()};o.appendChild(b)});wq.appendChild(d)});
+  function wiz(){let pick,cls,why=[];
+    if(ans.loss==='ok'&&ans.tput==='low'&&ans.iso==='no'&&ans.order==='no'){pick='기본 인메모리 Broker';cls='MTChannelBasedBroker + InMemoryChannel';why=['추가 인프라 없이 바로 시작할 수 있습니다.','운영 환경으로 옮길 때는 반드시 영속성 있는 Broker로 바꾸세요.']}
+    else if(ans.infra==='rabbit'&&ans.tput==='low'&&ans.order==='no'){pick='RabbitMQ Broker';cls='RabbitMQBroker';why=['이미 있는 RabbitMQ 운영 역량을 재사용합니다.','이벤트 양이 크게 늘거나 키 단위 순서가 필요해지면 Kafka를 다시 검토하세요.']}
+    else{pick='Kafka Broker';cls=ans.iso==='yes'?'KafkaNamespaced':'Kafka';
+      why.push(ans.infra==='kafka'?'고객사의 기존 Kafka 클러스터를 그대로 쓸 수 있습니다.':ans.infra==='rabbit'?'RabbitMQ가 있지만 처리량이나 순서 요건 때문에 Kafka가 더 적합합니다.':'Kafka 클러스터가 새로 필요합니다. Strimzi나 관리형 Kafka를 검토하세요.');
+      if(ans.order==='yes')why.push('ordered Trigger와 partitionkey로 키 단위 순서를 보장합니다.');
+      if(ans.tput==='high')why.push('파티션 수를 처리량에 맞게 넉넉히 잡으세요.');
+      if(ans.iso==='yes')why.push('KafkaNamespaced로 고객사 네임스페이스마다 receiver·dispatcher를 따로 띄워 격리합니다.');
+      if(ans.loss==='ok')why.push('유실을 허용하더라도, 처리량이나 격리 요건 때문에 Kafka를 권합니다.')}
+    $('wizR').innerHTML='<div class="muted" style="font-size:13px">추천 출발점</div><div class="pick">'+pick+'</div><div class="cls">broker.class: '+cls+'</div><ul>'+why.map(w=>'<li>'+w+'</li>').join('')+'</ul>'}
+  wiz();
+
+  /* 7. flows */
+  let flMode='seq';
+  const SEQ=[['Source','PingSource'],['ch','Channel'],['validate','검증'],['ch','Channel'],['enrich','고객 정보 추가'],['ch','Channel'],['fraud-score','이상 거래 점수'],['reply','Broker']];
+  const SEQEV=[
+    '{ "orderId": "1234", "amount": 39000 }',
+    '{ "orderId": "1234", "amount": 39000 }',
+    '{ "orderId": "1234", "amount": 39000,\n  "valid": true }',
+    '{ "orderId": "1234", "amount": 39000,\n  "valid": true }',
+    '{ "orderId": "1234", "amount": 39000,\n  "valid": true, "customer": "customer-a", "tier": "vip" }',
+    '{ "orderId": "1234", "amount": 39000,\n  "valid": true, "customer": "customer-a", "tier": "vip" }',
+    '{ "orderId": "1234", "amount": 39000,\n  "valid": true, "customer": "customer-a", "tier": "vip",\n  "fraudScore": 0.03 }',
+    '# 마지막 단계의 답장이 reply로 지정한 Broker에 도착\n# 이후 Trigger들이 이 결과 이벤트를 다시 구독할 수 있음'
+  ];
+  function flRender(){
+    if(flMode==='seq'){$('flStage').innerHTML='<div class="flow">'+SEQ.map((s,i)=>(i?'<div class="far">›</div>':'')+'<div class="fnode'+(s[0]==='ch'?' ch':'')+'" data-i="'+i+'"><b>'+(s[0]==='ch'?'':s[0])+'</b><small>'+s[1]+'</small></div>').join('')+'</div>';$('flEv').textContent='단계마다 이벤트가 어떻게 변하는지 여기에 표시됩니다.'}
+    else{$('flStage').innerHTML='<div class="par"><div class="fnode" data-i="0"><b>Source</b><small>order.paid</small></div><div class="branches">'+
+      '<div class="branch"><div class="fnode" data-i="1"><b>filter</b><small>is-vip</small></div><div class="far">›</div><div class="fnode" data-i="2"><b>send-sms</b><small>VIP만</small></div></div>'+
+      '<div class="branch"><div class="fnode" data-i="3"><b>(필터 없음)</b><small>모두 통과</small></div><div class="far">›</div><div class="fnode" data-i="4"><b>send-email</b><small>전원</small></div></div>'+
+      '</div><div class="fnode" data-i="5"><b>reply</b><small>Broker</small></div></div>';$('flEv').textContent='갈래별 결과가 여기에 표시됩니다.'}}
+  let flTimer=[];
+  $('flRun').onclick=()=>{flTimer.forEach(clearTimeout);flTimer=[];const nodes=[...$('flStage').querySelectorAll('.fnode')];nodes.forEach(n=>n.classList.remove('on'));
+    if(flMode==='seq'){SEQ.forEach((s,i)=>flTimer.push(setTimeout(()=>{nodes.forEach(n=>n.classList.toggle('on',+n.dataset.i===i));$('flEv').textContent=SEQEV[i]},i*700)))}
+    else{const steps=[[[0],'{ "type": "order.paid", "customer": "customer-a", "tier": "vip" }\n# Parallel이 같은 이벤트를 두 갈래에 동시에 보냄'],
+      [[1,3],'# 갈래 1: is-vip 필터가 2xx로 답해 통과\n# 갈래 2: 필터가 없어 바로 통과'],
+      [[2,4],'# send-sms, send-email이 동시에 실행'],
+      [[5],'# 각 갈래의 답장이 reply(Broker)로 따로따로 도착\n{ "type": "notify.sms.sent" }\n{ "type": "notify.email.sent" }']];
+      steps.forEach(([on,txt],i)=>flTimer.push(setTimeout(()=>{nodes.forEach(n=>n.classList.toggle('on',on.includes(+n.dataset.i)));$('flEv').textContent=txt},i*900)))}};
+  document.querySelectorAll('#flTabs .tab').forEach(t=>t.addEventListener('click',()=>{flMode=t.dataset.f;document.querySelectorAll('#flTabs .tab').forEach(x=>x.setAttribute('aria-selected',x===t));flTimer.forEach(clearTimeout);flRender()}));
+  flRender();
+
+  /* 10. patterns */
+  const PA=[
+    ['팬아웃 알림','<div class="patt"><div class="node src">주문 서비스</div><div class="ar">›</div><div class="node mid">Broker</div><div class="ar">›</div><div class="col"><div class="node dst">결제</div><div class="node dst">재고</div><div class="node dst">알림</div><div class="node dst">분석 적재</div></div></div>','하나의 사실(주문 생성)을 여러 소비자가 각자 처리합니다. 새 소비자는 Trigger만 추가하면 되고, 한 소비자의 장애가 다른 소비자에게 번지지 않습니다. 가장 기본이자 가장 효과가 큰 패턴입니다.'],
+    ['코레오그래피 사가','<div class="patt"><div class="node src">order.created</div><div class="ar">›</div><div class="node dst">결제</div><div class="ar">›</div><div class="node mid">payment.completed</div><div class="ar">›</div><div class="node dst">배송</div><div class="ar">›</div><div class="node mid">payment.failed 시 order.cancel</div></div>','중앙 지휘자 없이 각 서비스가 이벤트에 반응하며 업무를 이어 갑니다. 실패하면 보상 이벤트(취소)를 발행해 앞 단계를 되돌립니다. 단계가 많아지면 전체 흐름을 파악하기 어려워지므로, 그때는 워크플로 엔진 기반의 오케스트레이션을 검토하세요.'],
+    ['AIOps 알람 처리','<div class="patt"><div class="col"><div class="node src">Alertmanager 웹훅</div><div class="node src">ApiServerSource (Pod 실패)</div></div><div class="ar">›</div><div class="node mid">Broker</div><div class="ar">›</div><div class="node dst">LLM 요약·분류 서비스</div><div class="ar">›</div><div class="node mid">incident.summarized</div><div class="ar">›</div><div class="col"><div class="node dst">Slack 알림</div><div class="node dst">티켓 생성</div></div></div>','장애가 없을 때는 요약 서비스가 0개로 쉬고, 알람이 오면 깨어나 상황을 요약해 다음 이벤트로 넘깁니다. 알람 폭주 시에는 3편의 max-scale로 LLM 호출 비용을 묶어 두고, 같은 장애의 중복 알람은 source+id나 확장 속성으로 묶어 처리하세요.'],
+    ['CDC 연계','<div class="patt"><div class="node vi">고객사 DB</div><div class="ar">›</div><div class="node src">Debezium</div><div class="ar">›</div><div class="node vi">Kafka 토픽</div><div class="ar">›</div><div class="node src">KafkaSource</div><div class="ar">›</div><div class="node mid">Broker</div><div class="ar">›</div><div class="node dst">검색 색인, 캐시 갱신, 감사</div></div>','DB 변경을 Debezium으로 Kafka에 흘리고, Knative가 받아 여러 후속 처리로 나눕니다. 레거시 앱 코드를 고치지 않고 이벤트 기반 기능을 덧붙일 수 있어 현대화 프로젝트의 첫걸음으로 좋습니다. 같은 행의 변경 순서가 중요하면 ordered와 키를 활용하세요.'],
+    ['Claim Check','<div class="patt"><div class="node src">업로드 서비스</div><div class="ar">›</div><div class="node vi">객체 저장소에 파일 저장</div><div class="ar">›</div><div class="node mid">file.uploaded { "url": "s3://…" }</div><div class="ar">›</div><div class="node dst">썸네일·OCR·검사</div></div>','큰 데이터는 저장소에 두고 이벤트에는 위치만 담습니다. Broker와 Kafka의 메시지 크기 한계를 피하고, 여러 소비자가 같은 파일을 필요할 때만 가져갑니다. 저장소 접근 권한과 파일 수명 관리를 함께 설계해야 합니다.']
+  ];
+  const paT=$('paTabs');PA.forEach((p,i)=>{const b=document.createElement('button');b.type='button';b.className='tab';b.setAttribute('role','tab');b.textContent=p[0];b.onclick=()=>showPa(i);paT.appendChild(b)});
+  function showPa(i){[...paT.children].forEach((b,j)=>b.setAttribute('aria-selected',j===i));$('paOut').innerHTML=PA[i][1]+'<p style="margin:0;color:var(--muted);max-width:780px">'+PA[i][2]+'</p>'}
+  showPa(0);
+
+  /* quiz */
+  const QZ=[
+    {q:'Broker 구현체를 지정하는 방법은?',o:['Trigger의 filter','Broker의 eventing.knative.dev/broker.class 어노테이션','Service의 min-scale','CloudEvent의 type'],a:1,e:'지정하지 않으면 config-br-defaults의 기본 클래스가 쓰입니다.'},
+    {q:'Kafka Broker에서 Trigger마다 따로 만들어지는 것은?',o:['토픽','컨슈머 그룹','Kafka 클러스터','receiver Pod'],a:1,e:'토픽은 Broker당 하나이고, Trigger마다 컨슈머 그룹이 있어 진행 위치가 독립적입니다.'},
+    {q:'고객사별로 receiver·dispatcher를 분리해 격리하려면?',o:['MTChannelBasedBroker','KafkaNamespaced 클래스','InMemoryChannel','Parallel'],a:1,e:'KafkaNamespaced는 데이터 플레인을 Broker의 네임스페이스에 따로 띄웁니다.'},
+    {q:'ordered Trigger에서 같은 고객 이벤트의 순서를 지키려면 생산자는 무엇을 붙이나요?',o:['partitionkey 확장 속성','time 속성','tag 헤더','Content-Length'],a:0,e:'같은 partitionkey는 같은 파티션으로 가고, ordered에서는 파티션 안 순서가 보장됩니다.'},
+    {q:'ordered 모드에서 Trigger 하나의 최대 병렬도를 정하는 것은?',o:['구독자 max-scale','토픽 파티션 수','retry 횟수','Broker 개수'],a:1,e:'파티션마다 한 번에 하나씩 보내므로 파티션 수가 상한입니다.'},
+    {q:'Sequence에 대한 설명으로 옳은 것은?',o:['모든 단계에 동시에 보낸다','각 단계의 답장을 다음 단계 입력으로 넘긴다','필터 전용 리소스다','Kafka에서만 동작한다'],a:1,e:'동시에 여러 갈래로 보내는 것은 Parallel입니다.'},
+    {q:'큐 길이를 보고 pull 방식 소비자 수를 조절하는 데 더 적합한 도구는?',o:['Knative Trigger','KEDA','DomainMapping','PingSource'],a:1,e:'KEDA는 외부 지표로 pull 소비자를 확장하고, Knative Eventing은 HTTP push와 라우팅에 강합니다.'}
+  ];
+  const qz=$('quiz'), sc=document.querySelector('#score b');let right=0;
+  QZ.forEach((it,qi)=>{const box=document.createElement('div');box.className='q';box.innerHTML='<h4>'+(qi+1)+'. '+it.q+'</h4><div class="opts"></div><div class="fb"></div>';
+    const opts=box.querySelector('.opts'), fb=box.querySelector('.fb');
+    it.o.forEach((o,oi)=>{const b=document.createElement('button');b.type='button';b.textContent=o;
+      b.onclick=()=>{opts.querySelectorAll('button').forEach((x,xi)=>{x.disabled=true;if(xi===it.a)x.classList.add('right')});
+        if(oi===it.a){right++;sc.textContent=right;fb.innerHTML='<b>정답입니다.</b> '+it.e}else{b.classList.add('wrong');fb.innerHTML='<b>아쉽네요.</b> '+it.e}fb.classList.add('show')};opts.appendChild(b)});qz.appendChild(box)});
+
+  /* glossary */
+  const GL=[
+    ['Broker 클래스','broker.class','Broker의 구현체를 고르는 어노테이션 값.'],
+    ['config-br-defaults','','클러스터·네임스페이스별 기본 Broker 클래스와 설정을 정하는 ConfigMap.'],
+    ['MTChannelBasedBroker','','Channel 위에 얹힌 멀티테넌트 Broker. 기본 클래스.'],
+    ['Kafka Broker','','Kafka 토픽에 직접 저장·배달하는 Broker 구현체.'],
+    ['KafkaNamespaced','','데이터 플레인을 Broker 네임스페이스에 따로 띄우는 Kafka Broker 클래스.'],
+    ['receiver','kafka-broker-receiver','Broker로 온 이벤트를 받아 토픽에 쓰는 데이터 플레인.'],
+    ['dispatcher','kafka-broker-dispatcher','토픽을 읽어 Trigger 구독자에게 배달하는 데이터 플레인.'],
+    ['파티션','Partition','Kafka 토픽을 나눈 단위. 순서는 파티션 안에서만 보장.'],
+    ['partitionkey','','CloudEvent를 어느 파티션에 넣을지 정하는 확장 속성.'],
+    ['ordered / unordered','delivery.order','Kafka Trigger의 배달 순서 모드.'],
+    ['컨슈머 그룹','Consumer Group','같은 토픽을 함께 읽는 소비자 묶음. 진행 위치를 따로 관리.'],
+    ['컨슈머 랙','Consumer Lag','아직 읽지 못하고 쌓인 메시지 수.'],
+    ['RabbitMQ Broker','','Broker당 Exchange, Trigger당 Queue를 쓰는 구현체.'],
+    ['KafkaChannel','','Kafka를 저장소로 쓰는 Channel 구현.'],
+    ['Sequence','','단계별 서비스를 답장으로 이어 처리하는 Flow 리소스.'],
+    ['Parallel','','한 이벤트를 여러 갈래로 보내는 Flow 리소스.'],
+    ['KafkaSource','','기존 Kafka 토픽을 읽어 CloudEvents로 보내는 Source.'],
+    ['KafkaSink','','받은 CloudEvent를 Kafka 토픽에 쓰는 Sink.'],
+    ['Push / Pull','','이벤트를 밀어 주는 방식(Knative)과 소비자가 당겨 가는 방식(KEDA).'],
+    ['코레오그래피','Choreography','중앙 지휘 없이 이벤트에 반응하며 업무를 잇는 방식.'],
+    ['보상 이벤트','Compensation','실패한 업무 흐름의 앞 단계를 되돌리는 이벤트.'],
+    ['CDC','Change Data Capture','DB 변경을 이벤트로 흘려보내는 기법. Debezium 등.'],
+    ['Claim Check','','큰 데이터는 저장소에 두고 위치만 이벤트로 보내는 패턴.'],
+    ['RequestReply','','동기 요청과 비동기 이벤트 처리를 잇기 위한 로드맵상의 리소스.']
+  ];
+  const gl=$('gloss');
+  GL.forEach(([t,s,d])=>{const g=document.createElement('div');g.className='g';g.dataset.s=(t+' '+s+' '+d).toLowerCase();g.innerHTML='<dt>'+t+(s?'<small>'+s+'</small>':'')+'</dt><dd>'+d+'</dd>';gl.appendChild(g)});
+  $('gsearch').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();gl.querySelectorAll('.g').forEach(g=>g.hidden=v&&!g.dataset.s.includes(v))});
+})();
+</script>
+</body>
+</html>
