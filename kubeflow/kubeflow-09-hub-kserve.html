@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubeflow 강의 9편: Kubeflow Hub에서 KServe 배포까지</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+try{var t=localStorage.getItem('kf-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
+</script>
+<style>
+:root{
+  --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r-s:6px;--r-m:12px;--r-l:20px;
+}
+html[data-theme="dark"]{
+  --bg:#0F1B2D;--surface:#15253B;--raised:#1C3049;--line:#2A405E;--text:#E7EEF7;--muted:#93A6BF;--brand:#4EA8F5;--on-c:#0F1B2D;
+  --c-data:#F26B3A;--c-nb:#9BD15A;--c-kfp:#2EC4B6;--c-train:#F2A541;--c-katib:#A78BFA;--c-hub:#F47C9A;--c-serve:#4EA8F5;--c-mon:#E8D44D;--c-base:#8DA2BD;
+  --lv1:#5BC48A;--lv2:#4EA8F5;--lv3:#A78BFA;--lv4:#F2667A;
+  --ok:#5BC48A;--bad:#F2667A;--code-bg:#0A1422;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#F2F5F9;--surface:#FFFFFF;--raised:#E8EEF5;--line:#D2DCE8;--text:#14233A;--muted:#55667D;--brand:#1F6FBF;--on-c:#FFFFFF;
+  --c-data:#C9501F;--c-nb:#4F8A17;--c-kfp:#0F7F76;--c-train:#A8670C;--c-katib:#6A4ED0;--c-hub:#C23E68;--c-serve:#1F6FBF;--c-mon:#8C7700;--c-base:#5F7189;
+  --lv1:#2E9A61;--lv2:#1F6FBF;--lv3:#6A4ED0;--lv4:#C9384F;
+  --ok:#2E9A61;--bad:#C9384F;--code-bg:#14233A;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:12px}
+.series{font-weight:700;font-size:15px;line-height:1.3}
+.series span{color:var(--muted);font-weight:500;margin-left:8px}
+.theme-btn{margin-left:auto;font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+.progress{height:3px;width:0;background:linear-gradient(90deg,var(--c-data),var(--c-nb),var(--c-kfp),var(--c-train),var(--c-katib),var(--c-hub),var(--c-serve),var(--c-mon))}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:56px 24px 32px;display:grid;grid-template-columns:5fr 7fr;gap:44px;align-items:center}
+.hero h1{font-size:clamp(2.5rem,5.4vw,4.1rem);line-height:1.1;letter-spacing:-0.035em;font-weight:800;margin:0 0 22px}
+.hero .lede{font-size:1.14rem;color:var(--muted);margin:0;max-width:32em}
+.levelstrip{display:flex;gap:4px;margin:30px 0 8px;max-width:420px}
+.levelstrip i{flex:1;height:8px;border-radius:2px;opacity:.32}
+.levelstrip i.now{opacity:1;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.strip-cap{font-size:14px;color:var(--muted);margin:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:26px 0 0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:10px 10px 4px}
+.mapcap{font-size:14px;color:var(--muted);padding:2px 10px 8px;margin:0}
+@media (max-width:960px){.hero{grid-template-columns:1fr;padding-top:36px}}
+
+/* lifecycle map */
+.lcmap{width:100%;height:auto;display:block}
+.lcmap .seg{fill:none;stroke-width:11;stroke-linecap:round}
+.lcmap .st{cursor:pointer;outline:none}
+.lcmap .st .dot{fill:var(--surface);stroke:currentColor;stroke-width:4;transition:r .15s}
+.lcmap .st:hover .dot,.lcmap .st:focus-visible .dot{r:14}
+.lcmap .st.sel .dot{fill:currentColor}
+.lcmap .st:focus-visible .halo{stroke:var(--brand)}
+.lcmap .halo{fill:none;stroke:transparent;stroke-width:3}
+.lcmap .lbl{font-size:17px;font-weight:700;fill:var(--text);font-family:var(--font)}
+.lcmap .sub{font-size:13px;fill:var(--muted);font-weight:500;font-family:var(--font)}
+.lcmap .ctr1{font-size:24px;font-weight:800;fill:var(--text);font-family:var(--font);letter-spacing:-0.02em}
+.lcmap .ctr2{font-size:13.5px;fill:var(--muted);font-family:var(--font)}
+.lcmap .arrow{fill:var(--c-mon)}
+.lcmap.draw .seg{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .45s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* layout */
+.layout{max-width:1180px;margin:0 auto;padding:0 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding:24px 0 0}
+.toc p{font-weight:700;margin:0 0 10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:block;padding:5px 10px 5px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a:hover{color:var(--text)}
+.toc a.on{color:var(--text);border-left-color:var(--brand);font-weight:600}
+main{min-width:0;max-width:800px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;gap:0}.toc{display:none}}
+section{padding-top:60px}
+h2{font-size:clamp(1.6rem,3vw,2rem);line-height:1.3;letter-spacing:-0.02em;margin:0 0 18px;font-weight:800}
+h2 .no{color:var(--brand);margin-right:.35em}
+h3{font-size:1.24rem;line-height:1.4;margin:38px 0 12px;font-weight:700}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin:4px 0}
+strong{font-weight:700}
+
+/* callouts */
+.callout{border-left:4px solid var(--brand);background:var(--surface);padding:16px 20px;border-radius:0 var(--r-m) var(--r-m) 0;margin:22px 0}
+.callout p:last-child{margin-bottom:0}
+.callout .h{display:block;font-weight:700;margin-bottom:4px}
+.callout.warn{border-color:var(--c-train)}
+.callout.tip{border-color:var(--c-nb)}
+.callout.link{border-color:var(--c-katib)}
+
+/* goals */
+.goals{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.goals li{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 16px}
+.goals li::before{content:"";width:18px;height:18px;margin-top:5px;border-radius:50%;border:3px solid var(--lv1)}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin:16px 0 24px;border:1px solid var(--line);border-radius:var(--r-m)}
+.tbl{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.6;min-width:560px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font-weight:700;background:var(--raised)}
+.tbl td:first-child{font-weight:600}
+.tbl .old{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 70%,transparent)}
+
+/* story */
+.story{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:24px 26px;margin:22px 0}
+.story-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.story-dots{display:flex;gap:6px}
+.story-dots button{width:30px;height:7px;border-radius:4px;border:0;background:var(--line);cursor:pointer;padding:0}
+.story-dots button.on{background:var(--brand)}
+.story-who{font-size:14px;color:var(--muted)}
+.story h4{font-size:1.25rem;margin:0 0 10px;line-height:1.4}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:2px 11px;border-radius:999px;background:var(--raised);border:1px solid var(--line);margin-bottom:10px}
+.tag.bad{border-color:var(--bad);color:var(--bad)}
+.story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:8px 16px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.btn:disabled{opacity:.4;cursor:default}
+.mapping{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;font-size:15.5px}
+.mapping dt{font-weight:700}
+.mapping dd{margin:0;color:var(--muted)}
+
+/* debt figure */
+.debt{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:56px;gap:6px;margin:18px 0 8px}
+.debt div{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;line-height:1.35;display:flex;align-items:center}
+.debt .ml{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:700;justify-content:center}
+.figcap{font-size:14px;color:var(--muted);margin:0 0 20px}
+@media (max-width:600px){.debt{grid-template-columns:repeat(3,1fr)}.debt div{grid-column:auto!important;grid-row:auto!important}}
+
+/* maturity */
+.mat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.mat input[type=range]{width:100%;accent-color:var(--brand);margin:6px 0 2px}
+.mat-scale{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:16px}
+.mat h4{margin:0 0 8px;font-size:1.15rem}
+.mat-kf{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px}
+
+/* station panel */
+.stbtns{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.stbtn{font:inherit;font-size:14.5px;font-weight:600;padding:6px 13px;border-radius:999px;border:2px solid var(--c);background:transparent;color:var(--text);cursor:pointer}
+.stbtn.on{background:var(--c);color:var(--on-c)}
+.panel{border:1px solid var(--line);border-top:6px solid var(--c);background:var(--surface);border-radius:var(--r-m);padding:20px 24px}
+.panel h4{font-size:1.25rem;margin:0 0 2px}
+.panel .meta{font-size:14.5px;color:var(--muted);margin:0 0 6px}
+.panel dl{display:grid;grid-template-columns:8.5em 1fr;gap:10px 18px;margin:14px 0 0}
+.panel dt{color:var(--muted);font-size:15px;font-weight:600}
+.panel dd{margin:0}
+@media (max-width:600px){.panel dl{grid-template-columns:1fr;gap:2px}.panel dd{margin-bottom:10px}}
+
+/* principles */
+.princ{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.princ div{padding:16px 18px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line)}
+.princ b{display:block;margin-bottom:4px;font-size:1.05rem}
+.princ p{margin:0;font-size:15.5px;color:var(--muted)}
+@media (max-width:600px){.princ{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{list-style:none;margin:18px 0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 18px 34px}
+.tl li::before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--brand)}
+.tl li.now::before{background:var(--brand)}
+.tl b{display:block;font-size:15px;color:var(--brand)}
+
+/* component layers */
+.layers{display:flex;flex-direction:column;gap:8px;margin:20px 0 14px}
+.layer{border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px 14px;background:var(--surface)}
+.layer-h{font-size:14px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:15px;font-weight:600;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);border-left:5px solid var(--c);background:var(--raised);color:var(--text);cursor:pointer}
+.chip.on{background:var(--c);color:var(--on-c);border-color:var(--c)}
+.layer.base{background:var(--raised);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:center;font-weight:700;font-size:15px}
+.layer.base span{color:var(--muted);font-weight:500}
+
+/* code */
+pre{background:var(--code-bg);color:#DCE6F2;font-family:var(--mono);font-size:14px;line-height:1.65;padding:18px 20px;border-radius:var(--r-m);overflow-x:auto;margin:10px 0 18px}
+pre .c{color:#7F93AD}pre .k{color:#F2A541}pre .s{color:#9BD15A}pre .f{color:#6FC3FF}
+code{font-family:var(--mono);font-size:.86em;background:var(--raised);padding:1px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+.codehead{font-weight:700;margin:26px 0 0;font-size:15.5px}
+
+/* decision helper */
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.q{margin-bottom:18px}
+.q p{font-weight:600;margin:0 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{font:inherit;font-size:15px;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.opt.on{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:600}
+.result{padding:16px 18px;border-radius:var(--r-m);background:var(--raised);border-left:4px solid var(--brand)}
+.result b{display:block;font-size:1.08rem;margin-bottom:4px}
+.result p{margin:0}
+
+/* install options */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.ways div{padding:16px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c)}
+.ways b{display:block;margin-bottom:6px}
+.ways p{font-size:15px;margin:0 0 8px;color:var(--muted)}
+.ways p:last-child{margin:0}
+@media (max-width:760px){.ways{grid-template-columns:1fr}}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-top:16px}
+.tab{font:inherit;font-size:15px;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel dl{display:grid;grid-template-columns:8em 1fr;gap:10px 18px;margin:0}
+.tabpanel dt{color:var(--muted);font-weight:600;font-size:15px}
+.tabpanel dd{margin:0}
+@media (max-width:600px){.tabpanel dl{grid-template-columns:1fr;gap:2px}.tabpanel dd{margin-bottom:10px}}
+
+/* cases */
+details.case{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin:10px 0}
+details.case summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;gap:12px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary small{font-weight:500;color:var(--muted);font-size:14px}
+details.case summary::after{content:"+";margin-left:auto;font-size:22px;line-height:1;color:var(--muted)}
+details.case[open] summary::after{content:"−"}
+.case-body{padding:0 18px 16px}
+.case-body p{font-size:15.8px}
+.mini{display:inline-block;font-size:13px;font-weight:600;padding:1px 10px;border-radius:999px;border:1.5px solid var(--c);margin:2px 4px 2px 0}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:11px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px}
+.gitem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px}
+.gitem b{display:block;line-height:1.4}
+.gitem small{color:var(--muted);font-size:13px}
+.gitem p{font-size:15px;margin:6px 0 0;line-height:1.6}
+.gempty{color:var(--muted);margin-top:12px}
+
+/* quiz */
+.qq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:12px 0}
+.qq h4{margin:0 0 10px;font-size:1.06rem;line-height:1.5}
+.ans{display:block;width:100%;text-align:left;font:inherit;font-size:15.5px;padding:10px 14px;margin:6px 0;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;line-height:1.5}
+.ans:disabled{cursor:default}
+.ans.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--raised))}
+.ans.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,var(--raised))}
+.exp{display:none;font-size:15px;margin:10px 0 0;color:var(--muted)}
+.exp.show{display:block}
+.score{font-weight:700;font-size:1.05rem;margin-top:14px}
+
+/* wrap */
+.keys{counter-reset:k;list-style:none;padding:0;margin:16px 0}
+.keys li{counter-increment:k;display:grid;grid-template-columns:36px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li::before{content:counter(k);font-weight:800;font-size:1.2rem;color:var(--brand)}
+.next{margin:28px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--lv1)}
+.next .h{font-size:14px;color:var(--muted);font-weight:600}
+.next h4{font-size:1.3rem;margin:4px 0 8px}
+footer{max-width:1180px;margin:0 auto;padding:24px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+/* ---- 2편 추가 스타일 ---- */
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 16px}
+.match-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.match-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.mcol-h{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--muted)}
+.mcol{display:flex;flex-direction:column;gap:6px}
+.mw{font:inherit;font-size:14.5px;line-height:1.4;text-align:left;padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;min-height:40px}
+.mw.ml{border-left:4px solid var(--c-train)}
+.mw.k8{border-left:4px solid var(--c-serve)}
+.mw.sel{outline:2px solid var(--brand);outline-offset:1px}
+.mw.done{background:color-mix(in srgb,var(--pc) 22%,var(--raised));border-color:var(--pc);cursor:default}
+.mw.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mcard{margin-top:12px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:15px;min-height:68px}
+.mcard b{display:block}
+.mfoot{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.mfoot .btn{font-size:13.5px;padding:5px 12px;margin-left:auto}
+.part{margin:72px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--pc)}
+.part .ph{font-size:14px;font-weight:700;color:var(--pc);margin:0}
+.part h2{margin:4px 0 8px}
+.part p{margin:0;color:var(--muted)}
+.part + section{padding-top:36px}
+.toc .tp{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:14px 0 4px 12px}
+.play{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.play svg{width:100%;height:auto;display:block}
+.play .axis{stroke:var(--line);stroke-width:1.5}
+.play .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.play .tick{fill:var(--muted);font-size:12px;font-family:var(--font)}
+.play .pt{fill:var(--c-train)}
+.play .err{stroke:var(--c-hub);stroke-width:1.5;opacity:.7}
+.play .fit{stroke:var(--c-kfp);stroke-width:3.5;stroke-linecap:round}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:12px}
+.ctrls label{font-size:14.5px;font-weight:600;display:block}
+.ctrls input[type=range]{width:100%;accent-color:var(--brand)}
+.ctrls output{font-weight:700;color:var(--brand)}
+.prow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.lossbox{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:15px}
+.lossbox b{color:var(--c-hub)}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.spark path{fill:none;stroke:var(--c-hub);stroke-width:2}
+@media (max-width:600px){.ctrls{grid-template-columns:1fr}.mgrid{gap:6px 8px}.mw{font-size:13.5px;padding:7px 8px}}
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.calc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px}
+.calc label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.calc input,.calc select{width:100%;font:inherit;font-size:15.5px;padding:8px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.calc .out{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px}
+.calc .out dt{color:var(--muted)}
+.calc .out dd{margin:0;font-weight:700}
+.calc .note{font-size:14px;color:var(--muted);margin:12px 0 0}
+.fits{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fit-g{font-size:14px;padding:6px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised)}
+.fit-g.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--raised))}
+.fit-g.multi{border-color:var(--c-train);background:color-mix(in srgb,var(--c-train) 14%,var(--raised))}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 12px}
+.arch .zone{grid-column:span 4;font-size:13px;font-weight:700;color:var(--muted);margin:6px 0 -2px}
+.arch .bx{padding:10px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:14px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.arch .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:600px){.arch{grid-template-columns:repeat(2,1fr)}.arch .zone{grid-column:span 2}}
+.stepbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.stepbox h4{margin:0 0 6px;font-size:1.12rem}
+.yaml{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.yaml pre{margin:0;padding:14px 0;font-size:13.5px}
+.yaml .ln{display:block;padding:0 14px 0 16px;border-left:3px solid transparent;white-space:pre}
+.yaml .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+.ynote{position:sticky;top:90px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c-train);border-radius:var(--r-m);padding:16px 18px;font-size:15.5px}
+.ynote b{display:block;font-size:1.05rem;margin-bottom:4px}
+.ynote code{font-size:.84em}
+@media (max-width:900px){.yaml{grid-template-columns:1fr}.ynote{position:static}}
+.check{list-style:none;padding:0;margin:10px 0 0}
+.check li{margin:6px 0}
+.check label{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;cursor:pointer;font-size:15.5px}
+.check input{width:18px;height:18px;margin-top:5px;accent-color:var(--ok)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.cols2>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px;border-top:4px solid var(--pc)}
+.cols2 h4{margin:0 0 4px;font-size:1.05rem}
+@media (max-width:760px){.cols2{grid-template-columns:1fr}}
+/* ---- 3편 추가 스타일 ---- */
+.towerwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tw-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tw-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tower{display:flex;flex-direction:column-reverse;gap:3px}
+.blk{display:flex;align-items:center;gap:10px;font:inherit;text-align:left;width:100%;padding:3px 10px;min-height:27px;border-radius:5px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:13.5px;cursor:default;opacity:.55}
+.blk small{margin-left:auto;font-size:12px;color:var(--muted)}
+.blk.built{opacity:1;border:1px solid color-mix(in srgb,var(--g) 55%,var(--line));border-left:6px solid var(--g);background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text);font-weight:600;cursor:pointer}
+.blk.built small{font-weight:500}
+.blk.cur{outline:2px solid var(--text);outline-offset:1px}
+.blk.base{opacity:1}
+.tw-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.tw-legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--g);margin-right:5px;vertical-align:-1px}
+.tw-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:92px;line-height:1.6}
+.tw-card b{display:block;font-size:15px}
+.tw-ctrl{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tw-ctrl .btn{font-size:13.5px;padding:6px 12px}
+.res{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.res-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
+.res-list label{display:grid;grid-template-columns:22px 1fr;gap:6px;align-items:start;font-size:15px;cursor:pointer;padding:4px 0}
+.res-list input{width:17px;height:17px;margin-top:4px;accent-color:var(--brand)}
+.res-list small{display:block;color:var(--muted);font-size:12.5px}
+.res-list .req{color:var(--muted)}
+.res-sum{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res-sum div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.res-sum b{display:block;font-size:1.25rem;color:var(--text)}
+.res-mine{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:14px}
+.res-mine label{font-size:14px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+.res-mine input{width:110px;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.verdict{margin-top:12px;padding:12px 16px;border-radius:var(--r-m);border-left:4px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised));font-size:15px}
+.tree{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;margin:16px 0}
+.tree-list{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
+.tree-list button{font:inherit;text-align:left;padding:7px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.tree-list button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+@media (max-width:640px){.tree{grid-template-columns:1fr}}
+.steps{counter-reset:st;list-style:none;padding:0;margin:18px 0}
+.stp{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px 14px 58px;margin:10px 0}
+.stp::before{content:counter(st);position:absolute;left:16px;top:15px;width:28px;height:28px;border-radius:50%;background:var(--raised);border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand)}
+.stp.ok::before{content:"✓";background:var(--ok);border-color:var(--ok);color:var(--on-c)}
+.stp h4{margin:0 0 6px;font-size:1.08rem}
+.stp p{font-size:15.5px;margin:0 0 8px}
+.stp .opt-tag{font-size:12.5px;font-weight:700;color:var(--c-train);margin-left:6px}
+.cmd{position:relative}
+.cmd pre{margin:6px 0 8px;padding-right:76px}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:5px;border:1px solid #2A405E;background:#1C3049;color:#DCE6F2;cursor:pointer}
+.stp-done{display:inline-flex;gap:6px;align-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.stp-done input{accent-color:var(--ok);width:16px;height:16px}
+.stprog{position:sticky;top:64px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--bg);padding:8px 0;font-size:14px;color:var(--muted)}
+.stprog .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.stprog .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0 10px}
+.flow .bx{padding:10px 6px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:13.5px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.flow .bx small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.flow .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:700px){.flow{grid-template-columns:repeat(3,1fr)}}
+.dash{display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.dash-top{grid-column:span 2;display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.dash-top b{font-size:15px}
+.dash-ns{margin-left:auto;font:inherit;font-size:13.5px;padding:5px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.dash-side{border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column}
+.dash-side .grp{font-size:12px;font-weight:700;color:var(--muted);padding:10px 14px 2px}
+.dash-side button{font:inherit;font-size:14px;text-align:left;padding:7px 14px;border:0;border-left:3px solid transparent;background:none;color:var(--text);cursor:pointer}
+.dash-side button.on{border-left-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);font-weight:600}
+.dash-main{padding:18px 20px;min-height:300px}
+.dash-main h4{margin:0 0 4px;font-size:1.15rem}
+.dash-main .meta{font-size:14px;color:var(--muted);margin:0 0 10px}
+@media (max-width:700px){.dash{grid-template-columns:1fr}.dash-top{grid-column:auto;flex-wrap:wrap}.dash-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dash-side .grp{display:none}.dash-side button{border-left:0;border-bottom:3px solid transparent;padding:6px 10px}.dash-side button.on{border-bottom-color:var(--brand)}}
+/* ---- 4편 추가 스타일 ---- */
+.anat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.anat-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.anat-top .h{font-weight:700;font-size:1.05rem;margin-right:auto}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg2 button{font:inherit;font-size:13.5px;font-weight:600;padding:5px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg2 button.on{background:var(--brand);color:var(--on-c)}
+.nodes{display:flex;flex-direction:column;gap:5px}
+.node{display:flex;align-items:center;gap:8px;font:inherit;text-align:left;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--line);border-left:5px solid var(--g);background:var(--raised);color:var(--text);font-size:14px;cursor:pointer;transition:opacity .2s}
+.node small{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.node.l1{margin-left:20px;width:calc(100% - 20px)}
+.node.l2{margin-left:40px;width:calc(100% - 40px)}
+.node.l3{margin-left:60px;width:calc(100% - 60px)}
+.node.off{opacity:.35;border-style:dashed}
+.node.cur{outline:2px solid var(--text);outline-offset:1px}
+.anat-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:96px;line-height:1.6}
+.anat-card b{display:block;font-size:15px}
+.spawn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;margin:16px 0;align-items:start}
+.sform{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 8px}
+.sform fieldset{border:0;padding:0;margin:0 0 14px}
+.sform legend,.sform .lab{font-size:14px;font-weight:700;margin-bottom:6px;display:block;padding:0}
+.sform input[type=text],.sform input[type=number],.sform select{width:100%;font:inherit;font-size:15px;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.sform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sform .inl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14.5px}
+.sform .inl label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.sform input[type=checkbox],.sform input[type=radio]{accent-color:var(--brand);width:16px;height:16px}
+.sform .hint{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.sout{position:sticky;top:84px}
+.sout pre{margin:0 0 10px;font-size:13px;max-height:470px;overflow:auto}
+.checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.checks li{font-size:14.5px;padding:8px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--v)}
+@media (max-width:900px){.spawn{grid-template-columns:1fr}.sout{position:static}}
+.nbk{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.nbk-top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.nbk-top b{font-family:var(--mono);font-size:13.5px}
+.nbk-top .btn{margin-left:auto;font-size:13px;padding:5px 12px}
+.cell{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:10px 14px 4px;border-bottom:1px solid var(--line)}
+.cell:last-child{border-bottom:0}
+.cell .pr{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:12px;text-align:right}
+.cell pre{margin:4px 0 6px;font-size:13.5px}
+.cell .md{font-size:15px;margin:6px 0}
+.cell .run{font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;margin:0 0 8px}
+.cell .out{display:none;font-family:var(--mono);font-size:13px;white-space:pre-wrap;padding:8px 12px;margin:0 0 8px;border-left:3px solid var(--c-nb);background:var(--raised);border-radius:0 6px 6px 0;color:var(--text)}
+.cell .out.show{display:block}
+@media (max-width:600px){.cell{grid-template-columns:1fr}.cell .pr{text-align:left;padding-top:0}}
+/* ---- 5편 추가 스타일 ---- */
+.morph{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.morph-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.morph-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.stages{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.stg{font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:8px 4px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer;text-align:center;position:relative}
+.stg b{display:block;font-size:15px;color:var(--text)}
+.stg.done{border-color:color-mix(in srgb,var(--g) 60%,var(--line));background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text)}
+.stg.on{outline:2px solid var(--text);outline-offset:1px}
+.mpanel{margin-top:12px;border-radius:var(--r-m);background:var(--raised);padding:12px 14px;min-height:250px}
+.mpanel h4{margin:0 0 4px;font-size:1.05rem}
+.mpanel p{font-size:14.5px;margin:0 0 8px;line-height:1.6}
+.mpanel pre{margin:0;font-size:12.5px;max-height:150px}
+.mctrl{display:flex;gap:8px;margin-top:10px}
+.mctrl .btn{font-size:13.5px;padding:6px 12px}
+@media (max-width:600px){.stages{grid-template-columns:repeat(4,1fr)}}
+.cls{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.cls-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:10px 14px}
+.cls-row .what{font-weight:600;font-size:15.5px}
+.cls-row .opts .opt{font-size:14px;padding:5px 12px}
+.cls-row .fb{grid-column:span 2;font-size:14.5px;color:var(--muted);display:none;border-top:1px dashed var(--line);padding-top:8px}
+.cls-row .fb.show{display:block}
+.cls-row.right{border-color:var(--ok)}
+.cls-row.wrong{border-color:var(--bad)}
+@media (max-width:600px){.cls-row{grid-template-columns:1fr}.cls-row .fb{grid-column:auto}}
+.csim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.csim .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 18px;margin-bottom:16px}
+.csim label.lab{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.csim select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.csim .ck{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer;padding-top:22px}
+.csim .ck input{accent-color:var(--brand);width:16px;height:16px}
+.tasks{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.tk{flex:1 1 150px;padding:12px 14px;border-radius:var(--r-m);border:2px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised))}
+.tk b{display:block;font-family:var(--mono);font-size:14px}
+.tk span{font-size:14px}
+.tk small{display:block;font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.arr{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+@media (max-width:640px){.tasks{flex-direction:column}.arr{transform:rotate(90deg);align-self:center;padding:4px}}
+/* ---- 6편 추가 스타일 ---- */
+.lego{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.lego-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.lego-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.toggles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tg{font:inherit;font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.tg.on{background:var(--g);color:var(--on-c)}
+.dag{display:flex;flex-direction:column;align-items:stretch;gap:0;font-size:13.5px}
+.dn{align-self:center;padding:7px 14px;border-radius:8px;background:var(--raised);border:1.5px solid var(--g,var(--line));font-family:var(--mono);font-size:13px;text-align:center;position:relative;line-height:1.35}
+.dn em{display:block;font-style:normal;font-family:var(--font);font-size:11.5px;color:var(--muted)}
+.dn .bdg{position:absolute;top:-9px;right:-8px;font-family:var(--font);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--b);color:var(--on-c)}
+.dar{align-self:center;color:var(--muted);line-height:1;padding:3px 0;font-size:14px}
+.frame{border:1.5px dashed var(--g);border-radius:10px;padding:16px 10px 10px;position:relative;margin:4px 0}
+.frame>.fl{position:absolute;top:-10px;left:12px;background:var(--surface);padding:0 6px;font-size:12px;font-weight:700;color:var(--g)}
+.lanes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.lane{display:flex;flex-direction:column;align-items:center}
+.branches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lego pre{margin:12px 0 0;font-size:12px;max-height:260px}
+.gantt{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.gantt .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px;margin-bottom:14px}
+.gantt label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.gantt input,.gantt select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.gchart{position:relative;border-left:2px solid var(--line);border-bottom:2px solid var(--line);padding:6px 0 6px 0;margin-left:70px}
+.grow{position:relative;height:24px;margin:3px 0}
+.grow .gl{position:absolute;left:-70px;width:64px;text-align:right;font-size:12.5px;color:var(--muted);top:3px;font-family:var(--mono)}
+.gbar{position:absolute;top:0;height:24px;border-radius:5px;background:color-mix(in srgb,var(--c-train) 70%,transparent);border:1px solid var(--c-train);font-size:11.5px;color:var(--text);padding:3px 6px;white-space:nowrap;overflow:hidden}
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.gstats div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.gstats b{display:block;font-size:1.2rem;color:var(--text)}
+.cron{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.cron input{width:100%;font-family:var(--mono);font-size:17px;padding:9px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);margin-top:8px}
+.cfields{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
+.cfields div{background:var(--raised);border-radius:var(--r-s);padding:8px;text-align:center;font-size:12.5px;color:var(--muted)}
+.cfields b{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}
+@media (max-width:600px){.cfields{grid-template-columns:repeat(3,1fr)}}
+.kale{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;margin:16px 0;align-items:start}
+.kcell{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin-bottom:8px;overflow:hidden}
+.kcell .ktag{display:flex;gap:6px;padding:6px 10px;background:var(--raised);border-bottom:1px solid var(--line)}
+.kcell .ktag span{font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;border:1.5px solid var(--c);color:var(--text)}
+.kcell pre{margin:0;border-radius:0;font-size:12.5px;padding:10px 12px}
+@media (max-width:800px){.kale{grid-template-columns:1fr}}
+/* ---- 7편 추가 스타일 ---- */
+.dsim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.dsim-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.dsim-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.dctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-bottom:12px}
+.dctl label{font-size:13px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.dctl select,.dctl input{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:90px}
+.nodesg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.nodebox{border:1.5px solid var(--line);border-radius:10px;padding:8px;background:var(--raised)}
+.nodebox .nh{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.gpus{display:grid;grid-template-columns:repeat(2,1fr);gap:5px}
+.gpu{font:inherit;font-size:12px;padding:6px 4px;border-radius:6px;border:1.5px solid var(--c-train);background:color-mix(in srgb,var(--c-train) 10%,var(--surface));color:var(--text);cursor:pointer;line-height:1.3;transition:background .2s}
+.gpu b{display:block;font-family:var(--mono);font-size:13px}
+.gpu.sel{outline:2px solid var(--text);outline-offset:1px}
+.gpu.p1{background:color-mix(in srgb,var(--c-data) 30%,var(--surface));border-color:var(--c-data)}
+.gpu.p2{background:color-mix(in srgb,var(--c-train) 35%,var(--surface))}
+.gpu.p3{background:color-mix(in srgb,var(--c-katib) 35%,var(--surface));border-color:var(--c-katib)}
+.gpu.p4{background:color-mix(in srgb,var(--c-kfp) 35%,var(--surface));border-color:var(--c-kfp)}
+.nodebox.master{border-color:var(--c-hub)}
+.phases{display:flex;gap:4px;margin:12px 0 0;flex-wrap:wrap}
+.phases button{flex:1 1 90px;font:inherit;font-size:12.5px;font-weight:600;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer}
+.phases button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.dinfo{margin-top:10px;padding:10px 12px;border-radius:var(--r-m);background:var(--raised);font-size:14px;line-height:1.6;min-height:70px}
+.envbox{margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--code-bg);color:#DCE6F2;border-radius:var(--r-s);padding:10px 12px;white-space:pre}
+.envbox .c{color:#7F93AD}
+.yaml2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:16px 0}
+.yaml2 h4{margin:0 0 6px;font-size:1rem}
+.yaml2 pre{margin:0;padding:12px 0;font-size:12.5px}
+.yaml2 .ln{display:block;padding:0 12px 0 14px;border-left:3px solid transparent;white-space:pre}
+.yaml2 .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml2 .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml2 .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+@media (max-width:900px){.yaml2{grid-template-columns:1fr}}
+/* ---- 8편 추가 스타일 ---- */
+.tune{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tune-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tune-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tctl{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;margin-bottom:10px}
+.tctl label.l{font-size:12.5px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.tctl select{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.tctl .ck{display:flex;gap:6px;align-items:center;font-size:14px;cursor:pointer;padding-bottom:6px}
+.tctl .ck input{accent-color:var(--brand);width:16px;height:16px}
+.space{width:100%;height:auto;display:block;border-radius:10px;border:1px solid var(--line)}
+.space .ax{fill:var(--muted);font-size:11px;font-family:var(--font)}
+.space .pt{stroke:#fff;stroke-width:1.5}
+.space .pt.es{fill:none!important;stroke-dasharray:2 2}
+.space .best{fill:none;stroke:#fff;stroke-width:2.5}
+.space .num{font-size:9.5px;font-family:var(--mono);fill:#0F1B2D;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.tstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.tstats div{background:var(--raised);border-radius:var(--r-s);padding:7px 9px;font-size:12px;color:var(--muted);line-height:1.35}
+.tstats b{display:block;font-size:15px;color:var(--text)}
+.tbtns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.tbtns .btn{font-size:13px;padding:6px 11px}
+.tnote{font-size:13.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+@media (max-width:600px){.tstats{grid-template-columns:repeat(2,1fr)}}
+.combo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.combo .row{display:grid;grid-template-columns:minmax(0,1.3fr) 110px 110px;gap:8px;align-items:center;margin-bottom:6px;font-size:15px}
+.combo input{font:inherit;padding:6px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:100%}
+.combo .hd{font-size:13px;font-weight:700;color:var(--muted)}
+/* ---- 9편 추가 스타일 ---- */
+.pass{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.pass-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.pass-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.vers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.ver{font:inherit;text-align:left;padding:8px 9px;border-radius:8px;border:1.5px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;position:relative;font-size:12.5px;line-height:1.4}
+.ver b{display:block;font-family:var(--mono);font-size:15px}
+.ver .tag2{display:inline-block;font-size:10.5px;font-weight:700;padding:0 6px;border-radius:999px;margin-top:3px;margin-right:2px}
+.ver .t-live{background:var(--c-kfp);color:var(--on-c)}
+.ver .t-arch{background:var(--c-base);color:var(--on-c)}
+.ver .t-st{background:var(--c-serve);color:var(--on-c)}
+.ver .t-ca{background:var(--c-train);color:var(--on-c)}
+.ver.sel{outline:2px solid var(--text);outline-offset:1px}
+.ver.archd{opacity:.55}
+.lin{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:10px 0 6px;font-size:12.5px}
+.lin span{padding:4px 8px;border-radius:6px;background:var(--raised);border:1px solid var(--line)}
+.lin i{font-style:normal;color:var(--muted)}
+.vmeta{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px;margin:6px 0 8px}
+.vmeta dt{color:var(--muted)}
+.vmeta dd{margin:0;font-family:var(--mono);font-size:12.5px}
+.vact{display:flex;gap:6px;flex-wrap:wrap}
+.vact .btn{font-size:12.5px;padding:5px 10px}
+.traffic{display:flex;height:22px;border-radius:6px;overflow:hidden;margin:10px 0 4px;font-size:11.5px;font-weight:700}
+.traffic div{display:flex;align-items:center;justify-content:center;color:var(--on-c);transition:width .3s}
+.pass pre{margin:8px 0 0;font-size:12px}
+.pmsg{font-size:13.5px;color:var(--muted);margin:6px 0 0;min-height:20px}
+@media (max-width:600px){.vers{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series">Kubeflow 강의<span>9편: Kubeflow Hub에서 KServe 배포까지</span></div>
+    <button class="theme-btn" id="themeBtn" type="button">라이트 테마로</button>
+  </div>
+  <div class="progress" id="prog"></div>
+</div>
+
+<header class="hero">
+  <div>
+    <h1>Kubeflow Hub에서<br>KServe 배포까지</h1>
+    <p class="lede">1편에서 두 달 뒤의 팀은 “그 모델, 어떤 데이터로 만든 거예요?”에 답하지 못했습니다. 모델 레지스트리는 모델마다 여권을 만들어 줍니다. 어디서 태어났는지, 성적은 어땠는지, 지금 어디서 일하는지. 그리고 그 여권을 들고 KServe로 출근합니다.</p>
+    <div class="levelstrip" id="levelstrip" aria-hidden="true"></div>
+    <p class="strip-cap">Level 2 실무 기초의 마지막, 전체 16편 중 9편</p>
+    <dl class="facts">
+      <dt>기준 버전</dt><dd>Kubeflow Hub(Model Registry), KServe (Community Distribution 26.03.1)</dd>
+      <dt>실습 환경</dt><dd>3편의 클러스터, 4편의 노트북과 모델 파일</dd>
+      <dt>사전 지식</dt><dd>4편, 5편, 8편의 결과물. 이 시리즈의 KServe 강의가 있으면 더 좋음</dd>
+      <dt>학습 시간</dt><dd>약 75분</dd>
+    </dl>
+  </div>
+  <div class="pass">
+    <p class="pass-h">모델 여권: digits-classifier</p>
+    <p class="pass-sub">버전을 고르고 배포, 카나리, 보관을 눌러 보세요. 아래 InferenceService YAML과 트래픽이 함께 바뀝니다.</p>
+    <div class="vers" id="vers"></div>
+    <div class="lin" id="lin"></div>
+    <dl class="vmeta" id="vmeta"></dl>
+    <div class="vact" id="vact"></div>
+    <div class="traffic" id="traffic" aria-label="트래픽 분배"></div>
+    <p class="pmsg" id="pmsg" aria-live="polite"></p>
+    <pre id="isvc" aria-label="InferenceService YAML"></pre>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol id="tocList">
+    <li><a href="#s0">이번 편에서 얻을 것</a></li>
+    <li><a href="#s1">1. 왜 모델 레지스트리인가</a></li>
+    <li><a href="#s2">2. Kubeflow Hub와 논리 모델</a></li>
+    <li><a href="#s3">3. 실습: 모델 등록하기</a></li>
+    <li><a href="#s4">4. 실습: KServe로 배포하기</a></li>
+    <li><a href="#s5">5. 레지스트리와 서빙을 잇는 세 길</a></li>
+    <li><a href="#s6">6. 버전 교체와 카나리</a></li>
+    <li><a href="#s7">7. 무엇을 기록할까</a></li>
+    <li><a href="#s8">8. Kubeflow 안의 KServe</a></li>
+    <li><a href="#s9">9. 운영자가 볼 것</a></li>
+    <li><a href="#s10">10. 문제 해결</a></li>
+    <li><a href="#s11">11. 용어 사전</a></li>
+    <li><a href="#s12">12. 확인 퀴즈</a></li>
+    <li><a href="#s13">13. 정리와 다음 편</a></li>
+  </ol>
+</nav>
+<main>
+<section id="s0" style="padding-top:28px">
+  <h2>이번 편에서 얻을 것</h2>
+  <p>1편 노선도의 여섯 번째와 일곱 번째 정거장, 등록과 서빙입니다. Level 2의 마지막 편으로, 4편부터 만들어 온 모델이 드디어 요청에 답하게 됩니다. 이 편을 마치면 다음을 할 수 있습니다.</p>
+  <ul class="goals">
+    <li>모델 레지스트리가 무엇을 기록하고 무엇을 기록하지 않는지, RegisteredModel, ModelVersion, ModelArtifact의 관계를 설명할 수 있습니다.</li>
+    <li>노트북에서 모델을 Kubeflow Hub에 등록하고, 그 버전을 KServe InferenceService로 배포해 예측을 받아 볼 수 있습니다.</li>
+    <li>레지스트리와 서빙을 잇는 세 가지 방법과, 카나리로 새 버전을 안전하게 바꾸는 흐름을 압니다.</li>
+    <li>재현과 감사를 위해 무엇을 메타데이터로 남겨야 하는지 정하고, 운영에서 볼 점을 압니다.</li>
+  </ul>
+  <div class="callout link">
+    <span class="h">KServe 강의와의 관계</span>
+    <p>KServe의 구조, 서빙 런타임, 오토스케일링, LLM 서빙은 이 시리즈의 KServe 강의에서 자세히 다뤘습니다. 이 편은 Kubeflow 안에서 레지스트리와 KServe가 이어지는 지점에 집중합니다.</p>
+  </div>
+</section>
+
+<section id="s1">
+  <h2><span class="no">1</span>왜 모델 레지스트리인가</h2>
+  <p>모델 파일은 결국 어딘가의 파일입니다. 파일만 있으면 이런 질문에 답할 수 없습니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>질문</th><th>파일만 있을 때</th><th>레지스트리가 있을 때</th></tr></thead>
+    <tbody>
+      <tr><td>지금 운영 중인 모델은 어느 것인가</td><td>final_v3_진짜최종.pt 중 하나라는 소문</td><td>배포된 버전이 이름과 번호로 기록됨</td></tr>
+      <tr><td>그 모델은 무엇으로 만들었나</td><td>만든 사람의 기억</td><td>데이터, 코드, 실행 ID, 하이퍼파라미터가 버전에 붙어 있음</td></tr>
+      <tr><td>이전 버전으로 되돌리려면</td><td>예전 파일을 찾아 다시 배포 절차를 밟음</td><td>이전 버전 번호를 골라 다시 배포</td></tr>
+      <tr><td>감사 기관이 근거를 요구하면</td><td>흩어진 기록을 모아 재구성</td><td>버전의 메타데이터와 계보를 그대로 제출</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout warn">
+    <span class="h">레지스트리는 파일이 아니라 장부입니다</span>
+    <p>모델 레지스트리는 모델 파일 자체를 저장하지 않습니다. 파일은 오브젝트 스토리지나 PVC에 있고, 레지스트리에는 그 위치(URI)와 메타데이터만 있습니다. 도서관의 소장 목록과 같습니다. 그래서 파일을 지우면 장부에는 있는데 책은 없는 상태가 됩니다. 등록된 모델 파일의 보존 정책을 레지스트리와 함께 정해야 합니다.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>Kubeflow Hub와 논리 모델</h2>
+  <p><strong>Kubeflow Hub</strong>는 예전 이름이 Kubeflow Model Registry인 구성요소로, 26.03.1 패치에서 이름이 바뀌었습니다. 공식 문서도 Kubeflow Hub의 Model Registry 구성요소라고 부릅니다. 설치하면 kubeflow 네임스페이스에 레지스트리 서버(REST API)와 메타데이터 DB가 뜨고, 대시보드에 Model Registry 화면이 생깁니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>개념</th><th>뜻</th><th>예</th></tr></thead>
+    <tbody>
+      <tr><td>RegisteredModel</td><td>모델 하나의 이름. 여러 버전을 묶는 상위 개념</td><td>digits-classifier</td></tr>
+      <tr><td>ModelVersion</td><td>그 모델의 특정 버전. 작성자, 설명, 메타데이터, 상태(LIVE, ARCHIVED)를 가짐</td><td>v3</td></tr>
+      <tr><td>ModelArtifact</td><td>버전에 딸린 실제 파일의 위치와 형식</td><td>pvc://.../digits-rf, 형식 sklearn</td></tr>
+      <tr><td>메타데이터</td><td>버전과 아티팩트에 붙이는 이름=값 정보</td><td>accuracy=0.9806, pipeline_run=rf-300</td></tr>
+    </tbody>
+  </table></div>
+  <p>ModelArtifact의 <strong>형식 이름</strong>(model_format_name)은 KServe가 어떤 서빙 런타임으로 띄울지 고르는 데 쓰입니다. sklearn, xgboost, onnx, pytorch, huggingface 같은 값입니다.</p>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>실습: 모델 등록하기</h2>
+  <p>4편에서 노트북의 작업 공간 PVC에 저장한 손글씨 숫자 모델(<code>/home/jovyan/models/digits-rf/model.joblib</code>)을 등록합니다. 4편의 노트북에서 실행합니다.</p>
+  <div class="cmd"><pre><code>!pip install model-registry
+
+<span class="k">from</span> model_registry <span class="k">import</span> ModelRegistry
+
+registry = ModelRegistry(
+    server_address=<span class="s">"http://model-registry-service.kubeflow.svc.cluster.local"</span>,
+    port=<span class="s">8080</span>,
+    author=<span class="s">"jieun@example.com"</span>,
+    is_secure=<span class="s">False</span>,                     <span class="c"># 클러스터 내부 HTTP. 운영은 13편</span>
+)
+
+rm = registry.register_model(
+    <span class="s">"digits-classifier"</span>,
+    <span class="s">"pvc://my-first-notebook-workspace/models/digits-rf"</span>,   <span class="c"># 파일 위치 (PVC 이름/경로)</span>
+    model_format_name=<span class="s">"sklearn"</span>,            <span class="c"># KServe 런타임 선택에 쓰임</span>
+    model_format_version=<span class="s">"1"</span>,
+    version=<span class="s">"v1"</span>,
+    description=<span class="s">"RandomForest 200 trees, 4편 실습"</span>,
+    metadata={<span class="s">"accuracy"</span>: <span class="s">0.9722</span>, <span class="s">"n_estimators"</span>: <span class="s">200</span>,
+              <span class="s">"data"</span>: <span class="s">"sklearn digits, test_size=0.2, seed=42"</span>,
+              <span class="s">"code"</span>: <span class="s">"digits-first-model.ipynb"</span>},
+)
+
+print(registry.get_registered_model(<span class="s">"digits-classifier"</span>))
+print(registry.get_model_version(<span class="s">"digits-classifier"</span>, <span class="s">"v1"</span>))
+print(registry.get_model_artifact(<span class="s">"digits-classifier"</span>, <span class="s">"v1"</span>).uri)</code></pre></div>
+  <p>통합 Kubeflow SDK를 쓴다면 <code>pip install "kubeflow[hub]"</code>로 설치한 뒤 <code>from kubeflow.hub import ModelRegistryClient</code>로 같은 일을 할 수 있습니다. 생성자 인자 이름 등이 조금 다르므로 사용하는 버전의 문서를 확인하세요.</p>
+  <p>대시보드의 Model Registry 화면에서도 방금 등록한 모델과 버전, 메타데이터를 볼 수 있습니다. 같은 이름으로 v2, v3를 계속 등록하면 버전 목록이 쌓입니다.</p>
+  <div class="callout warn">
+    <span class="h">이번 실습의 pvc:// 위치는 학습용입니다</span>
+    <p>노트북 작업 공간 PVC를 서빙에서도 읽게 하면, 3편의 kind처럼 노드가 하나일 때는 동작하지만 실제 클러스터에서는 ReadWriteOnce 때문에 서로 다른 노드의 Pod가 함께 붙일 수 없습니다. 운영에서는 파이프라인이나 학습 작업이 모델을 오브젝트 스토리지(s3://)에 올리고, 그 위치를 등록합니다.</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="no">4</span>실습: KServe로 배포하기</h2>
+  <p>등록한 버전을 InferenceService로 배포합니다. 표시가 있는 줄을 누르면 설명이 나옵니다.</p>
+  <div class="yaml">
+    <pre id="isPre" aria-label="InferenceService YAML"></pre>
+    <div class="ynote" id="isNote" aria-live="polite" style="border-top-color:var(--c-serve)"></div>
+  </div>
+  <div class="cmd"><pre><code>kubectl apply -f digits-isvc.yaml
+kubectl get inferenceservice digits -n kubeflow-user-example-com -w      <span class="c"># READY가 True가 될 때까지</span>
+kubectl get inferenceservice digits -n kubeflow-user-example-com \
+  -o jsonpath=<span class="s">'{.status.address.url}'</span>                               <span class="c"># 클러스터 내부 주소</span></code></pre></div>
+  <p class="codehead">같은 네임스페이스의 노트북에서 예측 요청하기</p>
+  <div class="cmd"><pre><code><span class="k">import</span> requests
+<span class="k">from</span> sklearn.datasets <span class="k">import</span> load_digits
+X, y = load_digits(return_X_y=<span class="s">True</span>)
+
+url = <span class="s">"위에서 얻은 내부 주소"</span> + <span class="s">"/v1/models/digits:predict"</span>
+resp = requests.post(url, json={<span class="s">"instances"</span>: X[:5].tolist()})
+print(resp.json())          <span class="c"># 예: {"predictions": [0, 1, 2, 3, 4]}</span>
+print(y[:5])</code></pre></div>
+  <p>대시보드의 Endpoints 화면에서도 InferenceService의 상태, 주소, 로그를 볼 수 있습니다. 403이 나면 Istio 권한 정책 문제이므로 10장을 보세요.</p>
+</section>
+
+<section id="s5">
+  <h2><span class="no">5</span>레지스트리와 서빙을 잇는 세 길</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>방법</th><th>어떻게</th><th>장점</th><th>주의</th></tr></thead>
+    <tbody>
+      <tr><td>1. 위치를 읽어 직접 쓰기</td><td>레지스트리에서 버전의 아티팩트 URI와 형식을 읽어, InferenceService의 storageUri와 modelFormat에 그대로 넣음. 4장 실습의 방식</td><td>기본 설치로 바로 동작</td><td>레지스트리와 서빙의 연결이 사람이나 스크립트의 몫. 버전 정보를 InferenceService 라벨이나 주석에 남겨 두기</td></tr>
+      <tr><td>2. model-registry:// 주소</td><td>storageUri에 <code>model-registry://모델이름/버전</code>을 쓰면, 전용 storage initializer가 레지스트리에 물어 실제 위치에서 내려받음</td><td>InferenceService가 레지스트리의 버전을 직접 가리킴. 맨 위 여권 실험의 방식</td><td>관리자가 Model Registry용 storage initializer를 ClusterStorageContainer로 등록해 두어야 함</td></tr>
+      <tr><td>3. 파이프라인이 자동으로</td><td>6편의 조건 분기 뒤에서, 기준을 넘은 모델을 등록하고 배포까지 하는 단계를 둠</td><td>사람 없이 끝까지 이어짐</td><td>자동 배포 전에 카나리나 승인 단계를 두는 것이 안전. 12편 종합 실습</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s6">
+  <h2><span class="no">6</span>버전 교체와 카나리</h2>
+  <p>새 버전을 한 번에 100% 바꾸면, 문제가 있을 때 모든 사용자가 영향을 받습니다. KServe의 <strong>카나리</strong>는 InferenceService의 모델 위치를 새 버전으로 바꾸면서 <code>canaryTrafficPercent</code>를 함께 주면, 새 버전에는 그 비율만, 나머지는 이전 버전으로 보냅니다. 맨 위 여권에서 v3를 고르고 카나리 10%를 눌러 보세요.</p>
+  <ol class="steps">
+    <li class="stp"><h4>카나리 시작</h4><p>storageUri를 새 버전으로 바꾸고 canaryTrafficPercent: 10을 적용합니다. 이전 버전이 90%를 계속 처리합니다.</p></li>
+    <li class="stp"><h4>지켜보기</h4><p>새 버전의 오류율, 응답 시간, 예측 분포를 이전 버전과 비교합니다. 15편의 관측 도구로 대시보드를 만들어 둡니다.</p></li>
+    <li class="stp"><h4>승격 또는 되돌리기</h4><p>괜찮으면 canaryTrafficPercent를 지워 100%로 승격합니다. 문제가 있으면 canaryTrafficPercent를 0으로 두거나 이전 버전 위치로 되돌립니다. 레지스트리에도 어떤 버전이 운영 중인지 기록을 갱신합니다.</p></li>
+  </ol>
+  <div class="callout">
+    <span class="h">카나리는 배포 모드에 달려 있습니다</span>
+    <p>canaryTrafficPercent를 이용한 비율 분배는 Knative 기반의 서버리스 모드에서 동작합니다. 설치에 따라 KServe가 Deployment 기반의 표준(raw) 모드로 동작한다면, 이 방식 대신 InferenceService를 둘 두고 게이트웨이에서 비율을 나누는 등 다른 방법을 씁니다. 자세한 내용은 KServe 강의와 Knative 강의의 트래픽 관리 편을 참고하세요.</p>
+  </div>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>무엇을 기록할까</h2>
+  <p>메타데이터는 나중에 누군가 물어볼 질문에 대한 답을 미리 적어 두는 것입니다. 1편의 지은 팀이 답하지 못한 질문들을 기준으로 정했습니다. 팀 표준으로 쓸 항목에 표시해 보세요.</p>
+  <div class="cols2">
+    <div style="--pc:var(--c-hub)">
+      <h4>재현을 위해</h4>
+      <ul class="check">
+        <li><label><input type="checkbox">학습 데이터의 위치와 스냅샷 날짜(또는 해시)</label></li>
+        <li><label><input type="checkbox">코드 버전(Git 커밋)과 학습 이미지 태그</label></li>
+        <li><label><input type="checkbox">파이프라인 실행 ID 또는 TrainJob 이름</label></li>
+        <li><label><input type="checkbox">하이퍼파라미터 (Katib을 썼다면 Experiment와 Trial 이름)</label></li>
+        <li><label><input type="checkbox">프레임워크와 주요 라이브러리 버전</label></li>
+      </ul>
+    </div>
+    <div style="--pc:var(--c-serve)">
+      <h4>판단과 운영을 위해</h4>
+      <ul class="check">
+        <li><label><input type="checkbox">평가 지표와 평가 데이터</label></li>
+        <li><label><input type="checkbox">승인한 사람과 날짜</label></li>
+        <li><label><input type="checkbox">배포된 InferenceService 이름과 배포 날짜</label></li>
+        <li><label><input type="checkbox">알려진 한계 (예: 특정 고객군에서 성능 저하)</label></li>
+        <li><label><input type="checkbox">대체한 이전 버전</label></li>
+      </ul>
+    </div>
+  </div>
+  <p>이 항목들은 사람이 손으로 넣으면 빠지기 마련입니다. 파이프라인의 등록 단계가 실행 ID와 지표를 자동으로 넣게 만드는 것이 12편의 목표입니다.</p>
+</section>
+
+<section id="s8">
+  <h2><span class="no">8</span>Kubeflow 안의 KServe</h2>
+  <p>KServe를 단독으로 쓸 때와 Kubeflow 안에서 쓸 때 달라지는 점입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>주제</th><th>Kubeflow 안에서</th></tr></thead>
+    <tbody>
+      <tr><td>어디에 만드나</td><td>InferenceService는 각 사용자의 프로필 네임스페이스에 만듭니다. KServe의 제어부는 26.03에서는 kubeflow 네임스페이스에 있고, 다음 릴리스부터 kserve 네임스페이스로 옮겨 갑니다</td></tr>
+      <tr><td>배포 모드</td><td>Knative가 함께 설치되어 서버리스 모드(요청이 없으면 0까지 줄이기, 카나리)를 쓸 수 있습니다. 설치 설정에 따라 표준 모드일 수 있으니 확인합니다</td></tr>
+      <tr><td>인증과 권한</td><td>프로필 네임스페이스에는 Istio가 있어, 외부에서 호출하려면 3편의 로그인 흐름을 통과하거나 토큰이 필요하고, 다른 네임스페이스에서 호출하려면 권한 정책이 필요합니다(13편)</td></tr>
+      <tr><td>저장소 자격 증명</td><td>S3에서 모델을 받으려면 자격 증명 Secret을 서비스 계정에 연결하고 InferenceService가 그 서비스 계정을 쓰게 합니다</td></tr>
+      <tr><td>화면</td><td>대시보드의 Endpoints 화면(KServe UI)에서 상태와 로그를 봅니다</td></tr>
+      <tr><td>LLM 서빙</td><td>Hugging Face 런타임(vLLM 기반 등)으로 LLM을 띄울 수 있습니다. 런타임과 GPU 설정은 KServe 강의를 참고하세요</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>운영자가 볼 것</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>항목</th><th>이유와 방법</th></tr></thead>
+    <tbody>
+      <tr><td>레지스트리 DB 백업</td><td>레지스트리의 장부가 사라지면 어떤 파일이 어떤 버전인지 알 수 없게 됩니다. 메타데이터 DB를 정기적으로 백업합니다. 3편 1장의 표에서 Hub가 PVC 20GB를 쓰는 이유입니다</td></tr>
+      <tr><td>모델 파일 보존</td><td>등록된 버전의 파일은 레지스트리에서 보관(ARCHIVED) 처리하기 전까지 지우지 않는 규칙을 둡니다. 오브젝트 스토리지의 수명 주기 규칙과 맞춥니다</td></tr>
+      <tr><td>접근 범위</td><td>설치 구성에 따라 레지스트리 하나를 여러 팀이 함께 쓸 수 있습니다. 누가 등록하고 고칠 수 있는지 확인하고, 팀 이름을 모델 이름 앞에 붙이는 규칙을 둡니다</td></tr>
+      <tr><td>이름과 버전 규칙</td><td>모델 이름은 업무 기준(digits-classifier), 버전은 단조 증가 번호나 날짜로 통일합니다</td></tr>
+      <tr><td>서빙 자원</td><td>InferenceService마다 requests와 limits, 최소와 최대 복제본 수를 정합니다. 0까지 줄이는 설정은 첫 요청이 느려지는 대가가 있습니다</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>문제 해결</h2>
+  <p>등록과 배포에서 자주 만나는 증상입니다.</p>
+  <div class="chips" id="trChips" style="margin-top:14px"></div>
+  <div class="panel" id="trPanel" style="margin-top:14px" aria-live="polite"></div>
+</section>
+
+<section id="s11">
+  <h2><span class="no">11</span>용어 사전</h2>
+  <p>이 편에 새로 나온 용어입니다.</p>
+  <label for="gq" class="muted" style="font-size:14px">용어 검색</label>
+  <input class="gsearch" id="gq" type="search" placeholder="예: ModelVersion, 카나리, storageUri">
+  <div class="glist" id="glist"></div>
+  <p class="gempty" id="gempty" hidden>일치하는 용어가 없습니다. 다른 표기(한글 또는 영어)로 검색해 보세요.</p>
+</section>
+
+<section id="s12">
+  <h2><span class="no">12</span>확인 퀴즈</h2>
+  <p>여덟 문제입니다.</p>
+  <div id="quiz"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <button class="btn" id="quizReset" type="button">퀴즈 다시 풀기</button>
+</section>
+
+<section id="s13">
+  <h2><span class="no">13</span>정리와 다음 편</h2>
+  <ol class="keys">
+    <li><span>모델 레지스트리는 파일이 아니라 장부입니다. 파일 위치와 메타데이터를 버전별로 기록하고, 파일 보존 정책을 함께 정합니다.</span></li>
+    <li><span>Kubeflow Hub(예전 Model Registry)의 기본 단위는 RegisteredModel, ModelVersion, ModelArtifact입니다. 형식 이름은 KServe 런타임 선택에 쓰입니다.</span></li>
+    <li><span>등록한 버전은 위치를 읽어 직접, model-registry:// 주소로, 또는 파이프라인이 자동으로 KServe에 배포합니다.</span></li>
+    <li><span>새 버전은 카나리로 일부 트래픽부터 보내고, 지켜본 뒤 승격하거나 되돌립니다. 비율 분배는 서버리스 모드에서 동작합니다.</span></li>
+    <li><span>Kubeflow 안의 KServe는 프로필 네임스페이스, Istio 권한, 저장소 자격 증명을 함께 생각해야 합니다.</span></li>
+  </ol>
+  <div class="next" style="border-left-color:var(--lv3)">
+    <span class="h">다음 편, Level 3 심화의 시작</span>
+    <h4>10편: 통합 Kubeflow SDK와 Spark 데이터 처리</h4>
+    <p>지금까지 따로 써 온 TrainerClient, OptimizerClient, 파이프라인 클라이언트, 레지스트리 클라이언트를 하나의 SDK로 다루는 방법과, 로컬과 컨테이너에서 먼저 돌려 보고 클러스터로 옮기는 개발 흐름을 다룹니다. Spark Operator와 SparkClient로 대용량 데이터를 전처리하는 방법도 함께 봅니다.</p>
+  </div>
+</section>
+</main>
+</div>
+<footer>Kubeflow 강의 시리즈 9편. 2026년 10월 기준 Kubeflow Hub(Model Registry) 공식 문서, KServe 문서, Kubeflow SDK 문서, Community Distribution 26.03.1을 바탕으로 작성했습니다. 맨 위 여권의 버전과 지표는 예시입니다. 클라이언트 함수의 이름과 인자는 패키지 버전에 따라 다를 수 있습니다.</footer>
+<script>
+(function(){
+var root=document.documentElement;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function $(id){return document.getElementById(id);}
+var tbtn=$('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마로':'다크 테마로';try{localStorage.setItem('kf-theme',t);}catch(e){}}
+tbtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+setTheme(root.getAttribute('data-theme')||'dark');
+var prog=$('prog');function onScroll(){var h=document.documentElement;var m=h.scrollHeight-h.clientHeight;prog.style.width=(m>0?h.scrollTop/m*100:0)+'%';}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+var tocLinks=[].slice.call(document.querySelectorAll('#tocList a'));
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-25% 0px -65% 0px'});document.querySelectorAll('main section').forEach(function(s){io.observe(s);});}
+var ls=$('levelstrip');for(var i=1;i<=16;i++){var el=document.createElement('i');el.style.background='var('+(i<=4?'--lv1':i<=9?'--lv2':i<=12?'--lv3':'--lv4')+')';if(i===9)el.className='now';ls.appendChild(el);}
+function hlYaml(t){return t.split('\n').map(function(l){var e=esc(l),c='',k=e.indexOf(' #');if(k>=0){c='<span class="c">'+e.slice(k)+'</span>';e=e.slice(0,k);}return e.replace(/^(\s*-?\s*)([\w.\/-]+):/,'$1<span class="k">$2</span>:')+c;}).join('\n');}
+
+/* passport */
+var V={
+ v1:{acc:'0.9611',model:'RandomForest 100 trees',run:'digits-training / rf-100',data:'digits, seed 42',by:'jieun'},
+ v2:{acc:'0.9722',model:'RandomForest 200 trees',run:'digits-training / rf-200',data:'digits, seed 42',by:'jieun'},
+ v3:{acc:'0.9806',model:'RandomForest 278, depth 15',run:'katib digits-rf-tune 최적 Trial',data:'digits, seed 42',by:'minsu'},
+ v4:{acc:'0.9639',model:'RandomForest 200 trees',run:'digits-nightly 10월 5일 실행',data:'새 스냅샷 2026-10',by:'pipeline'}
+};
+var S={stable:'v2',canary:null,arch:{v1:true},sel:'v3'};
+var msg='';
+function serving(v){return S.stable===v||S.canary===v;}
+function renderP(){
+  $('vers').innerHTML=Object.keys(V).map(function(k){var t='';t+=S.arch[k]?'<span class="tag2 t-arch">ARCHIVED</span>':'<span class="tag2 t-live">LIVE</span>';
+    if(S.stable===k)t+='<span class="tag2 t-st">운영 '+(S.canary?90:100)+'%</span>';if(S.canary===k)t+='<span class="tag2 t-ca">카나리 10%</span>';
+    return '<button type="button" class="ver'+(S.sel===k?' sel':'')+(S.arch[k]?' archd':'')+'" data-v="'+k+'"><b>'+k+'</b>정확도 '+V[k].acc+'<br>'+t+'</button>';}).join('');
+  var v=S.sel,d=V[v];
+  $('lin').innerHTML='<span>실행: '+esc(d.run)+'</span><i>→</i><span>아티팩트 s3://models/digits/'+v+'</span><i>→</i><span>ModelVersion '+v+'</span>'+(serving(v)?'<i>→</i><span>InferenceService digits</span>':'');
+  $('vmeta').innerHTML='<dt>모델</dt><dd>'+esc(d.model)+'</dd><dt>정확도</dt><dd>'+d.acc+'</dd><dt>데이터</dt><dd>'+esc(d.data)+'</dd><dt>등록</dt><dd>'+esc(d.by)+'</dd>';
+  var a='',ar=S.arch[v];
+  a+='<button class="btn" data-a="full" type="button"'+((ar||(S.stable===v&&!S.canary))?' disabled':'')+'>전체 배포</button>';
+  a+='<button class="btn" data-a="canary" type="button"'+((ar||S.stable===v||S.canary)?' disabled':'')+'>카나리 10%</button>';
+  if(S.canary){a+='<button class="btn primary" data-a="promote" type="button">카나리 승격</button><button class="btn" data-a="rollback" type="button">카나리 되돌리기</button>';}
+  a+='<button class="btn" data-a="arch" type="button"'+(serving(v)?' disabled':'')+'>'+(ar?'보관 해제':'보관')+'</button>';
+  $('vact').innerHTML=a;
+  $('traffic').innerHTML=S.canary?'<div style="width:90%;background:var(--c-serve)">'+S.stable+' 90%</div><div style="width:10%;background:var(--c-train)">'+S.canary+'</div>':'<div style="width:100%;background:var(--c-serve)">'+S.stable+' 100%</div>';
+  $('pmsg').textContent=msg;
+  var tgt=S.canary||S.stable,y='apiVersion: serving.kserve.io/v1beta1\nkind: InferenceService\nmetadata:\n  name: digits\n  namespace: kubeflow-user-example-com\nspec:\n  predictor:\n';
+  if(S.canary)y+='    canaryTrafficPercent: 10      # 새 버전에 10%, 이전 '+S.stable+'에 90%\n';
+  y+='    model:\n      modelFormat:\n        name: sklearn\n      storageUri: model-registry://digits-classifier/'+tgt;
+  $('isvc').innerHTML='<code>'+hlYaml(y)+'</code>';}
+$('vers').addEventListener('click',function(e){var b=e.target.closest('.ver');if(!b)return;S.sel=b.dataset.v;msg='';renderP();});
+$('vact').addEventListener('click',function(e){var b=e.target.closest('.btn');if(!b||b.disabled)return;var v=S.sel,a=b.dataset.a;
+  if(a==='full'){S.stable=v;S.canary=null;msg=v+'를 100%로 배포했습니다. 문제가 생기면 이전 버전을 골라 다시 전체 배포하면 됩니다.';}
+  else if(a==='canary'){S.canary=v;msg=v+'에 트래픽 10%를 보냅니다. 오류율과 응답 시간, 예측 분포를 '+S.stable+'와 비교한 뒤 승격하거나 되돌리세요.';}
+  else if(a==='promote'){S.stable=S.canary;S.canary=null;msg=S.stable+'를 100%로 승격했습니다. canaryTrafficPercent 줄이 사라집니다.';}
+  else if(a==='rollback'){msg='카나리 '+S.canary+'를 거두고 '+S.stable+'가 다시 100%를 처리합니다.';S.canary=null;}
+  else if(a==='arch'){if(S.arch[v]){delete S.arch[v];msg=v+'의 보관을 해제했습니다.';}else{S.arch[v]=true;msg=v+'를 보관(ARCHIVED)했습니다. 기록은 남지만 새로 배포하지 않는 버전입니다.';}}
+  renderP();});
+renderP();
+
+/* isvc annotated */
+var IS=[['apiVersion: serving.kserve.io/v1beta1','kind'],['kind: InferenceService','kind'],['metadata:',''],['  name: digits','name'],['  namespace: kubeflow-user-example-com','ns'],['  labels:',''],['    model-name: digits-classifier       # 레지스트리 연결 기록 (팀 규칙)','lab'],['    model-version: v1','lab'],
+ ['spec:',''],['  predictor:','pred'],['    minReplicas: 1','minr'],['    model:','model'],['      modelFormat:','fmt'],['        name: sklearn','fmt'],['      storageUri: pvc://my-first-notebook-workspace/models/digits-rf','uri'],['      resources:','res'],['        requests: {cpu: 100m, memory: 256Mi}','res'],['        limits: {cpu: "1", memory: 1Gi}','res']];
+var IN={
+ kind:['InferenceService','KServe의 서빙 리소스입니다. 모델 서버의 Deployment(또는 Knative 서비스), 주소, 오토스케일링을 KServe가 대신 만듭니다.'],
+ name:['name','주소와 요청 경로에 쓰입니다. 사이킷런 서버는 이 이름을 모델 이름으로 써서 /v1/models/digits:predict로 요청을 받습니다.'],
+ ns:['namespace','내 프로필 네임스페이스입니다. 할당량과 Istio 권한이 여기 적용됩니다.'],
+ lab:['레지스트리 연결 기록','방법 1(5장)처럼 위치를 직접 쓸 때는 어느 등록 버전을 배포했는지 라벨이나 주석으로 남겨 둡니다. 라벨 이름은 팀 규칙으로 정하는 예시입니다.'],
+ pred:['predictor','예측을 맡는 부분입니다. 앞뒤 처리를 맡는 transformer, 설명을 맡는 explainer를 함께 둘 수도 있습니다.'],
+ minr:['minReplicas','최소 복제본 수입니다. 서버리스 모드에서 0이면 요청이 없을 때 Pod가 0개까지 줄어 자원을 아끼지만, 첫 요청이 느려집니다(콜드 스타트).'],
+ model:['model','배포할 모델에 대한 정보입니다.'],
+ fmt:['modelFormat','레지스트리의 형식 이름과 같게 적습니다. KServe가 이 값으로 알맞은 서빙 런타임(여기서는 사이킷런 서버)을 고릅니다.'],
+ uri:['storageUri','모델 파일 위치입니다. storage initializer가 이 위치에서 파일을 내려받아 서버에 넣습니다. 디렉터리 안에 model.joblib이 있어야 합니다. s3://, gs://, pvc://, hf:// 등을 쓸 수 있고, 5장의 방법 2라면 model-registry://digits-classifier/v1이 됩니다.'],
+ res:['resources','서빙 Pod의 자원입니다. 사이킷런 모델은 작지만, LLM이라면 GPU와 큰 메모리가 필요합니다.']
+};
+var pre=$('isPre');
+pre.innerHTML=IS.map(function(l){return '<span class="ln'+(l[1]?' has':'')+'" data-k="'+l[1]+'"'+(l[1]?' tabindex="0" role="button"':'')+'>'+hlYaml(l[0])+'</span>';}).join('');
+function selI(k){pre.querySelectorAll('.ln').forEach(function(s){s.classList.toggle('on',s.dataset.k===k);});var n=IN[k];$('isNote').innerHTML='<b>'+n[0]+'</b>'+n[1];}
+pre.addEventListener('click',function(e){var s=e.target.closest('.ln.has');if(s)selI(s.dataset.k);});
+pre.addEventListener('keydown',function(e){var s=e.target.closest('.ln.has');if(s&&(e.key==='Enter'||e.key===' ')){e.preventDefault();selI(s.dataset.k);}});
+selI('uri');
+
+/* copy */
+document.querySelectorAll('.cmd').forEach(function(c){var b=document.createElement('button');b.type='button';b.className='copy';b.textContent='복사';c.appendChild(b);
+  b.addEventListener('click',function(){var txt=c.querySelector('pre').innerText;function ok(){b.textContent='복사됨';setTimeout(function(){b.textContent='복사';},1400);}
+    function fb(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok();}catch(e){b.textContent='직접 선택하세요';}document.body.removeChild(ta);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,fb);}else fb();});});
+
+/* troubleshooting */
+var TS=[
+ ['노트북에서 레지스트리 연결 실패','--c-mon','주소, 포트, is_secure 설정이 맞지 않거나, 네트워크 정책이 접근을 막고 있습니다.','kubectl get svc -n kubeflow | grep model-registry로 서비스 이름과 포트를 확인합니다. 클러스터 밖에서는 포트 포워딩으로 시험합니다.'],
+ ['같은 버전으로 등록이 안 됨','--c-base','한 RegisteredModel 안에서 버전 이름은 유일해야 합니다.','새 버전 이름으로 등록합니다. 버전 이름 규칙(번호나 날짜)을 팀에서 정합니다.'],
+ ['InferenceService가 READY가 안 됨','--c-hub','storage initializer가 모델을 내려받지 못했습니다. 위치 오타, 자격 증명 누락, PVC를 다른 노드의 Pod가 쓰고 있는 경우가 흔합니다.','kubectl describe inferenceservice로 상태를 보고, 예측 Pod의 storage-initializer 컨테이너 로그를 확인합니다.'],
+ ['model-registry:// 를 인식하지 못함','--c-hub','Model Registry용 storage initializer가 ClusterStorageContainer로 등록되어 있지 않습니다.','관리자에게 등록을 요청하거나, 레지스트리에서 실제 위치를 읽어 직접 쓰는 방법 1을 씁니다.'],
+ ['서버가 모델을 불러오다 실패','--c-data','디렉터리 안의 파일 이름이 서버가 기대하는 이름(model.joblib 등)과 다르거나, 학습할 때와 서버의 라이브러리 버전이 달라 저장 형식을 읽지 못합니다.','파일 이름을 맞추고, 학습 때 쓴 라이브러리 버전을 메타데이터로 남겨 그에 맞는 런타임 버전이나 직접 만든 런타임 이미지를 씁니다.'],
+ ['예측 요청에 403','--c-katib','Istio 권한 정책이 요청을 막았습니다. 다른 네임스페이스에서 호출했거나, 외부에서 인증 없이 호출했습니다.','같은 네임스페이스의 노트북에서 내부 주소로 시험합니다. 다른 곳에서 호출해야 한다면 권한 정책이나 토큰을 구성합니다(13편).'],
+ ['첫 요청이 매우 느림','--c-train','서버리스 모드에서 0개까지 줄어 있다가 요청이 오면 Pod를 띄우고 모델을 내려받습니다(콜드 스타트).','응답 시간이 중요하면 minReplicas를 1 이상으로 둡니다.'],
+ ['canaryTrafficPercent가 적용되지 않음','--c-mon','KServe가 표준(raw) 모드로 동작하고 있습니다. 비율 분배는 서버리스 모드의 기능입니다.','배포 모드를 확인하고, 표준 모드라면 다른 트래픽 분배 방법을 씁니다.'],
+ ['장부에는 있는데 파일이 없음','--c-base','레지스트리에 등록된 버전의 파일이 저장소에서 지워졌습니다.','보관 처리 전에는 파일을 지우지 않는 규칙과 저장소 수명 주기 설정을 맞춥니다.']
+];
+var tc=$('trChips'),tpn=$('trPanel');
+TS.forEach(function(s,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+s[1]+')');b.textContent=s[0];b.addEventListener('click',function(){selTs(i);});tc.appendChild(b);});
+function selTs(i){var s=TS[i];[].forEach.call(tc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});tpn.style.setProperty('--c','var('+s[1]+')');tpn.innerHTML='<h4>'+esc(s[0])+'</h4><dl><dt>원인</dt><dd>'+esc(s[2])+'</dd><dt>해결</dt><dd>'+esc(s[3])+'</dd></dl>';}
+selTs(0);
+
+/* glossary */
+var GL=[
+ ['모델 레지스트리','Model registry','모델과 버전, 위치, 메타데이터를 기록하는 장부. 파일 자체는 저장하지 않는다.'],
+ ['Kubeflow Hub','Kubeflow Hub','예전 이름 Kubeflow Model Registry. 모델 레지스트리를 제공하는 Kubeflow 구성요소.'],
+ ['RegisteredModel','RegisteredModel','모델 하나의 이름. 여러 버전을 묶는다.'],
+ ['ModelVersion','ModelVersion','모델의 특정 버전. 작성자, 설명, 메타데이터, 상태를 가진다.'],
+ ['ModelArtifact','ModelArtifact','버전에 딸린 실제 파일의 위치와 형식.'],
+ ['LIVE, ARCHIVED','Model version state','버전의 상태. ARCHIVED는 기록은 남기되 새로 쓰지 않는 버전.'],
+ ['형식 이름','model_format_name','sklearn, onnx 같은 모델 형식. KServe 런타임 선택에 쓰인다.'],
+ ['model-registry 패키지','model-registry','레지스트리를 Python에서 쓰는 클라이언트 패키지.'],
+ ['ModelRegistryClient','kubeflow.hub.ModelRegistryClient','통합 Kubeflow SDK의 레지스트리 클라이언트.'],
+ ['InferenceService','InferenceService','KServe의 서빙 리소스.'],
+ ['predictor','predictor','InferenceService에서 예측을 맡는 부분.'],
+ ['modelFormat','modelFormat','배포할 모델의 형식. 서빙 런타임 선택 기준.'],
+ ['storageUri','storageUri','모델 파일 위치. s3://, pvc://, hf://, model-registry:// 등.'],
+ ['storage initializer','Storage initializer','서빙 Pod가 시작될 때 모델 파일을 내려받아 주는 초기화 컨테이너.'],
+ ['ClusterStorageContainer','ClusterStorageContainer','특정 주소 형식을 처리할 사용자 정의 storage initializer를 KServe에 등록하는 리소스.'],
+ ['model-registry:// 주소','model-registry URI','레지스트리의 모델 이름과 버전으로 모델 위치를 가리키는 주소 형식.'],
+ ['서빙 런타임','ServingRuntime','모델 형식별로 모델을 띄우는 서버 정의. 사이킷런, Triton, Hugging Face 등.'],
+ ['V1 예측 프로토콜','V1 inference protocol','/v1/models/이름:predict 경로로 instances를 보내고 predictions를 받는 KServe의 요청 형식.'],
+ ['카나리','Canary','새 버전에 트래픽 일부만 보내 보고 승격하거나 되돌리는 배포 방식.'],
+ ['canaryTrafficPercent','canaryTrafficPercent','InferenceService에서 새 버전에 보낼 트래픽 비율.'],
+ ['서버리스 모드, 표준 모드','Serverless, Standard(Raw)','KServe 배포 방식. 서버리스는 Knative 기반으로 0까지 축소와 비율 분배를 지원.'],
+ ['콜드 스타트','Cold start','0개로 줄어 있던 서버가 첫 요청에 깨어나느라 느려지는 현상.'],
+ ['minReplicas','minReplicas','서빙 Pod의 최소 개수. 0이면 0까지 줄어든다.'],
+ ['Endpoints 화면','KServe UI','대시보드에서 InferenceService의 상태와 로그를 보는 화면.']
+];
+var gl=$('glist'),gq=$('gq'),ge=$('gempty');
+function renderG(){var q=gq.value.trim().toLowerCase(),out=GL.filter(function(g){return !q||(g[0]+' '+g[1]+' '+g[2]).toLowerCase().indexOf(q)>=0;});gl.innerHTML=out.map(function(g){return '<div class="gitem"><b>'+esc(g[0])+'</b><small>'+esc(g[1])+'</small><p>'+esc(g[2])+'</p></div>';}).join('');ge.hidden=out.length>0;}
+gq.addEventListener('input',renderG);renderG();
+
+/* quiz */
+var Q=[
+ {q:'모델 레지스트리가 저장하는 것으로 맞는 것은?',o:['모델 파일 자체','모델 파일의 위치와 메타데이터','학습 데이터 전체','서빙 Pod'],a:1,e:'레지스트리는 장부입니다. 파일은 오브젝트 스토리지나 PVC에 있습니다.'},
+ {q:'등록할 때 적는 model_format_name은 어디에 쓰이나요?',o:['파일 이름','KServe가 서빙 런타임을 고르는 기준','버전 번호','Istio 정책'],a:1,e:'InferenceService의 modelFormat과 같게 맞춰 런타임을 고릅니다.'},
+ {q:'storageUri에 model-registry://digits-classifier/v3를 쓰려면 필요한 것은?',o:['아무것도 필요 없다','Model Registry용 storage initializer를 ClusterStorageContainer로 등록','Katib 설치','Notebooks v2'],a:1,e:'그 주소 형식을 처리할 초기화 컨테이너가 등록되어 있어야 합니다.'},
+ {q:'canaryTrafficPercent: 10의 의미는?',o:['10개 Pod를 띄운다','새 버전에 트래픽 10%, 이전 버전에 90%를 보낸다','10분 뒤 배포한다','오류율 10%까지 허용'],a:1,e:'지켜본 뒤 승격하거나 되돌립니다.'},
+ {q:'카나리 비율 설정이 적용되지 않습니다. 먼저 확인할 것은?',o:['모델 정확도','KServe가 서버리스 모드인지 표준(raw) 모드인지','레지스트리 버전 이름','노트북 이미지'],a:1,e:'비율 분배는 Knative 기반 서버리스 모드의 기능입니다.'},
+ {q:'학습할 때와 서버의 scikit-learn 버전이 달라 모델 로드가 실패합니다. 재발을 막으려면?',o:['매번 학습을 다시 한다','라이브러리 버전을 메타데이터로 남기고 그에 맞는 런타임을 쓴다','모델을 이미지에 넣는다','캐시를 끈다'],a:1,e:'7장의 기록 항목에 프레임워크 버전이 들어가는 이유입니다.'},
+ {q:'첫 예측 요청만 유난히 느립니다. 원인과 대처는?',o:['모델이 나빠서, 재학습','0개까지 줄어 있다가 깨어나는 콜드 스타트. minReplicas를 1 이상으로','네트워크 고장, 재설치','레지스트리가 느려서'],a:1,e:'자원 절약과 응답 시간 사이의 선택입니다.'},
+ {q:'운영 중인 버전의 모델 파일을 저장소 정리 중에 지웠다면?',o:['레지스트리에 사본이 있어 괜찮다','장부만 남고 파일이 없어 재배포나 되돌리기가 불가능해진다','KServe가 자동 복구한다','아무 영향 없다'],a:1,e:'보관 처리 전에는 파일을 지우지 않는 보존 규칙이 필요합니다.'}
+];
+var qz=$('quiz'),sc=$('score'),dn2=0,rt=0;
+function renderQ(){dn2=0;rt=0;sc.textContent='';qz.innerHTML=Q.map(function(x,i){return '<div class="qq" data-i="'+i+'"><h4>'+(i+1)+'. '+esc(x.q)+'</h4>'+x.o.map(function(o,k){return '<button class="ans" type="button" data-k="'+k+'">'+esc(o)+'</button>';}).join('')+'<p class="exp"></p></div>';}).join('');}
+qz.addEventListener('click',function(e){var b=e.target.closest('.ans');if(!b||b.disabled)return;var box=b.closest('.qq'),x=Q[+box.dataset.i],k=+b.dataset.k;
+  box.querySelectorAll('.ans').forEach(function(a){a.disabled=true;if(+a.dataset.k===x.a)a.classList.add('right');});
+  if(k!==x.a)b.classList.add('wrong');else rt++;
+  var ex=box.querySelector('.exp');ex.textContent=(k===x.a?'정답입니다. ':'정답은 '+(x.a+1)+'번째 보기입니다. ')+x.e;ex.classList.add('show');
+  dn2++;if(dn2===Q.length){sc.textContent=Q.length+'문제 중 '+rt+'문제를 맞혔습니다.'+(rt===Q.length?' Level 2를 마쳤습니다.':' 틀린 문제는 해설에 나온 장을 다시 읽어 보세요.');}});
+$('quizReset').addEventListener('click',renderQ);renderQ();
+})();
+</script>
+</body>
+</html>

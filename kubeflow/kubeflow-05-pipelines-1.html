@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubeflow 강의 5편: Pipelines 1, 개념과 구조</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+try{var t=localStorage.getItem('kf-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
+</script>
+<style>
+:root{
+  --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r-s:6px;--r-m:12px;--r-l:20px;
+}
+html[data-theme="dark"]{
+  --bg:#0F1B2D;--surface:#15253B;--raised:#1C3049;--line:#2A405E;--text:#E7EEF7;--muted:#93A6BF;--brand:#4EA8F5;--on-c:#0F1B2D;
+  --c-data:#F26B3A;--c-nb:#9BD15A;--c-kfp:#2EC4B6;--c-train:#F2A541;--c-katib:#A78BFA;--c-hub:#F47C9A;--c-serve:#4EA8F5;--c-mon:#E8D44D;--c-base:#8DA2BD;
+  --lv1:#5BC48A;--lv2:#4EA8F5;--lv3:#A78BFA;--lv4:#F2667A;
+  --ok:#5BC48A;--bad:#F2667A;--code-bg:#0A1422;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#F2F5F9;--surface:#FFFFFF;--raised:#E8EEF5;--line:#D2DCE8;--text:#14233A;--muted:#55667D;--brand:#1F6FBF;--on-c:#FFFFFF;
+  --c-data:#C9501F;--c-nb:#4F8A17;--c-kfp:#0F7F76;--c-train:#A8670C;--c-katib:#6A4ED0;--c-hub:#C23E68;--c-serve:#1F6FBF;--c-mon:#8C7700;--c-base:#5F7189;
+  --lv1:#2E9A61;--lv2:#1F6FBF;--lv3:#6A4ED0;--lv4:#C9384F;
+  --ok:#2E9A61;--bad:#C9384F;--code-bg:#14233A;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:12px}
+.series{font-weight:700;font-size:15px;line-height:1.3}
+.series span{color:var(--muted);font-weight:500;margin-left:8px}
+.theme-btn{margin-left:auto;font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+.progress{height:3px;width:0;background:linear-gradient(90deg,var(--c-data),var(--c-nb),var(--c-kfp),var(--c-train),var(--c-katib),var(--c-hub),var(--c-serve),var(--c-mon))}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:56px 24px 32px;display:grid;grid-template-columns:5fr 7fr;gap:44px;align-items:center}
+.hero h1{font-size:clamp(2.5rem,5.4vw,4.1rem);line-height:1.1;letter-spacing:-0.035em;font-weight:800;margin:0 0 22px}
+.hero .lede{font-size:1.14rem;color:var(--muted);margin:0;max-width:32em}
+.levelstrip{display:flex;gap:4px;margin:30px 0 8px;max-width:420px}
+.levelstrip i{flex:1;height:8px;border-radius:2px;opacity:.32}
+.levelstrip i.now{opacity:1;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.strip-cap{font-size:14px;color:var(--muted);margin:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:26px 0 0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:10px 10px 4px}
+.mapcap{font-size:14px;color:var(--muted);padding:2px 10px 8px;margin:0}
+@media (max-width:960px){.hero{grid-template-columns:1fr;padding-top:36px}}
+
+/* lifecycle map */
+.lcmap{width:100%;height:auto;display:block}
+.lcmap .seg{fill:none;stroke-width:11;stroke-linecap:round}
+.lcmap .st{cursor:pointer;outline:none}
+.lcmap .st .dot{fill:var(--surface);stroke:currentColor;stroke-width:4;transition:r .15s}
+.lcmap .st:hover .dot,.lcmap .st:focus-visible .dot{r:14}
+.lcmap .st.sel .dot{fill:currentColor}
+.lcmap .st:focus-visible .halo{stroke:var(--brand)}
+.lcmap .halo{fill:none;stroke:transparent;stroke-width:3}
+.lcmap .lbl{font-size:17px;font-weight:700;fill:var(--text);font-family:var(--font)}
+.lcmap .sub{font-size:13px;fill:var(--muted);font-weight:500;font-family:var(--font)}
+.lcmap .ctr1{font-size:24px;font-weight:800;fill:var(--text);font-family:var(--font);letter-spacing:-0.02em}
+.lcmap .ctr2{font-size:13.5px;fill:var(--muted);font-family:var(--font)}
+.lcmap .arrow{fill:var(--c-mon)}
+.lcmap.draw .seg{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .45s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* layout */
+.layout{max-width:1180px;margin:0 auto;padding:0 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding:24px 0 0}
+.toc p{font-weight:700;margin:0 0 10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:block;padding:5px 10px 5px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a:hover{color:var(--text)}
+.toc a.on{color:var(--text);border-left-color:var(--brand);font-weight:600}
+main{min-width:0;max-width:800px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;gap:0}.toc{display:none}}
+section{padding-top:60px}
+h2{font-size:clamp(1.6rem,3vw,2rem);line-height:1.3;letter-spacing:-0.02em;margin:0 0 18px;font-weight:800}
+h2 .no{color:var(--brand);margin-right:.35em}
+h3{font-size:1.24rem;line-height:1.4;margin:38px 0 12px;font-weight:700}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin:4px 0}
+strong{font-weight:700}
+
+/* callouts */
+.callout{border-left:4px solid var(--brand);background:var(--surface);padding:16px 20px;border-radius:0 var(--r-m) var(--r-m) 0;margin:22px 0}
+.callout p:last-child{margin-bottom:0}
+.callout .h{display:block;font-weight:700;margin-bottom:4px}
+.callout.warn{border-color:var(--c-train)}
+.callout.tip{border-color:var(--c-nb)}
+.callout.link{border-color:var(--c-katib)}
+
+/* goals */
+.goals{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.goals li{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 16px}
+.goals li::before{content:"";width:18px;height:18px;margin-top:5px;border-radius:50%;border:3px solid var(--lv1)}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin:16px 0 24px;border:1px solid var(--line);border-radius:var(--r-m)}
+.tbl{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.6;min-width:560px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font-weight:700;background:var(--raised)}
+.tbl td:first-child{font-weight:600}
+.tbl .old{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 70%,transparent)}
+
+/* story */
+.story{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:24px 26px;margin:22px 0}
+.story-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.story-dots{display:flex;gap:6px}
+.story-dots button{width:30px;height:7px;border-radius:4px;border:0;background:var(--line);cursor:pointer;padding:0}
+.story-dots button.on{background:var(--brand)}
+.story-who{font-size:14px;color:var(--muted)}
+.story h4{font-size:1.25rem;margin:0 0 10px;line-height:1.4}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:2px 11px;border-radius:999px;background:var(--raised);border:1px solid var(--line);margin-bottom:10px}
+.tag.bad{border-color:var(--bad);color:var(--bad)}
+.story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:8px 16px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.btn:disabled{opacity:.4;cursor:default}
+.mapping{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;font-size:15.5px}
+.mapping dt{font-weight:700}
+.mapping dd{margin:0;color:var(--muted)}
+
+/* debt figure */
+.debt{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:56px;gap:6px;margin:18px 0 8px}
+.debt div{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;line-height:1.35;display:flex;align-items:center}
+.debt .ml{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:700;justify-content:center}
+.figcap{font-size:14px;color:var(--muted);margin:0 0 20px}
+@media (max-width:600px){.debt{grid-template-columns:repeat(3,1fr)}.debt div{grid-column:auto!important;grid-row:auto!important}}
+
+/* maturity */
+.mat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.mat input[type=range]{width:100%;accent-color:var(--brand);margin:6px 0 2px}
+.mat-scale{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:16px}
+.mat h4{margin:0 0 8px;font-size:1.15rem}
+.mat-kf{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px}
+
+/* station panel */
+.stbtns{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.stbtn{font:inherit;font-size:14.5px;font-weight:600;padding:6px 13px;border-radius:999px;border:2px solid var(--c);background:transparent;color:var(--text);cursor:pointer}
+.stbtn.on{background:var(--c);color:var(--on-c)}
+.panel{border:1px solid var(--line);border-top:6px solid var(--c);background:var(--surface);border-radius:var(--r-m);padding:20px 24px}
+.panel h4{font-size:1.25rem;margin:0 0 2px}
+.panel .meta{font-size:14.5px;color:var(--muted);margin:0 0 6px}
+.panel dl{display:grid;grid-template-columns:8.5em 1fr;gap:10px 18px;margin:14px 0 0}
+.panel dt{color:var(--muted);font-size:15px;font-weight:600}
+.panel dd{margin:0}
+@media (max-width:600px){.panel dl{grid-template-columns:1fr;gap:2px}.panel dd{margin-bottom:10px}}
+
+/* principles */
+.princ{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.princ div{padding:16px 18px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line)}
+.princ b{display:block;margin-bottom:4px;font-size:1.05rem}
+.princ p{margin:0;font-size:15.5px;color:var(--muted)}
+@media (max-width:600px){.princ{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{list-style:none;margin:18px 0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 18px 34px}
+.tl li::before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--brand)}
+.tl li.now::before{background:var(--brand)}
+.tl b{display:block;font-size:15px;color:var(--brand)}
+
+/* component layers */
+.layers{display:flex;flex-direction:column;gap:8px;margin:20px 0 14px}
+.layer{border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px 14px;background:var(--surface)}
+.layer-h{font-size:14px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:15px;font-weight:600;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);border-left:5px solid var(--c);background:var(--raised);color:var(--text);cursor:pointer}
+.chip.on{background:var(--c);color:var(--on-c);border-color:var(--c)}
+.layer.base{background:var(--raised);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:center;font-weight:700;font-size:15px}
+.layer.base span{color:var(--muted);font-weight:500}
+
+/* code */
+pre{background:var(--code-bg);color:#DCE6F2;font-family:var(--mono);font-size:14px;line-height:1.65;padding:18px 20px;border-radius:var(--r-m);overflow-x:auto;margin:10px 0 18px}
+pre .c{color:#7F93AD}pre .k{color:#F2A541}pre .s{color:#9BD15A}pre .f{color:#6FC3FF}
+code{font-family:var(--mono);font-size:.86em;background:var(--raised);padding:1px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+.codehead{font-weight:700;margin:26px 0 0;font-size:15.5px}
+
+/* decision helper */
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.q{margin-bottom:18px}
+.q p{font-weight:600;margin:0 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{font:inherit;font-size:15px;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.opt.on{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:600}
+.result{padding:16px 18px;border-radius:var(--r-m);background:var(--raised);border-left:4px solid var(--brand)}
+.result b{display:block;font-size:1.08rem;margin-bottom:4px}
+.result p{margin:0}
+
+/* install options */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.ways div{padding:16px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c)}
+.ways b{display:block;margin-bottom:6px}
+.ways p{font-size:15px;margin:0 0 8px;color:var(--muted)}
+.ways p:last-child{margin:0}
+@media (max-width:760px){.ways{grid-template-columns:1fr}}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-top:16px}
+.tab{font:inherit;font-size:15px;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel dl{display:grid;grid-template-columns:8em 1fr;gap:10px 18px;margin:0}
+.tabpanel dt{color:var(--muted);font-weight:600;font-size:15px}
+.tabpanel dd{margin:0}
+@media (max-width:600px){.tabpanel dl{grid-template-columns:1fr;gap:2px}.tabpanel dd{margin-bottom:10px}}
+
+/* cases */
+details.case{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin:10px 0}
+details.case summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;gap:12px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary small{font-weight:500;color:var(--muted);font-size:14px}
+details.case summary::after{content:"+";margin-left:auto;font-size:22px;line-height:1;color:var(--muted)}
+details.case[open] summary::after{content:"−"}
+.case-body{padding:0 18px 16px}
+.case-body p{font-size:15.8px}
+.mini{display:inline-block;font-size:13px;font-weight:600;padding:1px 10px;border-radius:999px;border:1.5px solid var(--c);margin:2px 4px 2px 0}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:11px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px}
+.gitem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px}
+.gitem b{display:block;line-height:1.4}
+.gitem small{color:var(--muted);font-size:13px}
+.gitem p{font-size:15px;margin:6px 0 0;line-height:1.6}
+.gempty{color:var(--muted);margin-top:12px}
+
+/* quiz */
+.qq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:12px 0}
+.qq h4{margin:0 0 10px;font-size:1.06rem;line-height:1.5}
+.ans{display:block;width:100%;text-align:left;font:inherit;font-size:15.5px;padding:10px 14px;margin:6px 0;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;line-height:1.5}
+.ans:disabled{cursor:default}
+.ans.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--raised))}
+.ans.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,var(--raised))}
+.exp{display:none;font-size:15px;margin:10px 0 0;color:var(--muted)}
+.exp.show{display:block}
+.score{font-weight:700;font-size:1.05rem;margin-top:14px}
+
+/* wrap */
+.keys{counter-reset:k;list-style:none;padding:0;margin:16px 0}
+.keys li{counter-increment:k;display:grid;grid-template-columns:36px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li::before{content:counter(k);font-weight:800;font-size:1.2rem;color:var(--brand)}
+.next{margin:28px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--lv1)}
+.next .h{font-size:14px;color:var(--muted);font-weight:600}
+.next h4{font-size:1.3rem;margin:4px 0 8px}
+footer{max-width:1180px;margin:0 auto;padding:24px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+/* ---- 2편 추가 스타일 ---- */
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 16px}
+.match-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.match-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.mcol-h{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--muted)}
+.mcol{display:flex;flex-direction:column;gap:6px}
+.mw{font:inherit;font-size:14.5px;line-height:1.4;text-align:left;padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;min-height:40px}
+.mw.ml{border-left:4px solid var(--c-train)}
+.mw.k8{border-left:4px solid var(--c-serve)}
+.mw.sel{outline:2px solid var(--brand);outline-offset:1px}
+.mw.done{background:color-mix(in srgb,var(--pc) 22%,var(--raised));border-color:var(--pc);cursor:default}
+.mw.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mcard{margin-top:12px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:15px;min-height:68px}
+.mcard b{display:block}
+.mfoot{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.mfoot .btn{font-size:13.5px;padding:5px 12px;margin-left:auto}
+.part{margin:72px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--pc)}
+.part .ph{font-size:14px;font-weight:700;color:var(--pc);margin:0}
+.part h2{margin:4px 0 8px}
+.part p{margin:0;color:var(--muted)}
+.part + section{padding-top:36px}
+.toc .tp{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:14px 0 4px 12px}
+.play{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.play svg{width:100%;height:auto;display:block}
+.play .axis{stroke:var(--line);stroke-width:1.5}
+.play .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.play .tick{fill:var(--muted);font-size:12px;font-family:var(--font)}
+.play .pt{fill:var(--c-train)}
+.play .err{stroke:var(--c-hub);stroke-width:1.5;opacity:.7}
+.play .fit{stroke:var(--c-kfp);stroke-width:3.5;stroke-linecap:round}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:12px}
+.ctrls label{font-size:14.5px;font-weight:600;display:block}
+.ctrls input[type=range]{width:100%;accent-color:var(--brand)}
+.ctrls output{font-weight:700;color:var(--brand)}
+.prow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.lossbox{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:15px}
+.lossbox b{color:var(--c-hub)}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.spark path{fill:none;stroke:var(--c-hub);stroke-width:2}
+@media (max-width:600px){.ctrls{grid-template-columns:1fr}.mgrid{gap:6px 8px}.mw{font-size:13.5px;padding:7px 8px}}
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.calc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px}
+.calc label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.calc input,.calc select{width:100%;font:inherit;font-size:15.5px;padding:8px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.calc .out{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px}
+.calc .out dt{color:var(--muted)}
+.calc .out dd{margin:0;font-weight:700}
+.calc .note{font-size:14px;color:var(--muted);margin:12px 0 0}
+.fits{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fit-g{font-size:14px;padding:6px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised)}
+.fit-g.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--raised))}
+.fit-g.multi{border-color:var(--c-train);background:color-mix(in srgb,var(--c-train) 14%,var(--raised))}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 12px}
+.arch .zone{grid-column:span 4;font-size:13px;font-weight:700;color:var(--muted);margin:6px 0 -2px}
+.arch .bx{padding:10px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:14px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.arch .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:600px){.arch{grid-template-columns:repeat(2,1fr)}.arch .zone{grid-column:span 2}}
+.stepbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.stepbox h4{margin:0 0 6px;font-size:1.12rem}
+.yaml{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.yaml pre{margin:0;padding:14px 0;font-size:13.5px}
+.yaml .ln{display:block;padding:0 14px 0 16px;border-left:3px solid transparent;white-space:pre}
+.yaml .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+.ynote{position:sticky;top:90px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c-train);border-radius:var(--r-m);padding:16px 18px;font-size:15.5px}
+.ynote b{display:block;font-size:1.05rem;margin-bottom:4px}
+.ynote code{font-size:.84em}
+@media (max-width:900px){.yaml{grid-template-columns:1fr}.ynote{position:static}}
+.check{list-style:none;padding:0;margin:10px 0 0}
+.check li{margin:6px 0}
+.check label{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;cursor:pointer;font-size:15.5px}
+.check input{width:18px;height:18px;margin-top:5px;accent-color:var(--ok)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.cols2>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px;border-top:4px solid var(--pc)}
+.cols2 h4{margin:0 0 4px;font-size:1.05rem}
+@media (max-width:760px){.cols2{grid-template-columns:1fr}}
+/* ---- 3편 추가 스타일 ---- */
+.towerwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tw-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tw-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tower{display:flex;flex-direction:column-reverse;gap:3px}
+.blk{display:flex;align-items:center;gap:10px;font:inherit;text-align:left;width:100%;padding:3px 10px;min-height:27px;border-radius:5px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:13.5px;cursor:default;opacity:.55}
+.blk small{margin-left:auto;font-size:12px;color:var(--muted)}
+.blk.built{opacity:1;border:1px solid color-mix(in srgb,var(--g) 55%,var(--line));border-left:6px solid var(--g);background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text);font-weight:600;cursor:pointer}
+.blk.built small{font-weight:500}
+.blk.cur{outline:2px solid var(--text);outline-offset:1px}
+.blk.base{opacity:1}
+.tw-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.tw-legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--g);margin-right:5px;vertical-align:-1px}
+.tw-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:92px;line-height:1.6}
+.tw-card b{display:block;font-size:15px}
+.tw-ctrl{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tw-ctrl .btn{font-size:13.5px;padding:6px 12px}
+.res{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.res-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
+.res-list label{display:grid;grid-template-columns:22px 1fr;gap:6px;align-items:start;font-size:15px;cursor:pointer;padding:4px 0}
+.res-list input{width:17px;height:17px;margin-top:4px;accent-color:var(--brand)}
+.res-list small{display:block;color:var(--muted);font-size:12.5px}
+.res-list .req{color:var(--muted)}
+.res-sum{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res-sum div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.res-sum b{display:block;font-size:1.25rem;color:var(--text)}
+.res-mine{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:14px}
+.res-mine label{font-size:14px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+.res-mine input{width:110px;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.verdict{margin-top:12px;padding:12px 16px;border-radius:var(--r-m);border-left:4px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised));font-size:15px}
+.tree{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;margin:16px 0}
+.tree-list{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
+.tree-list button{font:inherit;text-align:left;padding:7px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.tree-list button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+@media (max-width:640px){.tree{grid-template-columns:1fr}}
+.steps{counter-reset:st;list-style:none;padding:0;margin:18px 0}
+.stp{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px 14px 58px;margin:10px 0}
+.stp::before{content:counter(st);position:absolute;left:16px;top:15px;width:28px;height:28px;border-radius:50%;background:var(--raised);border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand)}
+.stp.ok::before{content:"✓";background:var(--ok);border-color:var(--ok);color:var(--on-c)}
+.stp h4{margin:0 0 6px;font-size:1.08rem}
+.stp p{font-size:15.5px;margin:0 0 8px}
+.stp .opt-tag{font-size:12.5px;font-weight:700;color:var(--c-train);margin-left:6px}
+.cmd{position:relative}
+.cmd pre{margin:6px 0 8px;padding-right:76px}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:5px;border:1px solid #2A405E;background:#1C3049;color:#DCE6F2;cursor:pointer}
+.stp-done{display:inline-flex;gap:6px;align-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.stp-done input{accent-color:var(--ok);width:16px;height:16px}
+.stprog{position:sticky;top:64px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--bg);padding:8px 0;font-size:14px;color:var(--muted)}
+.stprog .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.stprog .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0 10px}
+.flow .bx{padding:10px 6px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:13.5px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.flow .bx small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.flow .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:700px){.flow{grid-template-columns:repeat(3,1fr)}}
+.dash{display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.dash-top{grid-column:span 2;display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.dash-top b{font-size:15px}
+.dash-ns{margin-left:auto;font:inherit;font-size:13.5px;padding:5px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.dash-side{border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column}
+.dash-side .grp{font-size:12px;font-weight:700;color:var(--muted);padding:10px 14px 2px}
+.dash-side button{font:inherit;font-size:14px;text-align:left;padding:7px 14px;border:0;border-left:3px solid transparent;background:none;color:var(--text);cursor:pointer}
+.dash-side button.on{border-left-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);font-weight:600}
+.dash-main{padding:18px 20px;min-height:300px}
+.dash-main h4{margin:0 0 4px;font-size:1.15rem}
+.dash-main .meta{font-size:14px;color:var(--muted);margin:0 0 10px}
+@media (max-width:700px){.dash{grid-template-columns:1fr}.dash-top{grid-column:auto;flex-wrap:wrap}.dash-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dash-side .grp{display:none}.dash-side button{border-left:0;border-bottom:3px solid transparent;padding:6px 10px}.dash-side button.on{border-bottom-color:var(--brand)}}
+/* ---- 4편 추가 스타일 ---- */
+.anat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.anat-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.anat-top .h{font-weight:700;font-size:1.05rem;margin-right:auto}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg2 button{font:inherit;font-size:13.5px;font-weight:600;padding:5px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg2 button.on{background:var(--brand);color:var(--on-c)}
+.nodes{display:flex;flex-direction:column;gap:5px}
+.node{display:flex;align-items:center;gap:8px;font:inherit;text-align:left;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--line);border-left:5px solid var(--g);background:var(--raised);color:var(--text);font-size:14px;cursor:pointer;transition:opacity .2s}
+.node small{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.node.l1{margin-left:20px;width:calc(100% - 20px)}
+.node.l2{margin-left:40px;width:calc(100% - 40px)}
+.node.l3{margin-left:60px;width:calc(100% - 60px)}
+.node.off{opacity:.35;border-style:dashed}
+.node.cur{outline:2px solid var(--text);outline-offset:1px}
+.anat-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:96px;line-height:1.6}
+.anat-card b{display:block;font-size:15px}
+.spawn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;margin:16px 0;align-items:start}
+.sform{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 8px}
+.sform fieldset{border:0;padding:0;margin:0 0 14px}
+.sform legend,.sform .lab{font-size:14px;font-weight:700;margin-bottom:6px;display:block;padding:0}
+.sform input[type=text],.sform input[type=number],.sform select{width:100%;font:inherit;font-size:15px;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.sform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sform .inl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14.5px}
+.sform .inl label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.sform input[type=checkbox],.sform input[type=radio]{accent-color:var(--brand);width:16px;height:16px}
+.sform .hint{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.sout{position:sticky;top:84px}
+.sout pre{margin:0 0 10px;font-size:13px;max-height:470px;overflow:auto}
+.checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.checks li{font-size:14.5px;padding:8px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--v)}
+@media (max-width:900px){.spawn{grid-template-columns:1fr}.sout{position:static}}
+.nbk{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.nbk-top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.nbk-top b{font-family:var(--mono);font-size:13.5px}
+.nbk-top .btn{margin-left:auto;font-size:13px;padding:5px 12px}
+.cell{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:10px 14px 4px;border-bottom:1px solid var(--line)}
+.cell:last-child{border-bottom:0}
+.cell .pr{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:12px;text-align:right}
+.cell pre{margin:4px 0 6px;font-size:13.5px}
+.cell .md{font-size:15px;margin:6px 0}
+.cell .run{font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;margin:0 0 8px}
+.cell .out{display:none;font-family:var(--mono);font-size:13px;white-space:pre-wrap;padding:8px 12px;margin:0 0 8px;border-left:3px solid var(--c-nb);background:var(--raised);border-radius:0 6px 6px 0;color:var(--text)}
+.cell .out.show{display:block}
+@media (max-width:600px){.cell{grid-template-columns:1fr}.cell .pr{text-align:left;padding-top:0}}
+/* ---- 5편 추가 스타일 ---- */
+.morph{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.morph-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.morph-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.stages{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.stg{font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:8px 4px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer;text-align:center;position:relative}
+.stg b{display:block;font-size:15px;color:var(--text)}
+.stg.done{border-color:color-mix(in srgb,var(--g) 60%,var(--line));background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text)}
+.stg.on{outline:2px solid var(--text);outline-offset:1px}
+.mpanel{margin-top:12px;border-radius:var(--r-m);background:var(--raised);padding:12px 14px;min-height:250px}
+.mpanel h4{margin:0 0 4px;font-size:1.05rem}
+.mpanel p{font-size:14.5px;margin:0 0 8px;line-height:1.6}
+.mpanel pre{margin:0;font-size:12.5px;max-height:150px}
+.mctrl{display:flex;gap:8px;margin-top:10px}
+.mctrl .btn{font-size:13.5px;padding:6px 12px}
+@media (max-width:600px){.stages{grid-template-columns:repeat(4,1fr)}}
+.cls{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.cls-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:10px 14px}
+.cls-row .what{font-weight:600;font-size:15.5px}
+.cls-row .opts .opt{font-size:14px;padding:5px 12px}
+.cls-row .fb{grid-column:span 2;font-size:14.5px;color:var(--muted);display:none;border-top:1px dashed var(--line);padding-top:8px}
+.cls-row .fb.show{display:block}
+.cls-row.right{border-color:var(--ok)}
+.cls-row.wrong{border-color:var(--bad)}
+@media (max-width:600px){.cls-row{grid-template-columns:1fr}.cls-row .fb{grid-column:auto}}
+.csim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.csim .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 18px;margin-bottom:16px}
+.csim label.lab{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.csim select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.csim .ck{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer;padding-top:22px}
+.csim .ck input{accent-color:var(--brand);width:16px;height:16px}
+.tasks{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.tk{flex:1 1 150px;padding:12px 14px;border-radius:var(--r-m);border:2px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised))}
+.tk b{display:block;font-family:var(--mono);font-size:14px}
+.tk span{font-size:14px}
+.tk small{display:block;font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.arr{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+@media (max-width:640px){.tasks{flex-direction:column}.arr{transform:rotate(90deg);align-self:center;padding:4px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series">Kubeflow 강의<span>5편: Pipelines 1, 개념과 구조</span></div>
+    <button class="theme-btn" id="themeBtn" type="button">라이트 테마로</button>
+  </div>
+  <div class="progress" id="prog"></div>
+</div>
+
+<header class="hero">
+  <div>
+    <h1>Pipelines 1<br>개념과 구조</h1>
+    <p class="lede">4편에서 노트북 셀로 한 일을 단계로 나누면 파이프라인이 됩니다. 평범한 Python 함수가 컴포넌트가 되고, 그래프가 되고, YAML이 되고, 끝내 Pod가 되기까지 일곱 번의 변신을 따라갑니다.</p>
+    <div class="levelstrip" id="levelstrip" aria-hidden="true"></div>
+    <p class="strip-cap">Level 2 실무 기초의 시작, 전체 16편 중 5편</p>
+    <dl class="facts">
+      <dt>기준 버전</dt><dd>Community Distribution 26.03.1, Kubeflow Pipelines 2.16 계열, KFP SDK 2.x</dd>
+      <dt>실습 환경</dt><dd>3편의 클러스터와 4편의 노트북</dd>
+      <dt>사전 지식</dt><dd>4편의 손글씨 숫자 실습, 2편의 Pod와 컨트롤러</dd>
+      <dt>학습 시간</dt><dd>약 80분 (실습 포함)</dd>
+    </dl>
+  </div>
+  <div class="morph">
+    <p class="morph-h">함수가 Pod가 되기까지</p>
+    <p class="morph-sub">단계를 눌러 보거나 다음을 눌러 순서대로 따라가세요.</p>
+    <div class="stages" id="stages"></div>
+    <div class="mpanel" id="mpanel" aria-live="polite"></div>
+    <div class="mctrl"><button class="btn" id="mPrev" type="button">이전</button><button class="btn primary" id="mNext" type="button">다음</button></div>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol id="tocList">
+    <li><a href="#s0">이번 편에서 얻을 것</a></li>
+    <li><a href="#s1">1. 왜 파이프라인인가</a></li>
+    <li><a href="#s2">2. 핵심 개념</a></li>
+    <li><a href="#s3">3. 컴포넌트 세 종류</a></li>
+    <li><a href="#s4">4. 파라미터와 아티팩트</a></li>
+    <li><a href="#s5">5. 실습 코드 한 줄씩</a></li>
+    <li><a href="#s6">6. 컴파일과 제출</a></li>
+    <li><a href="#s7">7. IR YAML 읽기</a></li>
+    <li><a href="#s8">8. 실행 뒤에서 일어나는 일</a></li>
+    <li><a href="#s9">9. 캐시</a></li>
+    <li><a href="#s10">10. 로컬에서 먼저 돌려 보기</a></li>
+    <li><a href="#s11">11. 문제 해결</a></li>
+    <li><a href="#s12">12. 용어 사전</a></li>
+    <li><a href="#s13">13. 확인 퀴즈</a></li>
+    <li><a href="#s14">14. 정리와 다음 편</a></li>
+  </ol>
+</nav>
+<main>
+<section id="s0" style="padding-top:28px">
+  <h2>이번 편에서 얻을 것</h2>
+  <p>1편 노선도의 세 번째 정거장이자, 다른 정거장들을 잇는 선로입니다. 이번 편과 다음 편 두 번에 걸쳐 Kubeflow Pipelines(KFP)를 다룹니다. 이번 편은 개념과 구조, 다음 편은 실전 작성 패턴입니다. 이 편을 마치면 다음을 할 수 있습니다.</p>
+  <ul class="goals">
+    <li>컴포넌트, 파이프라인, 실행, 실험, 아티팩트, 파라미터의 관계를 설명할 수 있습니다.</li>
+    <li>세 종류의 컴포넌트를 구별하고, 값을 파라미터로 넘길지 아티팩트로 넘길지 판단할 수 있습니다.</li>
+    <li>4편의 노트북 실습을 세 단계 파이프라인으로 바꾸고, 컴파일해 노트북에서 제출할 수 있습니다.</li>
+    <li>제출한 파이프라인이 IR YAML, Argo Workflow, Pod로 바뀌는 과정과 캐시가 동작하는 원리를 알고, 실패했을 때 어디를 볼지 압니다.</li>
+  </ul>
+</section>
+
+<section id="s1">
+  <h2><span class="no">1</span>왜 파이프라인인가</h2>
+  <p>4편의 노트북은 잘 돌아갔습니다. 그런데 매주 새 데이터로 다시 학습해야 한다면 어떨까요? 누군가 노트북을 열어 셀을 순서대로 눌러야 하고, 지난주와 이번 주에 무엇이 달랐는지는 기억에 의존합니다. 1편의 지은이 겪은 재현성과 추적의 문제가 그대로 돌아옵니다. 파이프라인은 노트북의 셀 묶음을 이름 있는 단계로 나누고, 단계 사이에 무엇이 오가는지 명시해, 사람 없이도 똑같이 반복 실행되게 만든 것입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>구분</th><th>노트북 셀</th><th>파이프라인 단계</th></tr></thead>
+    <tbody>
+      <tr><td>실행 환경</td><td>노트북 하나의 커널. 모든 셀이 같은 환경</td><td>단계마다 독립된 컨테이너. 단계마다 다른 이미지와 자원 가능</td></tr>
+      <tr><td>단계 사이의 데이터</td><td>메모리의 변수. 순서가 바뀌면 결과도 바뀜</td><td>명시된 입력과 출력. 자동으로 저장소를 거쳐 전달</td></tr>
+      <tr><td>기록</td><td>사람이 남기지 않으면 없음</td><td>실행마다 입력, 출력, 로그, 아티팩트가 자동 기록</td></tr>
+      <tr><td>반복 실행</td><td>사람이 셀을 다시 눌러야 함</td><td>버튼 하나, API 한 번, 또는 예약 실행</td></tr>
+      <tr><td>같은 계산의 반복</td><td>매번 다시 계산</td><td>입력이 같으면 캐시된 결과를 재사용</td></tr>
+      <tr><td>병렬</td><td>셀은 순서대로</td><td>서로 의존하지 않는 단계는 동시에 실행</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>핵심 개념</h2>
+  <p>KFP의 화면과 API에 나오는 개념들입니다. 이름을 누르면 정의와 비유, 대시보드에서 보이는 곳이 나옵니다. 공장 비유로 통일했습니다.</p>
+  <div class="chips" id="conChips" style="margin-top:14px"></div>
+  <div class="panel" id="conPanel" style="margin-top:14px" aria-live="polite"></div>
+  <div class="callout warn">
+    <span class="h">Experiment가 두 개입니다</span>
+    <p>KFP의 Experiment는 실행(Run)을 묶는 폴더이고, 8편에서 다룰 Katib의 Experiment는 하이퍼파라미터 튜닝 작업 하나입니다. 이름만 같고 전혀 다른 것이라, 대시보드 메뉴에서도 따로 나옵니다.</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>컴포넌트 세 종류</h2>
+  <p>컴포넌트는 파이프라인의 한 단계이고, 실행되면 컨테이너 하나가 됩니다. 만드는 방법이 세 가지 있습니다. 탭을 눌러 비교하세요.</p>
+  <div class="tabs" role="tablist" id="compTabs"></div>
+  <div class="tabpanel" id="compPanel" role="tabpanel"></div>
+</section>
+
+<section id="s4">
+  <h2><span class="no">4</span>파라미터와 아티팩트</h2>
+  <p>단계 사이에 오가는 값은 두 종류입니다. <strong>파라미터</strong>는 숫자, 문자열, 불리언, 작은 리스트나 딕셔너리처럼 작은 값이고, 메타데이터 DB에 직접 저장됩니다. <strong>아티팩트</strong>는 데이터셋, 모델, 리포트처럼 파일로 다루는 큰 결과물이고, 오브젝트 스토리지(26.03부터 SeaweedFS)에 저장되며 메타데이터 DB에는 그 위치와 정보만 기록됩니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>구분</th><th>파라미터</th><th>아티팩트</th></tr></thead>
+    <tbody>
+      <tr><td>함수에서 쓰는 법</td><td><code>lr: float</code>처럼 일반 타입. 반환값 <code>-&gt; float</code>도 출력 파라미터</td><td><code>Input[Dataset]</code>, <code>Output[Model]</code>처럼 감싼 타입. <code>.path</code>로 파일을 읽고 씀</td></tr>
+      <tr><td>저장 위치</td><td>메타데이터 DB</td><td>오브젝트 스토리지, DB에는 위치(URI)와 메타데이터</td></tr>
+      <tr><td>크기</td><td>작아야 함</td><td>큰 파일도 가능</td></tr>
+      <tr><td>계보 추적</td><td>값만 남음</td><td>어떤 실행이 만들고 어디에 쓰였는지 연결됨</td></tr>
+      <tr><td>대표 타입</td><td>str, int, float, bool, list, dict</td><td>Dataset, Model, Metrics, ClassificationMetrics, HTML, Markdown, Artifact</td></tr>
+    </tbody>
+  </table></div>
+  <p>판단해 봅시다. 각 값을 파라미터와 아티팩트 중 어디로 넘기는 게 좋을까요?</p>
+  <div class="cls" id="cls"></div>
+</section>
+<section id="s5">
+  <h2><span class="no">5</span>실습 코드 한 줄씩</h2>
+  <p>4편의 노트북을 세 단계로 나눕니다. 데이터를 불러와 나누는 <code>load_data</code>, 모델을 학습하는 <code>train</code>, 정확도를 재는 <code>evaluate</code>입니다. 표시가 있는 줄을 누르면 오른쪽에 설명이 나옵니다. 4편의 노트북에서 새 노트북 파일을 만들어 그대로 입력하면 됩니다(노트북을 만들 때 Pipelines 접근 허용 설정을 켜 두세요).</p>
+  <div class="yaml" style="grid-template-columns:minmax(0,1.75fr) minmax(0,1fr)">
+    <pre id="pyPre" style="font-size:12.5px" aria-label="실습 파이프라인 코드"></pre>
+    <div class="ynote" id="pyNote" aria-live="polite" style="border-top-color:var(--c-kfp)"></div>
+  </div>
+  <div class="callout tip">
+    <span class="h">가장 중요한 한 가지: 파이프라인 함수 안은 실행이 아니라 설계입니다</span>
+    <p><code>digits_pipeline</code> 안에서 <code>load_data(...)</code>를 부르면 데이터가 불러와지지 않습니다. 대신 “이런 단계가 있다”는 작업(PipelineTask)이 그래프에 추가되고, 그 작업의 출력을 다음 작업의 입력으로 넘기는 순간 둘 사이에 화살표가 그려집니다. 그래서 파이프라인 함수 안에서는 if, for, print 같은 일반 Python 코드가 생각대로 동작하지 않습니다. 조건과 반복은 KFP 전용 문법으로 써야 하며, 6편에서 다룹니다.</p>
+  </div>
+  <div class="callout warn">
+    <span class="h">packages_to_install은 실행할 때마다 인터넷에서 설치합니다</span>
+    <p>편리하지만 단계가 시작될 때마다 pip 설치가 일어나 느리고, 인터넷이 막힌 폐쇄망에서는 실패합니다. 실습에서는 괜찮지만, 실무에서는 필요한 패키지를 미리 넣은 이미지를 base_image로 지정하는 컨테이너형 컴포넌트가 낫습니다(3장 두 번째 탭).</p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2><span class="no">6</span>컴파일과 제출</h2>
+  <h3>방법 1: 컴파일해서 화면으로 올리기</h3>
+  <p>코드 맨 끝 줄의 컴파일러가 <code>digits_pipeline.yaml</code>을 만듭니다. 이 파일을 내려받아 대시보드의 Pipelines 화면에서 Upload pipeline으로 올리고, Create run으로 실행합니다. 실행할 때 파이프라인 함수의 인자(test_size, n_estimators)를 입력하는 칸이 나옵니다.</p>
+  <h3>방법 2: 노트북에서 바로 제출하기</h3>
+  <p>노트북에 Pipelines 접근 허용(PodDefault access-ml-pipeline)이 켜져 있으면, 주소와 인증 토큰을 따로 주지 않아도 <code>kfp.Client()</code>가 클러스터 안의 Pipelines API를 찾아갑니다. 다중 사용자 환경이므로 실행을 만들 네임스페이스는 꼭 지정합니다.</p>
+  <div class="cmd"><pre><code><span class="k">import</span> kfp
+
+client = kfp.Client()      <span class="c"># 노트북 안: 주소와 토큰은 PodDefault가 마련</span>
+run = client.create_run_from_pipeline_package(
+    <span class="s">"digits_pipeline.yaml"</span>,
+    arguments={<span class="s">"n_estimators"</span>: <span class="s">300</span>},     <span class="c"># 기본값을 바꿀 인자만</span>
+    run_name=<span class="s">"rf-300"</span>,
+    experiment_name=<span class="s">"digits"</span>,             <span class="c"># 없으면 새로 만듦</span>
+    namespace=<span class="s">"kubeflow-user-example-com"</span>,
+)
+print(run.run_id)</code></pre></div>
+  <p>컴파일 파일 없이 함수를 바로 넘기는 <code>create_run_from_pipeline_func</code>도 있습니다. 다만 무엇이 실행되었는지 파일로 남기려면 컴파일한 YAML을 Git에 함께 두는 습관이 좋습니다.</p>
+  <h3>제출한 뒤 확인하기</h3>
+  <p>대시보드의 Runs 화면에서 방금 만든 rf-300 실행을 엽니다. 세 단계가 그래프로 보이고, 각 상자를 누르면 입력과 출력, 로그, 아티팩트를 볼 수 있습니다. evaluate 단계의 Visualizations나 출력 아티팩트에서 accuracy 지표가 보이면 성공입니다. 같은 실험 안의 여러 실행을 골라 Compare runs를 누르면 지표를 나란히 비교할 수 있습니다.</p>
+  <div class="callout">
+    <span class="h">클러스터 밖에서 제출하려면</span>
+    <p>내 PC에서 제출하려면 3편의 포트 포워딩 주소(<code>http://localhost:8080/pipeline</code>)와 서비스 계정 토큰을 <code>kfp.Client(host=..., existing_token=...)</code>로 넘기는 방식이 있습니다. 다만 이것은 서비스 계정 토큰을 게이트웨이 밖에서 받아 주도록 oauth2-proxy를 구성했을 때만 동작합니다(3편에서 소개한 설치 옵션). 실습에서는 노트북에서 제출하는 방식이 가장 간단합니다.</p>
+  </div>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>IR YAML 읽기</h2>
+  <p>컴파일 결과는 KFP의 중간 표현(IR, Intermediate Representation)이라는 YAML입니다. Python 코드를 몰라도 이 파일만 있으면 파이프라인을 실행할 수 있고, 특정 실행 엔진에 묶이지 않은 형식이라 같은 파일을 다른 KFP 호환 실행 환경(예: Google Vertex AI Pipelines)에서도 쓸 수 있습니다. 실습 결과를 단순화한 모습입니다.</p>
+<pre><code><span class="k">pipelineInfo</span>:
+  <span class="k">name</span>: digits-training
+<span class="k">root</span>:
+  <span class="k">inputDefinitions</span>:                        <span class="c"># 파이프라인 인자와 기본값</span>
+    <span class="k">parameters</span>:
+      <span class="k">n_estimators</span>: {<span class="k">parameterType</span>: NUMBER_INTEGER, <span class="k">defaultValue</span>: 200}
+      <span class="k">test_size</span>: {<span class="k">parameterType</span>: NUMBER_DOUBLE, <span class="k">defaultValue</span>: 0.2}
+  <span class="k">dag</span>:
+    <span class="k">tasks</span>:
+      <span class="k">train</span>:
+        <span class="k">dependentTasks</span>: [load-data]           <span class="c"># 데이터 전달에서 자동으로 추론된 순서</span>
+        <span class="k">inputs</span>:
+          <span class="k">artifacts</span>:
+            <span class="k">train_data</span>:
+              <span class="k">taskOutputArtifact</span>: {<span class="k">producerTask</span>: load-data, <span class="k">outputArtifactKey</span>: train_data}
+<span class="k">components</span>:
+  <span class="k">comp-train</span>:
+    <span class="k">outputDefinitions</span>:
+      <span class="k">artifacts</span>:
+        <span class="k">model</span>: {<span class="k">artifactType</span>: {<span class="k">schemaTitle</span>: system.Model}}
+<span class="k">deploymentSpec</span>:
+  <span class="k">executors</span>:
+    <span class="k">exec-train</span>:
+      <span class="k">container</span>:
+        <span class="k">image</span>: python:3.11                    <span class="c"># 실제 파일에는 실행 명령과 함수 코드도 들어 있음</span>
+        <span class="k">resources</span>:                           <span class="c"># set_cpu_limit, set_memory_limit의 결과</span>
+          <span class="k">resourceCpuLimit</span>: <span class="s">'2'</span>               <span class="c"># SDK 버전에 따라 표기가 조금 다를 수 있음</span>
+          <span class="k">resourceMemoryLimit</span>: 2G</code></pre>
+  <ul class="plain">
+    <li><strong>root.dag.tasks</strong>는 그래프입니다. 어느 작업이 어느 작업의 출력을 받는지가 여기 적힙니다.</li>
+    <li><strong>components</strong>는 각 단계의 입출력 정의, <strong>deploymentSpec</strong>은 각 단계를 어떤 이미지와 명령으로 실행할지입니다.</li>
+    <li>lightweight 컴포넌트의 함수 코드는 deploymentSpec의 실행 명령 안에 문자열로 통째로 들어갑니다. 그래서 컴포넌트 함수 안에서 바깥의 import나 변수를 쓰면 실행할 때 찾지 못합니다. 실습 코드에서 import를 함수 안에 둔 이유입니다.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <h2><span class="no">8</span>실행 뒤에서 일어나는 일</h2>
+  <p>실행을 제출하면 API 서버가 IR을 Argo Workflow라는 Kubernetes 리소스로 바꿔 내 네임스페이스에 만들고, Argo가 단계마다 Pod를 띄웁니다. 단계 하나가 실행되는 과정을 따라가 보세요.</p>
+  <div class="stepbox">
+    <div class="flow" id="flow">
+      <div class="bx" data-b="api">KFP API 서버<small>kubeflow</small></div>
+      <div class="bx" data-b="argo">Argo 컨트롤러<small>Workflow 실행</small></div>
+      <div class="bx" data-b="drv">driver<small>입력 확정, 캐시 확인</small></div>
+      <div class="bx" data-b="exe">executor Pod<small>launcher와 내 코드</small></div>
+      <div class="bx" data-b="sw">SeaweedFS<small>아티팩트 파일</small></div>
+      <div class="bx" data-b="md">메타데이터 DB<small>MLMD</small></div>
+    </div>
+    <div id="flowStep" aria-live="polite"></div>
+    <div class="story-nav"><button class="btn" type="button" id="flowPrev">이전 단계</button><button class="btn primary" type="button" id="flowNext">다음 단계</button></div>
+  </div>
+  <div class="cmd"><pre><code><span class="c"># 실행 하나는 Argo Workflow 하나</span>
+kubectl get workflows -n kubeflow-user-example-com
+
+<span class="c"># 그 Workflow가 만든 Pod들. 이름에 driver나 impl이 들어간 Pod가 보입니다</span>
+kubectl get pods -n kubeflow-user-example-com | grep digits-training
+
+<span class="c"># 내 함수의 출력은 executor Pod의 main 컨테이너 로그에</span>
+kubectl logs &lt;executor-pod-이름&gt; -n kubeflow-user-example-com -c main</code></pre></div>
+  <div class="callout link">
+    <span class="h">2편의 지식이 그대로 쓰입니다</span>
+    <p>단계가 시작되지 않으면 Pod가 Pending인지, 이미지를 못 받는지, OOMKilled인지 2편의 방법대로 봅니다. 파이프라인은 결국 Pod들의 묶음이고, 할당량과 자원 요청, 노드 선택도 똑같이 적용됩니다.</p>
+  </div>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>캐시</h2>
+  <p>KFP는 단계를 실행하기 전에, 같은 컴포넌트 정의와 같은 입력으로 성공한 기록이 있는지 확인합니다. 있으면 실행을 건너뛰고 그때의 출력을 그대로 씁니다. 캐시는 기본으로 켜져 있습니다. 직전 실행이 test_size 0.2, n_estimators 200이었다고 하고, 조건을 바꿔 보세요.</p>
+  <div class="csim">
+    <div class="ctl">
+      <div><label class="lab" for="cTs">test_size</label><select id="cTs"><option value="0.2">0.2 (직전과 같음)</option><option value="0.3">0.3</option></select></div>
+      <div><label class="lab" for="cNe">n_estimators</label><select id="cNe"><option value="200">200 (직전과 같음)</option><option value="300">300</option></select></div>
+      <label class="ck"><input type="checkbox" id="cCode"> train 함수 코드를 고침</label>
+      <label class="ck"><input type="checkbox" id="cOff"> 캐시 끄고 제출</label>
+    </div>
+    <div class="tasks" id="cTasks"></div>
+    <p id="cMsg" style="margin:14px 0 0;font-size:15px" aria-live="polite"></p>
+  </div>
+  <ul class="plain">
+    <li>캐시는 입력 값뿐 아니라 컴포넌트 정의(이미지, 명령, 함수 코드)까지 봅니다. 코드를 고치면 그 단계부터 다시 실행됩니다.</li>
+    <li>앞 단계가 다시 실행되면 새 아티팩트가 만들어지므로, 그것을 받는 뒤 단계도 입력이 달라져 다시 실행됩니다.</li>
+    <li>현재 시각이나 외부 데이터베이스처럼 입력에 드러나지 않는 것을 읽는 단계는 캐시가 잘못된 결과를 돌려줄 수 있습니다. 이런 단계는 <code>task.set_caching_options(False)</code>로 캐시를 끄고, 실행 전체는 제출할 때 <code>enable_caching=False</code>로 끌 수 있습니다.</li>
+  </ul>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>로컬에서 먼저 돌려 보기</h2>
+  <p>오타 하나 고치려고 매번 클러스터에 제출하면 느립니다. KFP SDK에는 컴포넌트와 파이프라인을 내 PC나 노트북 안에서 바로 실행해 보는 로컬 실행 기능이 있습니다. SubprocessRunner는 컨테이너 없이 현재 Python 환경(기본으로는 임시 가상 환경)에서, DockerRunner는 로컬 Docker에서 실행합니다.</p>
+<pre><code><span class="k">from</span> kfp <span class="k">import</span> local
+local.init(runner=local.SubprocessRunner())
+
+<span class="c"># 파이프라인 함수를 그냥 부르면 로컬에서 실행됩니다</span>
+result = digits_pipeline(n_estimators=<span class="s">50</span>)
+
+<span class="c"># 컴포넌트 하나만 시험할 수도 있습니다</span>
+data = load_data(test_size=<span class="s">0.2</span>)
+print(data.outputs[<span class="s">"train_data"</span>].path)</code></pre>
+  <p>로컬 실행은 일부 기능(플랫폼별 설정 등)을 지원하지 않으므로, 로직 확인용으로 쓰고 최종 확인은 클러스터에서 합니다.</p>
+</section>
+
+<section id="s11">
+  <h2><span class="no">11</span>문제 해결</h2>
+  <p>첫 파이프라인에서 자주 만나는 증상입니다.</p>
+  <div class="chips" id="trChips" style="margin-top:14px"></div>
+  <div class="panel" id="trPanel" style="margin-top:14px" aria-live="polite"></div>
+</section>
+
+<section id="s12">
+  <h2><span class="no">12</span>용어 사전</h2>
+  <p>이 편에 새로 나온 용어입니다.</p>
+  <label for="gq" class="muted" style="font-size:14px">용어 검색</label>
+  <input class="gsearch" id="gq" type="search" placeholder="예: 아티팩트, IR, driver">
+  <div class="glist" id="glist"></div>
+  <p class="gempty" id="gempty" hidden>일치하는 용어가 없습니다. 다른 표기(한글 또는 영어)로 검색해 보세요.</p>
+</section>
+
+<section id="s13">
+  <h2><span class="no">13</span>확인 퀴즈</h2>
+  <p>여덟 문제입니다.</p>
+  <div id="quiz"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <button class="btn" id="quizReset" type="button">퀴즈 다시 풀기</button>
+</section>
+
+<section id="s14">
+  <h2><span class="no">14</span>정리와 다음 편</h2>
+  <ol class="keys">
+    <li><span>컴포넌트는 컨테이너 하나로 실행되는 단계이고, 파이프라인은 컴포넌트를 입출력으로 이은 그래프입니다. 실행(Run)은 실험(Experiment)으로 묶입니다.</span></li>
+    <li><span>작은 값은 파라미터, 파일로 다룰 결과물은 아티팩트입니다. 아티팩트는 .path로 읽고 쓰며, 오브젝트 스토리지에 저장되고 계보가 남습니다.</span></li>
+    <li><span>파이프라인 함수 안은 실행이 아니라 설계입니다. 컴포넌트 호출은 그래프에 작업을 추가하고, 출력 연결이 실행 순서를 정합니다.</span></li>
+    <li><span>Python 코드는 플랫폼 중립적인 IR YAML로 컴파일되고, API 서버가 이를 Argo Workflow로 바꿔 단계마다 driver와 executor Pod를 띄웁니다.</span></li>
+    <li><span>같은 컴포넌트 정의와 같은 입력이면 캐시가 결과를 재사용합니다. 입력에 드러나지 않는 것을 읽는 단계는 캐시를 끕니다.</span></li>
+  </ol>
+  <div class="next" style="border-left-color:var(--lv2)">
+    <span class="h">다음 편, Level 2 실무 기초</span>
+    <h4>6편: Pipelines 2, 실전 작성 패턴</h4>
+    <p>조건 분기(정확도가 기준을 넘을 때만 등록), 반복과 병렬(여러 설정을 동시에 학습), 실패해도 실행되는 정리 단계, 컨테이너형 컴포넌트와 재사용 가능한 컴포넌트 관리, 단계별 자원과 노드 지정, 예약 실행으로 만드는 지속적 학습을 다룹니다. 노트북 셀에 표시를 달아 파이프라인으로 바꿔 주는 Kale 2.0도 소개합니다.</p>
+  </div>
+</section>
+</main>
+</div>
+<footer>Kubeflow 강의 시리즈 5편. 2026년 10월 기준 Kubeflow Pipelines 2.16 계열과 KFP SDK 2.x 공식 문서, Community Distribution 26.03.1을 바탕으로 작성했습니다. 코드 예시의 패키지 버전은 예시이며, 실제로는 팀이 검증한 버전으로 고정하세요.</footer>
+<script>
+(function(){
+var root=document.documentElement;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function $(id){return document.getElementById(id);}
+var tbtn=$('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마로':'다크 테마로';try{localStorage.setItem('kf-theme',t);}catch(e){}}
+tbtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+setTheme(root.getAttribute('data-theme')||'dark');
+var prog=$('prog');function onScroll(){var h=document.documentElement;var m=h.scrollHeight-h.clientHeight;prog.style.width=(m>0?h.scrollTop/m*100:0)+'%';}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+var tocLinks=[].slice.call(document.querySelectorAll('#tocList a'));
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-25% 0px -65% 0px'});document.querySelectorAll('main section').forEach(function(s){io.observe(s);});}
+var ls=$('levelstrip');for(var i=1;i<=16;i++){var el=document.createElement('i');el.style.background='var('+(i<=4?'--lv1':i<=9?'--lv2':i<=12?'--lv3':'--lv4')+')';if(i===5)el.className='now';ls.appendChild(el);}
+function hlPy(s){return s.split('\n').map(function(l){var e=esc(l),k=e.indexOf('#'),c='';if(k>=0&&e.slice(0,k).split('&quot;').length%2===1){c='<span class="c">'+e.slice(k)+'</span>';e=e.slice(0,k);}
+  e=e.replace(/(@[\w.]+)/g,'<span class="f">$1</span>').replace(/\b(import|from|as|def|return|for|in|if)\b/g,'<span class="k">$1</span>');return e+c;}).join('\n');}
+
+/* hero morph */
+var MS=[
+ ['함수','Python 함수','--c-base','출발점은 평범한 함수입니다. 4편 노트북의 셀 코드를 입력과 출력이 분명한 함수로 감쌉니다.','def train(n_estimators, train_data, model):\n    ...'],
+ ['컴포넌트','컴포넌트','--c-nb','데코레이터와 타입 주석을 붙이면 컨테이너 하나에서 실행될 단계가 됩니다. 타입 주석이 입력과 출력의 계약입니다.','@dsl.component(base_image="python:3.11")\ndef train(n_estimators: int,\n          train_data: Input[Dataset],\n          model: Output[Model]):\n    ...'],
+ ['그래프','파이프라인','--c-kfp','파이프라인 함수 안에서 컴포넌트를 부르면 실행되지 않고 그래프에 작업이 추가됩니다. 출력을 입력으로 넘기면 화살표가 생깁니다.','@dsl.pipeline(name="digits-training")\ndef digits_pipeline(n_estimators: int = 200):\n    data = load_data()\n    train(n_estimators=n_estimators,\n          train_data=data.outputs["train_data"])'],
+ ['YAML','컴파일','--c-train','컴파일러가 그래프를 플랫폼 중립적인 IR YAML로 바꿉니다. 이 파일만 있으면 Python 없이도 실행할 수 있습니다.','compiler.Compiler().compile(\n    digits_pipeline, "digits_pipeline.yaml")\n# 결과: root.dag.tasks에 load-data, train, evaluate'],
+ ['Run','제출','--c-katib','API 서버가 실행(Run)을 만들고 실험(Experiment)에 묶어 기록합니다. 화면 업로드나 kfp.Client로 제출합니다.','client.create_run_from_pipeline_package(\n    "digits_pipeline.yaml",\n    experiment_name="digits",\n    namespace="kubeflow-user-example-com")'],
+ ['Workflow','Argo Workflow','--c-hub','API 서버가 IR을 Argo Workflow 리소스로 바꿔 내 네임스페이스에 만듭니다. 2편에서 본 CRD와 컨트롤러 패턴 그대로입니다.','$ kubectl get workflows -n kubeflow-user-example-com\nNAME                    STATUS    AGE\ndigits-training-x7k2p   Running   20s   # 예시 출력'],
+ ['Pod','Pod','--c-serve','단계마다 driver가 입력과 캐시를 확인하고, executor Pod가 내 함수를 실행합니다. 결과 파일은 SeaweedFS로, 기록은 메타데이터 DB로 갑니다.','$ kubectl get pods -n kubeflow-user-example-com\n...-system-container-driver-...   Completed\n...-system-container-impl-...     Running   # 예시 출력']
+];
+var stg=$('stages'),mp=$('mpanel'),mi=0;
+MS.forEach(function(m,i){var b=document.createElement('button');b.type='button';b.className='stg';b.style.setProperty('--g','var('+m[2]+')');b.innerHTML='<b>'+(i+1)+'</b>'+esc(m[0]);b.addEventListener('click',function(){mi=i;renderM();});stg.appendChild(b);});
+function renderM(){[].forEach.call(stg.children,function(b,k){b.classList.toggle('done',k<=mi);b.classList.toggle('on',k===mi);b.setAttribute('aria-pressed',k===mi?'true':'false');});var m=MS[mi];
+  mp.innerHTML='<h4>'+(mi+1)+'. '+esc(m[1])+'</h4><p>'+esc(m[3])+'</p><pre><code>'+hlPy(m[4])+'</code></pre>';$('mPrev').disabled=mi===0;$('mNext').disabled=mi===MS.length-1;}
+$('mPrev').addEventListener('click',function(){if(mi>0){mi--;renderM();}});$('mNext').addEventListener('click',function(){if(mi<MS.length-1){mi++;renderM();}});renderM();
+
+/* concepts */
+var CON=[
+ ['컴포넌트','Component','--c-nb','파이프라인의 단계 하나에 대한 정의입니다. 어떤 이미지로 무엇을 실행하고, 무엇을 받아 무엇을 내놓는지 적습니다.','공장의 작업대 설계','Runs 그래프의 상자 하나하나'],
+ ['파이프라인','Pipeline','--c-kfp','컴포넌트들을 입출력으로 이어 만든 그래프(DAG)입니다. 실행할 때 바꿀 수 있는 인자를 가집니다.','공정도','Pipelines 메뉴'],
+ ['파이프라인 버전','Pipeline Version','--c-kfp','같은 이름의 파이프라인을 고쳐 다시 올린 것입니다. 실행할 때 어느 버전으로 돌릴지 고릅니다.','공정도 개정판','파이프라인 상세 화면의 버전 목록'],
+ ['실행','Run','--c-katib','파이프라인 하나를 특정 인자로 한 번 돌린 것입니다. 실행마다 입력, 출력, 로그가 남습니다.','생산 1회차','Runs 메뉴'],
+ ['실험','Experiment','--c-katib','관련된 실행들을 묶어 비교하는 폴더입니다. 실행은 반드시 어떤 실험에 속합니다.','시험 생산 기록철','Experiments (KFP) 메뉴'],
+ ['반복 실행','Recurring Run','--c-katib','정해진 일정마다 실행을 자동으로 만드는 예약입니다. 6편에서 다룹니다.','정기 생산 일정표','Recurring Runs 메뉴'],
+ ['작업','Task','--c-base','실행 중인 그래프의 노드 하나, 즉 컴포넌트가 실제로 한 번 실행된 것입니다. 클러스터에서는 Pod가 됩니다.','이번 회차에 돌아간 작업대 하나','실행 그래프에서 상자를 누르면 보이는 상세'],
+ ['파라미터','Parameter','--c-train','숫자, 문자열 같은 작은 값입니다. 메타데이터 DB에 직접 저장됩니다.','작업 지시서의 숫자','상자 상세의 입력과 출력 탭'],
+ ['아티팩트','Artifact','--c-hub','데이터셋, 모델처럼 파일로 다루는 결과물입니다. 오브젝트 스토리지에 저장되고, 누가 만들고 어디에 쓰였는지 계보가 남습니다.','반제품과 완제품','Artifacts 메뉴, 상자의 출력'],
+ ['지표','Metrics','--c-hub','정확도 같은 숫자를 기록하는 특별한 아티팩트입니다. 실행끼리 나란히 비교할 수 있습니다.','품질 검사표','실행 비교(Compare runs) 화면']
+];
+var cc=$('conChips'),cp=$('conPanel');
+CON.forEach(function(c,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+c[2]+')');b.textContent=c[0];b.addEventListener('click',function(){selC(i);});cc.appendChild(b);});
+function selC(i){var c=CON[i];[].forEach.call(cc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});cp.style.setProperty('--c','var('+c[2]+')');
+  cp.innerHTML='<h4>'+c[0]+'</h4><p class="meta">'+c[1]+'</p><dl><dt>정의</dt><dd>'+c[3]+'</dd><dt>공장 비유</dt><dd>'+c[4]+'</dd><dt>화면에서</dt><dd>'+c[5]+'</dd></dl>';}
+selC(0);
+
+/* component tabs */
+var CT=[
+ {n:'Lightweight Python',code:'@dsl.component(base_image="python:3.11",\n               packages_to_install=["scikit-learn==1.5.2"])\ndef train(n_estimators: int, model: Output[Model]):\n    from sklearn.ensemble import RandomForestClassifier\n    ...',what:'함수 하나가 곧 컴포넌트입니다. 함수 코드가 문자열로 IR에 들어가고, 실행할 때 지정한 이미지 위에서 실행됩니다.',good:'가장 빨리 만들 수 있습니다. 이미지를 따로 빌드하지 않아도 됩니다.',bad:'import를 함수 안에 써야 하고, 다른 파일의 코드를 쓸 수 없습니다. 추가 패키지는 실행 때마다 설치됩니다.',when:'실습, 프로토타입, 짧은 단계'},
+ {n:'Containerized Python',code:'# src/train.py  (같은 폴더의 다른 모듈도 import 가능)\nfrom kfp import dsl\nfrom kfp.dsl import Input, Output, Dataset, Model\nfrom utils import build_model\n\n@dsl.component(base_image="python:3.11",\n               target_image="registry.example.com/team/train-comp:1.0")\ndef train(train_data: Input[Dataset], model: Output[Model]):\n    ...\n\n# 터미널에서 이미지로 빌드하고 레지스트리에 올리기\n# kfp component build src/ --push-image',what:'함수가 들어 있는 폴더 전체를 이미지로 빌드해, 그 이미지가 실행됩니다. target_image가 빌드 결과 이미지 이름입니다.',good:'여러 파일로 나눈 코드, 미리 설치한 패키지, 폐쇄망 환경에 적합합니다. 실행이 빠릅니다.',bad:'코드를 고칠 때마다 이미지를 다시 빌드하고 올려야 합니다.',when:'팀이 계속 쓰는 단계, 운영 파이프라인'},
+ {n:'Container',code:'@dsl.container_component\ndef resize_images(src: Input[Dataset], dst: Output[Dataset]):\n    return dsl.ContainerSpec(\n        image="registry.example.com/tools/imagemagick:7",\n        command=["sh", "-c"],\n        args=["mkdir -p $1 && mogrify -path $1 -resize 224x224 $0/*.jpg",\n              src.path, dst.path])',what:'Python 함수를 실행하는 대신, 임의의 컨테이너 이미지와 명령을 단계로 씁니다. 입출력 경로는 인자로 넘겨줍니다.',good:'Python이 아닌 도구, 이미 만들어진 이미지, 다른 언어로 된 프로그램을 그대로 쓸 수 있습니다.',bad:'입출력을 명령 인자로 직접 연결해야 해서 Python 컴포넌트보다 손이 많이 갑니다.',when:'기존 도구 재사용, Spark나 셸 스크립트, 다른 언어'}
+];
+var tabs=$('compTabs'),tp=$('compPanel');
+CT.forEach(function(t,i){var b=document.createElement('button');b.type='button';b.className='tab';b.setAttribute('role','tab');b.textContent=t.n;b.addEventListener('click',function(){selT(i);});tabs.appendChild(b);});
+function selT(i){var t=CT[i];[].forEach.call(tabs.children,function(b,k){b.setAttribute('aria-selected',k===i?'true':'false');});
+  tp.innerHTML='<pre><code>'+hlPy(t.code)+'</code></pre><dl><dt>정체</dt><dd>'+t.what+'</dd><dt>장점</dt><dd>'+t.good+'</dd><dt>단점</dt><dd>'+t.bad+'</dd><dt>이럴 때</dt><dd>'+t.when+'</dd></dl>';}
+selT(0);
+
+/* classifier */
+var CL=[
+ ['학습률 0.001','p','작은 숫자이므로 파라미터입니다. 실행할 때마다 바꿔 넣는 값의 전형입니다.'],
+ ['정제된 학습 데이터 CSV (200MB)','a','파일이고 크며, 어떤 실행이 만들었는지 계보가 중요합니다. Dataset 아티팩트로 넘깁니다.'],
+ ['학습된 모델 파일','a','Model 아티팩트로 넘기면 메타데이터를 붙이고, 9편에서 모델 레지스트리와 연결하기 좋습니다.'],
+ ['테스트 정확도 0.97','both','둘 다 맞습니다. 다음 단계의 조건 판단에 쓰려면 반환값(파라미터)으로, 화면에서 실행끼리 비교하려면 Metrics 아티팩트로 남깁니다. 실습 코드는 둘 다 했습니다.'],
+ ['원본 데이터가 있는 S3 경로 문자열','p','값 자체는 짧은 문자열이라 파라미터로 넘길 수 있습니다. 다만 KFP가 그 파일을 관리하지 않으므로 계보는 남지 않습니다. 파이프라인 안에서 만든 데이터라면 아티팩트로 넘기는 편이 낫습니다.'],
+ ['에폭 수 10','p','작은 정수입니다. 파라미터로 넘깁니다.'],
+ ['혼동 행렬','a','ClassificationMetrics 아티팩트로 남기면 화면에서 바로 시각화됩니다.'],
+ ['평가 리포트 HTML','a','HTML 아티팩트로 남기면 화면에서 바로 열어 볼 수 있습니다.']
+];
+var cls=$('cls');
+CL.forEach(function(c,i){var d=document.createElement('div');d.className='cls-row';d.innerHTML='<span class="what">'+esc(c[0])+'</span><div class="opts"><button class="opt" type="button" data-v="p">파라미터</button><button class="opt" type="button" data-v="a">아티팩트</button></div><p class="fb"></p>';
+  d.querySelector('.opts').addEventListener('click',function(e){var b=e.target.closest('.opt');if(!b)return;var v=b.dataset.v,ok=c[1]==='both'||c[1]===v;
+    d.querySelectorAll('.opt').forEach(function(x){x.classList.toggle('on',x===b);});d.classList.toggle('right',ok);d.classList.toggle('wrong',!ok);
+    var fb=d.querySelector('.fb');fb.textContent=(ok?'좋습니다. ':'다시 생각해 보세요. ')+c[2];fb.classList.add('show');});
+  cls.appendChild(d);});
+
+/* annotated python */
+var PY=[
+ ['from kfp import dsl, compiler','imp'],['from kfp.dsl import Input, Output, Dataset, Model, Metrics','imp'],['',''],
+ ['@dsl.component(base_image="python:3.11",','comp'],['               packages_to_install=["scikit-learn==1.5.2", "pandas==2.2.3"])','pkgs'],
+ ['def load_data(test_size: float,','sig'],['              train_data: Output[Dataset],','out'],['              test_data: Output[Dataset]):','out'],
+ ['    from sklearn.datasets import load_digits','inner'],['    from sklearn.model_selection import train_test_split','inner'],['    import pandas as pd','inner'],
+ ['    X, y = load_digits(return_X_y=True, as_frame=True)',''],['    df = X.assign(label=y)',''],
+ ['    tr, te = train_test_split(df, test_size=test_size, random_state=42, stratify=df["label"])','seed'],
+ ['    tr.to_csv(train_data.path, index=False)','path'],['    te.to_csv(test_data.path, index=False)','path'],['',''],
+ ['@dsl.component(base_image="python:3.11",','comp'],['               packages_to_install=["scikit-learn==1.5.2", "pandas==2.2.3"])','pkgs'],
+ ['def train(n_estimators: int, train_data: Input[Dataset], model: Output[Model]):','in'],
+ ['    import pandas as pd, joblib','inner'],['    from sklearn.ensemble import RandomForestClassifier','inner'],
+ ['    df = pd.read_csv(train_data.path)','path'],['    clf = RandomForestClassifier(n_estimators=n_estimators, n_jobs=2, random_state=42)',''],
+ ['    clf.fit(df.drop(columns="label"), df["label"])',''],['    joblib.dump(clf, model.path)','path'],['    model.metadata["framework"] = "scikit-learn"','meta'],['',''],
+ ['@dsl.component(base_image="python:3.11",','comp'],['               packages_to_install=["scikit-learn==1.5.2", "pandas==2.2.3"])','pkgs'],
+ ['def evaluate(test_data: Input[Dataset], model: Input[Model],','in'],['             metrics: Output[Metrics]) -> float:','ret'],
+ ['    import pandas as pd, joblib','inner'],['    from sklearn.metrics import accuracy_score','inner'],
+ ['    df = pd.read_csv(test_data.path)','path'],['    clf = joblib.load(model.path)','path'],
+ ['    acc = accuracy_score(df["label"], clf.predict(df.drop(columns="label")))',''],
+ ['    metrics.log_metric("accuracy", acc)','log'],['    return acc','ret'],['',''],
+ ['@dsl.pipeline(name="digits-training", description="손글씨 숫자 분류 학습")','pipe'],
+ ['def digits_pipeline(test_size: float = 0.2, n_estimators: int = 200):','pargs'],
+ ['    data = load_data(test_size=test_size)','task'],
+ ['    trained = train(n_estimators=n_estimators,','task'],['                    train_data=data.outputs["train_data"])','wire'],
+ ['    trained.set_cpu_limit("2").set_memory_limit("2G")','res'],
+ ['    evaluate(test_data=data.outputs["test_data"],','wire'],['             model=trained.outputs["model"])','wire'],['',''],
+ ['compiler.Compiler().compile(digits_pipeline, "digits_pipeline.yaml")','compile']
+];
+var PN={
+ imp:['import','dsl에는 데코레이터와 파이프라인 문법이, compiler에는 YAML 변환기가 있습니다. Input과 Output은 아티팩트를 감싸는 표시이고, Dataset, Model, Metrics는 아티팩트의 종류입니다.'],
+ comp:['@dsl.component','이 함수를 컴포넌트로 만듭니다. base_image는 단계가 실행될 컨테이너 이미지로, 안에 Python이 있어야 합니다.'],
+ pkgs:['packages_to_install','단계가 시작될 때 pip로 설치할 패키지입니다. 버전을 고정하세요. 실행 때마다 설치하므로 느리고 폐쇄망에서는 실패합니다. 사내 PyPI 미러가 있다면 pip_index_urls로 지정할 수 있습니다.'],
+ sig:['타입 주석이 곧 입출력 정의','float, int, str 같은 일반 타입은 파라미터입니다. 모든 인자에 타입 주석이 있어야 컴파일됩니다.'],
+ out:['Output[Dataset]','이 단계가 만들어 내는 아티팩트입니다. 호출할 때 값을 넘기지 않습니다. KFP가 저장할 자리를 마련해 함수에 넘겨 줍니다.'],
+ inner:['import는 함수 안에','KFP는 함수 본문만 떼어 컨테이너로 보냅니다. 함수 바깥의 import나 변수는 실행할 때 존재하지 않으므로, 쓰는 것은 모두 함수 안에 둡니다(7장).'],
+ seed:['random_state 고정','같은 입력이면 같은 결과가 나와야 재현이 되고, 캐시도 의미가 있습니다(9장).'],
+ path:['.path','컨테이너 안의 로컬 파일 경로입니다. 출력의 .path에 쓰면 단계가 끝난 뒤 KFP가 오브젝트 스토리지에 올리고, 입력의 .path는 시작 전에 내려받아 둔 파일입니다. 코드에서 S3를 직접 다룰 필요가 없습니다.'],
+ in:['Input[Dataset]','앞 단계가 만든 아티팩트를 받습니다. .path로 읽기만 합니다.'],
+ meta:['아티팩트 메타데이터','아티팩트에 붙는 정보입니다. 화면과 메타데이터 DB에 남아 나중에 찾고 비교할 때 씁니다. 9편의 Kubeflow Hub로 이어집니다.'],
+ ret:['반환값과 Metrics','-> float 반환값은 Output이라는 이름의 출력 파라미터입니다. Metrics 아티팩트와는 별개로, 다음 단계에서 조건을 판단할 때(6편) 쓰기 좋습니다.'],
+ log:['log_metric','화면에서 실행끼리 나란히 비교되는 지표로 기록합니다.'],
+ pipe:['@dsl.pipeline','이 함수는 그래프 설계도입니다. name은 화면에 보이는 파이프라인 이름입니다.'],
+ pargs:['파이프라인 인자','실행할 때 바꿀 수 있는 값입니다. 기본값이 있으면 실행할 때 생략할 수 있습니다. 파라미터 타입만 쓸 수 있습니다.'],
+ task:['컴포넌트 호출은 실행이 아니다','여기서는 데이터를 불러오지 않습니다. 그래프에 작업(PipelineTask)이 하나 추가될 뿐입니다. 인자는 반드시 키워드로 넘깁니다.'],
+ wire:['출력을 입력으로 연결','이 연결이 화살표가 되어 실행 순서를 자동으로 정합니다. 출력이 여러 개면 .outputs["이름"], 하나뿐이면 .output을 씁니다.'],
+ res:['단계별 자원','이 단계 Pod의 resources에 상한(limits)으로 들어갑니다. 최소값은 set_cpu_request, set_memory_request로 따로 정합니다. 2편 9장의 내용 그대로입니다.'],
+ compile:['컴파일','IR YAML 파일을 만듭니다. 이 파일을 화면에 올리거나 kfp.Client로 제출합니다. 코드와 함께 Git에 두면 무엇이 실행되었는지 남습니다.']
+};
+var pre=$('pyPre');
+pre.innerHTML=PY.map(function(l){return '<span class="ln'+(l[1]?' has':'')+'" data-k="'+l[1]+'"'+(l[1]?' tabindex="0" role="button"':'')+'>'+(l[0]?hlPy(l[0]):' ')+'</span>';}).join('');
+function selY(k){pre.querySelectorAll('.ln').forEach(function(s){s.classList.toggle('on',s.dataset.k===k);});var n=PN[k];$('pyNote').innerHTML='<b>'+n[0]+'</b>'+n[1];}
+pre.addEventListener('click',function(e){var s=e.target.closest('.ln.has');if(s)selY(s.dataset.k);});
+pre.addEventListener('keydown',function(e){var s=e.target.closest('.ln.has');if(s&&(e.key==='Enter'||e.key===' ')){e.preventDefault();selY(s.dataset.k);}});
+selY('task');
+
+/* flow */
+var FL=[
+ {on:['api'],t:'1. Workflow 만들기',d:'실행 요청을 받은 KFP API 서버가 IR을 Argo Workflow 리소스로 바꿔 내 네임스페이스에 만들고, 실행 기록을 DB에 남깁니다.'},
+ {on:['argo'],t:'2. 순서대로 출발',d:'Argo Workflow 컨트롤러가 Workflow를 보고 그래프 순서대로 단계를 시작합니다. 서로 의존하지 않는 단계는 동시에 시작합니다.'},
+ {on:['drv','md'],t:'3. driver: 입력 확정과 캐시 확인',d:'각 단계마다 driver가 먼저 실행됩니다. 메타데이터 DB에서 입력 파라미터 값과 입력 아티팩트의 위치를 찾아 확정하고, 같은 정의와 같은 입력으로 성공한 기록이 있는지 확인합니다. 있으면 executor를 건너뛰고 캐시된 출력을 씁니다.'},
+ {on:['exe','sw'],t:'4. executor 준비',d:'executor Pod가 시작되면 KFP의 launcher가 입력 아티팩트를 오브젝트 스토리지에서 내려받아 .path 위치에 놓습니다. packages_to_install이 있으면 이때 pip 설치가 일어납니다.'},
+ {on:['exe'],t:'5. 내 함수 실행',d:'이제야 내가 쓴 함수가 실행됩니다. 출력은 .path 위치에 파일로 씁니다. 함수의 print와 오류는 이 Pod의 main 컨테이너 로그에 남습니다.'},
+ {on:['exe','sw','md'],t:'6. 결과 올리기와 기록',d:'함수가 끝나면 launcher가 출력 아티팩트를 SeaweedFS에 올리고, 출력 파라미터와 아티팩트 정보를 메타데이터 DB(ML Metadata)에 기록합니다. 다음 단계의 driver는 바로 이 기록에서 입력을 찾습니다.'}
+];
+var fi=0;function renderF(){var s=FL[fi];document.querySelectorAll('#flow .bx').forEach(function(b){b.classList.toggle('on',s.on.indexOf(b.dataset.b)>=0);});$('flowStep').innerHTML='<h4>'+s.t+'</h4><p style="margin:0">'+s.d+'</p>';$('flowPrev').disabled=fi===0;$('flowNext').disabled=fi===FL.length-1;}
+$('flowPrev').addEventListener('click',function(){if(fi>0){fi--;renderF();}});$('flowNext').addEventListener('click',function(){if(fi<FL.length-1){fi++;renderF();}});renderF();
+
+/* cache sim */
+function csim(){var ts=$('cTs').value!=='0.2',ne=$('cNe').value!=='200',code=$('cCode').checked,off=$('cOff').checked;
+  var ld=off||ts,tr=off||ld||ne||code,ev=off||tr;
+  function box(n,run,why){return '<div class="tk" style="--v:var('+(run?'--c-train':'--c-kfp')+')"><b>'+n+'</b><span>'+(run?'다시 실행':'캐시 사용, 실행 생략')+'</span><small>'+why+'</small></div>';}
+  var w1=off?'캐시를 껐습니다':ts?'입력 test_size가 바뀜':'정의와 입력이 직전과 같음';
+  var w2=off?'캐시를 껐습니다':ld?'앞 단계가 새 데이터를 만듦':code?'함수 코드가 바뀌어 컴포넌트 정의가 달라짐':ne?'입력 n_estimators가 바뀜':'정의와 입력이 직전과 같음';
+  var w3=off?'캐시를 껐습니다':tr?'앞 단계가 새 모델을 만듦':'정의와 입력이 직전과 같음';
+  $('cTasks').innerHTML=box('load_data',ld,w1)+'<span class="arr" aria-hidden="true">→</span>'+box('train',tr,w2)+'<span class="arr" aria-hidden="true">→</span>'+box('evaluate',ev,w3);
+  var n=[ld,tr,ev].filter(Boolean).length;
+  $('cMsg').textContent=n===0?'세 단계 모두 캐시를 씁니다. Pod가 하나도 뜨지 않고 실행이 몇 초 만에 끝납니다. 같은 결과를 다시 계산하지 않는 것이 캐시의 목적입니다.':n===3?'세 단계 모두 다시 실행됩니다.':'다시 실행되는 단계는 '+n+'개입니다. 바뀐 지점부터 아래쪽만 다시 계산됩니다.';}
+['cTs','cNe','cCode','cOff'].forEach(function(id){$(id).addEventListener('change',csim);});csim();
+
+/* copy */
+document.querySelectorAll('.cmd').forEach(function(c){var b=document.createElement('button');b.type='button';b.className='copy';b.textContent='복사';c.appendChild(b);
+  b.addEventListener('click',function(){var txt=c.querySelector('pre').innerText;function ok(){b.textContent='복사됨';setTimeout(function(){b.textContent='복사';},1400);}
+    function fb(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok();}catch(e){b.textContent='직접 선택하세요';}document.body.removeChild(ta);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,fb);}else fb();});});
+
+/* troubleshooting */
+var TS=[
+ ['실행이 시작되지 않고 멈춰 있음','--c-mon','단계의 Pod가 Pending입니다. 자원 부족, 네임스페이스 할당량 초과, 이미지 다운로드 대기가 흔한 원인입니다.','kubectl get pods로 해당 실행의 Pod를 찾고 describe의 Events를 봅니다. 2편 10장의 방법 그대로입니다.'],
+ ['kfp.Client()에서 403이나 연결 실패','--c-katib','노트북에 Pipelines 접근 허용 설정(PodDefault)이 없거나, 제출할 때 namespace를 지정하지 않았거나 권한 없는 네임스페이스를 지정했습니다.','노트북을 만들 때 설정에서 Pipelines 접근 허용을 켭니다. 이미 만든 노트북이라면 그 설정으로 다시 만듭니다. namespace는 내 프로필 네임스페이스로 지정합니다.'],
+ ['pip 설치 단계에서 실패','--c-hub','packages_to_install이 인터넷에서 패키지를 받지 못했습니다. 폐쇄망이나 프록시 환경에서 흔합니다.','패키지를 미리 넣은 이미지를 base_image로 쓰거나 컨테이너형 컴포넌트로 바꿉니다. 사내 PyPI 미러가 있다면 pip_index_urls로 지정합니다.'],
+ ['NameError: name is not defined','--c-hub','컴포넌트 함수 바깥에서 import했거나, 바깥의 변수나 함수를 썼습니다. KFP는 함수 본문만 컨테이너로 보냅니다.','필요한 import와 도우미 함수를 모두 컴포넌트 함수 안으로 옮깁니다. 여러 파일이 필요하면 컨테이너형 컴포넌트를 씁니다.'],
+ ['다음 단계가 입력 파일을 못 찾음','--c-hub','출력 아티팩트의 .path가 아닌 다른 경로에 파일을 썼거나, 아예 쓰지 않았습니다.','출력은 반드시 해당 Output의 .path에 씁니다. 폴더를 만들어야 하면 .path를 폴더 이름으로 쓰고 그 안에 파일을 둡니다.'],
+ ['컴파일할 때 타입 관련 오류','--c-mon','타입 주석이 없는 인자가 있거나, 파이프라인 함수 안에서 작업의 출력을 일반 Python 값처럼 썼습니다(예: if acc > 0.9).','모든 컴포넌트 인자에 타입 주석을 붙입니다. 조건 분기는 KFP 전용 문법을 써야 하며 6편에서 다룹니다.'],
+ ['코드를 고쳤는데 결과가 그대로','--c-base','고친 코드를 다시 컴파일하지 않고 예전 YAML을 실행했거나, 화면에서 예전 파이프라인 버전을 골랐습니다.','다시 컴파일하고, 새 파이프라인 버전으로 올렸는지 확인합니다. 실행 상세에서 어느 버전으로 실행되었는지 볼 수 있습니다.'],
+ ['보안 정책 때문에 단계 Pod가 거부됨','--c-katib','Pod 보안 표준 restricted가 걸린 네임스페이스에서 root로 실행되는 이미지를 썼습니다.','KFP 2.16부터 SDK와 API 서버 설정으로 runAsNonRoot, runAsUser, runAsGroup을 지정할 수 있습니다. 이미지 자체도 일반 사용자로 동작하게 만드는 것이 좋습니다(13편).'],
+ ['단계가 OOMKilled','--c-data','단계의 메모리 상한보다 많은 데이터를 메모리에 올렸습니다.','해당 작업에 set_memory_limit과 set_memory_request로 메모리를 늘리거나, 데이터를 나눠 처리합니다.']
+];
+var tc=$('trChips'),tpn=$('trPanel');
+TS.forEach(function(s,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+s[1]+')');b.textContent=s[0];b.addEventListener('click',function(){selTs(i);});tc.appendChild(b);});
+function selTs(i){var s=TS[i];[].forEach.call(tc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});tpn.style.setProperty('--c','var('+s[1]+')');tpn.innerHTML='<h4>'+esc(s[0])+'</h4><dl><dt>원인</dt><dd>'+esc(s[2])+'</dd><dt>해결</dt><dd>'+esc(s[3])+'</dd></dl>';}
+selTs(0);
+
+/* glossary */
+var G=[
+ ['KFP','Kubeflow Pipelines','Kubeflow의 파이프라인 구성요소. SDK, API 서버, UI, 실행 엔진 연동을 포함.'],
+ ['컴포넌트','Component','파이프라인의 단계 하나에 대한 정의. 실행되면 컨테이너 하나가 된다.'],
+ ['Lightweight Python 컴포넌트','Lightweight Python component','함수 하나를 그대로 컴포넌트로 만드는 방식. 함수 본문이 IR에 들어간다.'],
+ ['컨테이너형 Python 컴포넌트','Containerized Python component','함수가 있는 폴더를 이미지로 빌드해 실행하는 방식. kfp component build로 빌드.'],
+ ['컨테이너 컴포넌트','Container component','임의의 이미지와 명령을 단계로 쓰는 방식. dsl.ContainerSpec을 반환한다.'],
+ ['파이프라인','Pipeline','컴포넌트를 입출력으로 이어 만든 그래프(DAG).'],
+ ['PipelineTask','PipelineTask','파이프라인 함수 안에서 컴포넌트를 호출하면 돌려받는 객체. 그래프의 노드.'],
+ ['파이프라인 버전','Pipeline Version','같은 파이프라인을 고쳐 다시 올린 것.'],
+ ['실행','Run','파이프라인을 특정 인자로 한 번 돌린 것.'],
+ ['실험 (KFP)','Experiment','실행을 묶어 비교하는 단위. Katib의 Experiment와 다른 것.'],
+ ['반복 실행','Recurring Run','일정에 따라 실행을 자동으로 만드는 예약.'],
+ ['파라미터','Parameter','단계 사이에 오가는 작은 값. 메타데이터 DB에 저장.'],
+ ['아티팩트','Artifact','파일로 다루는 결과물. 오브젝트 스토리지에 저장되고 계보가 남는다.'],
+ ['Dataset, Model, Metrics','Artifact types','대표적인 아티팩트 종류. 데이터셋, 모델, 지표.'],
+ ['ClassificationMetrics','ClassificationMetrics','혼동 행렬, ROC 곡선 등을 담아 화면에서 시각화되는 아티팩트.'],
+ ['.path','Artifact path','아티팩트의 컨테이너 안 로컬 파일 경로. 여기에 쓰고 여기서 읽는다.'],
+ ['IR YAML','Intermediate Representation, PipelineSpec','컴파일된 플랫폼 중립 파이프라인 정의.'],
+ ['kfp.Client','kfp.Client','Pipelines API에 파이프라인을 올리고 실행을 만드는 Python 클라이언트.'],
+ ['Argo Workflow','Argo Workflow','KFP 실행이 클러스터에서 바뀌는 Kubernetes 리소스. Argo 컨트롤러가 단계 Pod를 띄운다.'],
+ ['driver','Driver','단계 실행 전에 입력을 확정하고 캐시를 확인하는 KFP 구성요소.'],
+ ['launcher','Launcher','executor Pod 안에서 입력 아티팩트를 내려받고 출력을 올리는 KFP 구성요소.'],
+ ['ML Metadata','MLMD','실행, 아티팩트, 그 관계(계보)를 기록하는 메타데이터 저장소.'],
+ ['캐시','Caching','같은 컴포넌트 정의와 같은 입력이면 이전 출력을 재사용하는 기능. 기본으로 켜져 있다.'],
+ ['로컬 실행','Local execution','kfp.local로 컴포넌트와 파이프라인을 클러스터 없이 실행해 보는 기능.'],
+ ['packages_to_install','packages_to_install','단계 시작 때 pip로 설치할 패키지 목록.'],
+ ['pip_index_urls','pip_index_urls','packages_to_install이 패키지를 받을 PyPI 주소. 사내 미러 지정에 쓴다.'],
+ ['Kubernetes 네이티브 API 모드','Kubernetes native API mode','파이프라인 정의를 DB 대신 Pipeline, PipelineVersion CRD로 저장하는 KFP 배포 방식. GitOps와 잘 맞는다.']
+];
+var gl=$('glist'),gq=$('gq'),ge=$('gempty');
+function renderG(){var q=gq.value.trim().toLowerCase(),out=G.filter(function(g){return !q||(g[0]+' '+g[1]+' '+g[2]).toLowerCase().indexOf(q)>=0;});gl.innerHTML=out.map(function(g){return '<div class="gitem"><b>'+esc(g[0])+'</b><small>'+esc(g[1])+'</small><p>'+esc(g[2])+'</p></div>';}).join('');ge.hidden=out.length>0;}
+gq.addEventListener('input',renderG);renderG();
+
+/* quiz */
+var Q=[
+ {q:'파이프라인 함수 안에서 load_data(test_size=0.2)를 호출하면 일어나는 일은?',o:['그 자리에서 데이터를 불러온다','그래프에 작업이 하나 추가될 뿐, 실행은 나중에 클러스터에서 일어난다','오류가 난다','노트북 커널에서 실행된다'],a:1,e:'파이프라인 함수 안은 설계입니다. 호출은 PipelineTask를 돌려줍니다.'},
+ {q:'200MB짜리 정제된 CSV를 다음 단계로 넘기는 바른 방법은?',o:['문자열 파라미터에 내용을 통째로 넣는다','Output[Dataset]의 .path에 파일로 쓴다','노트북 PVC에 저장하고 경로를 말로 전달한다','print로 출력한다'],a:1,e:'큰 결과물은 아티팩트로. KFP가 저장하고 다음 단계에 내려받아 줍니다.'},
+ {q:'함수 바깥에서 import pandas as pd를 하고 컴포넌트 안에서 pd를 썼더니 NameError가 납니다. 이유는?',o:['pandas가 설치되지 않아서','KFP가 함수 본문만 떼어 컨테이너로 보내기 때문','Python 버전이 달라서','캐시 때문'],a:1,e:'import는 컴포넌트 함수 안에 둡니다.'},
+ {q:'직전 실행과 같은 조건에서 n_estimators만 바꿔 다시 제출하면?',o:['세 단계 모두 다시 실행','load_data는 캐시를 쓰고 train과 evaluate는 다시 실행','evaluate만 다시 실행','아무것도 실행되지 않음'],a:1,e:'바뀐 지점부터 아래쪽만 다시 계산됩니다.'},
+ {q:'KFP 실행 하나는 클러스터에서 어떤 리소스가 되나요?',o:['Deployment 하나','Argo Workflow 하나와 단계별 Pod들','StatefulSet 하나','CronJob 하나'],a:1,e:'API 서버가 IR을 Argo Workflow로 바꿔 내 네임스페이스에 만듭니다.'},
+ {q:'컴포넌트 함수의 print 출력을 kubectl로 보려면?',o:['API 서버 Pod의 로그','executor Pod의 main 컨테이너 로그','Argo 컨트롤러 로그','Dex 로그'],a:1,e:'내 함수는 executor Pod의 main 컨테이너에서 실행됩니다. 화면의 Logs 탭에서도 볼 수 있습니다.'},
+ {q:'폐쇄망에서 packages_to_install 단계가 계속 실패합니다. 알맞은 해결은?',o:['캐시를 끈다','패키지를 넣은 이미지를 쓰거나, 사내 미러를 pip_index_urls로 지정한다','파이프라인 인자를 늘린다','실험 이름을 바꾼다'],a:1,e:'실무 파이프라인은 컨테이너형 컴포넌트로 가는 것이 자연스럽습니다.'},
+ {q:'매번 외부 DB에서 최신 데이터를 읽어 오는 단계가 있습니다. 캐시를 어떻게 다뤄야 할까요?',o:['그대로 둔다','그 작업에 set_caching_options(False)를 건다','파이프라인 이름을 매번 바꾼다','입력을 없앤다'],a:1,e:'입력에 드러나지 않는 것을 읽는 단계는 캐시가 오래된 결과를 돌려줄 수 있습니다.'}
+];
+var qz=$('quiz'),sc=$('score'),dn=0,rt=0;
+function renderQ(){dn=0;rt=0;sc.textContent='';qz.innerHTML=Q.map(function(x,i){return '<div class="qq" data-i="'+i+'"><h4>'+(i+1)+'. '+esc(x.q)+'</h4>'+x.o.map(function(o,k){return '<button class="ans" type="button" data-k="'+k+'">'+esc(o)+'</button>';}).join('')+'<p class="exp"></p></div>';}).join('');}
+qz.addEventListener('click',function(e){var b=e.target.closest('.ans');if(!b||b.disabled)return;var box=b.closest('.qq'),x=Q[+box.dataset.i],k=+b.dataset.k;
+  box.querySelectorAll('.ans').forEach(function(a){a.disabled=true;if(+a.dataset.k===x.a)a.classList.add('right');});
+  if(k!==x.a)b.classList.add('wrong');else rt++;
+  var ex=box.querySelector('.exp');ex.textContent=(k===x.a?'정답입니다. ':'정답은 '+(x.a+1)+'번째 보기입니다. ')+x.e;ex.classList.add('show');
+  dn++;if(dn===Q.length){sc.textContent=Q.length+'문제 중 '+rt+'문제를 맞혔습니다.'+(rt===Q.length?' 파이프라인의 뼈대를 이해했습니다.':' 틀린 문제는 해설에 나온 장을 다시 읽어 보세요.');}});
+$('quizReset').addEventListener('click',renderQ);renderQ();
+})();
+</script>
+</body>
+</html>

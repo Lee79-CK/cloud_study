@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubeflow 강의 13편: 멀티테넌시와 보안</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+try{var t=localStorage.getItem('kf-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
+</script>
+<style>
+:root{
+  --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r-s:6px;--r-m:12px;--r-l:20px;
+}
+html[data-theme="dark"]{
+  --bg:#0F1B2D;--surface:#15253B;--raised:#1C3049;--line:#2A405E;--text:#E7EEF7;--muted:#93A6BF;--brand:#4EA8F5;--on-c:#0F1B2D;
+  --c-data:#F26B3A;--c-nb:#9BD15A;--c-kfp:#2EC4B6;--c-train:#F2A541;--c-katib:#A78BFA;--c-hub:#F47C9A;--c-serve:#4EA8F5;--c-mon:#E8D44D;--c-base:#8DA2BD;
+  --lv1:#5BC48A;--lv2:#4EA8F5;--lv3:#A78BFA;--lv4:#F2667A;
+  --ok:#5BC48A;--bad:#F2667A;--code-bg:#0A1422;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#F2F5F9;--surface:#FFFFFF;--raised:#E8EEF5;--line:#D2DCE8;--text:#14233A;--muted:#55667D;--brand:#1F6FBF;--on-c:#FFFFFF;
+  --c-data:#C9501F;--c-nb:#4F8A17;--c-kfp:#0F7F76;--c-train:#A8670C;--c-katib:#6A4ED0;--c-hub:#C23E68;--c-serve:#1F6FBF;--c-mon:#8C7700;--c-base:#5F7189;
+  --lv1:#2E9A61;--lv2:#1F6FBF;--lv3:#6A4ED0;--lv4:#C9384F;
+  --ok:#2E9A61;--bad:#C9384F;--code-bg:#14233A;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:12px}
+.series{font-weight:700;font-size:15px;line-height:1.3}
+.series span{color:var(--muted);font-weight:500;margin-left:8px}
+.theme-btn{margin-left:auto;font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+.progress{height:3px;width:0;background:linear-gradient(90deg,var(--c-data),var(--c-nb),var(--c-kfp),var(--c-train),var(--c-katib),var(--c-hub),var(--c-serve),var(--c-mon))}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:56px 24px 32px;display:grid;grid-template-columns:5fr 7fr;gap:44px;align-items:center}
+.hero h1{font-size:clamp(2.5rem,5.4vw,4.1rem);line-height:1.1;letter-spacing:-0.035em;font-weight:800;margin:0 0 22px}
+.hero .lede{font-size:1.14rem;color:var(--muted);margin:0;max-width:32em}
+.levelstrip{display:flex;gap:4px;margin:30px 0 8px;max-width:420px}
+.levelstrip i{flex:1;height:8px;border-radius:2px;opacity:.32}
+.levelstrip i.now{opacity:1;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.strip-cap{font-size:14px;color:var(--muted);margin:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:26px 0 0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:10px 10px 4px}
+.mapcap{font-size:14px;color:var(--muted);padding:2px 10px 8px;margin:0}
+@media (max-width:960px){.hero{grid-template-columns:1fr;padding-top:36px}}
+
+/* lifecycle map */
+.lcmap{width:100%;height:auto;display:block}
+.lcmap .seg{fill:none;stroke-width:11;stroke-linecap:round}
+.lcmap .st{cursor:pointer;outline:none}
+.lcmap .st .dot{fill:var(--surface);stroke:currentColor;stroke-width:4;transition:r .15s}
+.lcmap .st:hover .dot,.lcmap .st:focus-visible .dot{r:14}
+.lcmap .st.sel .dot{fill:currentColor}
+.lcmap .st:focus-visible .halo{stroke:var(--brand)}
+.lcmap .halo{fill:none;stroke:transparent;stroke-width:3}
+.lcmap .lbl{font-size:17px;font-weight:700;fill:var(--text);font-family:var(--font)}
+.lcmap .sub{font-size:13px;fill:var(--muted);font-weight:500;font-family:var(--font)}
+.lcmap .ctr1{font-size:24px;font-weight:800;fill:var(--text);font-family:var(--font);letter-spacing:-0.02em}
+.lcmap .ctr2{font-size:13.5px;fill:var(--muted);font-family:var(--font)}
+.lcmap .arrow{fill:var(--c-mon)}
+.lcmap.draw .seg{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .45s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* layout */
+.layout{max-width:1180px;margin:0 auto;padding:0 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding:24px 0 0}
+.toc p{font-weight:700;margin:0 0 10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:block;padding:5px 10px 5px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a:hover{color:var(--text)}
+.toc a.on{color:var(--text);border-left-color:var(--brand);font-weight:600}
+main{min-width:0;max-width:800px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;gap:0}.toc{display:none}}
+section{padding-top:60px}
+h2{font-size:clamp(1.6rem,3vw,2rem);line-height:1.3;letter-spacing:-0.02em;margin:0 0 18px;font-weight:800}
+h2 .no{color:var(--brand);margin-right:.35em}
+h3{font-size:1.24rem;line-height:1.4;margin:38px 0 12px;font-weight:700}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin:4px 0}
+strong{font-weight:700}
+
+/* callouts */
+.callout{border-left:4px solid var(--brand);background:var(--surface);padding:16px 20px;border-radius:0 var(--r-m) var(--r-m) 0;margin:22px 0}
+.callout p:last-child{margin-bottom:0}
+.callout .h{display:block;font-weight:700;margin-bottom:4px}
+.callout.warn{border-color:var(--c-train)}
+.callout.tip{border-color:var(--c-nb)}
+.callout.link{border-color:var(--c-katib)}
+
+/* goals */
+.goals{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.goals li{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 16px}
+.goals li::before{content:"";width:18px;height:18px;margin-top:5px;border-radius:50%;border:3px solid var(--lv1)}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin:16px 0 24px;border:1px solid var(--line);border-radius:var(--r-m)}
+.tbl{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.6;min-width:560px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font-weight:700;background:var(--raised)}
+.tbl td:first-child{font-weight:600}
+.tbl .old{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 70%,transparent)}
+
+/* story */
+.story{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:24px 26px;margin:22px 0}
+.story-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.story-dots{display:flex;gap:6px}
+.story-dots button{width:30px;height:7px;border-radius:4px;border:0;background:var(--line);cursor:pointer;padding:0}
+.story-dots button.on{background:var(--brand)}
+.story-who{font-size:14px;color:var(--muted)}
+.story h4{font-size:1.25rem;margin:0 0 10px;line-height:1.4}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:2px 11px;border-radius:999px;background:var(--raised);border:1px solid var(--line);margin-bottom:10px}
+.tag.bad{border-color:var(--bad);color:var(--bad)}
+.story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:8px 16px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.btn:disabled{opacity:.4;cursor:default}
+.mapping{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;font-size:15.5px}
+.mapping dt{font-weight:700}
+.mapping dd{margin:0;color:var(--muted)}
+
+/* debt figure */
+.debt{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:56px;gap:6px;margin:18px 0 8px}
+.debt div{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;line-height:1.35;display:flex;align-items:center}
+.debt .ml{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:700;justify-content:center}
+.figcap{font-size:14px;color:var(--muted);margin:0 0 20px}
+@media (max-width:600px){.debt{grid-template-columns:repeat(3,1fr)}.debt div{grid-column:auto!important;grid-row:auto!important}}
+
+/* maturity */
+.mat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.mat input[type=range]{width:100%;accent-color:var(--brand);margin:6px 0 2px}
+.mat-scale{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:16px}
+.mat h4{margin:0 0 8px;font-size:1.15rem}
+.mat-kf{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px}
+
+/* station panel */
+.stbtns{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.stbtn{font:inherit;font-size:14.5px;font-weight:600;padding:6px 13px;border-radius:999px;border:2px solid var(--c);background:transparent;color:var(--text);cursor:pointer}
+.stbtn.on{background:var(--c);color:var(--on-c)}
+.panel{border:1px solid var(--line);border-top:6px solid var(--c);background:var(--surface);border-radius:var(--r-m);padding:20px 24px}
+.panel h4{font-size:1.25rem;margin:0 0 2px}
+.panel .meta{font-size:14.5px;color:var(--muted);margin:0 0 6px}
+.panel dl{display:grid;grid-template-columns:8.5em 1fr;gap:10px 18px;margin:14px 0 0}
+.panel dt{color:var(--muted);font-size:15px;font-weight:600}
+.panel dd{margin:0}
+@media (max-width:600px){.panel dl{grid-template-columns:1fr;gap:2px}.panel dd{margin-bottom:10px}}
+
+/* principles */
+.princ{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.princ div{padding:16px 18px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line)}
+.princ b{display:block;margin-bottom:4px;font-size:1.05rem}
+.princ p{margin:0;font-size:15.5px;color:var(--muted)}
+@media (max-width:600px){.princ{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{list-style:none;margin:18px 0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 18px 34px}
+.tl li::before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--brand)}
+.tl li.now::before{background:var(--brand)}
+.tl b{display:block;font-size:15px;color:var(--brand)}
+
+/* component layers */
+.layers{display:flex;flex-direction:column;gap:8px;margin:20px 0 14px}
+.layer{border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px 14px;background:var(--surface)}
+.layer-h{font-size:14px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:15px;font-weight:600;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);border-left:5px solid var(--c);background:var(--raised);color:var(--text);cursor:pointer}
+.chip.on{background:var(--c);color:var(--on-c);border-color:var(--c)}
+.layer.base{background:var(--raised);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:center;font-weight:700;font-size:15px}
+.layer.base span{color:var(--muted);font-weight:500}
+
+/* code */
+pre{background:var(--code-bg);color:#DCE6F2;font-family:var(--mono);font-size:14px;line-height:1.65;padding:18px 20px;border-radius:var(--r-m);overflow-x:auto;margin:10px 0 18px}
+pre .c{color:#7F93AD}pre .k{color:#F2A541}pre .s{color:#9BD15A}pre .f{color:#6FC3FF}
+code{font-family:var(--mono);font-size:.86em;background:var(--raised);padding:1px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+.codehead{font-weight:700;margin:26px 0 0;font-size:15.5px}
+
+/* decision helper */
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.q{margin-bottom:18px}
+.q p{font-weight:600;margin:0 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{font:inherit;font-size:15px;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.opt.on{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:600}
+.result{padding:16px 18px;border-radius:var(--r-m);background:var(--raised);border-left:4px solid var(--brand)}
+.result b{display:block;font-size:1.08rem;margin-bottom:4px}
+.result p{margin:0}
+
+/* install options */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.ways div{padding:16px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c)}
+.ways b{display:block;margin-bottom:6px}
+.ways p{font-size:15px;margin:0 0 8px;color:var(--muted)}
+.ways p:last-child{margin:0}
+@media (max-width:760px){.ways{grid-template-columns:1fr}}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-top:16px}
+.tab{font:inherit;font-size:15px;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel dl{display:grid;grid-template-columns:8em 1fr;gap:10px 18px;margin:0}
+.tabpanel dt{color:var(--muted);font-weight:600;font-size:15px}
+.tabpanel dd{margin:0}
+@media (max-width:600px){.tabpanel dl{grid-template-columns:1fr;gap:2px}.tabpanel dd{margin-bottom:10px}}
+
+/* cases */
+details.case{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin:10px 0}
+details.case summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;gap:12px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary small{font-weight:500;color:var(--muted);font-size:14px}
+details.case summary::after{content:"+";margin-left:auto;font-size:22px;line-height:1;color:var(--muted)}
+details.case[open] summary::after{content:"−"}
+.case-body{padding:0 18px 16px}
+.case-body p{font-size:15.8px}
+.mini{display:inline-block;font-size:13px;font-weight:600;padding:1px 10px;border-radius:999px;border:1.5px solid var(--c);margin:2px 4px 2px 0}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:11px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px}
+.gitem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px}
+.gitem b{display:block;line-height:1.4}
+.gitem small{color:var(--muted);font-size:13px}
+.gitem p{font-size:15px;margin:6px 0 0;line-height:1.6}
+.gempty{color:var(--muted);margin-top:12px}
+
+/* quiz */
+.qq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:12px 0}
+.qq h4{margin:0 0 10px;font-size:1.06rem;line-height:1.5}
+.ans{display:block;width:100%;text-align:left;font:inherit;font-size:15.5px;padding:10px 14px;margin:6px 0;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;line-height:1.5}
+.ans:disabled{cursor:default}
+.ans.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--raised))}
+.ans.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,var(--raised))}
+.exp{display:none;font-size:15px;margin:10px 0 0;color:var(--muted)}
+.exp.show{display:block}
+.score{font-weight:700;font-size:1.05rem;margin-top:14px}
+
+/* wrap */
+.keys{counter-reset:k;list-style:none;padding:0;margin:16px 0}
+.keys li{counter-increment:k;display:grid;grid-template-columns:36px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li::before{content:counter(k);font-weight:800;font-size:1.2rem;color:var(--brand)}
+.next{margin:28px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--lv1)}
+.next .h{font-size:14px;color:var(--muted);font-weight:600}
+.next h4{font-size:1.3rem;margin:4px 0 8px}
+footer{max-width:1180px;margin:0 auto;padding:24px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+/* ---- 2편 추가 스타일 ---- */
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 16px}
+.match-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.match-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.mcol-h{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--muted)}
+.mcol{display:flex;flex-direction:column;gap:6px}
+.mw{font:inherit;font-size:14.5px;line-height:1.4;text-align:left;padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;min-height:40px}
+.mw.ml{border-left:4px solid var(--c-train)}
+.mw.k8{border-left:4px solid var(--c-serve)}
+.mw.sel{outline:2px solid var(--brand);outline-offset:1px}
+.mw.done{background:color-mix(in srgb,var(--pc) 22%,var(--raised));border-color:var(--pc);cursor:default}
+.mw.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mcard{margin-top:12px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:15px;min-height:68px}
+.mcard b{display:block}
+.mfoot{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.mfoot .btn{font-size:13.5px;padding:5px 12px;margin-left:auto}
+.part{margin:72px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--pc)}
+.part .ph{font-size:14px;font-weight:700;color:var(--pc);margin:0}
+.part h2{margin:4px 0 8px}
+.part p{margin:0;color:var(--muted)}
+.part + section{padding-top:36px}
+.toc .tp{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:14px 0 4px 12px}
+.play{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.play svg{width:100%;height:auto;display:block}
+.play .axis{stroke:var(--line);stroke-width:1.5}
+.play .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.play .tick{fill:var(--muted);font-size:12px;font-family:var(--font)}
+.play .pt{fill:var(--c-train)}
+.play .err{stroke:var(--c-hub);stroke-width:1.5;opacity:.7}
+.play .fit{stroke:var(--c-kfp);stroke-width:3.5;stroke-linecap:round}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:12px}
+.ctrls label{font-size:14.5px;font-weight:600;display:block}
+.ctrls input[type=range]{width:100%;accent-color:var(--brand)}
+.ctrls output{font-weight:700;color:var(--brand)}
+.prow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.lossbox{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:15px}
+.lossbox b{color:var(--c-hub)}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.spark path{fill:none;stroke:var(--c-hub);stroke-width:2}
+@media (max-width:600px){.ctrls{grid-template-columns:1fr}.mgrid{gap:6px 8px}.mw{font-size:13.5px;padding:7px 8px}}
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.calc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px}
+.calc label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.calc input,.calc select{width:100%;font:inherit;font-size:15.5px;padding:8px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.calc .out{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px}
+.calc .out dt{color:var(--muted)}
+.calc .out dd{margin:0;font-weight:700}
+.calc .note{font-size:14px;color:var(--muted);margin:12px 0 0}
+.fits{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fit-g{font-size:14px;padding:6px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised)}
+.fit-g.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--raised))}
+.fit-g.multi{border-color:var(--c-train);background:color-mix(in srgb,var(--c-train) 14%,var(--raised))}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 12px}
+.arch .zone{grid-column:span 4;font-size:13px;font-weight:700;color:var(--muted);margin:6px 0 -2px}
+.arch .bx{padding:10px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:14px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.arch .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:600px){.arch{grid-template-columns:repeat(2,1fr)}.arch .zone{grid-column:span 2}}
+.stepbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.stepbox h4{margin:0 0 6px;font-size:1.12rem}
+.yaml{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.yaml pre{margin:0;padding:14px 0;font-size:13.5px}
+.yaml .ln{display:block;padding:0 14px 0 16px;border-left:3px solid transparent;white-space:pre}
+.yaml .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+.ynote{position:sticky;top:90px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c-train);border-radius:var(--r-m);padding:16px 18px;font-size:15.5px}
+.ynote b{display:block;font-size:1.05rem;margin-bottom:4px}
+.ynote code{font-size:.84em}
+@media (max-width:900px){.yaml{grid-template-columns:1fr}.ynote{position:static}}
+.check{list-style:none;padding:0;margin:10px 0 0}
+.check li{margin:6px 0}
+.check label{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;cursor:pointer;font-size:15.5px}
+.check input{width:18px;height:18px;margin-top:5px;accent-color:var(--ok)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.cols2>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px;border-top:4px solid var(--pc)}
+.cols2 h4{margin:0 0 4px;font-size:1.05rem}
+@media (max-width:760px){.cols2{grid-template-columns:1fr}}
+/* ---- 3편 추가 스타일 ---- */
+.towerwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tw-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tw-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tower{display:flex;flex-direction:column-reverse;gap:3px}
+.blk{display:flex;align-items:center;gap:10px;font:inherit;text-align:left;width:100%;padding:3px 10px;min-height:27px;border-radius:5px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:13.5px;cursor:default;opacity:.55}
+.blk small{margin-left:auto;font-size:12px;color:var(--muted)}
+.blk.built{opacity:1;border:1px solid color-mix(in srgb,var(--g) 55%,var(--line));border-left:6px solid var(--g);background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text);font-weight:600;cursor:pointer}
+.blk.built small{font-weight:500}
+.blk.cur{outline:2px solid var(--text);outline-offset:1px}
+.blk.base{opacity:1}
+.tw-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.tw-legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--g);margin-right:5px;vertical-align:-1px}
+.tw-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:92px;line-height:1.6}
+.tw-card b{display:block;font-size:15px}
+.tw-ctrl{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tw-ctrl .btn{font-size:13.5px;padding:6px 12px}
+.res{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.res-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
+.res-list label{display:grid;grid-template-columns:22px 1fr;gap:6px;align-items:start;font-size:15px;cursor:pointer;padding:4px 0}
+.res-list input{width:17px;height:17px;margin-top:4px;accent-color:var(--brand)}
+.res-list small{display:block;color:var(--muted);font-size:12.5px}
+.res-list .req{color:var(--muted)}
+.res-sum{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res-sum div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.res-sum b{display:block;font-size:1.25rem;color:var(--text)}
+.res-mine{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:14px}
+.res-mine label{font-size:14px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+.res-mine input{width:110px;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.verdict{margin-top:12px;padding:12px 16px;border-radius:var(--r-m);border-left:4px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised));font-size:15px}
+.tree{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;margin:16px 0}
+.tree-list{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
+.tree-list button{font:inherit;text-align:left;padding:7px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.tree-list button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+@media (max-width:640px){.tree{grid-template-columns:1fr}}
+.steps{counter-reset:st;list-style:none;padding:0;margin:18px 0}
+.stp{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px 14px 58px;margin:10px 0}
+.stp::before{content:counter(st);position:absolute;left:16px;top:15px;width:28px;height:28px;border-radius:50%;background:var(--raised);border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand)}
+.stp.ok::before{content:"✓";background:var(--ok);border-color:var(--ok);color:var(--on-c)}
+.stp h4{margin:0 0 6px;font-size:1.08rem}
+.stp p{font-size:15.5px;margin:0 0 8px}
+.stp .opt-tag{font-size:12.5px;font-weight:700;color:var(--c-train);margin-left:6px}
+.cmd{position:relative}
+.cmd pre{margin:6px 0 8px;padding-right:76px}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:5px;border:1px solid #2A405E;background:#1C3049;color:#DCE6F2;cursor:pointer}
+.stp-done{display:inline-flex;gap:6px;align-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.stp-done input{accent-color:var(--ok);width:16px;height:16px}
+.stprog{position:sticky;top:64px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--bg);padding:8px 0;font-size:14px;color:var(--muted)}
+.stprog .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.stprog .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0 10px}
+.flow .bx{padding:10px 6px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:13.5px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.flow .bx small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.flow .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:700px){.flow{grid-template-columns:repeat(3,1fr)}}
+.dash{display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.dash-top{grid-column:span 2;display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.dash-top b{font-size:15px}
+.dash-ns{margin-left:auto;font:inherit;font-size:13.5px;padding:5px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.dash-side{border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column}
+.dash-side .grp{font-size:12px;font-weight:700;color:var(--muted);padding:10px 14px 2px}
+.dash-side button{font:inherit;font-size:14px;text-align:left;padding:7px 14px;border:0;border-left:3px solid transparent;background:none;color:var(--text);cursor:pointer}
+.dash-side button.on{border-left-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);font-weight:600}
+.dash-main{padding:18px 20px;min-height:300px}
+.dash-main h4{margin:0 0 4px;font-size:1.15rem}
+.dash-main .meta{font-size:14px;color:var(--muted);margin:0 0 10px}
+@media (max-width:700px){.dash{grid-template-columns:1fr}.dash-top{grid-column:auto;flex-wrap:wrap}.dash-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dash-side .grp{display:none}.dash-side button{border-left:0;border-bottom:3px solid transparent;padding:6px 10px}.dash-side button.on{border-bottom-color:var(--brand)}}
+/* ---- 4편 추가 스타일 ---- */
+.anat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.anat-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.anat-top .h{font-weight:700;font-size:1.05rem;margin-right:auto}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg2 button{font:inherit;font-size:13.5px;font-weight:600;padding:5px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg2 button.on{background:var(--brand);color:var(--on-c)}
+.nodes{display:flex;flex-direction:column;gap:5px}
+.node{display:flex;align-items:center;gap:8px;font:inherit;text-align:left;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--line);border-left:5px solid var(--g);background:var(--raised);color:var(--text);font-size:14px;cursor:pointer;transition:opacity .2s}
+.node small{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.node.l1{margin-left:20px;width:calc(100% - 20px)}
+.node.l2{margin-left:40px;width:calc(100% - 40px)}
+.node.l3{margin-left:60px;width:calc(100% - 60px)}
+.node.off{opacity:.35;border-style:dashed}
+.node.cur{outline:2px solid var(--text);outline-offset:1px}
+.anat-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:96px;line-height:1.6}
+.anat-card b{display:block;font-size:15px}
+.spawn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;margin:16px 0;align-items:start}
+.sform{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 8px}
+.sform fieldset{border:0;padding:0;margin:0 0 14px}
+.sform legend,.sform .lab{font-size:14px;font-weight:700;margin-bottom:6px;display:block;padding:0}
+.sform input[type=text],.sform input[type=number],.sform select{width:100%;font:inherit;font-size:15px;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.sform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sform .inl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14.5px}
+.sform .inl label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.sform input[type=checkbox],.sform input[type=radio]{accent-color:var(--brand);width:16px;height:16px}
+.sform .hint{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.sout{position:sticky;top:84px}
+.sout pre{margin:0 0 10px;font-size:13px;max-height:470px;overflow:auto}
+.checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.checks li{font-size:14.5px;padding:8px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--v)}
+@media (max-width:900px){.spawn{grid-template-columns:1fr}.sout{position:static}}
+.nbk{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.nbk-top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.nbk-top b{font-family:var(--mono);font-size:13.5px}
+.nbk-top .btn{margin-left:auto;font-size:13px;padding:5px 12px}
+.cell{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:10px 14px 4px;border-bottom:1px solid var(--line)}
+.cell:last-child{border-bottom:0}
+.cell .pr{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:12px;text-align:right}
+.cell pre{margin:4px 0 6px;font-size:13.5px}
+.cell .md{font-size:15px;margin:6px 0}
+.cell .run{font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;margin:0 0 8px}
+.cell .out{display:none;font-family:var(--mono);font-size:13px;white-space:pre-wrap;padding:8px 12px;margin:0 0 8px;border-left:3px solid var(--c-nb);background:var(--raised);border-radius:0 6px 6px 0;color:var(--text)}
+.cell .out.show{display:block}
+@media (max-width:600px){.cell{grid-template-columns:1fr}.cell .pr{text-align:left;padding-top:0}}
+/* ---- 5편 추가 스타일 ---- */
+.morph{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.morph-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.morph-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.stages{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.stg{font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:8px 4px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer;text-align:center;position:relative}
+.stg b{display:block;font-size:15px;color:var(--text)}
+.stg.done{border-color:color-mix(in srgb,var(--g) 60%,var(--line));background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text)}
+.stg.on{outline:2px solid var(--text);outline-offset:1px}
+.mpanel{margin-top:12px;border-radius:var(--r-m);background:var(--raised);padding:12px 14px;min-height:250px}
+.mpanel h4{margin:0 0 4px;font-size:1.05rem}
+.mpanel p{font-size:14.5px;margin:0 0 8px;line-height:1.6}
+.mpanel pre{margin:0;font-size:12.5px;max-height:150px}
+.mctrl{display:flex;gap:8px;margin-top:10px}
+.mctrl .btn{font-size:13.5px;padding:6px 12px}
+@media (max-width:600px){.stages{grid-template-columns:repeat(4,1fr)}}
+.cls{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.cls-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:10px 14px}
+.cls-row .what{font-weight:600;font-size:15.5px}
+.cls-row .opts .opt{font-size:14px;padding:5px 12px}
+.cls-row .fb{grid-column:span 2;font-size:14.5px;color:var(--muted);display:none;border-top:1px dashed var(--line);padding-top:8px}
+.cls-row .fb.show{display:block}
+.cls-row.right{border-color:var(--ok)}
+.cls-row.wrong{border-color:var(--bad)}
+@media (max-width:600px){.cls-row{grid-template-columns:1fr}.cls-row .fb{grid-column:auto}}
+.csim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.csim .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 18px;margin-bottom:16px}
+.csim label.lab{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.csim select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.csim .ck{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer;padding-top:22px}
+.csim .ck input{accent-color:var(--brand);width:16px;height:16px}
+.tasks{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.tk{flex:1 1 150px;padding:12px 14px;border-radius:var(--r-m);border:2px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised))}
+.tk b{display:block;font-family:var(--mono);font-size:14px}
+.tk span{font-size:14px}
+.tk small{display:block;font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.arr{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+@media (max-width:640px){.tasks{flex-direction:column}.arr{transform:rotate(90deg);align-self:center;padding:4px}}
+/* ---- 6편 추가 스타일 ---- */
+.lego{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.lego-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.lego-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.toggles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tg{font:inherit;font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.tg.on{background:var(--g);color:var(--on-c)}
+.dag{display:flex;flex-direction:column;align-items:stretch;gap:0;font-size:13.5px}
+.dn{align-self:center;padding:7px 14px;border-radius:8px;background:var(--raised);border:1.5px solid var(--g,var(--line));font-family:var(--mono);font-size:13px;text-align:center;position:relative;line-height:1.35}
+.dn em{display:block;font-style:normal;font-family:var(--font);font-size:11.5px;color:var(--muted)}
+.dn .bdg{position:absolute;top:-9px;right:-8px;font-family:var(--font);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--b);color:var(--on-c)}
+.dar{align-self:center;color:var(--muted);line-height:1;padding:3px 0;font-size:14px}
+.frame{border:1.5px dashed var(--g);border-radius:10px;padding:16px 10px 10px;position:relative;margin:4px 0}
+.frame>.fl{position:absolute;top:-10px;left:12px;background:var(--surface);padding:0 6px;font-size:12px;font-weight:700;color:var(--g)}
+.lanes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.lane{display:flex;flex-direction:column;align-items:center}
+.branches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lego pre{margin:12px 0 0;font-size:12px;max-height:260px}
+.gantt{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.gantt .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px;margin-bottom:14px}
+.gantt label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.gantt input,.gantt select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.gchart{position:relative;border-left:2px solid var(--line);border-bottom:2px solid var(--line);padding:6px 0 6px 0;margin-left:70px}
+.grow{position:relative;height:24px;margin:3px 0}
+.grow .gl{position:absolute;left:-70px;width:64px;text-align:right;font-size:12.5px;color:var(--muted);top:3px;font-family:var(--mono)}
+.gbar{position:absolute;top:0;height:24px;border-radius:5px;background:color-mix(in srgb,var(--c-train) 70%,transparent);border:1px solid var(--c-train);font-size:11.5px;color:var(--text);padding:3px 6px;white-space:nowrap;overflow:hidden}
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.gstats div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.gstats b{display:block;font-size:1.2rem;color:var(--text)}
+.cron{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.cron input{width:100%;font-family:var(--mono);font-size:17px;padding:9px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);margin-top:8px}
+.cfields{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
+.cfields div{background:var(--raised);border-radius:var(--r-s);padding:8px;text-align:center;font-size:12.5px;color:var(--muted)}
+.cfields b{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}
+@media (max-width:600px){.cfields{grid-template-columns:repeat(3,1fr)}}
+.kale{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;margin:16px 0;align-items:start}
+.kcell{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin-bottom:8px;overflow:hidden}
+.kcell .ktag{display:flex;gap:6px;padding:6px 10px;background:var(--raised);border-bottom:1px solid var(--line)}
+.kcell .ktag span{font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;border:1.5px solid var(--c);color:var(--text)}
+.kcell pre{margin:0;border-radius:0;font-size:12.5px;padding:10px 12px}
+@media (max-width:800px){.kale{grid-template-columns:1fr}}
+/* ---- 7편 추가 스타일 ---- */
+.dsim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.dsim-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.dsim-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.dctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-bottom:12px}
+.dctl label{font-size:13px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.dctl select,.dctl input{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:90px}
+.nodesg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.nodebox{border:1.5px solid var(--line);border-radius:10px;padding:8px;background:var(--raised)}
+.nodebox .nh{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.gpus{display:grid;grid-template-columns:repeat(2,1fr);gap:5px}
+.gpu{font:inherit;font-size:12px;padding:6px 4px;border-radius:6px;border:1.5px solid var(--c-train);background:color-mix(in srgb,var(--c-train) 10%,var(--surface));color:var(--text);cursor:pointer;line-height:1.3;transition:background .2s}
+.gpu b{display:block;font-family:var(--mono);font-size:13px}
+.gpu.sel{outline:2px solid var(--text);outline-offset:1px}
+.gpu.p1{background:color-mix(in srgb,var(--c-data) 30%,var(--surface));border-color:var(--c-data)}
+.gpu.p2{background:color-mix(in srgb,var(--c-train) 35%,var(--surface))}
+.gpu.p3{background:color-mix(in srgb,var(--c-katib) 35%,var(--surface));border-color:var(--c-katib)}
+.gpu.p4{background:color-mix(in srgb,var(--c-kfp) 35%,var(--surface));border-color:var(--c-kfp)}
+.nodebox.master{border-color:var(--c-hub)}
+.phases{display:flex;gap:4px;margin:12px 0 0;flex-wrap:wrap}
+.phases button{flex:1 1 90px;font:inherit;font-size:12.5px;font-weight:600;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer}
+.phases button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.dinfo{margin-top:10px;padding:10px 12px;border-radius:var(--r-m);background:var(--raised);font-size:14px;line-height:1.6;min-height:70px}
+.envbox{margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--code-bg);color:#DCE6F2;border-radius:var(--r-s);padding:10px 12px;white-space:pre}
+.envbox .c{color:#7F93AD}
+.yaml2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:16px 0}
+.yaml2 h4{margin:0 0 6px;font-size:1rem}
+.yaml2 pre{margin:0;padding:12px 0;font-size:12.5px}
+.yaml2 .ln{display:block;padding:0 12px 0 14px;border-left:3px solid transparent;white-space:pre}
+.yaml2 .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml2 .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml2 .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+@media (max-width:900px){.yaml2{grid-template-columns:1fr}}
+/* ---- 8편 추가 스타일 ---- */
+.tune{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tune-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tune-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tctl{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;margin-bottom:10px}
+.tctl label.l{font-size:12.5px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.tctl select{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.tctl .ck{display:flex;gap:6px;align-items:center;font-size:14px;cursor:pointer;padding-bottom:6px}
+.tctl .ck input{accent-color:var(--brand);width:16px;height:16px}
+.space{width:100%;height:auto;display:block;border-radius:10px;border:1px solid var(--line)}
+.space .ax{fill:var(--muted);font-size:11px;font-family:var(--font)}
+.space .pt{stroke:#fff;stroke-width:1.5}
+.space .pt.es{fill:none!important;stroke-dasharray:2 2}
+.space .best{fill:none;stroke:#fff;stroke-width:2.5}
+.space .num{font-size:9.5px;font-family:var(--mono);fill:#0F1B2D;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.tstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.tstats div{background:var(--raised);border-radius:var(--r-s);padding:7px 9px;font-size:12px;color:var(--muted);line-height:1.35}
+.tstats b{display:block;font-size:15px;color:var(--text)}
+.tbtns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.tbtns .btn{font-size:13px;padding:6px 11px}
+.tnote{font-size:13.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+@media (max-width:600px){.tstats{grid-template-columns:repeat(2,1fr)}}
+.combo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.combo .row{display:grid;grid-template-columns:minmax(0,1.3fr) 110px 110px;gap:8px;align-items:center;margin-bottom:6px;font-size:15px}
+.combo input{font:inherit;padding:6px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:100%}
+.combo .hd{font-size:13px;font-weight:700;color:var(--muted)}
+/* ---- 9편 추가 스타일 ---- */
+.pass{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.pass-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.pass-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.vers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.ver{font:inherit;text-align:left;padding:8px 9px;border-radius:8px;border:1.5px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;position:relative;font-size:12.5px;line-height:1.4}
+.ver b{display:block;font-family:var(--mono);font-size:15px}
+.ver .tag2{display:inline-block;font-size:10.5px;font-weight:700;padding:0 6px;border-radius:999px;margin-top:3px;margin-right:2px}
+.ver .t-live{background:var(--c-kfp);color:var(--on-c)}
+.ver .t-arch{background:var(--c-base);color:var(--on-c)}
+.ver .t-st{background:var(--c-serve);color:var(--on-c)}
+.ver .t-ca{background:var(--c-train);color:var(--on-c)}
+.ver.sel{outline:2px solid var(--text);outline-offset:1px}
+.ver.archd{opacity:.55}
+.lin{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:10px 0 6px;font-size:12.5px}
+.lin span{padding:4px 8px;border-radius:6px;background:var(--raised);border:1px solid var(--line)}
+.lin i{font-style:normal;color:var(--muted)}
+.vmeta{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px;margin:6px 0 8px}
+.vmeta dt{color:var(--muted)}
+.vmeta dd{margin:0;font-family:var(--mono);font-size:12.5px}
+.vact{display:flex;gap:6px;flex-wrap:wrap}
+.vact .btn{font-size:12.5px;padding:5px 10px}
+.traffic{display:flex;height:22px;border-radius:6px;overflow:hidden;margin:10px 0 4px;font-size:11.5px;font-weight:700}
+.traffic div{display:flex;align-items:center;justify-content:center;color:var(--on-c);transition:width .3s}
+.pass pre{margin:8px 0 0;font-size:12px}
+.pmsg{font-size:13.5px;color:var(--muted);margin:6px 0 0;min-height:20px}
+@media (max-width:600px){.vers{grid-template-columns:repeat(2,1fr)}}
+/* ---- 10편 추가 스타일 ---- */
+.hero>*{min-width:0}
+.sdkmap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.sdk-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.sdk-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.rowlab{font-size:12.5px;font-weight:700;color:var(--muted);margin:8px 0 5px}
+.clients,.backs{display:flex;flex-wrap:wrap;gap:6px}
+.cl{font:inherit;font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:8px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.cl.on{background:var(--g);color:var(--on-c)}
+.bk{font:inherit;font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.bk.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.bk:disabled{opacity:.35;cursor:not-allowed}
+.sdkmap pre{margin:10px 0 0;font-size:12px}
+.makes{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:10px;font-size:12.5px}
+.makes span{padding:4px 9px;border-radius:6px;border:1px solid var(--line);background:var(--raised)}
+.makes i{font-style:normal;color:var(--muted)}
+.sdknote{font-size:13.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+.sparkc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.sparkc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px}
+.sparkc label{display:block;font-size:13.5px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.sparkc input{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.parts{display:flex;flex-wrap:wrap;gap:2px;margin:14px 0 6px}
+.parts i{width:10px;height:10px;border-radius:2px;background:var(--line)}
+.parts i.w1{background:var(--c-train)}
+.parts i.w2{background:var(--c-katib)}
+.parts i.w3{background:var(--c-kfp)}
+.parts i.w4{background:var(--c-hub)}
+/* ---- 11편 추가 스타일 ---- */
+.ksim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.ks-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.ks-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.ksctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:8px;font-size:13.5px}
+.ksctl select{font:inherit;font-size:13.5px;padding:4px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.ksctl label{display:inline-flex;gap:5px;align-items:center;cursor:pointer}
+.ksctl input{accent-color:var(--brand)}
+.gpugrid{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin:8px 0}
+.gc{height:30px;border-radius:5px;border:1px solid var(--line);background:var(--raised);font-size:11px;font-family:var(--mono);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.gc.A{background:color-mix(in srgb,var(--c-serve) 70%,var(--surface));border-color:var(--c-serve);color:var(--on-c);font-weight:700}
+.gc.B{background:color-mix(in srgb,var(--c-train) 70%,var(--surface));border-color:var(--c-train);color:var(--on-c);font-weight:700}
+.gc.half{background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.25) 0 4px,transparent 4px 8px);opacity:.75}
+.gc.bor{outline:2px dashed var(--text);outline-offset:-3px}
+.qs{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12.5px}
+.qbox{background:var(--raised);border-radius:var(--r-s);padding:6px 8px;min-height:46px}
+.qbox b{display:block;font-size:12.5px;margin-bottom:3px}
+.qbox span{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 6px;border-radius:4px;margin:1px;background:var(--surface);border:1px solid var(--line)}
+.kbtns{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.kbtns .btn{font-size:12px;padding:4px 9px}
+.kbtns .ba{border-color:var(--c-serve)}
+.kbtns .bb{border-color:var(--c-train)}
+.klog{margin-top:8px;font-size:12.5px;color:var(--muted);line-height:1.55;max-height:92px;overflow:auto;background:var(--raised);border-radius:var(--r-s);padding:6px 9px}
+.klog div:first-child{color:var(--text)}
+.mig{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.migp{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px}
+.migbar{display:flex;gap:3px;height:34px;margin:4px 0}
+.migbar div{border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;font-family:var(--mono);font-weight:700;color:var(--on-c);cursor:pointer}
+.migbar .empty{background:var(--raised);border:1px dashed var(--line);color:var(--muted);cursor:default;font-weight:500}
+.miglab{font-size:13px;color:var(--muted);margin:10px 0 2px}
+/* ---- 12편 추가 스타일 ---- */
+.e2e{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.e2e-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.e2e-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.scen{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.scen .opt{font-size:12.5px;padding:5px 10px}
+.flowv{display:flex;flex-direction:column;gap:0}
+.fr{border:1.5px dashed var(--g);border-radius:10px;padding:14px 8px 8px;position:relative;margin:4px 0}
+.fr>.fl{position:absolute;top:-9px;left:10px;background:var(--surface);padding:0 6px;font-size:11.5px;font-weight:700;color:var(--g)}
+.nd{display:flex;align-items:center;gap:8px;padding:6px 10px;margin:3px 0;border-radius:7px;border:1.5px solid var(--line);background:var(--raised);font-size:13px;transition:all .25s}
+.nd .nm{font-family:var(--mono);font-weight:600}
+.nd .ep{font-size:11.5px;color:var(--muted)}
+.nd .stt{margin-left:auto;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--surface);color:var(--muted);white-space:nowrap}
+.nd.run{border-color:var(--brand)}.nd.run .stt{background:var(--brand);color:var(--on-c)}
+.nd.ok{border-color:var(--ok)}.nd.ok .stt{background:var(--ok);color:var(--on-c)}
+.nd.fail{border-color:var(--bad)}.nd.fail .stt{background:var(--bad);color:var(--on-c)}
+.nd.skip{opacity:.5;border-style:dashed}
+.nd.retry{border-color:var(--c-train)}.nd.retry .stt{background:var(--c-train);color:var(--on-c)}
+.e2ectl{display:flex;gap:6px;margin-top:10px}
+.e2ectl .btn{font-size:12.5px;padding:5px 11px}
+.e2elog{margin-top:8px;font-size:12.5px;line-height:1.55;background:var(--raised);border-radius:var(--r-s);padding:7px 10px;max-height:110px;overflow:auto;color:var(--muted)}
+.e2elog div:last-child{color:var(--text);font-weight:600}
+.lvlbox{margin-top:12px;padding:14px 16px;border-radius:var(--r-m);background:var(--raised);border-left:5px solid var(--v)}
+.lvlbox b{font-size:1.15rem;display:block}
+/* ---- 13편 추가 스타일 ---- */
+.gate{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.gate-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.gate-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.gsel{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.gsel label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:3px}
+.gsel select{width:100%;font:inherit;font-size:13.5px;padding:6px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+@media (max-width:600px){.gsel{grid-template-columns:1fr}}
+.cps{display:flex;flex-direction:column;gap:5px}
+.cp{display:grid;grid-template-columns:30px 1fr;gap:8px;align-items:start;padding:8px 10px;border-radius:8px;border:1.5px solid var(--line);background:var(--raised);font-size:13.5px;line-height:1.5}
+.cp .ic{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:13px;background:var(--surface);color:var(--muted)}
+.cp b{display:block;font-size:13.5px}
+.cp.pass{border-color:var(--ok)}.cp.pass .ic{background:var(--ok);color:var(--on-c)}
+.cp.deny{border-color:var(--bad)}.cp.deny .ic{background:var(--bad);color:var(--on-c)}
+.cp.na{opacity:.45;border-style:dashed}
+.cp.note{border-color:var(--c-train)}.cp.note .ic{background:var(--c-train);color:var(--on-c)}
+.verd{margin-top:10px;padding:10px 12px;border-radius:var(--r-m);font-weight:700;font-size:14.5px;border-left:5px solid var(--v);background:color-mix(in srgb,var(--v) 14%,var(--raised))}
+.verd span{display:block;font-weight:500;font-size:13.5px;color:var(--muted);margin-top:2px}
+.layers2{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}
+.layers2 button{font:inherit;text-align:left;padding:12px 14px;border-radius:var(--r-m);border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);color:var(--text);cursor:pointer}
+.layers2 button b{display:block;font-size:15px}
+.layers2 button small{color:var(--muted);font-size:13px}
+.layers2 button.on{background:color-mix(in srgb,var(--c) 18%,var(--surface))}
+@media (max-width:700px){.layers2{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series">Kubeflow 강의<span>13편: 멀티테넌시와 보안</span></div>
+    <button class="theme-btn" id="themeBtn" type="button">라이트 테마로</button>
+  </div>
+  <div class="progress" id="prog"></div>
+</div>
+
+<header class="hero">
+  <div>
+    <h1>멀티테넌시와<br>보안</h1>
+    <p class="lede">지금까지는 기본 계정 하나로 혼자 썼습니다. 이제 추천팀과 검색팀이, 그리고 파이프라인과 Argo CD 같은 기계들이 한 플랫폼을 함께 씁니다. 누가 누구인지 확인하고, 각자의 공간 밖으로 손이 닿지 않게 하고, 실수해도 피해가 퍼지지 않게 만드는 층들을 쌓습니다.</p>
+    <div class="levelstrip" id="levelstrip" aria-hidden="true"></div>
+    <p class="strip-cap">Level 4 전문가의 시작, 전체 16편 중 13편</p>
+    <dl class="facts">
+      <dt>기준</dt><dd>Community Distribution 26.03.1의 Dex, oauth2-proxy, Istio, Profile, KFAM</dd>
+      <dt>실습 환경</dt><dd>3편의 클러스터에 두 번째 팀 프로필 추가</dd>
+      <dt>사전 지식</dt><dd>3편의 로그인 흐름과 프로필, 이 시리즈의 OAuth/OIDC 강의</dd>
+      <dt>학습 시간</dt><dd>약 95분</dd>
+    </dl>
+  </div>
+  <div class="gate">
+    <p class="gate-h">요청 하나의 검문소 통과</p>
+    <p class="gate-sub">누가 무엇을 하려는지 고르면, 요청이 거치는 검문소와 막히는 곳이 보입니다. 추천팀(team-reco)의 소유자는 지은, 기여자는 민수이고, 검색팀(team-search)의 소유자는 수현입니다.</p>
+    <div class="gsel">
+      <div><label for="gWho">누가</label><select id="gWho"></select></div>
+      <div><label for="gWhat">무엇을</label><select id="gWhat"></select></div>
+    </div>
+    <div class="cps" id="cps"></div>
+    <div class="verd" id="verd" aria-live="polite"></div>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol id="tocList">
+    <li><a href="#s0">이번 편에서 얻을 것</a></li>
+    <li><a href="#s1">1. 테넌시 모델 고르기</a></li>
+    <li><a href="#s2">2. 보안의 여섯 층</a></li>
+    <li><a href="#s3">3. 인증: 기업 로그인 연결</a></li>
+    <li><a href="#s4">4. 인가: Istio, RBAC, 프로필</a></li>
+    <li><a href="#s5">5. 기계의 접근</a></li>
+    <li><a href="#s6">6. 워크로드 격리</a></li>
+    <li><a href="#s7">7. 네트워크 격리</a></li>
+    <li><a href="#s8">8. 비밀 값과 데이터</a></li>
+    <li><a href="#s9">9. 공급망과 감사</a></li>
+    <li><a href="#s10">10. 보안 점검표</a></li>
+    <li><a href="#s11">11. 문제 해결</a></li>
+    <li><a href="#s12">12. 용어 사전</a></li>
+    <li><a href="#s13">13. 확인 퀴즈</a></li>
+    <li><a href="#s14">14. 정리와 다음 편</a></li>
+  </ol>
+</nav>
+<main>
+<section id="s0" style="padding-top:28px">
+  <h2>이번 편에서 얻을 것</h2>
+  <p>Level 4는 Kubeflow를 운영하는 사람의 과정입니다. 그 첫 편은 여러 사람과 여러 팀, 여러 기계가 안전하게 함께 쓰는 법입니다. 이 편을 마치면 다음을 할 수 있습니다.</p>
+  <ul class="goals">
+    <li>네임스페이스 공유와 클러스터 분리 중 조직과 고객에 맞는 테넌시 모델을 고를 수 있습니다.</li>
+    <li>Dex나 oauth2-proxy에 기업 IdP를 연결하고, 기본 계정과 정적 비밀번호를 없앨 수 있습니다.</li>
+    <li>Istio 정책, Kubernetes RBAC, 프로필 역할이 각각 무엇을 막는지 설명하고, 사람과 기계의 접근 권한을 설계할 수 있습니다.</li>
+    <li>Pod 보안 표준, 입장 정책, NetworkPolicy, 비밀 값 관리, 공급망 보안으로 한 팀의 실수가 다른 팀에 번지지 않게 할 수 있습니다.</li>
+  </ul>
+</section>
+
+<section id="s1">
+  <h2><span class="no">1</span>테넌시 모델 고르기</h2>
+  <p><strong>테넌트</strong>는 플랫폼을 함께 쓰는 단위, 보통 팀이나 고객입니다. Kubeflow의 기본 모델은 3편의 프로필, 즉 테넌트마다 네임스페이스 하나입니다. 하지만 이것이 유일한 답은 아닙니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>모델</th><th>격리 강도</th><th>비용과 운영</th><th>어울리는 경우</th></tr></thead>
+    <tbody>
+      <tr><td>프로필(네임스페이스) 공유</td><td>논리적 격리. 같은 노드와 커널, 같은 Kubeflow 제어부, 같은 레지스트리를 공유</td><td>가장 저렴하고 GPU를 나눠 쓰기 좋음(11편)</td><td>같은 회사 안의 여러 팀. 서로 어느 정도 신뢰할 수 있음</td></tr>
+      <tr><td>노드 풀 분리를 더한 공유</td><td>같은 클러스터지만 민감한 팀은 전용 노드에서만 실행</td><td>중간. taint와 Kueue ResourceFlavor로 구현</td><td>민감 데이터를 다루는 팀이 하나둘 있을 때</td></tr>
+      <tr><td>테넌트별 클러스터</td><td>강한 격리. 제어부, 노드, 저장소가 모두 따로</td><td>클러스터 수만큼 운영 부담과 비용</td><td>서로 다른 회사(고객사), 규제 요건, 데이터 반출 금지</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout warn">
+    <span class="h">MSP라면 고객사는 클러스터로 나누세요</span>
+    <p>프로필 기반 격리는 “같은 조직 안의 팀”을 위한 설계입니다. 대시보드, 레지스트리, 일부 시스템 구성요소가 공유되고, 커널을 같이 쓰므로 컨테이너 탈출 같은 사고의 피해 범위가 클러스터 전체입니다. 서로 다른 고객사를 한 Kubeflow에 프로필로 나눠 담는 것은 권하지 않습니다. 고객사마다 클러스터(또는 최소한 별도 Kubeflow 설치)를 두고, 그 안에서 고객사의 팀들을 프로필로 나누는 2단 구조가 안전합니다. 16편에서 운영 관점으로 다시 다룹니다.</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>보안의 여섯 층</h2>
+  <p>한 층만으로는 충분하지 않습니다. 한 층이 뚫려도 다음 층이 막도록 겹겹이 둡니다. 각 층을 누르면 Kubeflow에서 무엇이 그 일을 하는지 볼 수 있습니다.</p>
+  <div class="layers2" id="layers2"></div>
+  <div class="panel" id="layPanel" aria-live="polite"></div>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>인증: 기업 로그인 연결</h2>
+  <p>3편의 user@example.com과 12341234는 운영에서 가장 먼저 없앨 것입니다. 사용자 계정은 회사의 신원 제공자(IdP: Keycloak, Entra ID, Okta, Google Workspace 등)가 관리하게 하고, Kubeflow는 그것을 믿게 만듭니다. 방법은 둘입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>방법</th><th>구성</th><th>장점</th><th>주의</th></tr></thead>
+    <tbody>
+      <tr><td>Dex를 거쳐 연결</td><td>oauth2-proxy → Dex → 기업 IdP. Dex에 connector를 추가</td><td>OIDC, LDAP, SAML 등 다양한 IdP를 Dex가 중개. 여러 IdP를 동시에 붙일 수 있음</td><td>Dex라는 구성요소 하나를 더 운영</td></tr>
+      <tr><td>기업 IdP에 직접 연결</td><td>oauth2-proxy가 기업 OIDC IdP를 직접 사용. Istio의 토큰 검증 설정도 그 IdP의 발급자로</td><td>구성요소가 줄고 흐름이 단순</td><td>IdP가 OIDC를 지원해야 함. 토큰의 이메일 클레임 등 형식을 맞춰야 함</td></tr>
+    </tbody>
+  </table></div>
+  <p class="codehead">Dex에 사내 OIDC IdP를 연결하는 설정 예 (단순화)</p>
+<pre><code><span class="k">enablePasswordDB</span>: <span class="k">false</span>                     <span class="c"># 정적 사용자(user@example.com) 끄기</span>
+<span class="k">connectors</span>:
+- <span class="k">type</span>: oidc
+  <span class="k">id</span>: corp
+  <span class="k">name</span>: 사내 SSO
+  <span class="k">config</span>:
+    <span class="k">issuer</span>: https://sso.example.com/realms/corp
+    <span class="k">clientID</span>: kubeflow
+    <span class="k">clientSecret</span>: $CORP_CLIENT_SECRET          <span class="c"># Secret에서 환경 변수로</span>
+    <span class="k">redirectURI</span>: https://kubeflow.example.com/dex/callback
+    <span class="k">scopes</span>: [openid, profile, email, groups]
+    <span class="k">insecureEnableGroups</span>: <span class="k">true</span>              <span class="c"># 그룹 클레임 전달</span></code></pre>
+  <ul class="plain">
+    <li><strong>이메일이 신분증입니다.</strong> 3편 8장처럼 프로필의 owner와 기여자는 로그인 이메일과 정확히 같아야 합니다. IdP가 내보내는 이메일 형식(대소문자, 별칭 도메인)을 먼저 확인하세요.</li>
+    <li><strong>SAML만 지원하는 IdP</strong>라면 Dex의 SAML connector를 씁니다. SAML과 OIDC의 차이는 이 시리즈의 SAML 강의와 OAuth/OIDC 강의를 참고하세요.</li>
+    <li><strong>HTTPS가 전제입니다.</strong> 3편 10장의 보안 쿠키 때문에 외부 주소는 HTTPS여야 합니다. 인증서는 cert-manager로 자동 갱신합니다(14편).</li>
+    <li><strong>퇴사자 처리</strong>: IdP에서 계정을 막아도 이미 발급된 세션은 만료 전까지 살아 있습니다. oauth2-proxy의 세션 수명을 정하고, 프로필 기여자 목록도 함께 정리하는 절차를 둡니다.</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2><span class="no">4</span>인가: Istio, RBAC, 프로필</h2>
+  <p>로그인한 사람이 무엇을 할 수 있는지는 세 겹으로 정해집니다. 맨 위 검문소 그림의 2번과 3번이 이것입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>검문소</th><th>무엇을 보나</th><th>무엇을 막나</th></tr></thead>
+    <tbody>
+      <tr><td>Istio AuthorizationPolicy</td><td>요청 헤더의 사용자(kubeflow-userid)가 그 네임스페이스에 접근이 허용된 사람인지</td><td>다른 팀 네임스페이스의 노트북, 모델 서버 같은 웹 서비스로의 요청</td></tr>
+      <tr><td>Kubernetes RBAC</td><td>그 사용자에게 그 네임스페이스에서 그 동작(조회, 생성, 삭제)이 허락되었는지. 대시보드 앱들이 SubjectAccessReview로 물어봄</td><td>권한 없는 리소스 생성과 변경</td></tr>
+      <tr><td>프로필과 KFAM</td><td>누가 소유자이고 누가 기여자인지를 관리하고, 위 둘의 규칙을 만들어 줌</td><td>직접 막지는 않음. 규칙의 원천</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>역할 (ClusterRole)</th><th>누구에게</th><th>할 수 있는 일</th></tr></thead>
+    <tbody>
+      <tr><td>kubeflow-admin</td><td>프로필 소유자</td><td>네임스페이스 안의 모든 Kubeflow 리소스와, 기여자 관리</td></tr>
+      <tr><td>kubeflow-edit</td><td>편집 권한 기여자</td><td>노트북, 파이프라인, TrainJob 등을 만들고 지우기. 기여자 관리는 불가</td></tr>
+      <tr><td>kubeflow-view</td><td>보기 권한 기여자</td><td>조회만</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="plain">
+    <li>대시보드의 Manage Contributors로 기여자를 추가하면 RoleBinding과 AuthorizationPolicy가 하나씩 생깁니다(3편 8장). 둘 중 하나만 손으로 지우면 “화면은 열리는데 만들 수 없음” 같은 어긋난 상태가 됩니다.</li>
+    <li>사람이 많아지면 개인 단위 기여자 관리가 버겁습니다. IdP 그룹을 쓰고 싶다면, 설치한 버전이 그룹 기반 접근을 어디까지 지원하는지 먼저 확인하고, 지원 범위를 벗어나면 그룹 대상 RoleBinding과 AuthorizationPolicy를 GitOps로 직접 관리하는 방식을 씁니다.</li>
+    <li>프로필 자체를 누가 만들 수 있는지도 정해야 합니다. 사용자가 스스로 만드는 등록 흐름을 끄고, 플랫폼 팀이 Git으로 프로필을 만드는 방식이 운영에 안전합니다.</li>
+  </ul>
+</section>
+
+<section id="s5">
+  <h2><span class="no">5</span>기계의 접근</h2>
+  <p>파이프라인 단계, CI 서버, Argo CD, 노트북 안의 SDK처럼 사람이 아닌 주체도 플랫폼을 씁니다. 기계에게 사람 계정의 비밀번호를 주지 않습니다. 기계는 <strong>서비스 계정</strong>과 그 토큰으로 접근합니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>기계</th><th>신분</th><th>권한 설계</th></tr></thead>
+    <tbody>
+      <tr><td>노트북과 파이프라인 단계 Pod</td><td>프로필 네임스페이스의 default-editor 서비스 계정</td><td>자기 네임스페이스의 편집. 노트북에서 SDK가 동작하는 이유(4편 8장)</td></tr>
+      <tr><td>노트북에서 Pipelines API 호출</td><td>access-ml-pipeline PodDefault가 넣어 주는, Pipelines 전용 대상(audience)으로 발급된 서비스 계정 토큰</td><td>그 토큰은 Pipelines API에만 쓰이고 다른 곳에는 쓸 수 없음</td></tr>
+      <tr><td>클러스터 밖의 CI가 파이프라인 실행</td><td>전용 서비스 계정의 토큰. oauth2-proxy가 Kubernetes 서비스 계정 토큰을 받아 주도록 구성되어 있어야 함(3편에서 본 설치 옵션)</td><td>필요한 네임스페이스의 실행 생성만. 토큰은 짧은 수명으로 발급</td></tr>
+      <tr><td>Argo CD (12편)</td><td>Argo CD의 서비스 계정</td><td>관리 대상 네임스페이스의 정해진 리소스만. 클러스터 관리자 권한 금지</td></tr>
+      <tr><td>Trainer, Katib 등 컨트롤러</td><td>각 구성요소의 서비스 계정</td><td>설치 매니페스트가 정한 권한. 임의로 넓히지 않음</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout">
+    <span class="h">토큰은 짧게, 대상은 좁게</span>
+    <p>오래가는 토큰을 Secret에 만들어 두는 방식보다, 필요할 때 짧은 수명과 특정 대상(audience)으로 발급하는 방식(투영된 서비스 계정 토큰, TokenRequest)이 안전합니다. 토큰이 새어도 쓸 수 있는 곳과 시간이 좁아집니다.</p>
+  </div>
+</section>
+<section id="s6">
+  <h2><span class="no">6</span>워크로드 격리</h2>
+  <p>프로필 소유자는 자기 네임스페이스에 Pod를 만들 수 있습니다. 노트북에서 임의의 이미지로 Pod를 만들 수도 있다는 뜻입니다. 그 Pod가 노드의 파일 시스템이나 권한을 가져가지 못하게 막는 것이 <strong>Pod 보안 표준</strong>(PSS)입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>수준</th><th>막는 것</th><th>Kubeflow에서</th></tr></thead>
+    <tbody>
+      <tr><td>privileged</td><td>아무것도</td><td>쓰지 않음. 시스템 네임스페이스 일부만 예외로 검토</td></tr>
+      <tr><td>baseline</td><td>특권 컨테이너, 호스트 네트워크와 경로, 위험한 권한</td><td>사용자 네임스페이스의 최소 기준</td></tr>
+      <tr><td>restricted</td><td>baseline에 더해 root 실행, 권한 상승, 기본 seccomp 미사용 등</td><td>목표. Istio CNI로 특권 init 컨테이너가 사라졌고(3편), KFP 2.16에서 단계 Pod의 runAsNonRoot 지정이 가능해짐(5편). 구성요소별 준수 상황은 릴리스 노트로 확인</td></tr>
+    </tbody>
+  </table></div>
+<pre><code><span class="c"># 네임스페이스에 적용 (경고로 먼저 시험하고, 문제없으면 강제)</span>
+kubectl label ns team-reco pod-security.kubernetes.io/warn=restricted
+kubectl label ns team-reco pod-security.kubernetes.io/enforce=baseline</code></pre>
+  <h3>입장 정책으로 조직 규칙 강제하기</h3>
+  <p>PSS가 막지 않는 조직의 규칙은 입장 정책(admission policy)으로 강제합니다. Kubernetes 내장 ValidatingAdmissionPolicy, Kyverno, OPA Gatekeeper 등을 씁니다. 예를 들어 사내 레지스트리의 이미지만 허용하는 규칙입니다.</p>
+<pre><code><span class="k">apiVersion</span>: admissionregistration.k8s.io/v1
+<span class="k">kind</span>: ValidatingAdmissionPolicy
+<span class="k">metadata</span>:
+  <span class="k">name</span>: allowed-registries
+<span class="k">spec</span>:
+  <span class="k">failurePolicy</span>: Fail
+  <span class="k">matchConstraints</span>:
+    <span class="k">resourceRules</span>:
+    - {<span class="k">apiGroups</span>: [<span class="s">""</span>], <span class="k">apiVersions</span>: [<span class="s">"v1"</span>], <span class="k">operations</span>: [<span class="s">"CREATE"</span>], <span class="k">resources</span>: [<span class="s">"pods"</span>]}
+  <span class="k">validations</span>:
+  - <span class="k">expression</span>: <span class="s">"object.spec.containers.all(c, c.image.startsWith('registry.example.com/'))"</span>
+    <span class="k">message</span>: <span class="s">"사내 레지스트리의 이미지만 쓸 수 있습니다"</span>
+<span class="c"># 적용 대상 네임스페이스는 ValidatingAdmissionPolicyBinding으로 지정</span></code></pre>
+  <p>다른 쓸 만한 규칙으로는 “GPU를 요청하는 작업은 Kueue 큐 라벨이 있어야 한다”(11편), “latest 태그 금지”(2편), “InferenceService는 자원 limits 필수” 등이 있습니다. 규칙을 새로 걸 때는 먼저 감사(경고) 모드로 며칠 돌려 기존 작업이 얼마나 걸리는지 봅니다. 사이드카, initContainer 같은 Kubeflow 구성요소가 넣는 컨테이너 이미지도 규칙에 걸리지 않는지 확인하세요.</p>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>네트워크 격리</h2>
+  <p>Istio 정책은 사이드카가 붙은 Pod로 들어오는 요청만 지킵니다. 그런데 7편, 8편, 10편에서 분산 학습, Katib Trial, Spark Pod는 사이드카를 뺐습니다. 이 Pod들은 Kubernetes <strong>NetworkPolicy</strong>로 지켜야 합니다.</p>
+  <p class="codehead">팀 네임스페이스의 기본 차단과 필요한 허용 (단순화)</p>
+<pre><code><span class="k">apiVersion</span>: networking.k8s.io/v1
+<span class="k">kind</span>: NetworkPolicy
+<span class="k">metadata</span>:
+  <span class="k">name</span>: default-deny-ingress
+  <span class="k">namespace</span>: team-reco
+<span class="k">spec</span>:
+  <span class="k">podSelector</span>: {}                 <span class="c"># 모든 Pod에 대해</span>
+  <span class="k">policyTypes</span>: [Ingress]           <span class="c"># 들어오는 연결을 기본 차단</span>
+---
+<span class="k">apiVersion</span>: networking.k8s.io/v1
+<span class="k">kind</span>: NetworkPolicy
+<span class="k">metadata</span>:
+  <span class="k">name</span>: allow-same-ns-and-platform
+  <span class="k">namespace</span>: team-reco
+<span class="k">spec</span>:
+  <span class="k">podSelector</span>: {}
+  <span class="k">policyTypes</span>: [Ingress]
+  <span class="k">ingress</span>:
+  - <span class="k">from</span>:
+    - <span class="k">podSelector</span>: {}              <span class="c"># 같은 네임스페이스 (분산 학습 노드끼리)</span>
+    - <span class="k">namespaceSelector</span>:
+        <span class="k">matchLabels</span>: {<span class="k">kubernetes.io/metadata.name</span>: istio-system}   <span class="c"># 게이트웨이</span>
+    - <span class="k">namespaceSelector</span>:
+        <span class="k">matchLabels</span>: {<span class="k">kubernetes.io/metadata.name</span>: kubeflow}       <span class="c"># 컨트롤러, 지표 수집 등</span></code></pre>
+  <ul class="plain">
+    <li>나가는 연결(Egress)까지 막으면 더 안전하지만, DNS, 오브젝트 스토리지, 이미지 레지스트리, 패키지 저장소, 모델 저장소 등 허용할 곳을 빠짐없이 적어야 합니다. 한꺼번에 막지 말고 하나씩 넓혀 가세요.</li>
+    <li>NetworkPolicy는 클러스터의 CNI가 지원해야 동작합니다. 3편에서 본 것처럼 Cilium 같은 CNI는 Istio와 함께 쓸 때 추가 설정이 필요할 수 있습니다.</li>
+    <li>Kubeflow 배포판의 시스템 네임스페이스용 NetworkPolicy가 설치에 포함되어 있는지도 확인하세요.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <h2><span class="no">8</span>비밀 값과 데이터</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>대상</th><th>위험</th><th>대책</th></tr></thead>
+    <tbody>
+      <tr><td>S3 키, Hugging Face 토큰</td><td>노트북 코드, 이미지, Git에 새어 나감</td><td>Secret과 PodDefault(4편), 원본은 Vault나 클라우드 비밀 관리 서비스에 두고 External Secrets Operator로 가져오기. etcd 암호화</td></tr>
+      <tr><td>팀별 데이터</td><td>다른 팀이 버킷을 읽음</td><td>팀마다 버킷이나 경로, 팀마다 다른 자격 증명. 클라우드라면 Pod 단위 신원(워크로드 아이덴티티)으로 키 없이</td></tr>
+      <tr><td>파이프라인 아티팩트</td><td>공유 아티팩트 저장소에서 다른 팀의 데이터셋과 모델이 보임</td><td>설치 구성이 네임스페이스별 저장소 경로와 자격 증명을 쓰는지 확인하고, 다른 팀 사용자로 직접 시험</td></tr>
+      <tr><td>모델 레지스트리</td><td>여러 팀이 하나의 레지스트리를 공유(9편)</td><td>쓰기 권한 범위 확인, 모델 이름에 팀 접두사, 민감 모델은 별도 레지스트리</td></tr>
+      <tr><td>모델 서버 엔드포인트</td><td>외부에 인증 없이 열림</td><td>외부 노출은 게이트웨이의 인증을 거치게 하고, 내부 호출은 Istio 정책으로 허용 대상을 좁힘</td></tr>
+      <tr><td>노트북 작업 공간</td><td>민감 데이터 사본이 개인 PVC에 쌓임</td><td>데이터 등급별 노드 풀과 네임스페이스, 보존 기간 정책</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>공급망과 감사</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>항목</th><th>방법</th></tr></thead>
+    <tbody>
+      <tr><td>이미지 출처</td><td>사내 레지스트리 미러(3편), 입장 정책으로 허용 레지스트리 제한(6장)</td></tr>
+      <tr><td>취약점</td><td>CI에서 이미지 검사(12편), 레지스트리의 주기적 재검사. 예제 노트북 이미지도 대상</td></tr>
+      <tr><td>변조 방지</td><td>이미지 서명(cosign 등)과 서명 검증 정책, 태그 대신 다이제스트로 고정</td></tr>
+      <tr><td>패키지</td><td>packages_to_install(5편)과 pip install은 사내 PyPI 미러를 거치게, 버전 고정</td></tr>
+      <tr><td>모델 파일</td><td>pickle 계열 파일은 열 때 임의 코드가 실행될 수 있음. 외부 모델은 safetensors 같은 안전한 형식을 선호(2편)</td></tr>
+      <tr><td>감사 기록</td><td>Kubernetes 감사 로그(누가 무엇을 만들고 지웠나), Istio 접근 로그(누가 어디에 요청했나), Git 기록(누가 설정을 바꿨나), 레지스트리 메타데이터(누가 모델을 등록했나)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>보안 점검표</h2>
+  <p>운영 전에 확인할 항목입니다. 표시한 항목 수에 따라 남은 과제를 알려 줍니다.</p>
+  <div class="cols2" id="sec">
+    <div style="--pc:var(--c-katib)">
+      <h4>신원과 권한</h4>
+      <ul class="check">
+        <li><label><input type="checkbox">정적 사용자와 기본 비밀번호를 껐다</label></li>
+        <li><label><input type="checkbox">기업 IdP로 로그인하고, 외부 주소는 HTTPS다</label></li>
+        <li><label><input type="checkbox">프로필은 플랫폼 팀이 Git으로 만든다</label></li>
+        <li><label><input type="checkbox">기계는 전용 서비스 계정과 짧은 토큰을 쓴다</label></li>
+        <li><label><input type="checkbox">Argo CD와 CI에 클러스터 관리자 권한이 없다</label></li>
+        <li><label><input type="checkbox">퇴사자의 IdP 계정과 기여자 목록을 함께 정리한다</label></li>
+      </ul>
+    </div>
+    <div style="--pc:var(--c-data)">
+      <h4>격리와 데이터</h4>
+      <ul class="check">
+        <li><label><input type="checkbox">사용자 네임스페이스에 PSS baseline 이상을 강제한다</label></li>
+        <li><label><input type="checkbox">허용 레지스트리 입장 정책이 있다</label></li>
+        <li><label><input type="checkbox">사이드카 없는 Pod를 NetworkPolicy가 지킨다</label></li>
+        <li><label><input type="checkbox">비밀 값의 원본은 비밀 관리 서비스에 있다</label></li>
+        <li><label><input type="checkbox">다른 팀 계정으로 아티팩트와 데이터가 안 보이는지 시험했다</label></li>
+        <li><label><input type="checkbox">감사 로그와 접근 로그를 보관한다</label></li>
+      </ul>
+    </div>
+  </div>
+  <div class="lvlbox" id="secOut" aria-live="polite"></div>
+</section>
+
+<section id="s11">
+  <h2><span class="no">11</span>문제 해결</h2>
+  <p>보안 설정 뒤에 자주 만나는 증상입니다.</p>
+  <div class="chips" id="trChips" style="margin-top:14px"></div>
+  <div class="panel" id="trPanel" style="margin-top:14px" aria-live="polite"></div>
+</section>
+
+<section id="s12">
+  <h2><span class="no">12</span>용어 사전</h2>
+  <p>이 편에 새로 나온 용어입니다.</p>
+  <label for="gq" class="muted" style="font-size:14px">용어 검색</label>
+  <input class="gsearch" id="gq" type="search" placeholder="예: 테넌트, PSS, audience">
+  <div class="glist" id="glist"></div>
+  <p class="gempty" id="gempty" hidden>일치하는 용어가 없습니다. 다른 표기(한글 또는 영어)로 검색해 보세요.</p>
+</section>
+
+<section id="s13">
+  <h2><span class="no">13</span>확인 퀴즈</h2>
+  <p>여덟 문제입니다.</p>
+  <div id="quiz"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <button class="btn" id="quizReset" type="button">퀴즈 다시 풀기</button>
+</section>
+
+<section id="s14">
+  <h2><span class="no">14</span>정리와 다음 편</h2>
+  <ol class="keys">
+    <li><span>프로필 격리는 같은 조직의 팀을 위한 것입니다. 서로 다른 고객사는 클러스터나 설치를 나누고, 그 안의 팀을 프로필로 나눕니다.</span></li>
+    <li><span>인증은 기업 IdP에 맡기고 정적 계정을 없앱니다. 이메일이 프로필과 맞물리는 신분증입니다.</span></li>
+    <li><span>인가는 Istio 정책(웹 요청), RBAC(리소스 조작), 프로필 역할(규칙의 원천)이 겹쳐 지킵니다. 기계는 전용 서비스 계정과 짧고 좁은 토큰으로.</span></li>
+    <li><span>PSS와 입장 정책이 위험한 Pod와 조직 규칙 위반을 막고, 사이드카 없는 학습 Pod는 NetworkPolicy가 지킵니다.</span></li>
+    <li><span>비밀 값은 비밀 관리 서비스에서, 데이터와 아티팩트는 팀별 경로와 자격 증명으로. 다른 팀 계정으로 직접 시험해 봐야 격리를 믿을 수 있습니다.</span></li>
+  </ol>
+  <div class="next" style="border-left-color:var(--lv4)">
+    <span class="h">다음 편, Level 4 전문가</span>
+    <h4>14편: 프로덕션 설치, 업그레이드, 배포판 비교</h4>
+    <p>kind에서 벗어나 EKS, AKS, GKE 같은 관리형 Kubernetes에 운영용으로 설치합니다. 외부 DB와 오브젝트 스토리지 분리, HTTPS 인그레스와 인증서, 고가용성, 사내 이미지 미러, kustomize 오버레이로 관리하는 설치, 반년마다 오는 캘린더 버전 업그레이드 전략, 그리고 Charmed Kubeflow, OpenShift AI 같은 배포판과 관리형 서비스의 비교를 다룹니다.</p>
+  </div>
+</section>
+</main>
+</div>
+<footer>Kubeflow 강의 시리즈 13편. 2026년 10월 기준 Kubeflow Community Distribution 26.03.1, Dex, oauth2-proxy, Istio, Kubernetes 보안 문서를 바탕으로 작성했습니다. 맨 위 검문소 그림과 YAML 예시는 개념을 보여 주기 위한 단순화이며, 실제 정책 이름과 내용은 설치 버전에 따라 다릅니다.</footer>
+<script>
+(function(){
+var root=document.documentElement;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function $(id){return document.getElementById(id);}
+var tbtn=$('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마로':'다크 테마로';try{localStorage.setItem('kf-theme',t);}catch(e){}}
+tbtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+setTheme(root.getAttribute('data-theme')||'dark');
+var prog=$('prog');function onScroll(){var h=document.documentElement;var m=h.scrollHeight-h.clientHeight;prog.style.width=(m>0?h.scrollTop/m*100:0)+'%';}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+var tocLinks=[].slice.call(document.querySelectorAll('#tocList a'));
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-25% 0px -65% 0px'});document.querySelectorAll('main section').forEach(function(s){io.observe(s);});}
+var ls=$('levelstrip');for(var i=1;i<=16;i++){var el=document.createElement('i');el.style.background='var('+(i<=4?'--lv1':i<=9?'--lv2':i<=12?'--lv3':'--lv4')+')';if(i===13)el.className='now';ls.appendChild(el);}
+
+/* gate sim */
+var WHO={jieun:['지은 (team-reco 소유자)','user',{'team-reco':'admin'}],minsu:['민수 (team-reco 편집 기여자)','user',{'team-reco':'edit'}],suhyun:['수현 (team-search 소유자)','user',{'team-search':'admin'}],ci:['CI 서비스 계정 (team-reco 실행 생성만)','sa',{'team-reco':'run'}],anon:['로그인하지 않은 사람','anon',{}]};
+var WHAT={nb:['team-reco의 노트북 열기','team-reco','view','web'],run:['team-reco에 파이프라인 실행 만들기','team-reco','edit','api'],isvc:['team-search의 모델 서버 호출','team-search','view','data'],contrib:['team-reco에 기여자 추가','team-reco','admin','api'],sys:['kubeflow 시스템 네임스페이스 설정 보기','kubeflow','cluster','api']};
+var RK={view:1,run:1.5,edit:2,admin:3,cluster:9};
+var gw=$('gWho'),gt=$('gWhat');
+Object.keys(WHO).forEach(function(k){gw.insertAdjacentHTML('beforeend','<option value="'+k+'">'+WHO[k][0]+'</option>');});
+Object.keys(WHAT).forEach(function(k){gt.insertAdjacentHTML('beforeend','<option value="'+k+'">'+WHAT[k][0]+'</option>');});
+function cp(cls,t,d){var ic={pass:'✓',deny:'✕',na:'–',note:'!'}[cls];return '<div class="cp '+cls+'"><span class="ic">'+ic+'</span><div><b>'+t+'</b>'+d+'</div></div>';}
+function sim(){var w=WHO[gw.value],t=WHAT[gt.value],ns=t[1],role=w[2][ns],h='',res=null,why='';
+  // 1 auth
+  if(w[1]==='anon'){h+=cp('deny','1. 인증 (oauth2-proxy와 Dex)','세션도 토큰도 없어 로그인 화면으로 돌려보냅니다.');res=['막힘','로그인부터 해야 합니다. 이후 검문소는 거치지 않습니다.'];}
+  else if(w[1]==='sa'){h+=cp('pass','1. 인증 (서비스 계정 토큰)','게이트웨이가 Kubernetes 서비스 계정 토큰을 검증했습니다. 이 방식이 켜진 설치일 때만 가능합니다.');}
+  else h+=cp('pass','1. 인증 (기업 IdP를 거친 로그인)','세션이 있어 통과. 이메일이 kubeflow-userid 헤더에 실려 다음 검문소로 갑니다.');
+  // 2 istio
+  if(!res){if(ns==='kubeflow'){h+=cp('na','2. Istio 정책','시스템 API 조회는 대시보드 앱을 거쳐 Kubernetes API로 갑니다. 다음 검문소가 판단합니다.');}
+    else if(!role){h+=cp('deny','2. Istio AuthorizationPolicy ('+ns+')','이 사용자는 '+ns+'의 소유자도 기여자도 아니라서, 그 네임스페이스로 가는 요청을 정책이 막습니다.');res=['막힘','다른 팀 네임스페이스로의 요청은 Istio에서 끝납니다. 필요하면 '+ns+' 소유자가 기여자로 초대해야 합니다.'];}
+    else h+=cp('pass','2. Istio AuthorizationPolicy ('+ns+')','이 네임스페이스에 접근이 허용된 사용자입니다.');}
+  // 3 rbac
+  if(!res){if(t[3]==='data'){h+=cp('na','3. Kubernetes RBAC','모델 서버 호출은 Kubernetes API를 거치지 않는 데이터 경로라 RBAC 검사가 없습니다. Istio 정책이 사실상 유일한 관문입니다.');res=['허용','모델 서버 호출은 Istio 정책으로만 지켜집니다. 그래서 9편에서 403의 원인이 Istio였습니다.'];}
+    else{var need=RK[t[2]],have=RK[role]||0;var rn={admin:'kubeflow-admin',edit:'kubeflow-edit',view:'kubeflow-view',run:'실행 생성 전용 역할'}[role]||'없음';
+      if(role==='run')have=(gt.value==='run')?99:0;
+      if(have>=need){h+=cp('pass','3. Kubernetes RBAC (SubjectAccessReview)','역할 '+rn+'으로 이 동작이 허락됩니다.');res=['허용',''];}
+      else{h+=cp('deny','3. Kubernetes RBAC (SubjectAccessReview)','역할 '+rn+'으로는 이 동작이 허락되지 않습니다.'+(role==='run'?' 실행 생성만 하도록 좁게 준 역할이라 그 밖의 동작은 모두 거부됩니다.':'')+(t[2]==='cluster'?' 시스템 네임스페이스는 플랫폼 관리자만 봅니다.':'')+(t[2]==='admin'?' 기여자 관리는 소유자(kubeflow-admin)만 합니다.':''));res=['막힘','인증과 Istio는 통과했지만 권한이 부족합니다. 화면이 열려도 동작이 실패하는 전형적인 403입니다.'];}}}
+  // 4 pod-level
+  if(res&&res[0]==='허용'&&(gt.value==='run'||gt.value==='nb')){h+=cp('note','4. 만들어지는 Pod에 대한 검사','실행이 만드는 단계 Pod도 PSS, 입장 정책(허용 레지스트리 등), 할당량, Kueue 큐를 통과해야 실제로 뜹니다. 여기서 막히면 실행은 만들어지지만 단계가 실패합니다.');}
+  else if(res&&res[0]==='허용')h+=cp('na','4. Pod 검사','새 Pod를 만들지 않는 요청입니다.');
+  $('cps').innerHTML=h;var v=$('verd');v.style.setProperty('--v',res[0]==='허용'?'var(--ok)':'var(--bad)');v.innerHTML=res[0]+(res[1]?'<span>'+res[1]+'</span>':'<span>모든 검문소를 통과했습니다.</span>');}
+gw.addEventListener('change',sim);gt.addEventListener('change',sim);gw.value='minsu';gt.value='contrib';sim();
+
+/* layers */
+var LY=[
+ ['인증','누구인가','--c-katib','oauth2-proxy, Dex, 기업 IdP, Istio의 토큰 검증','로그인하지 않은 요청을 막고, 사용자의 신원(이메일)을 확정합니다. 기계는 서비스 계정 토큰으로 신원을 증명합니다.','3장, 5장'],
+ ['인가','무엇을 할 수 있나','--c-hub','Istio AuthorizationPolicy, Kubernetes RBAC, Profile과 KFAM','그 사람이나 기계가 어느 네임스페이스에서 어떤 동작을 할 수 있는지 정합니다.','4장'],
+ ['워크로드 격리','Pod가 무엇을 할 수 있나','--c-train','Pod 보안 표준, 입장 정책, 런타임 보안','특권 컨테이너, 호스트 접근, 허용되지 않은 이미지를 막아 Pod가 노드나 다른 팀을 건드리지 못하게 합니다.','6장'],
+ ['네트워크','누가 누구에게 연결하나','--c-serve','NetworkPolicy, Istio mTLS와 정책, 게이트웨이','네임스페이스 사이의 연결을 막고, 사이드카 없는 학습 Pod도 지킵니다.','7장'],
+ ['데이터와 비밀','무엇이 새어 나갈 수 있나','--c-data','Secret, External Secrets, 비밀 관리 서비스, 팀별 버킷, etcd 암호화','자격 증명과 데이터, 아티팩트, 모델이 다른 팀이나 밖으로 새지 않게 합니다.','8장'],
+ ['공급망과 감사','무엇이 들어오고, 무슨 일이 있었나','--c-kfp','이미지 미러와 검사, 서명, 감사 로그, 접근 로그, Git 기록','검증되지 않은 코드와 이미지가 들어오는 것을 막고, 사고가 나면 무슨 일이 있었는지 재구성할 수 있게 합니다.','9장']
+];
+var lw=$('layers2'),lp=$('layPanel');
+LY.forEach(function(l,i){var b=document.createElement('button');b.type='button';b.style.setProperty('--c','var('+l[2]+')');b.innerHTML='<b>'+l[0]+'</b><small>'+l[1]+'</small>';b.addEventListener('click',function(){selL(i);});lw.appendChild(b);});
+function selL(i){var l=LY[i];[].forEach.call(lw.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});lp.style.setProperty('--c','var('+l[2]+')');lp.innerHTML='<h4>'+l[0]+': '+l[1]+'</h4><dl><dt>Kubeflow에서</dt><dd>'+l[3]+'</dd><dt>하는 일</dt><dd>'+l[4]+'</dd><dt>이번 편</dt><dd>'+l[5]+'</dd></dl>';}
+selL(0);
+
+/* sec checklist */
+function secC(){var all=[].slice.call(document.querySelectorAll('#sec input')),n=all.filter(function(x){return x.checked;}).length,b=$('secOut'),v,t;
+  if(n===12){v='--ok';t='<b>운영 준비 완료</b>열두 항목을 모두 갖췄습니다. 분기마다 다시 점검하고, 다른 팀 계정으로 격리를 직접 시험하는 일을 정례화하세요.';}
+  else if(n>=8){v='--c-train';t='<b>거의 다 왔습니다 ('+n+'/12)</b>남은 항목은 사고가 났을 때 피해 범위를 줄이는 것들입니다. 운영 시작 전에 채우세요.';}
+  else if(n>=1){v='--bad';t='<b>운영 전 보완 필요 ('+n+'/12)</b>특히 정적 계정 끄기, HTTPS, PSS, NetworkPolicy는 다른 팀이 들어오기 전에 갖춰야 합니다.';}
+  else{v='--c-base';t='<b>시작 전</b>3편의 학습용 설치 그대로입니다. 3장의 인증부터 시작하세요.';}
+  b.style.setProperty('--v','var('+v+')');b.innerHTML=t;}
+document.querySelectorAll('#sec input').forEach(function(x){x.addEventListener('change',secC);});secC();
+
+/* troubleshooting */
+var TS=[
+ ['IdP 로그인 뒤 내 네임스페이스가 안 보임','--c-katib','IdP가 보내는 이메일이 프로필 owner와 다릅니다. 대소문자, 별칭 도메인, 이메일 대신 사용자 ID가 오는 경우가 흔합니다.','oauth2-proxy 로그나 kubeflow-userid 헤더로 실제 값을 확인하고, 프로필 owner나 IdP의 클레임 설정을 맞춥니다.'],
+ ['로그인이 무한 반복','--c-katib','redirect URI 불일치, HTTP 접속, 쿠키 도메인 설정 문제입니다.','IdP에 등록한 redirect URI와 실제 주소를 맞추고, 외부 주소는 HTTPS로 접속합니다.'],
+ ['화면은 열리는데 만들기가 403','--c-hub','Istio 정책은 허용했지만 RBAC 역할이 부족합니다. 기여자 RoleBinding만 지워졌거나 보기 권한으로 초대된 경우입니다.','kubectl get rolebindings -n 네임스페이스로 역할을 확인하고, Manage Contributors에서 다시 초대합니다.'],
+ ['CI에서 Pipelines API 호출이 401','--c-mon','서비스 계정 토큰을 게이트웨이가 받아 주도록 구성되지 않았거나, 토큰의 대상(audience)이나 수명이 맞지 않습니다.','설치에서 서비스 계정 토큰 인증 옵션을 켜고, 맞는 대상으로 짧은 토큰을 발급합니다.'],
+ ['PSS를 켰더니 노트북이 안 뜸','--c-train','이미지가 root로 실행되거나, 일부 구성요소가 restricted 기준을 만족하지 않습니다.','warn 모드로 먼저 위반 내용을 확인하고, 예제 이미지 기반의 jovyan 사용자 이미지를 씁니다(4편). 사용자 네임스페이스는 baseline부터 강제합니다.'],
+ ['입장 정책 적용 뒤 Pod가 거부됨','--c-train','Kubeflow나 Istio가 넣는 사이드카, initContainer 이미지가 허용 목록 밖입니다.','감사 모드로 먼저 걸리는 이미지를 모으고, 시스템 이미지의 레지스트리를 미러로 바꾸거나 규칙에 포함합니다.'],
+ ['NetworkPolicy 뒤 분산 학습이 멈춤','--c-serve','같은 네임스페이스 Pod 사이의 연결이나 DNS를 막았습니다.','같은 네임스페이스 허용 규칙과, Egress를 막았다면 DNS 허용을 추가합니다.'],
+ ['다른 팀 아티팩트가 보임','--c-data','아티팩트 저장소가 팀 구분 없이 같은 자격 증명과 경로를 씁니다.','네임스페이스별 저장소 경로와 자격 증명 구성으로 바꾸고, 다른 팀 계정으로 다시 시험합니다.']
+];
+var tc=$('trChips'),tpn=$('trPanel');
+TS.forEach(function(s,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+s[1]+')');b.textContent=s[0];b.addEventListener('click',function(){selTs(i);});tc.appendChild(b);});
+function selTs(i){var s=TS[i];[].forEach.call(tc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});tpn.style.setProperty('--c','var('+s[1]+')');tpn.innerHTML='<h4>'+esc(s[0])+'</h4><dl><dt>원인</dt><dd>'+esc(s[2])+'</dd><dt>해결</dt><dd>'+esc(s[3])+'</dd></dl>';}
+selTs(0);
+
+/* glossary */
+var GL=[
+ ['테넌트','Tenant','플랫폼을 함께 쓰는 단위. 팀이나 고객.'],
+ ['멀티테넌시','Multi-tenancy','여러 테넌트가 서로 격리된 채 한 플랫폼을 함께 쓰는 구조.'],
+ ['신원 제공자','IdP','사용자의 신원을 확인하고 토큰을 발급하는 시스템. Keycloak, Entra ID, Okta 등.'],
+ ['Dex connector','Dex connector','Dex가 외부 IdP(OIDC, LDAP, SAML 등)와 연결하는 설정.'],
+ ['그룹 클레임','Groups claim','토큰에 담긴 사용자의 소속 그룹 정보.'],
+ ['AuthorizationPolicy','Istio AuthorizationPolicy','요청의 출처나 헤더를 보고 허용과 거부를 정하는 Istio 리소스.'],
+ ['RBAC','Role-Based Access Control','역할에 권한을 묶고 사용자에게 역할을 주는 Kubernetes 권한 체계.'],
+ ['kubeflow-admin, edit, view','Kubeflow ClusterRoles','프로필 소유자와 기여자에게 주는 Kubeflow의 기본 역할.'],
+ ['서비스 계정 토큰','ServiceAccount token','기계가 신원을 증명하는 토큰. 짧은 수명과 특정 대상으로 발급하는 것이 안전.'],
+ ['대상','Audience','토큰을 받아 줄 서비스를 지정하는 값. 다른 곳에 쓰이지 않게 한다.'],
+ ['Pod 보안 표준','Pod Security Standards','privileged, baseline, restricted 세 수준으로 Pod의 위험한 설정을 막는 Kubernetes 표준.'],
+ ['입장 정책','Admission policy','리소스가 만들어질 때 규칙을 검사해 거부하는 정책. ValidatingAdmissionPolicy, Kyverno, Gatekeeper.'],
+ ['ValidatingAdmissionPolicy','ValidatingAdmissionPolicy','CEL 식으로 규칙을 적는 Kubernetes 내장 입장 정책.'],
+ ['NetworkPolicy','NetworkPolicy','Pod 사이의 연결을 허용하거나 막는 Kubernetes 리소스.'],
+ ['External Secrets Operator','External Secrets Operator','외부 비밀 관리 서비스의 값을 Kubernetes Secret으로 가져오는 도구.'],
+ ['워크로드 아이덴티티','Workload identity','클라우드에서 Pod에 신원을 주어 키 없이 클라우드 자원에 접근하게 하는 방식.'],
+ ['이미지 서명','Image signing','이미지가 변조되지 않았음을 증명하는 서명. cosign 등.'],
+ ['감사 로그','Audit log','누가 언제 어떤 API 요청을 했는지 남기는 Kubernetes 기록.']
+];
+var gl=$('glist'),gq=$('gq'),ge=$('gempty');
+function renderG(){var q=gq.value.trim().toLowerCase(),out=GL.filter(function(g){return !q||(g[0]+' '+g[1]+' '+g[2]).toLowerCase().indexOf(q)>=0;});gl.innerHTML=out.map(function(g){return '<div class="gitem"><b>'+esc(g[0])+'</b><small>'+esc(g[1])+'</small><p>'+esc(g[2])+'</p></div>';}).join('');ge.hidden=out.length>0;}
+gq.addEventListener('input',renderG);renderG();
+
+/* quiz */
+var QZ=[
+ {q:'MSP가 서로 다른 고객사 세 곳에 Kubeflow를 제공할 때 권장 구조는?',o:['한 Kubeflow에 고객사마다 프로필 하나','고객사마다 클러스터나 설치를 나누고, 그 안의 팀을 프로필로 나눈다','모든 고객이 같은 네임스페이스','프로필 없이 RBAC만'],a:1,e:'프로필 격리는 같은 조직의 팀을 위한 설계입니다.'},
+ {q:'IdP로 로그인했는데 자기 네임스페이스가 보이지 않습니다. 가장 먼저 확인할 것은?',o:['GPU 드라이버','IdP가 보내는 이메일과 프로필 owner가 정확히 같은지','Katib 설정','이미지 태그'],a:1,e:'이메일이 프로필과 맞물리는 신분증입니다.'},
+ {q:'다른 팀 네임스페이스의 노트북 주소로 요청하면 어디서 막히나요?',o:['인증','Istio AuthorizationPolicy','PSS','Kueue'],a:1,e:'웹 요청은 네임스페이스로 들어가기 전에 Istio 정책이 막습니다.'},
+ {q:'편집 권한 기여자가 다른 사람을 기여자로 추가하려 하면?',o:['된다','RBAC에서 막힌다. 기여자 관리는 소유자만','Istio에서 막힌다','인증에서 막힌다'],a:1,e:'kubeflow-edit에는 기여자 관리 권한이 없습니다.'},
+ {q:'CI 서버가 파이프라인을 실행해야 합니다. 바른 방법은?',o:['관리자의 IdP 비밀번호를 CI에 저장','전용 서비스 계정과 짧은 수명, 좁은 대상의 토큰','user@example.com 계정','토큰 없이 NodePort로'],a:1,e:'기계는 사람 계정이 아니라 서비스 계정으로.'},
+ {q:'사이드카를 뺀 분산 학습 Pod를 다른 네임스페이스의 접근으로부터 지키는 것은?',o:['Istio AuthorizationPolicy','NetworkPolicy','RBAC','Dex'],a:1,e:'Istio 정책은 사이드카가 있는 Pod만 지킵니다.'},
+ {q:'노트북에서 임의 이미지로 특권 Pod를 만드는 것을 막는 것은?',o:['Kueue','Pod 보안 표준(baseline 이상)과 입장 정책','KServe','캐시'],a:1,e:'PSS가 특권과 호스트 접근을, 입장 정책이 허용 레지스트리 같은 조직 규칙을 막습니다.'},
+ {q:'팀 간 아티팩트 격리를 믿으려면 무엇을 해야 할까요?',o:['문서를 읽는다','다른 팀 계정으로 직접 접근해 보이지 않는지 시험한다','GPU를 늘린다','캐시를 끈다'],a:1,e:'설정이 아니라 시험 결과로 확인합니다.'}
+];
+var qz=$('quiz'),sc=$('score'),dn2=0,rt=0;
+function renderQ(){dn2=0;rt=0;sc.textContent='';qz.innerHTML=QZ.map(function(x,i){return '<div class="qq" data-i="'+i+'"><h4>'+(i+1)+'. '+esc(x.q)+'</h4>'+x.o.map(function(o,k){return '<button class="ans" type="button" data-k="'+k+'">'+esc(o)+'</button>';}).join('')+'<p class="exp"></p></div>';}).join('');}
+qz.addEventListener('click',function(e){var b=e.target.closest('.ans');if(!b||b.disabled)return;var box=b.closest('.qq'),x=QZ[+box.dataset.i],k=+b.dataset.k;
+  box.querySelectorAll('.ans').forEach(function(a){a.disabled=true;if(+a.dataset.k===x.a)a.classList.add('right');});
+  if(k!==x.a)b.classList.add('wrong');else rt++;
+  var ex=box.querySelector('.exp');ex.textContent=(k===x.a?'정답입니다. ':'정답은 '+(x.a+1)+'번째 보기입니다. ')+x.e;ex.classList.add('show');
+  dn2++;if(dn2===QZ.length){sc.textContent=QZ.length+'문제 중 '+rt+'문제를 맞혔습니다.'+(rt===QZ.length?' 여러 팀을 맞을 준비가 되었습니다.':' 틀린 문제는 해설에 나온 장을 다시 읽어 보세요.');}});
+$('quizReset').addEventListener('click',renderQ);renderQ();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubeflow 강의 8편: Katib, 하이퍼파라미터 튜닝과 AutoML</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+try{var t=localStorage.getItem('kf-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
+</script>
+<style>
+:root{
+  --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r-s:6px;--r-m:12px;--r-l:20px;
+}
+html[data-theme="dark"]{
+  --bg:#0F1B2D;--surface:#15253B;--raised:#1C3049;--line:#2A405E;--text:#E7EEF7;--muted:#93A6BF;--brand:#4EA8F5;--on-c:#0F1B2D;
+  --c-data:#F26B3A;--c-nb:#9BD15A;--c-kfp:#2EC4B6;--c-train:#F2A541;--c-katib:#A78BFA;--c-hub:#F47C9A;--c-serve:#4EA8F5;--c-mon:#E8D44D;--c-base:#8DA2BD;
+  --lv1:#5BC48A;--lv2:#4EA8F5;--lv3:#A78BFA;--lv4:#F2667A;
+  --ok:#5BC48A;--bad:#F2667A;--code-bg:#0A1422;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#F2F5F9;--surface:#FFFFFF;--raised:#E8EEF5;--line:#D2DCE8;--text:#14233A;--muted:#55667D;--brand:#1F6FBF;--on-c:#FFFFFF;
+  --c-data:#C9501F;--c-nb:#4F8A17;--c-kfp:#0F7F76;--c-train:#A8670C;--c-katib:#6A4ED0;--c-hub:#C23E68;--c-serve:#1F6FBF;--c-mon:#8C7700;--c-base:#5F7189;
+  --lv1:#2E9A61;--lv2:#1F6FBF;--lv3:#6A4ED0;--lv4:#C9384F;
+  --ok:#2E9A61;--bad:#C9384F;--code-bg:#14233A;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:12px}
+.series{font-weight:700;font-size:15px;line-height:1.3}
+.series span{color:var(--muted);font-weight:500;margin-left:8px}
+.theme-btn{margin-left:auto;font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+.progress{height:3px;width:0;background:linear-gradient(90deg,var(--c-data),var(--c-nb),var(--c-kfp),var(--c-train),var(--c-katib),var(--c-hub),var(--c-serve),var(--c-mon))}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:56px 24px 32px;display:grid;grid-template-columns:5fr 7fr;gap:44px;align-items:center}
+.hero h1{font-size:clamp(2.5rem,5.4vw,4.1rem);line-height:1.1;letter-spacing:-0.035em;font-weight:800;margin:0 0 22px}
+.hero .lede{font-size:1.14rem;color:var(--muted);margin:0;max-width:32em}
+.levelstrip{display:flex;gap:4px;margin:30px 0 8px;max-width:420px}
+.levelstrip i{flex:1;height:8px;border-radius:2px;opacity:.32}
+.levelstrip i.now{opacity:1;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.strip-cap{font-size:14px;color:var(--muted);margin:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:26px 0 0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:10px 10px 4px}
+.mapcap{font-size:14px;color:var(--muted);padding:2px 10px 8px;margin:0}
+@media (max-width:960px){.hero{grid-template-columns:1fr;padding-top:36px}}
+
+/* lifecycle map */
+.lcmap{width:100%;height:auto;display:block}
+.lcmap .seg{fill:none;stroke-width:11;stroke-linecap:round}
+.lcmap .st{cursor:pointer;outline:none}
+.lcmap .st .dot{fill:var(--surface);stroke:currentColor;stroke-width:4;transition:r .15s}
+.lcmap .st:hover .dot,.lcmap .st:focus-visible .dot{r:14}
+.lcmap .st.sel .dot{fill:currentColor}
+.lcmap .st:focus-visible .halo{stroke:var(--brand)}
+.lcmap .halo{fill:none;stroke:transparent;stroke-width:3}
+.lcmap .lbl{font-size:17px;font-weight:700;fill:var(--text);font-family:var(--font)}
+.lcmap .sub{font-size:13px;fill:var(--muted);font-weight:500;font-family:var(--font)}
+.lcmap .ctr1{font-size:24px;font-weight:800;fill:var(--text);font-family:var(--font);letter-spacing:-0.02em}
+.lcmap .ctr2{font-size:13.5px;fill:var(--muted);font-family:var(--font)}
+.lcmap .arrow{fill:var(--c-mon)}
+.lcmap.draw .seg{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .45s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* layout */
+.layout{max-width:1180px;margin:0 auto;padding:0 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding:24px 0 0}
+.toc p{font-weight:700;margin:0 0 10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:block;padding:5px 10px 5px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a:hover{color:var(--text)}
+.toc a.on{color:var(--text);border-left-color:var(--brand);font-weight:600}
+main{min-width:0;max-width:800px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;gap:0}.toc{display:none}}
+section{padding-top:60px}
+h2{font-size:clamp(1.6rem,3vw,2rem);line-height:1.3;letter-spacing:-0.02em;margin:0 0 18px;font-weight:800}
+h2 .no{color:var(--brand);margin-right:.35em}
+h3{font-size:1.24rem;line-height:1.4;margin:38px 0 12px;font-weight:700}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin:4px 0}
+strong{font-weight:700}
+
+/* callouts */
+.callout{border-left:4px solid var(--brand);background:var(--surface);padding:16px 20px;border-radius:0 var(--r-m) var(--r-m) 0;margin:22px 0}
+.callout p:last-child{margin-bottom:0}
+.callout .h{display:block;font-weight:700;margin-bottom:4px}
+.callout.warn{border-color:var(--c-train)}
+.callout.tip{border-color:var(--c-nb)}
+.callout.link{border-color:var(--c-katib)}
+
+/* goals */
+.goals{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.goals li{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 16px}
+.goals li::before{content:"";width:18px;height:18px;margin-top:5px;border-radius:50%;border:3px solid var(--lv1)}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin:16px 0 24px;border:1px solid var(--line);border-radius:var(--r-m)}
+.tbl{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.6;min-width:560px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font-weight:700;background:var(--raised)}
+.tbl td:first-child{font-weight:600}
+.tbl .old{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 70%,transparent)}
+
+/* story */
+.story{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:24px 26px;margin:22px 0}
+.story-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.story-dots{display:flex;gap:6px}
+.story-dots button{width:30px;height:7px;border-radius:4px;border:0;background:var(--line);cursor:pointer;padding:0}
+.story-dots button.on{background:var(--brand)}
+.story-who{font-size:14px;color:var(--muted)}
+.story h4{font-size:1.25rem;margin:0 0 10px;line-height:1.4}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:2px 11px;border-radius:999px;background:var(--raised);border:1px solid var(--line);margin-bottom:10px}
+.tag.bad{border-color:var(--bad);color:var(--bad)}
+.story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:8px 16px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.btn:disabled{opacity:.4;cursor:default}
+.mapping{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;font-size:15.5px}
+.mapping dt{font-weight:700}
+.mapping dd{margin:0;color:var(--muted)}
+
+/* debt figure */
+.debt{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:56px;gap:6px;margin:18px 0 8px}
+.debt div{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;line-height:1.35;display:flex;align-items:center}
+.debt .ml{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:700;justify-content:center}
+.figcap{font-size:14px;color:var(--muted);margin:0 0 20px}
+@media (max-width:600px){.debt{grid-template-columns:repeat(3,1fr)}.debt div{grid-column:auto!important;grid-row:auto!important}}
+
+/* maturity */
+.mat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.mat input[type=range]{width:100%;accent-color:var(--brand);margin:6px 0 2px}
+.mat-scale{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:16px}
+.mat h4{margin:0 0 8px;font-size:1.15rem}
+.mat-kf{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px}
+
+/* station panel */
+.stbtns{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.stbtn{font:inherit;font-size:14.5px;font-weight:600;padding:6px 13px;border-radius:999px;border:2px solid var(--c);background:transparent;color:var(--text);cursor:pointer}
+.stbtn.on{background:var(--c);color:var(--on-c)}
+.panel{border:1px solid var(--line);border-top:6px solid var(--c);background:var(--surface);border-radius:var(--r-m);padding:20px 24px}
+.panel h4{font-size:1.25rem;margin:0 0 2px}
+.panel .meta{font-size:14.5px;color:var(--muted);margin:0 0 6px}
+.panel dl{display:grid;grid-template-columns:8.5em 1fr;gap:10px 18px;margin:14px 0 0}
+.panel dt{color:var(--muted);font-size:15px;font-weight:600}
+.panel dd{margin:0}
+@media (max-width:600px){.panel dl{grid-template-columns:1fr;gap:2px}.panel dd{margin-bottom:10px}}
+
+/* principles */
+.princ{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.princ div{padding:16px 18px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line)}
+.princ b{display:block;margin-bottom:4px;font-size:1.05rem}
+.princ p{margin:0;font-size:15.5px;color:var(--muted)}
+@media (max-width:600px){.princ{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{list-style:none;margin:18px 0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 18px 34px}
+.tl li::before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--brand)}
+.tl li.now::before{background:var(--brand)}
+.tl b{display:block;font-size:15px;color:var(--brand)}
+
+/* component layers */
+.layers{display:flex;flex-direction:column;gap:8px;margin:20px 0 14px}
+.layer{border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px 14px;background:var(--surface)}
+.layer-h{font-size:14px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:15px;font-weight:600;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);border-left:5px solid var(--c);background:var(--raised);color:var(--text);cursor:pointer}
+.chip.on{background:var(--c);color:var(--on-c);border-color:var(--c)}
+.layer.base{background:var(--raised);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:center;font-weight:700;font-size:15px}
+.layer.base span{color:var(--muted);font-weight:500}
+
+/* code */
+pre{background:var(--code-bg);color:#DCE6F2;font-family:var(--mono);font-size:14px;line-height:1.65;padding:18px 20px;border-radius:var(--r-m);overflow-x:auto;margin:10px 0 18px}
+pre .c{color:#7F93AD}pre .k{color:#F2A541}pre .s{color:#9BD15A}pre .f{color:#6FC3FF}
+code{font-family:var(--mono);font-size:.86em;background:var(--raised);padding:1px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+.codehead{font-weight:700;margin:26px 0 0;font-size:15.5px}
+
+/* decision helper */
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.q{margin-bottom:18px}
+.q p{font-weight:600;margin:0 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{font:inherit;font-size:15px;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.opt.on{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:600}
+.result{padding:16px 18px;border-radius:var(--r-m);background:var(--raised);border-left:4px solid var(--brand)}
+.result b{display:block;font-size:1.08rem;margin-bottom:4px}
+.result p{margin:0}
+
+/* install options */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.ways div{padding:16px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c)}
+.ways b{display:block;margin-bottom:6px}
+.ways p{font-size:15px;margin:0 0 8px;color:var(--muted)}
+.ways p:last-child{margin:0}
+@media (max-width:760px){.ways{grid-template-columns:1fr}}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-top:16px}
+.tab{font:inherit;font-size:15px;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel dl{display:grid;grid-template-columns:8em 1fr;gap:10px 18px;margin:0}
+.tabpanel dt{color:var(--muted);font-weight:600;font-size:15px}
+.tabpanel dd{margin:0}
+@media (max-width:600px){.tabpanel dl{grid-template-columns:1fr;gap:2px}.tabpanel dd{margin-bottom:10px}}
+
+/* cases */
+details.case{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin:10px 0}
+details.case summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;gap:12px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary small{font-weight:500;color:var(--muted);font-size:14px}
+details.case summary::after{content:"+";margin-left:auto;font-size:22px;line-height:1;color:var(--muted)}
+details.case[open] summary::after{content:"−"}
+.case-body{padding:0 18px 16px}
+.case-body p{font-size:15.8px}
+.mini{display:inline-block;font-size:13px;font-weight:600;padding:1px 10px;border-radius:999px;border:1.5px solid var(--c);margin:2px 4px 2px 0}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:11px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px}
+.gitem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px}
+.gitem b{display:block;line-height:1.4}
+.gitem small{color:var(--muted);font-size:13px}
+.gitem p{font-size:15px;margin:6px 0 0;line-height:1.6}
+.gempty{color:var(--muted);margin-top:12px}
+
+/* quiz */
+.qq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:12px 0}
+.qq h4{margin:0 0 10px;font-size:1.06rem;line-height:1.5}
+.ans{display:block;width:100%;text-align:left;font:inherit;font-size:15.5px;padding:10px 14px;margin:6px 0;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;line-height:1.5}
+.ans:disabled{cursor:default}
+.ans.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--raised))}
+.ans.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,var(--raised))}
+.exp{display:none;font-size:15px;margin:10px 0 0;color:var(--muted)}
+.exp.show{display:block}
+.score{font-weight:700;font-size:1.05rem;margin-top:14px}
+
+/* wrap */
+.keys{counter-reset:k;list-style:none;padding:0;margin:16px 0}
+.keys li{counter-increment:k;display:grid;grid-template-columns:36px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li::before{content:counter(k);font-weight:800;font-size:1.2rem;color:var(--brand)}
+.next{margin:28px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--lv1)}
+.next .h{font-size:14px;color:var(--muted);font-weight:600}
+.next h4{font-size:1.3rem;margin:4px 0 8px}
+footer{max-width:1180px;margin:0 auto;padding:24px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+/* ---- 2편 추가 스타일 ---- */
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 16px}
+.match-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.match-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.mcol-h{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--muted)}
+.mcol{display:flex;flex-direction:column;gap:6px}
+.mw{font:inherit;font-size:14.5px;line-height:1.4;text-align:left;padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;min-height:40px}
+.mw.ml{border-left:4px solid var(--c-train)}
+.mw.k8{border-left:4px solid var(--c-serve)}
+.mw.sel{outline:2px solid var(--brand);outline-offset:1px}
+.mw.done{background:color-mix(in srgb,var(--pc) 22%,var(--raised));border-color:var(--pc);cursor:default}
+.mw.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mcard{margin-top:12px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:15px;min-height:68px}
+.mcard b{display:block}
+.mfoot{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.mfoot .btn{font-size:13.5px;padding:5px 12px;margin-left:auto}
+.part{margin:72px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--pc)}
+.part .ph{font-size:14px;font-weight:700;color:var(--pc);margin:0}
+.part h2{margin:4px 0 8px}
+.part p{margin:0;color:var(--muted)}
+.part + section{padding-top:36px}
+.toc .tp{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:14px 0 4px 12px}
+.play{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.play svg{width:100%;height:auto;display:block}
+.play .axis{stroke:var(--line);stroke-width:1.5}
+.play .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.play .tick{fill:var(--muted);font-size:12px;font-family:var(--font)}
+.play .pt{fill:var(--c-train)}
+.play .err{stroke:var(--c-hub);stroke-width:1.5;opacity:.7}
+.play .fit{stroke:var(--c-kfp);stroke-width:3.5;stroke-linecap:round}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:12px}
+.ctrls label{font-size:14.5px;font-weight:600;display:block}
+.ctrls input[type=range]{width:100%;accent-color:var(--brand)}
+.ctrls output{font-weight:700;color:var(--brand)}
+.prow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.lossbox{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:15px}
+.lossbox b{color:var(--c-hub)}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.spark path{fill:none;stroke:var(--c-hub);stroke-width:2}
+@media (max-width:600px){.ctrls{grid-template-columns:1fr}.mgrid{gap:6px 8px}.mw{font-size:13.5px;padding:7px 8px}}
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.calc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px}
+.calc label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.calc input,.calc select{width:100%;font:inherit;font-size:15.5px;padding:8px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.calc .out{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px}
+.calc .out dt{color:var(--muted)}
+.calc .out dd{margin:0;font-weight:700}
+.calc .note{font-size:14px;color:var(--muted);margin:12px 0 0}
+.fits{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fit-g{font-size:14px;padding:6px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised)}
+.fit-g.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--raised))}
+.fit-g.multi{border-color:var(--c-train);background:color-mix(in srgb,var(--c-train) 14%,var(--raised))}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 12px}
+.arch .zone{grid-column:span 4;font-size:13px;font-weight:700;color:var(--muted);margin:6px 0 -2px}
+.arch .bx{padding:10px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:14px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.arch .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:600px){.arch{grid-template-columns:repeat(2,1fr)}.arch .zone{grid-column:span 2}}
+.stepbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.stepbox h4{margin:0 0 6px;font-size:1.12rem}
+.yaml{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.yaml pre{margin:0;padding:14px 0;font-size:13.5px}
+.yaml .ln{display:block;padding:0 14px 0 16px;border-left:3px solid transparent;white-space:pre}
+.yaml .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+.ynote{position:sticky;top:90px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c-train);border-radius:var(--r-m);padding:16px 18px;font-size:15.5px}
+.ynote b{display:block;font-size:1.05rem;margin-bottom:4px}
+.ynote code{font-size:.84em}
+@media (max-width:900px){.yaml{grid-template-columns:1fr}.ynote{position:static}}
+.check{list-style:none;padding:0;margin:10px 0 0}
+.check li{margin:6px 0}
+.check label{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;cursor:pointer;font-size:15.5px}
+.check input{width:18px;height:18px;margin-top:5px;accent-color:var(--ok)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.cols2>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px;border-top:4px solid var(--pc)}
+.cols2 h4{margin:0 0 4px;font-size:1.05rem}
+@media (max-width:760px){.cols2{grid-template-columns:1fr}}
+/* ---- 3편 추가 스타일 ---- */
+.towerwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tw-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tw-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tower{display:flex;flex-direction:column-reverse;gap:3px}
+.blk{display:flex;align-items:center;gap:10px;font:inherit;text-align:left;width:100%;padding:3px 10px;min-height:27px;border-radius:5px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:13.5px;cursor:default;opacity:.55}
+.blk small{margin-left:auto;font-size:12px;color:var(--muted)}
+.blk.built{opacity:1;border:1px solid color-mix(in srgb,var(--g) 55%,var(--line));border-left:6px solid var(--g);background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text);font-weight:600;cursor:pointer}
+.blk.built small{font-weight:500}
+.blk.cur{outline:2px solid var(--text);outline-offset:1px}
+.blk.base{opacity:1}
+.tw-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.tw-legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--g);margin-right:5px;vertical-align:-1px}
+.tw-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:92px;line-height:1.6}
+.tw-card b{display:block;font-size:15px}
+.tw-ctrl{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tw-ctrl .btn{font-size:13.5px;padding:6px 12px}
+.res{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.res-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
+.res-list label{display:grid;grid-template-columns:22px 1fr;gap:6px;align-items:start;font-size:15px;cursor:pointer;padding:4px 0}
+.res-list input{width:17px;height:17px;margin-top:4px;accent-color:var(--brand)}
+.res-list small{display:block;color:var(--muted);font-size:12.5px}
+.res-list .req{color:var(--muted)}
+.res-sum{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res-sum div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.res-sum b{display:block;font-size:1.25rem;color:var(--text)}
+.res-mine{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:14px}
+.res-mine label{font-size:14px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+.res-mine input{width:110px;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.verdict{margin-top:12px;padding:12px 16px;border-radius:var(--r-m);border-left:4px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised));font-size:15px}
+.tree{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;margin:16px 0}
+.tree-list{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
+.tree-list button{font:inherit;text-align:left;padding:7px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.tree-list button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+@media (max-width:640px){.tree{grid-template-columns:1fr}}
+.steps{counter-reset:st;list-style:none;padding:0;margin:18px 0}
+.stp{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px 14px 58px;margin:10px 0}
+.stp::before{content:counter(st);position:absolute;left:16px;top:15px;width:28px;height:28px;border-radius:50%;background:var(--raised);border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand)}
+.stp.ok::before{content:"✓";background:var(--ok);border-color:var(--ok);color:var(--on-c)}
+.stp h4{margin:0 0 6px;font-size:1.08rem}
+.stp p{font-size:15.5px;margin:0 0 8px}
+.stp .opt-tag{font-size:12.5px;font-weight:700;color:var(--c-train);margin-left:6px}
+.cmd{position:relative}
+.cmd pre{margin:6px 0 8px;padding-right:76px}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:5px;border:1px solid #2A405E;background:#1C3049;color:#DCE6F2;cursor:pointer}
+.stp-done{display:inline-flex;gap:6px;align-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.stp-done input{accent-color:var(--ok);width:16px;height:16px}
+.stprog{position:sticky;top:64px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--bg);padding:8px 0;font-size:14px;color:var(--muted)}
+.stprog .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.stprog .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0 10px}
+.flow .bx{padding:10px 6px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:13.5px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.flow .bx small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.flow .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:700px){.flow{grid-template-columns:repeat(3,1fr)}}
+.dash{display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.dash-top{grid-column:span 2;display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.dash-top b{font-size:15px}
+.dash-ns{margin-left:auto;font:inherit;font-size:13.5px;padding:5px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.dash-side{border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column}
+.dash-side .grp{font-size:12px;font-weight:700;color:var(--muted);padding:10px 14px 2px}
+.dash-side button{font:inherit;font-size:14px;text-align:left;padding:7px 14px;border:0;border-left:3px solid transparent;background:none;color:var(--text);cursor:pointer}
+.dash-side button.on{border-left-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);font-weight:600}
+.dash-main{padding:18px 20px;min-height:300px}
+.dash-main h4{margin:0 0 4px;font-size:1.15rem}
+.dash-main .meta{font-size:14px;color:var(--muted);margin:0 0 10px}
+@media (max-width:700px){.dash{grid-template-columns:1fr}.dash-top{grid-column:auto;flex-wrap:wrap}.dash-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dash-side .grp{display:none}.dash-side button{border-left:0;border-bottom:3px solid transparent;padding:6px 10px}.dash-side button.on{border-bottom-color:var(--brand)}}
+/* ---- 4편 추가 스타일 ---- */
+.anat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.anat-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.anat-top .h{font-weight:700;font-size:1.05rem;margin-right:auto}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg2 button{font:inherit;font-size:13.5px;font-weight:600;padding:5px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg2 button.on{background:var(--brand);color:var(--on-c)}
+.nodes{display:flex;flex-direction:column;gap:5px}
+.node{display:flex;align-items:center;gap:8px;font:inherit;text-align:left;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--line);border-left:5px solid var(--g);background:var(--raised);color:var(--text);font-size:14px;cursor:pointer;transition:opacity .2s}
+.node small{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.node.l1{margin-left:20px;width:calc(100% - 20px)}
+.node.l2{margin-left:40px;width:calc(100% - 40px)}
+.node.l3{margin-left:60px;width:calc(100% - 60px)}
+.node.off{opacity:.35;border-style:dashed}
+.node.cur{outline:2px solid var(--text);outline-offset:1px}
+.anat-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:96px;line-height:1.6}
+.anat-card b{display:block;font-size:15px}
+.spawn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;margin:16px 0;align-items:start}
+.sform{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 8px}
+.sform fieldset{border:0;padding:0;margin:0 0 14px}
+.sform legend,.sform .lab{font-size:14px;font-weight:700;margin-bottom:6px;display:block;padding:0}
+.sform input[type=text],.sform input[type=number],.sform select{width:100%;font:inherit;font-size:15px;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.sform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sform .inl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14.5px}
+.sform .inl label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.sform input[type=checkbox],.sform input[type=radio]{accent-color:var(--brand);width:16px;height:16px}
+.sform .hint{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.sout{position:sticky;top:84px}
+.sout pre{margin:0 0 10px;font-size:13px;max-height:470px;overflow:auto}
+.checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.checks li{font-size:14.5px;padding:8px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--v)}
+@media (max-width:900px){.spawn{grid-template-columns:1fr}.sout{position:static}}
+.nbk{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.nbk-top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.nbk-top b{font-family:var(--mono);font-size:13.5px}
+.nbk-top .btn{margin-left:auto;font-size:13px;padding:5px 12px}
+.cell{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:10px 14px 4px;border-bottom:1px solid var(--line)}
+.cell:last-child{border-bottom:0}
+.cell .pr{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:12px;text-align:right}
+.cell pre{margin:4px 0 6px;font-size:13.5px}
+.cell .md{font-size:15px;margin:6px 0}
+.cell .run{font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;margin:0 0 8px}
+.cell .out{display:none;font-family:var(--mono);font-size:13px;white-space:pre-wrap;padding:8px 12px;margin:0 0 8px;border-left:3px solid var(--c-nb);background:var(--raised);border-radius:0 6px 6px 0;color:var(--text)}
+.cell .out.show{display:block}
+@media (max-width:600px){.cell{grid-template-columns:1fr}.cell .pr{text-align:left;padding-top:0}}
+/* ---- 5편 추가 스타일 ---- */
+.morph{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.morph-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.morph-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.stages{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.stg{font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:8px 4px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer;text-align:center;position:relative}
+.stg b{display:block;font-size:15px;color:var(--text)}
+.stg.done{border-color:color-mix(in srgb,var(--g) 60%,var(--line));background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text)}
+.stg.on{outline:2px solid var(--text);outline-offset:1px}
+.mpanel{margin-top:12px;border-radius:var(--r-m);background:var(--raised);padding:12px 14px;min-height:250px}
+.mpanel h4{margin:0 0 4px;font-size:1.05rem}
+.mpanel p{font-size:14.5px;margin:0 0 8px;line-height:1.6}
+.mpanel pre{margin:0;font-size:12.5px;max-height:150px}
+.mctrl{display:flex;gap:8px;margin-top:10px}
+.mctrl .btn{font-size:13.5px;padding:6px 12px}
+@media (max-width:600px){.stages{grid-template-columns:repeat(4,1fr)}}
+.cls{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.cls-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:10px 14px}
+.cls-row .what{font-weight:600;font-size:15.5px}
+.cls-row .opts .opt{font-size:14px;padding:5px 12px}
+.cls-row .fb{grid-column:span 2;font-size:14.5px;color:var(--muted);display:none;border-top:1px dashed var(--line);padding-top:8px}
+.cls-row .fb.show{display:block}
+.cls-row.right{border-color:var(--ok)}
+.cls-row.wrong{border-color:var(--bad)}
+@media (max-width:600px){.cls-row{grid-template-columns:1fr}.cls-row .fb{grid-column:auto}}
+.csim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.csim .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 18px;margin-bottom:16px}
+.csim label.lab{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.csim select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.csim .ck{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer;padding-top:22px}
+.csim .ck input{accent-color:var(--brand);width:16px;height:16px}
+.tasks{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.tk{flex:1 1 150px;padding:12px 14px;border-radius:var(--r-m);border:2px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised))}
+.tk b{display:block;font-family:var(--mono);font-size:14px}
+.tk span{font-size:14px}
+.tk small{display:block;font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.arr{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+@media (max-width:640px){.tasks{flex-direction:column}.arr{transform:rotate(90deg);align-self:center;padding:4px}}
+/* ---- 6편 추가 스타일 ---- */
+.lego{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.lego-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.lego-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.toggles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tg{font:inherit;font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.tg.on{background:var(--g);color:var(--on-c)}
+.dag{display:flex;flex-direction:column;align-items:stretch;gap:0;font-size:13.5px}
+.dn{align-self:center;padding:7px 14px;border-radius:8px;background:var(--raised);border:1.5px solid var(--g,var(--line));font-family:var(--mono);font-size:13px;text-align:center;position:relative;line-height:1.35}
+.dn em{display:block;font-style:normal;font-family:var(--font);font-size:11.5px;color:var(--muted)}
+.dn .bdg{position:absolute;top:-9px;right:-8px;font-family:var(--font);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--b);color:var(--on-c)}
+.dar{align-self:center;color:var(--muted);line-height:1;padding:3px 0;font-size:14px}
+.frame{border:1.5px dashed var(--g);border-radius:10px;padding:16px 10px 10px;position:relative;margin:4px 0}
+.frame>.fl{position:absolute;top:-10px;left:12px;background:var(--surface);padding:0 6px;font-size:12px;font-weight:700;color:var(--g)}
+.lanes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.lane{display:flex;flex-direction:column;align-items:center}
+.branches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lego pre{margin:12px 0 0;font-size:12px;max-height:260px}
+.gantt{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.gantt .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px;margin-bottom:14px}
+.gantt label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.gantt input,.gantt select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.gchart{position:relative;border-left:2px solid var(--line);border-bottom:2px solid var(--line);padding:6px 0 6px 0;margin-left:70px}
+.grow{position:relative;height:24px;margin:3px 0}
+.grow .gl{position:absolute;left:-70px;width:64px;text-align:right;font-size:12.5px;color:var(--muted);top:3px;font-family:var(--mono)}
+.gbar{position:absolute;top:0;height:24px;border-radius:5px;background:color-mix(in srgb,var(--c-train) 70%,transparent);border:1px solid var(--c-train);font-size:11.5px;color:var(--text);padding:3px 6px;white-space:nowrap;overflow:hidden}
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.gstats div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.gstats b{display:block;font-size:1.2rem;color:var(--text)}
+.cron{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.cron input{width:100%;font-family:var(--mono);font-size:17px;padding:9px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);margin-top:8px}
+.cfields{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
+.cfields div{background:var(--raised);border-radius:var(--r-s);padding:8px;text-align:center;font-size:12.5px;color:var(--muted)}
+.cfields b{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}
+@media (max-width:600px){.cfields{grid-template-columns:repeat(3,1fr)}}
+.kale{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;margin:16px 0;align-items:start}
+.kcell{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin-bottom:8px;overflow:hidden}
+.kcell .ktag{display:flex;gap:6px;padding:6px 10px;background:var(--raised);border-bottom:1px solid var(--line)}
+.kcell .ktag span{font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;border:1.5px solid var(--c);color:var(--text)}
+.kcell pre{margin:0;border-radius:0;font-size:12.5px;padding:10px 12px}
+@media (max-width:800px){.kale{grid-template-columns:1fr}}
+/* ---- 7편 추가 스타일 ---- */
+.dsim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.dsim-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.dsim-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.dctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-bottom:12px}
+.dctl label{font-size:13px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.dctl select,.dctl input{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:90px}
+.nodesg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.nodebox{border:1.5px solid var(--line);border-radius:10px;padding:8px;background:var(--raised)}
+.nodebox .nh{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.gpus{display:grid;grid-template-columns:repeat(2,1fr);gap:5px}
+.gpu{font:inherit;font-size:12px;padding:6px 4px;border-radius:6px;border:1.5px solid var(--c-train);background:color-mix(in srgb,var(--c-train) 10%,var(--surface));color:var(--text);cursor:pointer;line-height:1.3;transition:background .2s}
+.gpu b{display:block;font-family:var(--mono);font-size:13px}
+.gpu.sel{outline:2px solid var(--text);outline-offset:1px}
+.gpu.p1{background:color-mix(in srgb,var(--c-data) 30%,var(--surface));border-color:var(--c-data)}
+.gpu.p2{background:color-mix(in srgb,var(--c-train) 35%,var(--surface))}
+.gpu.p3{background:color-mix(in srgb,var(--c-katib) 35%,var(--surface));border-color:var(--c-katib)}
+.gpu.p4{background:color-mix(in srgb,var(--c-kfp) 35%,var(--surface));border-color:var(--c-kfp)}
+.nodebox.master{border-color:var(--c-hub)}
+.phases{display:flex;gap:4px;margin:12px 0 0;flex-wrap:wrap}
+.phases button{flex:1 1 90px;font:inherit;font-size:12.5px;font-weight:600;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer}
+.phases button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.dinfo{margin-top:10px;padding:10px 12px;border-radius:var(--r-m);background:var(--raised);font-size:14px;line-height:1.6;min-height:70px}
+.envbox{margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--code-bg);color:#DCE6F2;border-radius:var(--r-s);padding:10px 12px;white-space:pre}
+.envbox .c{color:#7F93AD}
+.yaml2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:16px 0}
+.yaml2 h4{margin:0 0 6px;font-size:1rem}
+.yaml2 pre{margin:0;padding:12px 0;font-size:12.5px}
+.yaml2 .ln{display:block;padding:0 12px 0 14px;border-left:3px solid transparent;white-space:pre}
+.yaml2 .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml2 .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml2 .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+@media (max-width:900px){.yaml2{grid-template-columns:1fr}}
+/* ---- 8편 추가 스타일 ---- */
+.tune{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tune-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tune-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tctl{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;margin-bottom:10px}
+.tctl label.l{font-size:12.5px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.tctl select{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.tctl .ck{display:flex;gap:6px;align-items:center;font-size:14px;cursor:pointer;padding-bottom:6px}
+.tctl .ck input{accent-color:var(--brand);width:16px;height:16px}
+.space{width:100%;height:auto;display:block;border-radius:10px;border:1px solid var(--line)}
+.space .ax{fill:var(--muted);font-size:11px;font-family:var(--font)}
+.space .pt{stroke:#fff;stroke-width:1.5}
+.space .pt.es{fill:none!important;stroke-dasharray:2 2}
+.space .best{fill:none;stroke:#fff;stroke-width:2.5}
+.space .num{font-size:9.5px;font-family:var(--mono);fill:#0F1B2D;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.tstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.tstats div{background:var(--raised);border-radius:var(--r-s);padding:7px 9px;font-size:12px;color:var(--muted);line-height:1.35}
+.tstats b{display:block;font-size:15px;color:var(--text)}
+.tbtns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.tbtns .btn{font-size:13px;padding:6px 11px}
+.tnote{font-size:13.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+@media (max-width:600px){.tstats{grid-template-columns:repeat(2,1fr)}}
+.combo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.combo .row{display:grid;grid-template-columns:minmax(0,1.3fr) 110px 110px;gap:8px;align-items:center;margin-bottom:6px;font-size:15px}
+.combo input{font:inherit;padding:6px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:100%}
+.combo .hd{font-size:13px;font-weight:700;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series">Kubeflow 강의<span>8편: Katib, 하이퍼파라미터 튜닝과 AutoML</span></div>
+    <button class="theme-btn" id="themeBtn" type="button">라이트 테마로</button>
+  </div>
+  <div class="progress" id="prog"></div>
+</div>
+
+<header class="hero">
+  <div>
+    <h1>Katib<br>튜닝과 AutoML</h1>
+    <p class="lede">1편의 지은은 매일 밤 하이퍼파라미터를 하나씩 바꿔 돌리고 메모장에 적었습니다. Katib은 탐색 범위와 목표만 받으면 여러 조합을 병렬로 시도하고, 지난 결과를 보고 다음에 시도할 값을 고르며, 가망 없는 시도는 일찍 멈춥니다.</p>
+    <div class="levelstrip" id="levelstrip" aria-hidden="true"></div>
+    <p class="strip-cap">Level 2 실무 기초, 전체 16편 중 8편</p>
+    <dl class="facts">
+      <dt>기준 버전</dt><dd>Katib v0.19 (Community Distribution 26.03.1), Kubeflow SDK OptimizerClient</dd>
+      <dt>실습 환경</dt><dd>3편의 클러스터, CPU만 사용</dd>
+      <dt>사전 지식</dt><dd>2편의 학습률과 과적합, 5편의 파이프라인, 7편의 TrainJob</dd>
+      <dt>학습 시간</dt><dd>약 80분</dd>
+    </dl>
+  </div>
+  <div class="tune">
+    <p class="tune-h">탐색 알고리즘 비교 실험</p>
+    <p class="tune-sub">색이 밝을수록 정확도가 높은 영역입니다(가상의 지형). 알고리즘을 고르고 실행해, 점이 찍히는 위치와 최고 기록의 변화를 비교하세요.</p>
+    <div class="tctl">
+      <div><label class="l" for="tAlg">알고리즘</label><select id="tAlg"><option value="grid">그리드</option><option value="random" selected>무작위</option><option value="bayes">베이지안 최적화(개념)</option></select></div>
+      <div><label class="l" for="tMax">최대 시도</label><select id="tMax"><option>8</option><option selected>16</option><option>24</option></select></div>
+      <div><label class="l" for="tPar">동시 시도</label><select id="tPar"><option>1</option><option selected>2</option><option>4</option></select></div>
+      <label class="ck"><input type="checkbox" id="tEs"> 조기 종료</label>
+    </div>
+    <svg class="space" id="space" viewBox="0 0 400 270" role="img" aria-label="탐색 공간과 시도 위치"></svg>
+    <div class="tstats" id="tStats"></div>
+    <div class="tbtns"><button class="btn primary" id="tStep" type="button">한 묶음 실행</button><button class="btn" id="tAll" type="button">끝까지</button><button class="btn" id="tReset" type="button">처음부터</button></div>
+    <p class="tnote" id="tNote" aria-live="polite"></p>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol id="tocList">
+    <li><a href="#s0">이번 편에서 얻을 것</a></li>
+    <li><a href="#s1">1. 하이퍼파라미터 튜닝이란</a></li>
+    <li><a href="#s2">2. Katib의 구조</a></li>
+    <li><a href="#s3">3. Experiment 한 줄씩</a></li>
+    <li><a href="#s4">4. 탐색 공간 설계</a></li>
+    <li><a href="#s5">5. 알고리즘 고르기</a></li>
+    <li><a href="#s6">6. 지표 수집</a></li>
+    <li><a href="#s7">7. 조기 종료</a></li>
+    <li><a href="#s8">8. SDK로 튜닝</a></li>
+    <li><a href="#s9">9. 파이프라인과 운영</a></li>
+    <li><a href="#s10">10. 문제 해결</a></li>
+    <li><a href="#s11">11. 용어 사전</a></li>
+    <li><a href="#s12">12. 확인 퀴즈</a></li>
+    <li><a href="#s13">13. 정리와 다음 편</a></li>
+  </ol>
+</nav>
+<main>
+<section id="s0" style="padding-top:28px">
+  <h2>이번 편에서 얻을 것</h2>
+  <p>1편 노선도의 다섯 번째 정거장, 튜닝입니다. 이 편을 마치면 다음을 할 수 있습니다.</p>
+  <ul class="goals">
+    <li>Experiment, Suggestion, Trial, 지표 수집기가 어떻게 맞물려 튜닝이 돌아가는지 설명할 수 있습니다.</li>
+    <li>Experiment YAML의 목표, 알고리즘, 탐색 공간, Trial 템플릿을 직접 작성하고, 탐색 공간과 예산을 현실적으로 정할 수 있습니다.</li>
+    <li>그리드, 무작위, 베이지안 최적화, TPE, Hyperband 등 알고리즘의 특징을 알고 상황에 맞게 고를 수 있습니다.</li>
+    <li>지표가 수집되는 방식과 조기 종료를 이해하고, Kubeflow SDK로 TrainJob 기반 튜닝을 제출할 수 있습니다.</li>
+  </ul>
+</section>
+
+<section id="s1">
+  <h2><span class="no">1</span>하이퍼파라미터 튜닝이란</h2>
+  <p>2편에서 본 것처럼 학습률, 배치 크기, 트리 개수 같은 <strong>하이퍼파라미터</strong>는 학습이 정해 주지 않고 사람이 학습 전에 정합니다. 같은 모델이라도 이 값에 따라 정확도가 몇 퍼센트씩 달라집니다. <strong>하이퍼파라미터 튜닝</strong>은 좋은 조합을 체계적으로 찾는 일이고, 핵심은 늘 <strong>예산</strong>입니다. 시도 한 번이 학습 한 번이므로, 시도 횟수 곱하기 학습 비용이 곧 GPU 시간입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>방법</th><th>어떻게</th><th>문제</th></tr></thead>
+    <tbody>
+      <tr><td>손으로</td><td>감으로 값을 바꿔 가며 반복</td><td>기록이 흩어지고, 사람의 시간이 가장 비쌈</td></tr>
+      <tr><td>노트북의 반복문</td><td>for 문으로 조합을 순서대로</td><td>노트북 자원 안에서 순서대로 돌아 느리고, 중간에 끊기면 처음부터</td></tr>
+      <tr><td>Katib</td><td>범위와 목표를 선언하면 병렬로 시도하고 다음 값을 똑똑하게 고름</td><td>설정을 배워야 하고, 시도 하나하나가 실제 자원을 씀</td></tr>
+    </tbody>
+  </table></div>
+  <p>Katib은 하이퍼파라미터 튜닝 외에 신경망 구조 자체를 찾는 <strong>신경망 구조 탐색</strong>(NAS)과 조기 종료도 지원해서 AutoML 도구라고 부릅니다. 또 어떤 ML 프레임워크든, 어떤 언어로 짠 학습 코드든 컨테이너로 돌고 지표를 출력하기만 하면 쓸 수 있습니다.</p>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>Katib의 구조</h2>
+  <p>튜닝 하나가 돌아가는 과정을 따라가 봅니다. 2편의 컨트롤러 패턴이 여러 겹 맞물린 구조입니다.</p>
+  <div class="stepbox">
+    <div class="flow" id="flow">
+      <div class="bx" data-b="exp">Experiment<small>사용자</small></div>
+      <div class="bx" data-b="ctl">Katib 컨트롤러<small>kubeflow</small></div>
+      <div class="bx" data-b="sug">Suggestion<small>알고리즘 서비스</small></div>
+      <div class="bx" data-b="trial">Trial<small>시도 하나</small></div>
+      <div class="bx" data-b="job">학습 Pod<small>Job, TrainJob 등</small></div>
+      <div class="bx" data-b="db">지표 DB<small>katib-db-manager</small></div>
+    </div>
+    <div id="flowStep" aria-live="polite"></div>
+    <div class="story-nav"><button class="btn" type="button" id="flowPrev">이전 단계</button><button class="btn primary" type="button" id="flowNext">다음 단계</button></div>
+  </div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>리소스</th><th>정체</th><th>공장 비유</th></tr></thead>
+    <tbody>
+      <tr><td>Experiment</td><td>튜닝 작업 전체. 목표, 알고리즘, 탐색 공간, 예산, Trial 설계도</td><td>신제품 배합 연구 프로젝트</td></tr>
+      <tr><td>Suggestion</td><td>알고리즘을 실행해 다음에 시도할 값을 내놓는 리소스와 서비스 Pod</td><td>다음 배합을 제안하는 연구원</td></tr>
+      <tr><td>Trial</td><td>특정 하이퍼파라미터 조합으로 한 번 학습해 보는 것</td><td>시험 생산 1회</td></tr>
+      <tr><td>지표 수집기</td><td>Trial이 출력한 지표를 읽어 DB에 기록하는 구성요소</td><td>품질 측정원</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout warn">
+    <span class="h">5편의 KFP Experiment와 다른 것입니다</span>
+    <p>Katib의 Experiment는 튜닝 작업 하나이고, KFP의 Experiment는 파이프라인 실행을 묶는 폴더입니다. 대시보드 메뉴도 Katib Experiments와 Experiments (KFP)로 따로 나옵니다.</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>Experiment 한 줄씩</h2>
+  <p>4편의 손글씨 숫자 랜덤 포레스트를 튜닝하는 Experiment입니다. 학습 이미지 안의 train.py는 인자로 하이퍼파라미터를 받고, 마지막에 <code>accuracy=0.97</code> 형식으로 지표를 한 줄 출력한다고 가정합니다. 표시가 있는 줄을 누르면 설명이 나옵니다.</p>
+  <div class="yaml">
+    <pre id="exPre" aria-label="Katib Experiment YAML" style="font-size:12.5px"></pre>
+    <div class="ynote" id="exNote" aria-live="polite" style="border-top-color:var(--c-katib)"></div>
+  </div>
+  <p class="codehead">학습 코드 쪽에서 지킬 약속 (train.py의 끝부분)</p>
+<pre><code><span class="c"># 인자로 받은 하이퍼파라미터로 학습한 뒤</span>
+acc = accuracy_score(y_test, model.predict(X_test))
+print(f<span class="s">"accuracy={acc:.4f}"</span>)        <span class="c"># 이름=값 형식으로 표준 출력에</span></code></pre>
+<pre><code>kubectl apply -f digits-rf-tune.yaml
+kubectl get experiments,suggestions,trials -n kubeflow-user-example-com</code></pre>
+</section>
+
+<section id="s4">
+  <h2><span class="no">4</span>탐색 공간 설계</h2>
+  <p>튜닝 결과의 절반은 탐색 공간에서 정해집니다. 범위가 엉뚱하면 아무리 좋은 알고리즘도 좋은 값을 찾지 못하고, 너무 넓으면 예산 안에서 답에 닿지 못합니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>parameterType</th><th>쓰는 곳</th><th>feasibleSpace 예</th></tr></thead>
+    <tbody>
+      <tr><td>double</td><td>학습률, 드롭아웃 비율처럼 연속적인 실수</td><td><code>min: "0.0001"</code>, <code>max: "0.1"</code></td></tr>
+      <tr><td>int</td><td>트리 개수, 층 수처럼 정수</td><td><code>min: "50"</code>, <code>max: "400"</code>, 필요하면 <code>step</code></td></tr>
+      <tr><td>discrete</td><td>정해진 숫자 몇 개 중 하나</td><td><code>list: ["16", "32", "64"]</code></td></tr>
+      <tr><td>categorical</td><td>문자열 선택지</td><td><code>list: ["gini", "entropy"]</code></td></tr>
+    </tbody>
+  </table></div>
+  <ul class="plain">
+    <li><strong>학습률은 로그 척도로</strong>: 0.0001과 0.001의 차이는 0.09와 0.091의 차이보다 훨씬 중요합니다. 균등하게 뽑으면 큰 값 쪽만 시험하게 되므로, feasibleSpace의 분포를 로그 균등(logUniform)으로 지정합니다.</li>
+    <li><strong>중요한 것부터 적게</strong>: 처음에는 영향이 큰 두세 개만 넓게 찾고, 그다음 좁혀서 다시 찾는 편이 효율적입니다.</li>
+    <li><strong>예산부터 정하기</strong>: 시도 하나의 비용과 쓸 수 있는 GPU 시간에서 최대 시도 수를 거꾸로 계산합니다.</li>
+  </ul>
+  <p>그리드 탐색을 생각한다면 조합 수가 얼마나 빨리 커지는지 먼저 보세요.</p>
+  <div class="combo" id="combo">
+    <div class="row"><span class="hd">하이퍼파라미터</span><span class="hd">후보 개수</span><span class="hd"></span></div>
+    <div class="row"><span>학습률</span><input type="number" min="1" value="5" aria-label="학습률 후보 개수"><span></span></div>
+    <div class="row"><span>배치 크기</span><input type="number" min="1" value="4" aria-label="배치 크기 후보 개수"><span></span></div>
+    <div class="row"><span>층 수</span><input type="number" min="1" value="3" aria-label="층 수 후보 개수"><span></span></div>
+    <div class="row"><span>드롭아웃</span><input type="number" min="1" value="4" aria-label="드롭아웃 후보 개수"><span></span></div>
+    <div class="row"><span>시도 하나의 학습 시간(분)</span><input type="number" min="1" value="30" id="cMin" aria-label="시도 하나의 학습 시간"><span></span></div>
+    <div class="row"><span>동시 시도 수</span><input type="number" min="1" value="4" id="cPar" aria-label="동시 시도 수"><span></span></div>
+    <div class="verdict" id="comboOut" style="--v:var(--c-train)" aria-live="polite"></div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2><span class="no">5</span>알고리즘 고르기</h2>
+  <p>Katib이 지원하는 대표 알고리즘입니다. Experiment의 <code>algorithmName</code>에 적습니다. 맨 위 실험에서 그리드, 무작위, 베이지안을 직접 비교해 보세요.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>algorithmName</th><th>방식</th><th>잘 맞는 경우</th><th>주의</th></tr></thead>
+    <tbody>
+      <tr><td>grid</td><td>모든 조합을 차례로</td><td>후보가 몇 개뿐인 이산값</td><td>조합 수가 곱으로 폭발. 연속값에 부적합</td></tr>
+      <tr><td>random</td><td>범위 안에서 무작위로</td><td>첫 탐색, 병렬을 많이 돌릴 때</td><td>운에 좌우되지만 의외로 강력한 기준선</td></tr>
+      <tr><td>bayesianoptimization</td><td>지금까지 결과로 지형을 추정해 유망한 곳을 고름</td><td>시도 하나가 비싸고, 하이퍼파라미터가 많지 않을 때</td><td>결과를 보고 다음을 고르므로 동시 시도가 많으면 이점이 줄어듦</td></tr>
+      <tr><td>tpe, multivariate-tpe</td><td>좋은 결과와 나쁜 결과의 분포를 따로 추정</td><td>범주형이 섞인 공간, 중간 규모</td><td>초반 몇 번은 무작위에 가까움</td></tr>
+      <tr><td>cmaes</td><td>진화 전략으로 분포를 좁혀 감</td><td>연속값 위주의 공간</td><td>범주형에 약함</td></tr>
+      <tr><td>sobol</td><td>공간을 고르게 덮는 준무작위 수열</td><td>무작위보다 고르게 훑고 싶을 때</td><td>결과를 보고 고르지는 않음</td></tr>
+      <tr><td>hyperband</td><td>많은 후보를 적은 자원으로 돌리고 좋은 것만 키움</td><td>에폭 수 같은 자원 축이 있는 딥러닝</td><td>자원 축 설정이 필요</td></tr>
+      <tr><td>pbt</td><td>여러 학습을 함께 돌리며 좋은 것의 가중치와 값을 복제, 변형</td><td>긴 학습, 학습 중 값을 바꾸고 싶을 때</td><td>체크포인트 공유 필요</td></tr>
+      <tr><td>enas, darts</td><td>신경망 구조 자체를 탐색(NAS)</td><td>구조 연구</td><td>설정이 복잡하고 자원이 큼</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout tip">
+    <span class="h">실무의 출발점</span>
+    <p>잘 모르겠다면 무작위로 넓게 한 번 훑어 대략의 좋은 영역을 찾고, 그 범위를 좁혀 베이지안이나 TPE로 정밀하게 찾는 두 단계가 무난합니다. 그리드는 후보가 두세 개씩인 경우에만 씁니다.</p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2><span class="no">6</span>지표 수집</h2>
+  <p>Katib은 Trial의 결과를 학습 코드가 알려 주는 지표로 판단합니다. 지표를 읽는 방법을 <strong>지표 수집기</strong>(metrics collector)라고 하고, Experiment의 <code>metricsCollectorSpec</code>에서 고릅니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>종류</th><th>방식</th><th>학습 코드가 할 일</th></tr></thead>
+    <tbody>
+      <tr><td>StdOut (기본)</td><td>Trial 컨테이너의 표준 출력에서 <code>이름=값</code> 줄을 찾음</td><td><code>print("accuracy=0.97")</code></td></tr>
+      <tr><td>File</td><td>지정한 파일에서 지표를 읽음</td><td>정해진 경로의 파일에 기록</td></tr>
+      <tr><td>TensorFlowEvent</td><td>TensorBoard 이벤트 파일을 읽음</td><td>TensorBoard 로그를 지정 경로에</td></tr>
+      <tr><td>Prometheus, Custom</td><td>메트릭 엔드포인트나 직접 만든 수집기</td><td>해당 방식에 맞게 노출</td></tr>
+      <tr><td>Push 방식</td><td>학습 코드가 Katib SDK로 지표를 직접 보고</td><td>SDK의 보고 함수 호출</td></tr>
+    </tbody>
+  </table></div>
+  <p>StdOut과 File 수집기는 Trial Pod에 수집용 사이드카를 자동으로 붙여 동작합니다. 이 자동 주입은 네임스페이스에 <code>katib.kubeflow.org/metrics-collector-injection: enabled</code> 라벨이 있을 때만 일어나며, Kubeflow 프로필 네임스페이스에는 보통 붙어 있습니다.</p>
+  <div class="callout warn">
+    <span class="h">지표가 안 나오면 Trial은 실패합니다</span>
+    <p>학습이 성공했어도 목표 지표를 찾지 못하면 Trial은 성공으로 기록되지 않습니다. 이름의 철자(accuracy와 acc), 출력 형식(<code>accuracy: 0.97</code>는 기본 형식과 다름), 로그 버퍼링으로 출력이 늦게 나오는 경우를 먼저 확인하세요. 또 7편처럼 Trial Pod에 Istio 사이드카가 붙으면 Pod가 끝나지 않아 지표 수집이 마무리되지 않을 수 있어, Trial 템플릿에서 사이드카를 빼는 것이 흔합니다.</p>
+  </div>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>조기 종료</h2>
+  <p>어떤 조합은 첫 몇 에폭만 봐도 가망이 없습니다. 끝까지 돌리는 것은 낭비입니다. Katib의 <strong>조기 종료</strong>는 학습 중간의 지표를 보고 가망 없는 Trial을 멈춥니다. 대표 알고리즘 medianstop은, 같은 시점의 이미 끝난 Trial들의 중앙값보다 나쁜 Trial을 멈춥니다.</p>
+<pre><code><span class="k">earlyStopping</span>:
+  <span class="k">algorithmName</span>: medianstop
+  <span class="k">algorithmSettings</span>:
+  - <span class="k">name</span>: min_trials_required     <span class="c"># 비교할 완료된 Trial이 이만큼 모인 뒤부터</span>
+    <span class="k">value</span>: <span class="s">"3"</span>
+  - <span class="k">name</span>: start_step              <span class="c"># 이 단계(보고 횟수) 이후부터 판단</span>
+    <span class="k">value</span>: <span class="s">"4"</span></code></pre>
+  <ul class="plain">
+    <li>조기 종료를 쓰려면 학습 코드가 에폭마다 지표를 출력해야 합니다. 마지막에 한 번만 출력하면 판단할 중간값이 없습니다.</li>
+    <li>조기 종료된 Trial은 실패가 아니라 별도 상태(EarlyStopped)로 기록됩니다.</li>
+    <li>맨 위 실험에서 조기 종료를 켜면, 중앙값보다 못한 시도가 속이 빈 점으로 바뀌고 아낀 시간이 표시됩니다(개념을 보여 주는 단순화).</li>
+  </ul>
+</section>
+<section id="s8">
+  <h2><span class="no">8</span>SDK로 튜닝</h2>
+  <p>Katib v0.19부터 통합 Kubeflow SDK의 <strong>OptimizerClient</strong>로 튜닝을 제출할 수 있습니다. 7편의 TrainJob을 Trial의 설계도로 쓰므로, 분산 학습과 튜닝을 같은 방식으로 다룹니다. 4편의 노트북에서 실행합니다.</p>
+  <div class="cmd"><pre><code><span class="k">from</span> kubeflow.trainer <span class="k">import</span> CustomTrainer, TrainJobTemplate
+<span class="k">from</span> kubeflow.optimizer <span class="k">import</span> OptimizerClient, Search, Objective, TrialConfig
+
+<span class="k">def</span> train(n_estimators, max_depth):         <span class="c"># 탐색 공간의 이름과 같은 인자로 값이 들어옴</span>
+    <span class="k">from</span> sklearn.datasets <span class="k">import</span> load_digits
+    <span class="k">from</span> sklearn.ensemble <span class="k">import</span> RandomForestClassifier
+    <span class="k">from</span> sklearn.model_selection <span class="k">import</span> train_test_split
+    X, y = load_digits(return_X_y=<span class="s">True</span>)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=<span class="s">0.2</span>, random_state=<span class="s">42</span>, stratify=y)
+    m = RandomForestClassifier(n_estimators=int(n_estimators), max_depth=int(max_depth),
+                               n_jobs=<span class="s">2</span>, random_state=<span class="s">42</span>).fit(Xtr, ytr)
+    print(f<span class="s">"accuracy={m.score(Xte, yte):.4f}"</span>)  <span class="c"># 지표 출력 약속</span>
+
+template = TrainJobTemplate(
+    runtime=<span class="s">"torch-distributed"</span>,           <span class="c"># 7편의 런타임을 Trial 실행에 재사용</span>
+    trainer=CustomTrainer(func=train, num_nodes=<span class="s">1</span>,
+                          resources_per_node={<span class="s">"cpu"</span>: <span class="s">2</span>, <span class="s">"memory"</span>: <span class="s">"2Gi"</span>},
+                          packages_to_install=[<span class="s">"scikit-learn"</span>]),
+)
+
+client = OptimizerClient()
+job = client.optimize(
+    trial_template=template,
+    search_space={
+        <span class="s">"n_estimators"</span>: Search.choice([<span class="s">50</span>, <span class="s">100</span>, <span class="s">200</span>, <span class="s">400</span>]),
+        <span class="s">"max_depth"</span>: Search.choice([<span class="s">6</span>, <span class="s">10</span>, <span class="s">16</span>, <span class="s">24</span>]),
+    },
+    objectives=[Objective(metric=<span class="s">"accuracy"</span>, direction=<span class="s">"maximize"</span>)],
+    trial_config=TrialConfig(num_trials=<span class="s">8</span>, parallel_trials=<span class="s">2</span>),
+)
+print(job)</code></pre></div>
+  <ul class="plain">
+    <li>탐색 공간은 <code>Search.uniform</code>, <code>Search.loguniform</code>, <code>Search.choice</code> 등으로 정합니다. 학습률이라면 <code>Search.loguniform(1e-5, 1e-1)</code>입니다.</li>
+    <li>SDK는 아직 활발히 개발 중이라, Objective의 인자 이름이나 하이퍼파라미터가 학습 함수로 전달되는 방식 등 세부가 버전마다 다릅니다. 실제로는 설치한 SDK 버전의 문서와 예제를 함께 보세요.</li>
+    <li>알고리즘, 조기 종료, 지표 수집기 같은 세밀한 설정은 3장의 Experiment YAML로 직접 쓰는 편이 가장 확실합니다. 예전 자료에 나오는 kubeflow-katib 패키지의 <code>KatibClient.tune()</code>도 계속 쓰이는 방식입니다.</li>
+  </ul>
+  <h3>결과 보기</h3>
+  <p>대시보드의 Katib Experiments 화면에서 Experiment를 열면 Trial마다의 값과 지표가 표와 그래프(평행 좌표 그래프)로 보입니다. 어떤 하이퍼파라미터가 결과에 영향을 많이 줬는지 한눈에 볼 수 있습니다. 가장 좋은 Trial의 값은 Experiment 상태에도 기록됩니다.</p>
+<pre><code>kubectl get experiment digits-rf-tune -n kubeflow-user-example-com \
+  -o jsonpath=<span class="s">'{.status.currentOptimalTrial}'</span></code></pre>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>파이프라인과 운영</h2>
+  <h3>파이프라인 안에서 튜닝하기</h3>
+  <p>운영 파이프라인에서는 흔히 “튜닝으로 값을 찾고, 그 값으로 최종 모델을 다시 학습해 등록”합니다. 튜닝 단계가 Experiment를 만들고 끝날 때까지 기다린 뒤, 최적 값을 출력 파라미터로 내보내면 다음 단계가 받습니다.</p>
+<pre><code><span class="f">@dsl.component</span>(base_image=<span class="s">"python:3.11"</span>, packages_to_install=[<span class="s">"kubeflow-katib"</span>])
+<span class="k">def</span> tune(experiment_yaml: str) -&gt; dict:
+    <span class="k">import</span> yaml
+    <span class="k">from</span> kubeflow.katib <span class="k">import</span> KatibClient
+    client = KatibClient()
+    exp = yaml.safe_load(experiment_yaml)
+    client.create_experiment(exp)
+    client.wait_for_experiment_condition(name=exp[<span class="s">"metadata"</span>][<span class="s">"name"</span>])
+    best = client.get_optimal_hyperparameters(exp[<span class="s">"metadata"</span>][<span class="s">"name"</span>])
+    <span class="k">return</span> {p.name: p.value <span class="k">for</span> p <span class="k">in</span> best.parameter_assignments}</code></pre>
+  <p class="muted" style="font-size:15px">KatibClient의 메서드 이름과 반환 형식은 SDK 버전에 따라 다를 수 있습니다. 개념은 “만들고, 기다리고, 최적 값을 꺼낸다”입니다.</p>
+
+  <h3>운영자가 볼 것</h3>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>항목</th><th>이유와 방법</th></tr></thead>
+    <tbody>
+      <tr><td>동시 시도 × 시도당 자원</td><td>parallelTrialCount가 4이고 Trial마다 GPU 2장이면 GPU 8장을 한꺼번에 요구합니다. 프로필 할당량과 맞추고, 큐 기반 공유는 11편에서</td></tr>
+      <tr><td>예산 상한</td><td>maxTrialCount와 maxFailedTrialCount를 반드시 둡니다. 코드 버그로 모든 Trial이 실패하는데 끝없이 시도하는 일을 막습니다</td></tr>
+      <tr><td>Suggestion Pod</td><td>Experiment마다 알고리즘 서비스 Pod가 하나씩 뜹니다. 끝난 Experiment의 Suggestion이 남아 자원을 쓰지 않는지 확인합니다(resumePolicy 설정)</td></tr>
+      <tr><td>끝난 Experiment 정리</td><td>Trial 기록과 Pod 로그가 쌓입니다. 결과를 Hub(9편)나 파이프라인 기록으로 옮긴 뒤 오래된 Experiment는 지웁니다</td></tr>
+      <tr><td>지표 DB</td><td>katib-mysql의 저장 공간과 백업. 3편 1장의 표에서 Katib이 PVC 10GB를 쓰는 이유입니다</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>문제 해결</h2>
+  <p>튜닝에서 자주 만나는 증상입니다.</p>
+  <div class="chips" id="trChips" style="margin-top:14px"></div>
+  <div class="panel" id="trPanel" style="margin-top:14px" aria-live="polite"></div>
+</section>
+
+<section id="s11">
+  <h2><span class="no">11</span>용어 사전</h2>
+  <p>이 편에 새로 나온 용어입니다.</p>
+  <label for="gq" class="muted" style="font-size:14px">용어 검색</label>
+  <input class="gsearch" id="gq" type="search" placeholder="예: Trial, 베이지안, medianstop">
+  <div class="glist" id="glist"></div>
+  <p class="gempty" id="gempty" hidden>일치하는 용어가 없습니다. 다른 표기(한글 또는 영어)로 검색해 보세요.</p>
+</section>
+
+<section id="s12">
+  <h2><span class="no">12</span>확인 퀴즈</h2>
+  <p>여덟 문제입니다.</p>
+  <div id="quiz"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <button class="btn" id="quizReset" type="button">퀴즈 다시 풀기</button>
+</section>
+
+<section id="s13">
+  <h2><span class="no">13</span>정리와 다음 편</h2>
+  <ol class="keys">
+    <li><span>Experiment는 목표, 알고리즘, 탐색 공간, 예산, Trial 설계도를 담고, Suggestion이 다음 값을 제안하며, Trial마다 학습이 한 번 실행되고 지표 수집기가 결과를 기록합니다.</span></li>
+    <li><span>튜닝의 절반은 탐색 공간입니다. 학습률은 로그 척도로, 중요한 것부터 적게, 예산에서 시도 수를 거꾸로 계산합니다. 그리드는 조합 수가 곱으로 폭발합니다.</span></li>
+    <li><span>무작위로 넓게 훑고 베이지안이나 TPE로 좁히는 두 단계가 무난합니다. 결과를 보고 고르는 알고리즘은 동시 시도가 많을수록 이점이 줄어듭니다.</span></li>
+    <li><span>지표는 이름=값 형식으로 출력해야 하고, 못 찾으면 Trial이 실패합니다. 조기 종료를 쓰려면 에폭마다 지표를 출력합니다.</span></li>
+    <li><span>동시 시도 × 시도당 자원이 실제 자원 요구입니다. 최대 시도와 최대 실패 수로 예산에 상한을 둡니다.</span></li>
+  </ol>
+  <div class="next" style="border-left-color:var(--lv2)">
+    <span class="h">다음 편, Level 2 실무 기초의 마지막</span>
+    <h4>9편: Kubeflow Hub에서 KServe 배포까지</h4>
+    <p>튜닝과 학습으로 얻은 모델을 버전과 메타데이터와 함께 Kubeflow Hub(모델 레지스트리)에 등록하고, 승인된 버전을 KServe InferenceService로 배포하는 흐름을 잇습니다. KServe 자체는 이 시리즈의 KServe 강의에서 자세히 다뤘으므로, 여기서는 Kubeflow와 이어지는 지점에 집중합니다.</p>
+  </div>
+</section>
+</main>
+</div>
+<footer>Kubeflow 강의 시리즈 8편. 2026년 10월 기준 Katib v0.19 공식 문서, Kubeflow SDK 문서, Community Distribution 26.03.1을 바탕으로 작성했습니다. 맨 위 실험의 지형과 알고리즘 동작은 개념을 보여 주기 위한 단순화이며, 실제 Katib 알고리즘의 구현과는 다릅니다.</footer>
+<script>
+(function(){
+var root=document.documentElement;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function $(id){return document.getElementById(id);}
+var tbtn=$('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마로':'다크 테마로';try{localStorage.setItem('kf-theme',t);}catch(e){}}
+tbtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+setTheme(root.getAttribute('data-theme')||'dark');
+var prog=$('prog');function onScroll(){var h=document.documentElement;var m=h.scrollHeight-h.clientHeight;prog.style.width=(m>0?h.scrollTop/m*100:0)+'%';}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+var tocLinks=[].slice.call(document.querySelectorAll('#tocList a'));
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-25% 0px -65% 0px'});document.querySelectorAll('main section').forEach(function(s){io.observe(s);});}
+var ls=$('levelstrip');for(var i=1;i<=16;i++){var el=document.createElement('i');el.style.background='var('+(i<=4?'--lv1':i<=9?'--lv2':i<=12?'--lv3':'--lv4')+')';if(i===8)el.className='now';ls.appendChild(el);}
+function hlYaml(t){var e=esc(t),c='',k=e.indexOf(' #');if(k>=0){c='<span class="c">'+e.slice(k)+'</span>';e=e.slice(0,k);}return e.replace(/^(\s*-?\s*)([\w.\/-]+):/,'$1<span class="k">$2</span>:')+c;}
+
+/* tuning sim */
+function f(u,v){return 0.88+0.095*Math.exp(-(((u-0.62)*(u-0.62))/0.06+((v-0.38)*(v-0.38))/0.035))+0.012*Math.sin(6*u)*Math.cos(5*v);}
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+var X0=40,X1=390,Y0=10,Y1=228;
+function px(u){return X0+u*(X1-X0);}function py(v){return Y1-v*(Y1-Y0);}
+function col(val){var t=Math.max(0,Math.min(1,(val-0.86)/0.12));return 'hsl('+(210-t*160)+',65%,'+(16+t*46)+'%)';}
+var bg='';var G=20;for(var a=0;a<G;a++)for(var b=0;b<G;b++){var u=(a+0.5)/G,v=(b+0.5)/G;bg+='<rect x="'+(X0+a*(X1-X0)/G).toFixed(1)+'" y="'+(Y1-(b+1)*(Y1-Y0)/G).toFixed(1)+'" width="'+((X1-X0)/G+0.5).toFixed(1)+'" height="'+((Y1-Y0)/G+0.5).toFixed(1)+'" fill="'+col(f(u,v))+'"/>';}
+bg+='<text class="ax" x="'+X0+'" y="248">50</text><text class="ax" x="'+(X1-16)+'" y="248">400</text><text class="ax" x="'+((X0+X1)/2)+'" y="262" text-anchor="middle">n_estimators</text><text class="ax" x="4" y="'+(Y1)+'">4</text><text class="ax" x="4" y="'+(Y0+10)+'">32</text><text class="ax" x="4" y="'+((Y0+Y1)/2)+'">depth</text>';
+var T=[],R,done=false;
+function nE(u){return Math.round(50+u*350);}function dP(v){return Math.round(4+v*28);}
+function reset(){T=[];R=rng(7);done=false;renderT();}
+function bestT(){var b=null;T.forEach(function(t){if(!t.es&&(!b||t.acc>b.acc))b=t;});return b;}
+function batch(){var alg=$('tAlg').value,M=+$('tMax').value,P=+$('tPar').value,es=$('tEs').checked;if(T.length>=M)return;
+  var k=Math.ceil(Math.sqrt(M)),b0=bestT(),n=Math.min(P,M-T.length),newT=[];
+  for(var j=0;j<n;j++){var idx=T.length+j,u,v;
+    if(alg==='grid'){var r=Math.floor(idx/k),c=idx%k;u=(c+0.5)/k;v=(r+0.5)/k;}
+    else if(alg==='random'||!b0||idx<Math.max(2,P)){u=R();v=R();}
+    else{if(R()<0.2){u=R();v=R();}else{var sg=0.22*(1-idx/M)+0.05;function g(){var s=0;for(var q=0;q<6;q++)s+=R();return (s-3)/1.5;}u=Math.max(0,Math.min(1,b0.u+g()*sg));v=Math.max(0,Math.min(1,b0.v+g()*sg));}}
+    var acc=f(u,v)+(R()-0.5)*0.006;newT.push({u:u,v:v,acc:acc,es:false,n:idx+1});}
+  newT.forEach(function(t){if(es){var fin=T.filter(function(x){return !x.es;}).map(function(x){return x.acc;}).sort();if(fin.length>=3){var med=fin[Math.floor(fin.length/2)];if(t.acc<med)t.es=true;}}T.push(t);});
+  renderT();}
+function renderT(){var M=+$('tMax').value,P=+$('tPar').value,b=bestT(),h=bg;
+  T.forEach(function(t){h+='<circle class="pt'+(t.es?' es':'')+'" cx="'+px(t.u).toFixed(1)+'" cy="'+py(t.v).toFixed(1)+'" r="8" fill="#F47C9A"'+(t.es?' stroke="#F47C9A"':'')+'/>';if(!t.es)h+='<text class="num" x="'+px(t.u).toFixed(1)+'" y="'+py(t.v).toFixed(1)+'">'+t.n+'</text>';});
+  if(b)h+='<circle class="best" cx="'+px(b.u).toFixed(1)+'" cy="'+py(b.v).toFixed(1)+'" r="13"/>';
+  $('space').innerHTML=h;
+  var cost=T.reduce(function(s,t){return s+(t.es?0.4:1);},0),esn=T.filter(function(t){return t.es;}).length;
+  $('tStats').innerHTML='<div>시도<b>'+T.length+' / '+M+'</b></div><div>최고 정확도<b>'+(b?b.acc.toFixed(4):'-')+'</b></div><div>최고 조합<b>'+(b?nE(b.u)+', '+dP(b.v):'-')+'</b></div><div>학습 비용<b>'+cost.toFixed(1)+'회분</b></div>';
+  var alg=$('tAlg').value,notes={grid:'그리드는 정해진 격자를 차례로 채웁니다. 시도 수가 격자 칸 수와 맞지 않으면 일부 줄만 시험하고 끝나며, 좋은 영역이 격자 사이에 있으면 놓칩니다.',random:'무작위는 공간 전체에 흩어집니다. 결과를 보지 않고 고르므로 동시 시도를 늘려도 손해가 없고, 의외로 좋은 기준선이 됩니다.',bayes:'처음 몇 번은 무작위로 훑고, 그다음부터는 지금까지의 최고점 근처를 주로 고르며 가끔 먼 곳도 봅니다. 한 묶음 안의 시도들은 서로의 결과를 모른 채 골라지므로, 동시 시도가 많을수록 이점이 줄어듭니다.'};
+  var msg=notes[alg];if($('tEs').checked)msg+=' 조기 종료: 속이 빈 점은 완료된 시도들의 중앙값보다 못해 중간에 멈춘 시도입니다('+esn+'개, 학습 비용 '+(esn*0.6).toFixed(1)+'회분 절약).';
+  if(T.length>=M)msg+=' 예산을 모두 썼습니다. 흰 원이 최고 기록입니다.';
+  $('tNote').textContent=msg;$('tStep').disabled=T.length>=M;$('tAll').disabled=T.length>=M;}
+['tAlg','tMax','tPar','tEs'].forEach(function(id){$(id).addEventListener('change',reset);});
+$('tStep').addEventListener('click',batch);$('tAll').addEventListener('click',function(){var M=+$('tMax').value;while(T.length<M)batch();});$('tReset').addEventListener('click',reset);
+reset();
+
+/* experiment yaml */
+var EX=[['apiVersion: kubeflow.org/v1beta1','kind'],['kind: Experiment','kind'],['metadata:',''],['  name: digits-rf-tune',''],['  namespace: kubeflow-user-example-com',''],['spec:',''],
+ ['  objective:','obj'],['    type: maximize','obj'],['    goal: 0.99','goal'],['    objectiveMetricName: accuracy','metric'],
+ ['  algorithm:','alg'],['    algorithmName: bayesianoptimization','alg'],
+ ['  parallelTrialCount: 3','par'],['  maxTrialCount: 12','max'],['  maxFailedTrialCount: 3','maxf'],
+ ['  parameters:','params'],['  - name: n_estimators','params'],['    parameterType: int','ptype'],['    feasibleSpace: {min: "50", max: "400"}','fs'],
+ ['  - name: max_depth','params'],['    parameterType: int','ptype'],['    feasibleSpace: {min: "4", max: "32"}','fs'],
+ ['  - name: criterion','params'],['    parameterType: categorical','ptype'],['    feasibleSpace: {list: ["gini", "entropy"]}','fs'],
+ ['  trialTemplate:','tt'],['    primaryContainerName: training','prim'],['    trialParameters:','tp'],['    - {name: nEstimators, reference: n_estimators}','tp'],['    - {name: maxDepth, reference: max_depth}','tp'],['    - {name: criterion, reference: criterion}','tp'],
+ ['    trialSpec:','ts'],['      apiVersion: batch/v1','ts'],['      kind: Job','ts'],['      spec:',''],['        template:',''],['          metadata:',''],['            annotations:',''],['              sidecar.istio.io/inject: "false"','istio'],
+ ['          spec:',''],['            restartPolicy: Never',''],['            containers:',''],['            - name: training','prim'],['              image: registry.example.com/reco/digits-rf:1.0',''],
+ ['              command:','cmd'],['              - python','cmd'],['              - /app/train.py','cmd'],['              - --n-estimators=${trialParameters.nEstimators}','sub'],['              - --max-depth=${trialParameters.maxDepth}','sub'],['              - --criterion=${trialParameters.criterion}','sub']];
+var EN={
+ kind:['Katib Experiment','Katib의 튜닝 작업 리소스입니다. KFP의 Experiment와는 다른 것입니다.'],
+ obj:['objective','무엇을 최적화할지입니다. 정확도라면 maximize, 손실이라면 minimize입니다.'],
+ goal:['goal','이 값에 도달하면 남은 예산이 있어도 튜닝을 끝냅니다. 생략하면 예산을 다 쓸 때까지 갑니다.'],
+ metric:['objectiveMetricName','학습 코드가 출력하는 지표 이름과 정확히 같아야 합니다. 여기서는 accuracy=0.97 같은 줄을 찾습니다. 함께 기록만 할 지표는 additionalMetricNames에 적습니다.'],
+ alg:['algorithm','다음 값을 고르는 방식입니다(5장). 알고리즘마다 algorithmSettings로 세부 설정을 줄 수 있습니다.'],
+ par:['parallelTrialCount','동시에 돌릴 Trial 수입니다. 이 수 × Trial당 자원이 한꺼번에 필요한 자원입니다. 결과를 보고 고르는 알고리즘은 이 값이 클수록 이점이 줄어듭니다.'],
+ max:['maxTrialCount','전체 시도 수의 상한, 곧 예산입니다.'],
+ maxf:['maxFailedTrialCount','이만큼 실패하면 Experiment를 실패로 끝냅니다. 코드 버그로 모든 Trial이 실패하는데 예산을 다 쓰는 일을 막습니다.'],
+ params:['parameters','탐색할 하이퍼파라미터 목록입니다. 이름은 아래 trialParameters의 reference가 가리킵니다.'],
+ ptype:['parameterType','double, int, discrete, categorical 중 하나입니다(4장).'],
+ fs:['feasibleSpace','탐색 범위입니다. 숫자도 따옴표로 감싼 문자열로 적습니다. 연속값은 min과 max, 선택지는 list를 씁니다.'],
+ tt:['trialTemplate','Trial 하나를 어떻게 실행할지의 설계도입니다. 제안된 값이 이 설계도에 끼워져 실제 리소스가 만들어집니다.'],
+ prim:['primaryContainerName','지표를 읽을 주 컨테이너의 이름입니다. trialSpec 안 컨테이너 이름과 같아야 합니다.'],
+ tp:['trialParameters','설계도 안에서 쓸 변수 이름(name)과, 그 변수에 들어갈 탐색 파라미터(reference)를 잇습니다.'],
+ ts:['trialSpec','실제로 만들 리소스입니다. 여기서는 Kubernetes Job이지만, TrainJob 같은 다른 리소스도 쓸 수 있습니다(8장).'],
+ istio:['사이드카 제외','Trial Pod에 Istio 사이드카가 붙으면 Pod가 끝나지 않아 지표 수집이 마무리되지 않을 수 있어 흔히 뺍니다(6장).'],
+ cmd:['command','학습 스크립트 실행 명령입니다.'],
+ sub:['${trialParameters.이름}','Trial이 만들어질 때 제안된 값으로 바뀝니다. 예를 들어 --n-estimators=237 처럼 됩니다.']
+};
+var exPre=$('exPre');
+exPre.innerHTML=EX.map(function(l){return '<span class="ln'+(l[1]?' has':'')+'" data-k="'+l[1]+'"'+(l[1]?' tabindex="0" role="button"':'')+'>'+hlYaml(l[0])+'</span>';}).join('');
+function selE(k){exPre.querySelectorAll('.ln').forEach(function(s){s.classList.toggle('on',s.dataset.k===k);});var n=EN[k];$('exNote').innerHTML='<b>'+n[0]+'</b>'+n[1];}
+exPre.addEventListener('click',function(e){var s=e.target.closest('.ln.has');if(s)selE(s.dataset.k);});
+exPre.addEventListener('keydown',function(e){var s=e.target.closest('.ln.has');if(s&&(e.key==='Enter'||e.key===' ')){e.preventDefault();selE(s.dataset.k);}});
+selE('par');
+
+/* combo */
+function combo(){var ins=[].slice.call(document.querySelectorAll('#combo input')),vals=ins.slice(0,4).map(function(i){return Math.max(1,+i.value||1);}),prod=vals.reduce(function(a,b){return a*b;},1),mn=Math.max(1,+$('cMin').value||1),pr=Math.max(1,+$('cPar').value||1);
+  var waves=Math.ceil(prod/pr),hours=waves*mn/60,v=$('comboOut');
+  v.style.setProperty('--v',hours>48?'var(--bad)':hours>8?'var(--c-train)':'var(--ok)');
+  v.textContent='그리드 조합 수 '+vals.join(' × ')+' = '+prod.toLocaleString('ko-KR')+'개. 동시에 '+pr+'개씩 돌리면 약 '+(hours<1?Math.round(hours*60)+'분':hours.toFixed(1)+'시간')+', 학습 '+prod+'회분의 자원이 듭니다.'+(hours>8?' 그리드로는 부담스럽습니다. 무작위나 베이지안으로 시도 수를 예산에 맞춰 정하세요.':'');}
+document.querySelectorAll('#combo input').forEach(function(i){i.addEventListener('input',combo);});combo();
+
+/* flow */
+var FL=[
+ {on:['exp'],t:'1. Experiment 제출',d:'사용자가 Experiment를 만듭니다. 검사 웹훅이 탐색 공간과 설계도의 형식을 확인합니다.'},
+ {on:['ctl','sug'],t:'2. 제안자 준비',d:'Katib 컨트롤러가 Experiment의 알고리즘에 맞는 Suggestion 리소스를 만들고, 알고리즘을 실행할 서비스 Pod를 띄웁니다.'},
+ {on:['ctl','sug','db'],t:'3. 다음 값 요청',d:'컨트롤러가 동시 시도 수만큼 새 값을 요청합니다. Suggestion은 지금까지의 Trial 결과를 참고해(알고리즘에 따라) 다음 조합을 제안합니다.'},
+ {on:['trial','job'],t:'4. Trial 만들기',d:'제안 하나마다 Trial이 만들어지고, Trial은 trialTemplate의 변수 자리에 값을 끼워 실제 Job이나 TrainJob을 만듭니다.'},
+ {on:['job','db'],t:'5. 학습과 지표 수집',d:'학습 Pod가 실행되고, 지표 수집기가 표준 출력이나 파일에서 지표를 읽어 katib-db-manager를 통해 DB에 기록합니다. 조기 종료가 켜져 있으면 중간 지표로 가망 없는 Trial을 멈춥니다.'},
+ {on:['ctl','exp'],t:'6. 반복과 종료',d:'Trial이 끝나면 컨트롤러가 최적 Trial을 갱신하고 다음 값을 요청합니다. 목표(goal)에 닿거나 최대 시도 수, 최대 실패 수에 이르면 Experiment가 끝납니다.'}
+];
+var fi=0;function renderF(){var s=FL[fi];document.querySelectorAll('#flow .bx').forEach(function(b){b.classList.toggle('on',s.on.indexOf(b.dataset.b)>=0);});$('flowStep').innerHTML='<h4>'+s.t+'</h4><p style="margin:0">'+s.d+'</p>';$('flowPrev').disabled=fi===0;$('flowNext').disabled=fi===FL.length-1;}
+$('flowPrev').addEventListener('click',function(){if(fi>0){fi--;renderF();}});$('flowNext').addEventListener('click',function(){if(fi<FL.length-1){fi++;renderF();}});renderF();
+
+/* copy */
+document.querySelectorAll('.cmd').forEach(function(c){var b=document.createElement('button');b.type='button';b.className='copy';b.textContent='복사';c.appendChild(b);
+  b.addEventListener('click',function(){var txt=c.querySelector('pre').innerText;function ok(){b.textContent='복사됨';setTimeout(function(){b.textContent='복사';},1400);}
+    function fb(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok();}catch(e){b.textContent='직접 선택하세요';}document.body.removeChild(ta);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,fb);}else fb();});});
+
+/* troubleshooting */
+var TS=[
+ ['학습 로그는 정상인데 Trial이 실패','--c-hub','목표 지표를 찾지 못했습니다. 이름 철자, 출력 형식(이름=값), 버퍼링으로 늦게 나온 출력이 흔한 원인입니다.','objectiveMetricName과 출력의 이름을 맞추고, print(..., flush=True)로 바로 출력합니다. Trial의 상태 메시지에서 지표 관련 이유를 확인합니다.'],
+ ['Trial Pod가 끝나지 않고 Running','--c-katib','Istio 사이드카가 남아 Pod가 종료되지 않습니다.','trialSpec의 Pod 템플릿에 sidecar.istio.io/inject: "false" 주석을 둡니다.'],
+ ['지표 수집 사이드카가 안 붙음','--c-katib','네임스페이스에 지표 수집기 주입 라벨이 없습니다.','kubectl get ns 네임스페이스 --show-labels로 katib.kubeflow.org/metrics-collector-injection=enabled 라벨을 확인합니다.'],
+ ['Experiment가 시작하자마자 실패','--c-mon','trialParameters의 reference가 parameters의 이름과 다르거나, feasibleSpace 형식이 틀렸거나, primaryContainerName이 컨테이너 이름과 다릅니다.','kubectl describe experiment로 상태 메시지를 봅니다. 3장의 연결 관계(이름, reference, 변수 자리)를 다시 맞춥니다.'],
+ ['Suggestion Pod가 ImagePullBackOff','--c-hub','알고리즘 서비스 이미지를 내려받지 못합니다. 폐쇄망에서 흔합니다.','Katib 설정(katib-config)의 알고리즘 이미지 주소를 사내 미러로 바꿉니다.'],
+ ['Trial 다수가 Pending','--c-train','동시 시도 수 × Trial당 자원이 할당량이나 빈 자원보다 큽니다.','parallelTrialCount를 줄이거나 Trial 자원을 줄입니다. 팀 공유는 11편의 큐로 관리합니다.'],
+ ['베이지안인데 무작위와 다를 바 없음','--c-base','최대 시도 수가 너무 적거나, 동시 시도 수가 커서 결과를 반영할 기회가 적었습니다.','시도 수를 늘리거나 동시 시도 수를 줄입니다. 맨 위 실험에서 차이를 확인해 보세요.'],
+ ['조기 종료가 동작하지 않음','--c-mon','학습 코드가 마지막에만 지표를 출력하거나, min_trials_required만큼 완료된 Trial이 아직 없습니다.','에폭마다 지표를 출력하고, 설정값을 확인합니다.'],
+ ['같은 이름으로 다시 만들 수 없음','--c-base','같은 네임스페이스에 같은 이름의 Experiment가 남아 있습니다.','결과를 옮긴 뒤 이전 Experiment를 지우거나, 이름에 날짜나 버전을 붙입니다.']
+];
+var tc=$('trChips'),tpn=$('trPanel');
+TS.forEach(function(s,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+s[1]+')');b.textContent=s[0];b.addEventListener('click',function(){selTs(i);});tc.appendChild(b);});
+function selTs(i){var s=TS[i];[].forEach.call(tc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});tpn.style.setProperty('--c','var('+s[1]+')');tpn.innerHTML='<h4>'+esc(s[0])+'</h4><dl><dt>원인</dt><dd>'+esc(s[2])+'</dd><dt>해결</dt><dd>'+esc(s[3])+'</dd></dl>';}
+selTs(0);
+
+/* glossary */
+var GL=[
+ ['하이퍼파라미터 튜닝','Hyperparameter tuning','좋은 하이퍼파라미터 조합을 체계적으로 찾는 일.'],
+ ['Katib','Katib','Kubeflow의 튜닝, 조기 종료, 신경망 구조 탐색 구성요소. 프레임워크와 언어에 무관.'],
+ ['AutoML','AutoML','튜닝과 구조 탐색처럼 모델 만들기의 일부를 자동화하는 기술.'],
+ ['신경망 구조 탐색','NAS','층의 종류와 연결 같은 신경망 구조 자체를 찾는 방법.'],
+ ['Experiment (Katib)','Experiment','튜닝 작업 하나. 목표, 알고리즘, 탐색 공간, 예산, Trial 설계도를 담는다.'],
+ ['Suggestion','Suggestion','알고리즘을 실행해 다음 시도 값을 제안하는 리소스와 서비스.'],
+ ['Trial','Trial','특정 조합으로 한 번 학습해 보는 시도.'],
+ ['trialTemplate','trialTemplate','Trial을 어떻게 실행할지의 설계도.'],
+ ['trialParameters','trialParameters','설계도 안의 변수와 탐색 파라미터를 잇는 목록.'],
+ ['objective','objective','최적화할 지표와 방향(최대화, 최소화).'],
+ ['goal','goal','도달하면 튜닝을 끝내는 목표값.'],
+ ['parallelTrialCount','parallelTrialCount','동시에 실행하는 Trial 수.'],
+ ['maxTrialCount','maxTrialCount','전체 시도 수의 상한.'],
+ ['maxFailedTrialCount','maxFailedTrialCount','허용하는 실패 Trial 수. 넘으면 Experiment 실패.'],
+ ['feasibleSpace','feasibleSpace','하이퍼파라미터 하나의 탐색 범위나 선택지.'],
+ ['로그 균등 분포','logUniform','로그 척도에서 고르게 뽑는 분포. 학습률 탐색에 적합.'],
+ ['그리드 탐색','Grid search','모든 조합을 차례로 시도하는 방식.'],
+ ['무작위 탐색','Random search','범위 안에서 무작위로 고르는 방식.'],
+ ['베이지안 최적화','Bayesian optimization','지금까지의 결과로 지형을 추정해 유망한 곳을 고르는 방식.'],
+ ['TPE','Tree-structured Parzen Estimator','좋은 결과와 나쁜 결과의 분포를 따로 추정해 고르는 방식.'],
+ ['Hyperband','Hyperband','많은 후보를 적은 자원으로 돌리고 좋은 것만 키우는 방식.'],
+ ['PBT','Population Based Training','여러 학습을 함께 돌리며 좋은 것을 복제하고 변형하는 방식.'],
+ ['지표 수집기','Metrics collector','Trial이 낸 지표를 읽어 기록하는 구성요소. 기본은 표준 출력.'],
+ ['지표 수집기 주입 라벨','katib.kubeflow.org/metrics-collector-injection','이 라벨이 있는 네임스페이스에만 수집용 사이드카가 자동으로 붙는다.'],
+ ['조기 종료','Early stopping','중간 지표로 가망 없는 Trial을 멈추는 기능. 대표 알고리즘은 medianstop.'],
+ ['katib-db-manager','katib-db-manager','Trial의 지표를 DB에 기록하고 꺼내는 Katib 구성요소.'],
+ ['resumePolicy','resumePolicy','끝난 Experiment를 다시 이어 갈 수 있게 Suggestion을 남길지 정하는 설정.'],
+ ['OptimizerClient','OptimizerClient','Kubeflow SDK에서 TrainJob 기반 튜닝을 제출하는 클라이언트.'],
+ ['평행 좌표 그래프','Parallel coordinates','여러 하이퍼파라미터와 결과를 세로축들로 나란히 이어 보여 주는 그래프. Katib 화면에서 쓴다.']
+];
+var gl=$('glist'),gq=$('gq'),ge=$('gempty');
+function renderG(){var q=gq.value.trim().toLowerCase(),out=GL.filter(function(g){return !q||(g[0]+' '+g[1]+' '+g[2]).toLowerCase().indexOf(q)>=0;});gl.innerHTML=out.map(function(g){return '<div class="gitem"><b>'+esc(g[0])+'</b><small>'+esc(g[1])+'</small><p>'+esc(g[2])+'</p></div>';}).join('');ge.hidden=out.length>0;}
+gq.addEventListener('input',renderG);renderG();
+
+/* quiz */
+var Q=[
+ {q:'Katib의 Experiment와 KFP의 Experiment의 관계로 맞는 것은?',o:['같은 것이다','Katib은 튜닝 작업 하나, KFP는 파이프라인 실행을 묶는 폴더로 서로 다르다','KFP Experiment 안에 Katib이 들어 있다','Katib Experiment는 실행 기록이다'],a:1,e:'이름만 같습니다. 대시보드 메뉴도 따로입니다.'},
+ {q:'학습률을 0.00001부터 0.1 사이에서 찾을 때 알맞은 분포는?',o:['균등 분포','로그 균등 분포','그리드 3개','범주형'],a:1,e:'작은 값 쪽의 차이가 중요하므로 로그 척도로 고르게 뽑습니다.'},
+ {q:'후보가 5, 4, 3, 4개인 하이퍼파라미터 넷을 그리드로 탐색하면 조합은 몇 개?',o:['16개','60개','240개','20개'],a:2,e:'5 × 4 × 3 × 4 = 240. 그리드는 곱으로 폭발합니다.'},
+ {q:'학습 로그에는 accuracy: 0.97이 찍혔는데 Trial이 실패합니다. 가장 먼저 의심할 것은?',o:['GPU 부족','지표 출력 형식. 기본 수집기는 accuracy=0.97 형식을 찾는다','알고리즘 선택','네임스페이스 이름'],a:1,e:'기본 StdOut 수집기는 이름=값 형식을 찾습니다.'},
+ {q:'베이지안 최적화에서 동시 시도 수를 크게 늘리면?',o:['항상 더 좋아진다','한 묶음의 시도들이 서로의 결과를 모르고 골라지므로 이점이 줄어든다','오류가 난다','그리드가 된다'],a:1,e:'결과를 보고 다음을 고르는 알고리즘일수록 순차성이 중요합니다.'},
+ {q:'조기 종료가 동작하려면 학습 코드가 해야 할 일은?',o:['마지막에 한 번 지표를 출력','에폭마다 중간 지표를 출력','지표를 출력하지 않음','파일만 저장'],a:1,e:'중간값이 있어야 같은 시점의 다른 Trial들과 비교할 수 있습니다.'},
+ {q:'parallelTrialCount가 4이고 Trial마다 GPU 2장을 요청하면 한꺼번에 필요한 GPU는?',o:['2장','4장','8장','6장'],a:2,e:'동시 시도 × 시도당 자원이 실제 요구입니다.'},
+ {q:'코드 버그로 모든 Trial이 실패하는데 예산을 끝까지 쓰는 일을 막는 설정은?',o:['goal','maxFailedTrialCount','parallelTrialCount','resumePolicy'],a:1,e:'실패가 이 수를 넘으면 Experiment가 실패로 끝납니다.'}
+];
+var qz=$('quiz'),sc=$('score'),dn2=0,rt=0;
+function renderQ(){dn2=0;rt=0;sc.textContent='';qz.innerHTML=Q.map(function(x,i){return '<div class="qq" data-i="'+i+'"><h4>'+(i+1)+'. '+esc(x.q)+'</h4>'+x.o.map(function(o,k){return '<button class="ans" type="button" data-k="'+k+'">'+esc(o)+'</button>';}).join('')+'<p class="exp"></p></div>';}).join('');}
+qz.addEventListener('click',function(e){var b=e.target.closest('.ans');if(!b||b.disabled)return;var box=b.closest('.qq'),x=Q[+box.dataset.i],k=+b.dataset.k;
+  box.querySelectorAll('.ans').forEach(function(a){a.disabled=true;if(+a.dataset.k===x.a)a.classList.add('right');});
+  if(k!==x.a)b.classList.add('wrong');else rt++;
+  var ex=box.querySelector('.exp');ex.textContent=(k===x.a?'정답입니다. ':'정답은 '+(x.a+1)+'번째 보기입니다. ')+x.e;ex.classList.add('show');
+  dn2++;if(dn2===Q.length){sc.textContent=Q.length+'문제 중 '+rt+'문제를 맞혔습니다.'+(rt===Q.length?' 튜닝을 설계할 준비가 되었습니다.':' 틀린 문제는 해설에 나온 장을 다시 읽어 보세요.');}});
+$('quizReset').addEventListener('click',renderQ);renderQ();
+})();
+</script>
+</body>
+</html>

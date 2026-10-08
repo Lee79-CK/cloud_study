@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubeflow 강의 10편: 통합 Kubeflow SDK와 Spark 데이터 처리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+try{var t=localStorage.getItem('kf-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
+</script>
+<style>
+:root{
+  --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r-s:6px;--r-m:12px;--r-l:20px;
+}
+html[data-theme="dark"]{
+  --bg:#0F1B2D;--surface:#15253B;--raised:#1C3049;--line:#2A405E;--text:#E7EEF7;--muted:#93A6BF;--brand:#4EA8F5;--on-c:#0F1B2D;
+  --c-data:#F26B3A;--c-nb:#9BD15A;--c-kfp:#2EC4B6;--c-train:#F2A541;--c-katib:#A78BFA;--c-hub:#F47C9A;--c-serve:#4EA8F5;--c-mon:#E8D44D;--c-base:#8DA2BD;
+  --lv1:#5BC48A;--lv2:#4EA8F5;--lv3:#A78BFA;--lv4:#F2667A;
+  --ok:#5BC48A;--bad:#F2667A;--code-bg:#0A1422;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#F2F5F9;--surface:#FFFFFF;--raised:#E8EEF5;--line:#D2DCE8;--text:#14233A;--muted:#55667D;--brand:#1F6FBF;--on-c:#FFFFFF;
+  --c-data:#C9501F;--c-nb:#4F8A17;--c-kfp:#0F7F76;--c-train:#A8670C;--c-katib:#6A4ED0;--c-hub:#C23E68;--c-serve:#1F6FBF;--c-mon:#8C7700;--c-base:#5F7189;
+  --lv1:#2E9A61;--lv2:#1F6FBF;--lv3:#6A4ED0;--lv4:#C9384F;
+  --ok:#2E9A61;--bad:#C9384F;--code-bg:#14233A;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:12px}
+.series{font-weight:700;font-size:15px;line-height:1.3}
+.series span{color:var(--muted);font-weight:500;margin-left:8px}
+.theme-btn{margin-left:auto;font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+.progress{height:3px;width:0;background:linear-gradient(90deg,var(--c-data),var(--c-nb),var(--c-kfp),var(--c-train),var(--c-katib),var(--c-hub),var(--c-serve),var(--c-mon))}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:56px 24px 32px;display:grid;grid-template-columns:5fr 7fr;gap:44px;align-items:center}
+.hero h1{font-size:clamp(2.5rem,5.4vw,4.1rem);line-height:1.1;letter-spacing:-0.035em;font-weight:800;margin:0 0 22px}
+.hero .lede{font-size:1.14rem;color:var(--muted);margin:0;max-width:32em}
+.levelstrip{display:flex;gap:4px;margin:30px 0 8px;max-width:420px}
+.levelstrip i{flex:1;height:8px;border-radius:2px;opacity:.32}
+.levelstrip i.now{opacity:1;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.strip-cap{font-size:14px;color:var(--muted);margin:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:26px 0 0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:10px 10px 4px}
+.mapcap{font-size:14px;color:var(--muted);padding:2px 10px 8px;margin:0}
+@media (max-width:960px){.hero{grid-template-columns:1fr;padding-top:36px}}
+
+/* lifecycle map */
+.lcmap{width:100%;height:auto;display:block}
+.lcmap .seg{fill:none;stroke-width:11;stroke-linecap:round}
+.lcmap .st{cursor:pointer;outline:none}
+.lcmap .st .dot{fill:var(--surface);stroke:currentColor;stroke-width:4;transition:r .15s}
+.lcmap .st:hover .dot,.lcmap .st:focus-visible .dot{r:14}
+.lcmap .st.sel .dot{fill:currentColor}
+.lcmap .st:focus-visible .halo{stroke:var(--brand)}
+.lcmap .halo{fill:none;stroke:transparent;stroke-width:3}
+.lcmap .lbl{font-size:17px;font-weight:700;fill:var(--text);font-family:var(--font)}
+.lcmap .sub{font-size:13px;fill:var(--muted);font-weight:500;font-family:var(--font)}
+.lcmap .ctr1{font-size:24px;font-weight:800;fill:var(--text);font-family:var(--font);letter-spacing:-0.02em}
+.lcmap .ctr2{font-size:13.5px;fill:var(--muted);font-family:var(--font)}
+.lcmap .arrow{fill:var(--c-mon)}
+.lcmap.draw .seg{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .45s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* layout */
+.layout{max-width:1180px;margin:0 auto;padding:0 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding:24px 0 0}
+.toc p{font-weight:700;margin:0 0 10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:block;padding:5px 10px 5px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a:hover{color:var(--text)}
+.toc a.on{color:var(--text);border-left-color:var(--brand);font-weight:600}
+main{min-width:0;max-width:800px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;gap:0}.toc{display:none}}
+section{padding-top:60px}
+h2{font-size:clamp(1.6rem,3vw,2rem);line-height:1.3;letter-spacing:-0.02em;margin:0 0 18px;font-weight:800}
+h2 .no{color:var(--brand);margin-right:.35em}
+h3{font-size:1.24rem;line-height:1.4;margin:38px 0 12px;font-weight:700}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin:4px 0}
+strong{font-weight:700}
+
+/* callouts */
+.callout{border-left:4px solid var(--brand);background:var(--surface);padding:16px 20px;border-radius:0 var(--r-m) var(--r-m) 0;margin:22px 0}
+.callout p:last-child{margin-bottom:0}
+.callout .h{display:block;font-weight:700;margin-bottom:4px}
+.callout.warn{border-color:var(--c-train)}
+.callout.tip{border-color:var(--c-nb)}
+.callout.link{border-color:var(--c-katib)}
+
+/* goals */
+.goals{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.goals li{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 16px}
+.goals li::before{content:"";width:18px;height:18px;margin-top:5px;border-radius:50%;border:3px solid var(--lv1)}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin:16px 0 24px;border:1px solid var(--line);border-radius:var(--r-m)}
+.tbl{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.6;min-width:560px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font-weight:700;background:var(--raised)}
+.tbl td:first-child{font-weight:600}
+.tbl .old{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 70%,transparent)}
+
+/* story */
+.story{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:24px 26px;margin:22px 0}
+.story-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.story-dots{display:flex;gap:6px}
+.story-dots button{width:30px;height:7px;border-radius:4px;border:0;background:var(--line);cursor:pointer;padding:0}
+.story-dots button.on{background:var(--brand)}
+.story-who{font-size:14px;color:var(--muted)}
+.story h4{font-size:1.25rem;margin:0 0 10px;line-height:1.4}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:2px 11px;border-radius:999px;background:var(--raised);border:1px solid var(--line);margin-bottom:10px}
+.tag.bad{border-color:var(--bad);color:var(--bad)}
+.story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:8px 16px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.btn:disabled{opacity:.4;cursor:default}
+.mapping{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;font-size:15.5px}
+.mapping dt{font-weight:700}
+.mapping dd{margin:0;color:var(--muted)}
+
+/* debt figure */
+.debt{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:56px;gap:6px;margin:18px 0 8px}
+.debt div{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;line-height:1.35;display:flex;align-items:center}
+.debt .ml{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:700;justify-content:center}
+.figcap{font-size:14px;color:var(--muted);margin:0 0 20px}
+@media (max-width:600px){.debt{grid-template-columns:repeat(3,1fr)}.debt div{grid-column:auto!important;grid-row:auto!important}}
+
+/* maturity */
+.mat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.mat input[type=range]{width:100%;accent-color:var(--brand);margin:6px 0 2px}
+.mat-scale{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:16px}
+.mat h4{margin:0 0 8px;font-size:1.15rem}
+.mat-kf{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px}
+
+/* station panel */
+.stbtns{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.stbtn{font:inherit;font-size:14.5px;font-weight:600;padding:6px 13px;border-radius:999px;border:2px solid var(--c);background:transparent;color:var(--text);cursor:pointer}
+.stbtn.on{background:var(--c);color:var(--on-c)}
+.panel{border:1px solid var(--line);border-top:6px solid var(--c);background:var(--surface);border-radius:var(--r-m);padding:20px 24px}
+.panel h4{font-size:1.25rem;margin:0 0 2px}
+.panel .meta{font-size:14.5px;color:var(--muted);margin:0 0 6px}
+.panel dl{display:grid;grid-template-columns:8.5em 1fr;gap:10px 18px;margin:14px 0 0}
+.panel dt{color:var(--muted);font-size:15px;font-weight:600}
+.panel dd{margin:0}
+@media (max-width:600px){.panel dl{grid-template-columns:1fr;gap:2px}.panel dd{margin-bottom:10px}}
+
+/* principles */
+.princ{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.princ div{padding:16px 18px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line)}
+.princ b{display:block;margin-bottom:4px;font-size:1.05rem}
+.princ p{margin:0;font-size:15.5px;color:var(--muted)}
+@media (max-width:600px){.princ{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{list-style:none;margin:18px 0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 18px 34px}
+.tl li::before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--brand)}
+.tl li.now::before{background:var(--brand)}
+.tl b{display:block;font-size:15px;color:var(--brand)}
+
+/* component layers */
+.layers{display:flex;flex-direction:column;gap:8px;margin:20px 0 14px}
+.layer{border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px 14px;background:var(--surface)}
+.layer-h{font-size:14px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:15px;font-weight:600;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);border-left:5px solid var(--c);background:var(--raised);color:var(--text);cursor:pointer}
+.chip.on{background:var(--c);color:var(--on-c);border-color:var(--c)}
+.layer.base{background:var(--raised);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:center;font-weight:700;font-size:15px}
+.layer.base span{color:var(--muted);font-weight:500}
+
+/* code */
+pre{background:var(--code-bg);color:#DCE6F2;font-family:var(--mono);font-size:14px;line-height:1.65;padding:18px 20px;border-radius:var(--r-m);overflow-x:auto;margin:10px 0 18px}
+pre .c{color:#7F93AD}pre .k{color:#F2A541}pre .s{color:#9BD15A}pre .f{color:#6FC3FF}
+code{font-family:var(--mono);font-size:.86em;background:var(--raised);padding:1px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+.codehead{font-weight:700;margin:26px 0 0;font-size:15.5px}
+
+/* decision helper */
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.q{margin-bottom:18px}
+.q p{font-weight:600;margin:0 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{font:inherit;font-size:15px;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.opt.on{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:600}
+.result{padding:16px 18px;border-radius:var(--r-m);background:var(--raised);border-left:4px solid var(--brand)}
+.result b{display:block;font-size:1.08rem;margin-bottom:4px}
+.result p{margin:0}
+
+/* install options */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.ways div{padding:16px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c)}
+.ways b{display:block;margin-bottom:6px}
+.ways p{font-size:15px;margin:0 0 8px;color:var(--muted)}
+.ways p:last-child{margin:0}
+@media (max-width:760px){.ways{grid-template-columns:1fr}}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-top:16px}
+.tab{font:inherit;font-size:15px;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel dl{display:grid;grid-template-columns:8em 1fr;gap:10px 18px;margin:0}
+.tabpanel dt{color:var(--muted);font-weight:600;font-size:15px}
+.tabpanel dd{margin:0}
+@media (max-width:600px){.tabpanel dl{grid-template-columns:1fr;gap:2px}.tabpanel dd{margin-bottom:10px}}
+
+/* cases */
+details.case{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin:10px 0}
+details.case summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;gap:12px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary small{font-weight:500;color:var(--muted);font-size:14px}
+details.case summary::after{content:"+";margin-left:auto;font-size:22px;line-height:1;color:var(--muted)}
+details.case[open] summary::after{content:"−"}
+.case-body{padding:0 18px 16px}
+.case-body p{font-size:15.8px}
+.mini{display:inline-block;font-size:13px;font-weight:600;padding:1px 10px;border-radius:999px;border:1.5px solid var(--c);margin:2px 4px 2px 0}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:11px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px}
+.gitem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px}
+.gitem b{display:block;line-height:1.4}
+.gitem small{color:var(--muted);font-size:13px}
+.gitem p{font-size:15px;margin:6px 0 0;line-height:1.6}
+.gempty{color:var(--muted);margin-top:12px}
+
+/* quiz */
+.qq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:12px 0}
+.qq h4{margin:0 0 10px;font-size:1.06rem;line-height:1.5}
+.ans{display:block;width:100%;text-align:left;font:inherit;font-size:15.5px;padding:10px 14px;margin:6px 0;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;line-height:1.5}
+.ans:disabled{cursor:default}
+.ans.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--raised))}
+.ans.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,var(--raised))}
+.exp{display:none;font-size:15px;margin:10px 0 0;color:var(--muted)}
+.exp.show{display:block}
+.score{font-weight:700;font-size:1.05rem;margin-top:14px}
+
+/* wrap */
+.keys{counter-reset:k;list-style:none;padding:0;margin:16px 0}
+.keys li{counter-increment:k;display:grid;grid-template-columns:36px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li::before{content:counter(k);font-weight:800;font-size:1.2rem;color:var(--brand)}
+.next{margin:28px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--lv1)}
+.next .h{font-size:14px;color:var(--muted);font-weight:600}
+.next h4{font-size:1.3rem;margin:4px 0 8px}
+footer{max-width:1180px;margin:0 auto;padding:24px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+/* ---- 2편 추가 스타일 ---- */
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 16px}
+.match-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.match-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.mcol-h{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--muted)}
+.mcol{display:flex;flex-direction:column;gap:6px}
+.mw{font:inherit;font-size:14.5px;line-height:1.4;text-align:left;padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;min-height:40px}
+.mw.ml{border-left:4px solid var(--c-train)}
+.mw.k8{border-left:4px solid var(--c-serve)}
+.mw.sel{outline:2px solid var(--brand);outline-offset:1px}
+.mw.done{background:color-mix(in srgb,var(--pc) 22%,var(--raised));border-color:var(--pc);cursor:default}
+.mw.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mcard{margin-top:12px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:15px;min-height:68px}
+.mcard b{display:block}
+.mfoot{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.mfoot .btn{font-size:13.5px;padding:5px 12px;margin-left:auto}
+.part{margin:72px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--pc)}
+.part .ph{font-size:14px;font-weight:700;color:var(--pc);margin:0}
+.part h2{margin:4px 0 8px}
+.part p{margin:0;color:var(--muted)}
+.part + section{padding-top:36px}
+.toc .tp{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:14px 0 4px 12px}
+.play{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.play svg{width:100%;height:auto;display:block}
+.play .axis{stroke:var(--line);stroke-width:1.5}
+.play .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.play .tick{fill:var(--muted);font-size:12px;font-family:var(--font)}
+.play .pt{fill:var(--c-train)}
+.play .err{stroke:var(--c-hub);stroke-width:1.5;opacity:.7}
+.play .fit{stroke:var(--c-kfp);stroke-width:3.5;stroke-linecap:round}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:12px}
+.ctrls label{font-size:14.5px;font-weight:600;display:block}
+.ctrls input[type=range]{width:100%;accent-color:var(--brand)}
+.ctrls output{font-weight:700;color:var(--brand)}
+.prow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.lossbox{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:15px}
+.lossbox b{color:var(--c-hub)}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.spark path{fill:none;stroke:var(--c-hub);stroke-width:2}
+@media (max-width:600px){.ctrls{grid-template-columns:1fr}.mgrid{gap:6px 8px}.mw{font-size:13.5px;padding:7px 8px}}
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.calc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px}
+.calc label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.calc input,.calc select{width:100%;font:inherit;font-size:15.5px;padding:8px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.calc .out{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px}
+.calc .out dt{color:var(--muted)}
+.calc .out dd{margin:0;font-weight:700}
+.calc .note{font-size:14px;color:var(--muted);margin:12px 0 0}
+.fits{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fit-g{font-size:14px;padding:6px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised)}
+.fit-g.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--raised))}
+.fit-g.multi{border-color:var(--c-train);background:color-mix(in srgb,var(--c-train) 14%,var(--raised))}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 12px}
+.arch .zone{grid-column:span 4;font-size:13px;font-weight:700;color:var(--muted);margin:6px 0 -2px}
+.arch .bx{padding:10px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:14px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.arch .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:600px){.arch{grid-template-columns:repeat(2,1fr)}.arch .zone{grid-column:span 2}}
+.stepbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.stepbox h4{margin:0 0 6px;font-size:1.12rem}
+.yaml{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.yaml pre{margin:0;padding:14px 0;font-size:13.5px}
+.yaml .ln{display:block;padding:0 14px 0 16px;border-left:3px solid transparent;white-space:pre}
+.yaml .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+.ynote{position:sticky;top:90px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c-train);border-radius:var(--r-m);padding:16px 18px;font-size:15.5px}
+.ynote b{display:block;font-size:1.05rem;margin-bottom:4px}
+.ynote code{font-size:.84em}
+@media (max-width:900px){.yaml{grid-template-columns:1fr}.ynote{position:static}}
+.check{list-style:none;padding:0;margin:10px 0 0}
+.check li{margin:6px 0}
+.check label{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;cursor:pointer;font-size:15.5px}
+.check input{width:18px;height:18px;margin-top:5px;accent-color:var(--ok)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.cols2>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px;border-top:4px solid var(--pc)}
+.cols2 h4{margin:0 0 4px;font-size:1.05rem}
+@media (max-width:760px){.cols2{grid-template-columns:1fr}}
+/* ---- 3편 추가 스타일 ---- */
+.towerwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tw-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tw-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tower{display:flex;flex-direction:column-reverse;gap:3px}
+.blk{display:flex;align-items:center;gap:10px;font:inherit;text-align:left;width:100%;padding:3px 10px;min-height:27px;border-radius:5px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:13.5px;cursor:default;opacity:.55}
+.blk small{margin-left:auto;font-size:12px;color:var(--muted)}
+.blk.built{opacity:1;border:1px solid color-mix(in srgb,var(--g) 55%,var(--line));border-left:6px solid var(--g);background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text);font-weight:600;cursor:pointer}
+.blk.built small{font-weight:500}
+.blk.cur{outline:2px solid var(--text);outline-offset:1px}
+.blk.base{opacity:1}
+.tw-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.tw-legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--g);margin-right:5px;vertical-align:-1px}
+.tw-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:92px;line-height:1.6}
+.tw-card b{display:block;font-size:15px}
+.tw-ctrl{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tw-ctrl .btn{font-size:13.5px;padding:6px 12px}
+.res{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.res-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
+.res-list label{display:grid;grid-template-columns:22px 1fr;gap:6px;align-items:start;font-size:15px;cursor:pointer;padding:4px 0}
+.res-list input{width:17px;height:17px;margin-top:4px;accent-color:var(--brand)}
+.res-list small{display:block;color:var(--muted);font-size:12.5px}
+.res-list .req{color:var(--muted)}
+.res-sum{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res-sum div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.res-sum b{display:block;font-size:1.25rem;color:var(--text)}
+.res-mine{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:14px}
+.res-mine label{font-size:14px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+.res-mine input{width:110px;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.verdict{margin-top:12px;padding:12px 16px;border-radius:var(--r-m);border-left:4px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised));font-size:15px}
+.tree{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;margin:16px 0}
+.tree-list{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
+.tree-list button{font:inherit;text-align:left;padding:7px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.tree-list button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+@media (max-width:640px){.tree{grid-template-columns:1fr}}
+.steps{counter-reset:st;list-style:none;padding:0;margin:18px 0}
+.stp{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px 14px 58px;margin:10px 0}
+.stp::before{content:counter(st);position:absolute;left:16px;top:15px;width:28px;height:28px;border-radius:50%;background:var(--raised);border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand)}
+.stp.ok::before{content:"✓";background:var(--ok);border-color:var(--ok);color:var(--on-c)}
+.stp h4{margin:0 0 6px;font-size:1.08rem}
+.stp p{font-size:15.5px;margin:0 0 8px}
+.stp .opt-tag{font-size:12.5px;font-weight:700;color:var(--c-train);margin-left:6px}
+.cmd{position:relative}
+.cmd pre{margin:6px 0 8px;padding-right:76px}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:5px;border:1px solid #2A405E;background:#1C3049;color:#DCE6F2;cursor:pointer}
+.stp-done{display:inline-flex;gap:6px;align-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.stp-done input{accent-color:var(--ok);width:16px;height:16px}
+.stprog{position:sticky;top:64px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--bg);padding:8px 0;font-size:14px;color:var(--muted)}
+.stprog .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.stprog .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0 10px}
+.flow .bx{padding:10px 6px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:13.5px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.flow .bx small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.flow .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:700px){.flow{grid-template-columns:repeat(3,1fr)}}
+.dash{display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.dash-top{grid-column:span 2;display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.dash-top b{font-size:15px}
+.dash-ns{margin-left:auto;font:inherit;font-size:13.5px;padding:5px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.dash-side{border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column}
+.dash-side .grp{font-size:12px;font-weight:700;color:var(--muted);padding:10px 14px 2px}
+.dash-side button{font:inherit;font-size:14px;text-align:left;padding:7px 14px;border:0;border-left:3px solid transparent;background:none;color:var(--text);cursor:pointer}
+.dash-side button.on{border-left-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);font-weight:600}
+.dash-main{padding:18px 20px;min-height:300px}
+.dash-main h4{margin:0 0 4px;font-size:1.15rem}
+.dash-main .meta{font-size:14px;color:var(--muted);margin:0 0 10px}
+@media (max-width:700px){.dash{grid-template-columns:1fr}.dash-top{grid-column:auto;flex-wrap:wrap}.dash-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dash-side .grp{display:none}.dash-side button{border-left:0;border-bottom:3px solid transparent;padding:6px 10px}.dash-side button.on{border-bottom-color:var(--brand)}}
+/* ---- 4편 추가 스타일 ---- */
+.anat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.anat-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.anat-top .h{font-weight:700;font-size:1.05rem;margin-right:auto}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg2 button{font:inherit;font-size:13.5px;font-weight:600;padding:5px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg2 button.on{background:var(--brand);color:var(--on-c)}
+.nodes{display:flex;flex-direction:column;gap:5px}
+.node{display:flex;align-items:center;gap:8px;font:inherit;text-align:left;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--line);border-left:5px solid var(--g);background:var(--raised);color:var(--text);font-size:14px;cursor:pointer;transition:opacity .2s}
+.node small{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.node.l1{margin-left:20px;width:calc(100% - 20px)}
+.node.l2{margin-left:40px;width:calc(100% - 40px)}
+.node.l3{margin-left:60px;width:calc(100% - 60px)}
+.node.off{opacity:.35;border-style:dashed}
+.node.cur{outline:2px solid var(--text);outline-offset:1px}
+.anat-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:96px;line-height:1.6}
+.anat-card b{display:block;font-size:15px}
+.spawn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;margin:16px 0;align-items:start}
+.sform{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 8px}
+.sform fieldset{border:0;padding:0;margin:0 0 14px}
+.sform legend,.sform .lab{font-size:14px;font-weight:700;margin-bottom:6px;display:block;padding:0}
+.sform input[type=text],.sform input[type=number],.sform select{width:100%;font:inherit;font-size:15px;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.sform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sform .inl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14.5px}
+.sform .inl label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.sform input[type=checkbox],.sform input[type=radio]{accent-color:var(--brand);width:16px;height:16px}
+.sform .hint{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.sout{position:sticky;top:84px}
+.sout pre{margin:0 0 10px;font-size:13px;max-height:470px;overflow:auto}
+.checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.checks li{font-size:14.5px;padding:8px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--v)}
+@media (max-width:900px){.spawn{grid-template-columns:1fr}.sout{position:static}}
+.nbk{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.nbk-top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.nbk-top b{font-family:var(--mono);font-size:13.5px}
+.nbk-top .btn{margin-left:auto;font-size:13px;padding:5px 12px}
+.cell{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:10px 14px 4px;border-bottom:1px solid var(--line)}
+.cell:last-child{border-bottom:0}
+.cell .pr{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:12px;text-align:right}
+.cell pre{margin:4px 0 6px;font-size:13.5px}
+.cell .md{font-size:15px;margin:6px 0}
+.cell .run{font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;margin:0 0 8px}
+.cell .out{display:none;font-family:var(--mono);font-size:13px;white-space:pre-wrap;padding:8px 12px;margin:0 0 8px;border-left:3px solid var(--c-nb);background:var(--raised);border-radius:0 6px 6px 0;color:var(--text)}
+.cell .out.show{display:block}
+@media (max-width:600px){.cell{grid-template-columns:1fr}.cell .pr{text-align:left;padding-top:0}}
+/* ---- 5편 추가 스타일 ---- */
+.morph{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.morph-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.morph-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.stages{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.stg{font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:8px 4px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer;text-align:center;position:relative}
+.stg b{display:block;font-size:15px;color:var(--text)}
+.stg.done{border-color:color-mix(in srgb,var(--g) 60%,var(--line));background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text)}
+.stg.on{outline:2px solid var(--text);outline-offset:1px}
+.mpanel{margin-top:12px;border-radius:var(--r-m);background:var(--raised);padding:12px 14px;min-height:250px}
+.mpanel h4{margin:0 0 4px;font-size:1.05rem}
+.mpanel p{font-size:14.5px;margin:0 0 8px;line-height:1.6}
+.mpanel pre{margin:0;font-size:12.5px;max-height:150px}
+.mctrl{display:flex;gap:8px;margin-top:10px}
+.mctrl .btn{font-size:13.5px;padding:6px 12px}
+@media (max-width:600px){.stages{grid-template-columns:repeat(4,1fr)}}
+.cls{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.cls-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:10px 14px}
+.cls-row .what{font-weight:600;font-size:15.5px}
+.cls-row .opts .opt{font-size:14px;padding:5px 12px}
+.cls-row .fb{grid-column:span 2;font-size:14.5px;color:var(--muted);display:none;border-top:1px dashed var(--line);padding-top:8px}
+.cls-row .fb.show{display:block}
+.cls-row.right{border-color:var(--ok)}
+.cls-row.wrong{border-color:var(--bad)}
+@media (max-width:600px){.cls-row{grid-template-columns:1fr}.cls-row .fb{grid-column:auto}}
+.csim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.csim .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 18px;margin-bottom:16px}
+.csim label.lab{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.csim select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.csim .ck{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer;padding-top:22px}
+.csim .ck input{accent-color:var(--brand);width:16px;height:16px}
+.tasks{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.tk{flex:1 1 150px;padding:12px 14px;border-radius:var(--r-m);border:2px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised))}
+.tk b{display:block;font-family:var(--mono);font-size:14px}
+.tk span{font-size:14px}
+.tk small{display:block;font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.arr{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+@media (max-width:640px){.tasks{flex-direction:column}.arr{transform:rotate(90deg);align-self:center;padding:4px}}
+/* ---- 6편 추가 스타일 ---- */
+.lego{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.lego-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.lego-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.toggles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tg{font:inherit;font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.tg.on{background:var(--g);color:var(--on-c)}
+.dag{display:flex;flex-direction:column;align-items:stretch;gap:0;font-size:13.5px}
+.dn{align-self:center;padding:7px 14px;border-radius:8px;background:var(--raised);border:1.5px solid var(--g,var(--line));font-family:var(--mono);font-size:13px;text-align:center;position:relative;line-height:1.35}
+.dn em{display:block;font-style:normal;font-family:var(--font);font-size:11.5px;color:var(--muted)}
+.dn .bdg{position:absolute;top:-9px;right:-8px;font-family:var(--font);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--b);color:var(--on-c)}
+.dar{align-self:center;color:var(--muted);line-height:1;padding:3px 0;font-size:14px}
+.frame{border:1.5px dashed var(--g);border-radius:10px;padding:16px 10px 10px;position:relative;margin:4px 0}
+.frame>.fl{position:absolute;top:-10px;left:12px;background:var(--surface);padding:0 6px;font-size:12px;font-weight:700;color:var(--g)}
+.lanes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.lane{display:flex;flex-direction:column;align-items:center}
+.branches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lego pre{margin:12px 0 0;font-size:12px;max-height:260px}
+.gantt{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.gantt .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px;margin-bottom:14px}
+.gantt label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.gantt input,.gantt select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.gchart{position:relative;border-left:2px solid var(--line);border-bottom:2px solid var(--line);padding:6px 0 6px 0;margin-left:70px}
+.grow{position:relative;height:24px;margin:3px 0}
+.grow .gl{position:absolute;left:-70px;width:64px;text-align:right;font-size:12.5px;color:var(--muted);top:3px;font-family:var(--mono)}
+.gbar{position:absolute;top:0;height:24px;border-radius:5px;background:color-mix(in srgb,var(--c-train) 70%,transparent);border:1px solid var(--c-train);font-size:11.5px;color:var(--text);padding:3px 6px;white-space:nowrap;overflow:hidden}
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.gstats div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.gstats b{display:block;font-size:1.2rem;color:var(--text)}
+.cron{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.cron input{width:100%;font-family:var(--mono);font-size:17px;padding:9px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);margin-top:8px}
+.cfields{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
+.cfields div{background:var(--raised);border-radius:var(--r-s);padding:8px;text-align:center;font-size:12.5px;color:var(--muted)}
+.cfields b{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}
+@media (max-width:600px){.cfields{grid-template-columns:repeat(3,1fr)}}
+.kale{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;margin:16px 0;align-items:start}
+.kcell{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin-bottom:8px;overflow:hidden}
+.kcell .ktag{display:flex;gap:6px;padding:6px 10px;background:var(--raised);border-bottom:1px solid var(--line)}
+.kcell .ktag span{font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;border:1.5px solid var(--c);color:var(--text)}
+.kcell pre{margin:0;border-radius:0;font-size:12.5px;padding:10px 12px}
+@media (max-width:800px){.kale{grid-template-columns:1fr}}
+/* ---- 7편 추가 스타일 ---- */
+.dsim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.dsim-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.dsim-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.dctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-bottom:12px}
+.dctl label{font-size:13px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.dctl select,.dctl input{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:90px}
+.nodesg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.nodebox{border:1.5px solid var(--line);border-radius:10px;padding:8px;background:var(--raised)}
+.nodebox .nh{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.gpus{display:grid;grid-template-columns:repeat(2,1fr);gap:5px}
+.gpu{font:inherit;font-size:12px;padding:6px 4px;border-radius:6px;border:1.5px solid var(--c-train);background:color-mix(in srgb,var(--c-train) 10%,var(--surface));color:var(--text);cursor:pointer;line-height:1.3;transition:background .2s}
+.gpu b{display:block;font-family:var(--mono);font-size:13px}
+.gpu.sel{outline:2px solid var(--text);outline-offset:1px}
+.gpu.p1{background:color-mix(in srgb,var(--c-data) 30%,var(--surface));border-color:var(--c-data)}
+.gpu.p2{background:color-mix(in srgb,var(--c-train) 35%,var(--surface))}
+.gpu.p3{background:color-mix(in srgb,var(--c-katib) 35%,var(--surface));border-color:var(--c-katib)}
+.gpu.p4{background:color-mix(in srgb,var(--c-kfp) 35%,var(--surface));border-color:var(--c-kfp)}
+.nodebox.master{border-color:var(--c-hub)}
+.phases{display:flex;gap:4px;margin:12px 0 0;flex-wrap:wrap}
+.phases button{flex:1 1 90px;font:inherit;font-size:12.5px;font-weight:600;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer}
+.phases button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.dinfo{margin-top:10px;padding:10px 12px;border-radius:var(--r-m);background:var(--raised);font-size:14px;line-height:1.6;min-height:70px}
+.envbox{margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--code-bg);color:#DCE6F2;border-radius:var(--r-s);padding:10px 12px;white-space:pre}
+.envbox .c{color:#7F93AD}
+.yaml2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:16px 0}
+.yaml2 h4{margin:0 0 6px;font-size:1rem}
+.yaml2 pre{margin:0;padding:12px 0;font-size:12.5px}
+.yaml2 .ln{display:block;padding:0 12px 0 14px;border-left:3px solid transparent;white-space:pre}
+.yaml2 .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml2 .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml2 .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+@media (max-width:900px){.yaml2{grid-template-columns:1fr}}
+/* ---- 8편 추가 스타일 ---- */
+.tune{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tune-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tune-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tctl{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;margin-bottom:10px}
+.tctl label.l{font-size:12.5px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.tctl select{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.tctl .ck{display:flex;gap:6px;align-items:center;font-size:14px;cursor:pointer;padding-bottom:6px}
+.tctl .ck input{accent-color:var(--brand);width:16px;height:16px}
+.space{width:100%;height:auto;display:block;border-radius:10px;border:1px solid var(--line)}
+.space .ax{fill:var(--muted);font-size:11px;font-family:var(--font)}
+.space .pt{stroke:#fff;stroke-width:1.5}
+.space .pt.es{fill:none!important;stroke-dasharray:2 2}
+.space .best{fill:none;stroke:#fff;stroke-width:2.5}
+.space .num{font-size:9.5px;font-family:var(--mono);fill:#0F1B2D;font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.tstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.tstats div{background:var(--raised);border-radius:var(--r-s);padding:7px 9px;font-size:12px;color:var(--muted);line-height:1.35}
+.tstats b{display:block;font-size:15px;color:var(--text)}
+.tbtns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.tbtns .btn{font-size:13px;padding:6px 11px}
+.tnote{font-size:13.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+@media (max-width:600px){.tstats{grid-template-columns:repeat(2,1fr)}}
+.combo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.combo .row{display:grid;grid-template-columns:minmax(0,1.3fr) 110px 110px;gap:8px;align-items:center;margin-bottom:6px;font-size:15px}
+.combo input{font:inherit;padding:6px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:100%}
+.combo .hd{font-size:13px;font-weight:700;color:var(--muted)}
+/* ---- 9편 추가 스타일 ---- */
+.pass{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.pass-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.pass-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.vers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.ver{font:inherit;text-align:left;padding:8px 9px;border-radius:8px;border:1.5px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;position:relative;font-size:12.5px;line-height:1.4}
+.ver b{display:block;font-family:var(--mono);font-size:15px}
+.ver .tag2{display:inline-block;font-size:10.5px;font-weight:700;padding:0 6px;border-radius:999px;margin-top:3px;margin-right:2px}
+.ver .t-live{background:var(--c-kfp);color:var(--on-c)}
+.ver .t-arch{background:var(--c-base);color:var(--on-c)}
+.ver .t-st{background:var(--c-serve);color:var(--on-c)}
+.ver .t-ca{background:var(--c-train);color:var(--on-c)}
+.ver.sel{outline:2px solid var(--text);outline-offset:1px}
+.ver.archd{opacity:.55}
+.lin{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:10px 0 6px;font-size:12.5px}
+.lin span{padding:4px 8px;border-radius:6px;background:var(--raised);border:1px solid var(--line)}
+.lin i{font-style:normal;color:var(--muted)}
+.vmeta{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px;margin:6px 0 8px}
+.vmeta dt{color:var(--muted)}
+.vmeta dd{margin:0;font-family:var(--mono);font-size:12.5px}
+.vact{display:flex;gap:6px;flex-wrap:wrap}
+.vact .btn{font-size:12.5px;padding:5px 10px}
+.traffic{display:flex;height:22px;border-radius:6px;overflow:hidden;margin:10px 0 4px;font-size:11.5px;font-weight:700}
+.traffic div{display:flex;align-items:center;justify-content:center;color:var(--on-c);transition:width .3s}
+.pass pre{margin:8px 0 0;font-size:12px}
+.pmsg{font-size:13.5px;color:var(--muted);margin:6px 0 0;min-height:20px}
+@media (max-width:600px){.vers{grid-template-columns:repeat(2,1fr)}}
+/* ---- 10편 추가 스타일 ---- */
+.hero>*{min-width:0}
+.sdkmap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.sdk-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.sdk-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.rowlab{font-size:12.5px;font-weight:700;color:var(--muted);margin:8px 0 5px}
+.clients,.backs{display:flex;flex-wrap:wrap;gap:6px}
+.cl{font:inherit;font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:8px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.cl.on{background:var(--g);color:var(--on-c)}
+.bk{font:inherit;font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.bk.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.bk:disabled{opacity:.35;cursor:not-allowed}
+.sdkmap pre{margin:10px 0 0;font-size:12px}
+.makes{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:10px;font-size:12.5px}
+.makes span{padding:4px 9px;border-radius:6px;border:1px solid var(--line);background:var(--raised)}
+.makes i{font-style:normal;color:var(--muted)}
+.sdknote{font-size:13.5px;color:var(--muted);margin:8px 0 0;line-height:1.55}
+.sparkc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.sparkc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px}
+.sparkc label{display:block;font-size:13.5px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.sparkc input{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.parts{display:flex;flex-wrap:wrap;gap:2px;margin:14px 0 6px}
+.parts i{width:10px;height:10px;border-radius:2px;background:var(--line)}
+.parts i.w1{background:var(--c-train)}
+.parts i.w2{background:var(--c-katib)}
+.parts i.w3{background:var(--c-kfp)}
+.parts i.w4{background:var(--c-hub)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series">Kubeflow 강의<span>10편: 통합 Kubeflow SDK와 Spark 데이터 처리</span></div>
+    <button class="theme-btn" id="themeBtn" type="button">라이트 테마로</button>
+  </div>
+  <div class="progress" id="prog"></div>
+</div>
+
+<header class="hero">
+  <div>
+    <h1>통합 SDK와<br>Spark 데이터 처리</h1>
+    <p class="lede">5편부터 9편까지 우리는 kfp, Trainer, Katib, 레지스트리 클라이언트를 따로따로 익혔습니다. 이번 편은 그것들을 하나의 SDK로 다시 꿰고, 같은 코드를 내 PC에서 먼저 돌린 뒤 클러스터로 옮기는 개발 흐름을 만듭니다. 그리고 노선도의 첫 정거장, 대용량 데이터 준비를 Spark로 채웁니다.</p>
+    <div class="levelstrip" id="levelstrip" aria-hidden="true"></div>
+    <p class="strip-cap">Level 3 심화의 시작, 전체 16편 중 10편</p>
+    <dl class="facts">
+      <dt>기준 버전</dt><dd>Kubeflow SDK 0.4 계열, Spark Operator 2.5 (Community Distribution 26.03.1)</dd>
+      <dt>실습 환경</dt><dd>내 PC의 Python, 3편의 클러스터와 4편의 노트북</dd>
+      <dt>사전 지식</dt><dd>5편부터 9편까지의 각 구성요소</dd>
+      <dt>학습 시간</dt><dd>약 85분</dd>
+    </dl>
+  </div>
+  <div class="sdkmap">
+    <p class="sdk-h">pip install kubeflow 하나의 지도</p>
+    <p class="sdk-sub">클라이언트와 실행 위치를 골라 보세요. 코드에서 무엇이 바뀌고, 그 코드가 무엇을 만드는지 보입니다.</p>
+    <p class="rowlab">클라이언트</p>
+    <div class="clients" id="clients"></div>
+    <p class="rowlab">실행 위치 (backend)</p>
+    <div class="backs" id="backs"></div>
+    <pre id="sdkCode" aria-label="SDK 코드"></pre>
+    <div class="makes" id="makes"></div>
+    <p class="sdknote" id="sdkNote" aria-live="polite"></p>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol id="tocList">
+    <li><a href="#s0">이번 편에서 얻을 것</a></li>
+    <li><a href="#s1">1. 왜 통합 SDK인가</a></li>
+    <li><a href="#s2">2. 공통 패턴</a></li>
+    <li><a href="#s3">3. 내 PC에서 클러스터로</a></li>
+    <li><a href="#s4">4. Spark가 필요한 순간</a></li>
+    <li><a href="#s5">5. 노트북에서 Spark Connect</a></li>
+    <li><a href="#s6">6. 배치 작업: SparkApplication</a></li>
+    <li><a href="#s7">7. 파이프라인에 Spark 넣기</a></li>
+    <li><a href="#s8">8. Spark 운영 포인트</a></li>
+    <li><a href="#s9">9. 문제 해결</a></li>
+    <li><a href="#s10">10. 용어 사전</a></li>
+    <li><a href="#s11">11. 확인 퀴즈</a></li>
+    <li><a href="#s12">12. 정리와 다음 편</a></li>
+  </ol>
+</nav>
+<main>
+<section id="s0" style="padding-top:28px">
+  <h2>이번 편에서 얻을 것</h2>
+  <p>Level 3 심화의 첫 편입니다. Level 2에서 구성요소를 하나씩 배웠다면, 이제 그것들을 엮어 팀의 개발 방식으로 만듭니다. 이 편을 마치면 다음을 할 수 있습니다.</p>
+  <ul class="goals">
+    <li>통합 Kubeflow SDK의 클라이언트들과 공통 사용 패턴을 알고, 각 클라이언트가 클러스터에 무엇을 만드는지 설명할 수 있습니다.</li>
+    <li>같은 학습 코드를 로컬 프로세스, 로컬 컨테이너, 클러스터 순서로 옮기는 개발 흐름을 만들 수 있습니다.</li>
+    <li>데이터 크기에 따라 pandas와 Spark 중 무엇을 쓸지 판단하고, 파티션과 executor 수로 Spark 작업의 규모를 어림할 수 있습니다.</li>
+    <li>노트북에서 Spark Connect로 대화형 처리를 하고, SparkApplication으로 배치 작업을 만들어 파이프라인에 넣을 수 있습니다.</li>
+  </ul>
+  <div class="callout warn">
+    <span class="h">SDK는 빠르게 바뀌는 중입니다</span>
+    <p>Kubeflow SDK는 2025년에 처음 공개되어 활발히 개발 중인 프로젝트입니다. 클래스와 함수의 이름, 인자가 버전마다 달라질 수 있습니다. 이 편의 코드는 구조와 흐름을 보여 주는 데 초점을 두었으니, 실제 작업에서는 설치한 버전의 문서(sdk.kubeflow.org)를 함께 보세요.</p>
+  </div>
+</section>
+
+<section id="s1">
+  <h2><span class="no">1</span>왜 통합 SDK인가</h2>
+  <p>지금까지는 구성요소마다 다른 패키지, 다른 인증 방식, 다른 사용법을 익혀야 했습니다. 데이터 과학자에게는 Kubeflow가 하나의 플랫폼이 아니라 다섯 개의 도구로 보였습니다. 통합 Kubeflow SDK는 그 위에 하나의 Python 층을 얹습니다. 각 구성요소를 대체하는 것이 아니라, 같은 방식으로 부르게 해 주는 것입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>하려는 일</th><th>예전 방식</th><th>통합 SDK</th><th>설치</th></tr></thead>
+    <tbody>
+      <tr><td>분산 학습</td><td>kubeflow-training 패키지, PyTorchJob YAML</td><td><code>kubeflow.trainer.TrainerClient</code></td><td><code>pip install kubeflow</code></td></tr>
+      <tr><td>하이퍼파라미터 튜닝</td><td>kubeflow-katib 패키지의 KatibClient</td><td><code>kubeflow.optimizer.OptimizerClient</code></td><td><code>pip install kubeflow</code></td></tr>
+      <tr><td>Spark 처리</td><td>SparkApplication YAML을 직접 작성</td><td><code>kubeflow.spark.SparkClient</code></td><td><code>pip install "kubeflow[spark]"</code></td></tr>
+      <tr><td>모델 등록</td><td>model-registry 패키지</td><td><code>kubeflow.hub.ModelRegistryClient</code></td><td><code>pip install "kubeflow[hub]"</code></td></tr>
+      <tr><td>파이프라인</td><td>kfp 패키지</td><td>통합이 진행 중. 지금은 kfp 패키지가 기본</td><td><code>pip install kfp</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>실무에서는 두 방식이 한동안 섞여 쓰입니다. 예전 패키지로 쓴 코드가 많고, 통합 SDK가 아직 모든 기능을 덮지 못하기 때문입니다. 새로 시작하는 코드는 통합 SDK로, 기존 코드는 필요할 때 옮기는 것이 현실적입니다.</p>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>공통 패턴</h2>
+  <p>어느 클라이언트든 쓰는 모양이 비슷합니다. 클라이언트를 만들고, 일을 시키면 이름이 돌아오고, 그 이름으로 기다리고 로그를 보고 지웁니다.</p>
+<pre><code><span class="k">from</span> kubeflow.trainer <span class="k">import</span> TrainerClient, CustomTrainer, KubernetesBackendConfig
+
+<span class="c"># 1. 클라이언트: 어디서(backend), 어느 네임스페이스에서</span>
+client = TrainerClient(backend_config=KubernetesBackendConfig(namespace=<span class="s">"kubeflow-user-example-com"</span>))
+
+<span class="c"># 2. 일 시키기: 이름이 돌아온다</span>
+job = client.train(trainer=CustomTrainer(func=train_fn, num_nodes=<span class="s">2</span>))
+
+<span class="c"># 3. 같은 이름으로 지켜보고 정리한다</span>
+client.wait_for_job_status(job)
+<span class="k">for</span> line <span class="k">in</span> client.get_job_logs(job):
+    print(line)
+print(client.list_jobs())
+client.delete_job(job)</code></pre>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>주제</th><th>규칙</th></tr></thead>
+    <tbody>
+      <tr><td>인증</td><td>노트북 안에서는 Pod의 서비스 계정(4편의 default-editor)으로, 내 PC에서는 kubeconfig로 클러스터에 접속합니다. 내 PC에서 쓰려면 그 kubeconfig의 사용자에게 내 네임스페이스 권한이 있어야 합니다</td></tr>
+      <tr><td>네임스페이스</td><td>다중 사용자 환경에서는 내 프로필 네임스페이스를 backend 설정에 명시합니다. 생략하면 기본값(설정에 따라 default 등)으로 가서 권한 오류가 납니다</td></tr>
+      <tr><td>함수 전달</td><td>CustomTrainer처럼 함수를 넘기는 방식은, 5편의 lightweight 컴포넌트처럼 함수 본문을 떼어 컨테이너에서 실행합니다. import는 함수 안에 둡니다</td></tr>
+      <tr><td>결과물</td><td>SDK가 만든 것은 결국 TrainJob, Katib Experiment, SparkConnect 같은 Kubernetes 리소스입니다. kubectl로 똑같이 보고 지울 수 있습니다</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>내 PC에서 클러스터로</h2>
+  <p>클러스터에 제출하면 이미지를 받고 Pod가 뜨기까지 몇 분씩 걸립니다. 오타 하나 고치려고 그 시간을 매번 기다리면 개발이 느려집니다. Trainer 클라이언트는 실행 위치(backend)만 바꿔 같은 코드를 세 곳에서 돌릴 수 있습니다. 맨 위 지도에서 TrainerClient를 고르고 실행 위치를 바꿔 보세요.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>실행 위치</th><th>어디서</th><th>잘 잡는 문제</th><th>못 잡는 문제</th></tr></thead>
+    <tbody>
+      <tr><td>로컬 프로세스</td><td>내 PC의 Python 프로세스</td><td>코드 로직, 문법, 작은 데이터로의 동작</td><td>이미지 안의 패키지 차이, 다중 노드 통신</td></tr>
+      <tr><td>로컬 컨테이너</td><td>내 PC의 Docker나 Podman 컨테이너. 여러 컨테이너로 다중 노드를 흉내 냄</td><td>이미지 환경 차이, 분산 학습의 통신 설정</td><td>GPU 노드, 클러스터 권한과 네트워크 정책, 실제 데이터 규모</td></tr>
+      <tr><td>Kubernetes</td><td>클러스터의 TrainJob</td><td>실제 운영과 같은 모든 것</td><td>없음. 대신 느리고 비쌈</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout tip">
+    <span class="h">좋은 개발 리듬</span>
+    <p>데이터를 아주 작게 줄여 로컬 프로세스에서 로직이 끝까지 도는지 보고, 로컬 컨테이너에서 이미지와 두 노드 통신을 확인한 뒤, 클러스터에 제출합니다. 클러스터에서 실패하는 원인이 권한, 자원, 네트워크처럼 클러스터 고유의 것만 남게 되어 디버깅이 훨씬 쉬워집니다. 파이프라인은 5편 10장의 kfp.local이 같은 역할을 합니다.</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="no">4</span>Spark가 필요한 순간</h2>
+  <p>지금까지의 실습 데이터는 1,797건이었습니다. 실제 추천팀의 클릭 로그는 하루 수억 건입니다. pandas는 데이터를 한 대의 메모리에 통째로 올리기 때문에, 데이터가 메모리보다 크면 OOMKilled(2편)로 끝납니다. <strong>Apache Spark</strong>는 데이터를 <strong>파티션</strong>이라는 조각으로 나눠 여러 Pod에서 동시에 처리합니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>Spark 용어</th><th>뜻</th><th>Kubernetes에서</th></tr></thead>
+    <tbody>
+      <tr><td>driver</td><td>작업 계획을 세우고 일을 나눠 주는 지휘자</td><td>Pod 하나</td></tr>
+      <tr><td>executor</td><td>파티션을 실제로 처리하는 일꾼</td><td>Pod 여러 개</td></tr>
+      <tr><td>파티션</td><td>데이터의 조각. 조각 하나를 executor의 코어 하나가 처리(task)</td><td>-</td></tr>
+      <tr><td>셔플</td><td>groupBy, join처럼 데이터를 키별로 다시 나누느라 executor끼리 대량으로 주고받는 단계</td><td>Pod 간 네트워크와 로컬 디스크를 많이 씀</td></tr>
+      <tr><td>지연 실행</td><td>변환은 계획만 세우고, show, write 같은 동작을 만나야 실제로 실행</td><td>-</td></tr>
+    </tbody>
+  </table></div>
+  <p>Kubeflow에는 <strong>Spark Operator</strong>가 포함되어 있습니다. 2024년에 Kubeflow 산하 프로젝트가 되었고, 26.03.1에는 2.5 계열이 들어 있습니다. 주요 리소스는 배치 작업용 SparkApplication, 예약 실행용 ScheduledSparkApplication, 대화형 접속용 SparkConnect입니다.</p>
+  <h3>규모 어림하기</h3>
+  <p>데이터 크기와 executor 구성을 넣어 보세요. 파티션 하나를 128MB로 잡았을 때, 몇 번에 나눠 처리되는지와 필요한 메모리를 계산합니다. 사각형 하나가 파티션 하나이고, 색이 같은 것끼리 같은 차례(wave)에 처리됩니다.</p>
+  <div class="sparkc">
+    <div class="in">
+      <div><label for="spD">데이터 크기 (GB)</label><input id="spD" type="number" min="0.1" step="0.1" value="20"></div>
+      <div><label for="spP">파티션 크기 (MB)</label><input id="spP" type="number" min="16" value="128"></div>
+      <div><label for="spE">executor 수</label><input id="spE" type="number" min="1" value="4"></div>
+      <div><label for="spC">executor당 코어</label><input id="spC" type="number" min="1" value="4"></div>
+      <div><label for="spM">executor당 메모리 (GB)</label><input id="spM" type="number" min="1" value="8"></div>
+      <div><label for="spN">노드 한 대 메모리 (GB)</label><input id="spN" type="number" min="1" value="64"></div>
+    </div>
+    <div class="parts" id="spParts" aria-hidden="true"></div>
+    <dl class="out" id="spOut" style="display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px;margin:10px 0 0"></dl>
+    <div class="verdict" id="spV" aria-live="polite"></div>
+  </div>
+</section>
+<section id="s5">
+  <h2><span class="no">5</span>노트북에서 Spark Connect</h2>
+  <p><strong>Spark Connect</strong>는 Spark 클러스터를 원격 서버로 띄워 두고, 노트북 같은 가벼운 클라이언트가 접속해 DataFrame 코드를 보내는 방식입니다. 노트북에 Spark를 통째로 설치하거나 노트북 Pod의 메모리로 데이터를 처리할 필요가 없습니다. SDK의 <code>SparkClient().connect()</code>는 SparkConnect 리소스를 만들어 driver와 executor를 띄우고, 접속된 Spark 세션을 돌려줍니다.</p>
+  <div class="cmd"><pre><code>!pip install <span class="s">"kubeflow[spark]"</span>
+
+<span class="k">from</span> kubeflow.spark <span class="k">import</span> SparkClient
+<span class="k">from</span> pyspark.sql <span class="k">import</span> functions <span class="k">as</span> F
+
+client = SparkClient()
+spark = client.connect(
+    num_executors=<span class="s">2</span>,
+    resources_per_executor={<span class="s">"cpu"</span>: <span class="s">"1"</span>, <span class="s">"memory"</span>: <span class="s">"2Gi"</span>},   <span class="c"># kind 실습 규모</span>
+)
+
+<span class="c"># 가짜 클릭 로그 1,000만 건: 사용자 1,000명</span>
+clicks = spark.range(<span class="s">0</span>, <span class="s">10_000_000</span>).selectExpr(
+    <span class="s">"id"</span>, <span class="s">"id % 1000 AS user_id"</span>, <span class="s">"rand(42) AS score"</span>)
+
+<span class="c"># 사용자별 피처: 여기까지는 계획만 세워짐(지연 실행)</span>
+features = clicks.groupBy(<span class="s">"user_id"</span>).agg(
+    F.count(<span class="s">"*"</span>).alias(<span class="s">"events"</span>), F.avg(<span class="s">"score"</span>).alias(<span class="s">"avg_score"</span>))
+
+features.orderBy(F.desc(<span class="s">"avg_score"</span>)).show(<span class="s">5</span>)   <span class="c"># 이 순간 executor들이 실제로 계산</span>
+spark.stop()</code></pre></div>
+  <ul class="plain">
+    <li>계산은 executor Pod들이 하고, 노트북에는 결과의 일부(show의 다섯 줄)만 돌아옵니다. <code>toPandas()</code>로 전체를 가져오면 결국 노트북 메모리에 다 올라오므로 결과가 작을 때만 씁니다.</li>
+    <li>실무에서는 결과를 <code>features.write.parquet("s3a://...")</code>처럼 오브젝트 스토리지에 쓰고, 다음 단계(학습)가 그 위치를 읽습니다. 이때 Spark 이미지에 S3 연결용 라이브러리와 자격 증명 설정이 필요합니다(8장).</li>
+    <li>이미 떠 있는 Spark Connect 서버가 있다면 <code>connect(base_url="sc://서버:15002")</code>로 접속만 할 수도 있습니다.</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2><span class="no">6</span>배치 작업: SparkApplication</h2>
+  <p>대화형 탐색이 끝난 처리는 매일 도는 배치 작업으로 만듭니다. Spark 스크립트를 이미지에 넣거나 오브젝트 스토리지에 두고, SparkApplication으로 실행합니다. 표시가 있는 줄을 누르면 설명이 나옵니다. SDK에도 배치 작업 제출 기능이 추가되고 있지만, YAML은 버전에 덜 흔들리는 확실한 방법입니다.</p>
+  <div class="yaml">
+    <pre id="saPre" aria-label="SparkApplication YAML"></pre>
+    <div class="ynote" id="saNote" aria-live="polite" style="border-top-color:var(--c-data)"></div>
+  </div>
+<pre><code>kubectl apply -f click-features.yaml
+kubectl get sparkapplications -n kubeflow-user-example-com
+kubectl logs click-features-driver -n kubeflow-user-example-com        <span class="c"># driver Pod 이름은 앱 이름-driver</span>
+kubectl port-forward click-features-driver 4040:4040 -n kubeflow-user-example-com   <span class="c"># 실행 중 Spark UI</span></code></pre>
+  <p>매일 정해진 시각에 돌리려면 같은 내용을 ScheduledSparkApplication으로 감싸 일정(schedule)을 붙이거나, 6편처럼 파이프라인의 반복 실행 안에 넣습니다. 처리와 학습을 함께 관리하려면 후자가 낫습니다.</p>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>파이프라인에 Spark 넣기</h2>
+  <p>파이프라인의 첫 단계로 Spark 처리를 넣으면, 1편 노선도의 데이터 준비부터 등록까지가 한 줄로 이어집니다. 가장 단순한 방법은 SparkApplication을 만들고 끝날 때까지 기다리는 컴포넌트입니다. 파이프라인 단계 Pod도 프로필의 서비스 계정으로 실행되므로 같은 네임스페이스에 SparkApplication을 만들 수 있습니다.</p>
+<pre><code><span class="f">@dsl.component</span>(base_image=<span class="s">"python:3.11"</span>, packages_to_install=[<span class="s">"kubernetes"</span>, <span class="s">"pyyaml"</span>])
+<span class="k">def</span> run_spark(app_yaml: str, namespace: str) -&gt; str:
+    <span class="k">import</span> time, yaml
+    <span class="k">from</span> kubernetes <span class="k">import</span> client, config
+    config.load_incluster_config()
+    api = client.CustomObjectsApi()
+    app = yaml.safe_load(app_yaml)
+    name = app[<span class="s">"metadata"</span>][<span class="s">"name"</span>]
+    api.create_namespaced_custom_object(<span class="s">"sparkoperator.k8s.io"</span>, <span class="s">"v1beta2"</span>, namespace,
+                                        <span class="s">"sparkapplications"</span>, app)
+    <span class="k">while</span> <span class="k">True</span>:
+        obj = api.get_namespaced_custom_object(<span class="s">"sparkoperator.k8s.io"</span>, <span class="s">"v1beta2"</span>, namespace,
+                                               <span class="s">"sparkapplications"</span>, name)
+        state = obj.get(<span class="s">"status"</span>, {}).get(<span class="s">"applicationState"</span>, {}).get(<span class="s">"state"</span>, <span class="s">""</span>)
+        <span class="k">if</span> state <span class="k">in</span> (<span class="s">"COMPLETED"</span>, <span class="s">"FAILED"</span>):
+            <span class="k">break</span>
+        time.sleep(<span class="s">15</span>)
+    <span class="k">if</span> state != <span class="s">"COMPLETED"</span>:
+        <span class="k">raise</span> RuntimeError(f<span class="s">"Spark 작업 실패: {state}"</span>)
+    <span class="k">return</span> name</code></pre>
+  <ul class="plain">
+    <li>SparkApplication 이름은 실행마다 달라야 합니다. 날짜나 5편의 실행 ID를 이름에 붙이세요(6편의 PIPELINE_JOB_ID 같은 자리 표시자 활용).</li>
+    <li>Spark가 쓴 결과 위치(s3a://...)를 출력 파라미터로 내보내면 다음 학습 단계가 받아 씁니다. 다만 이 데이터는 KFP 아티팩트가 아니므로 계보가 자동으로 남지 않습니다. 위치를 9편의 레지스트리 메타데이터에 함께 기록해 두세요.</li>
+    <li>재시도를 걸 때는 같은 이름이 이미 있으면 지우고 다시 만드는 등 멱등하게 짜야 합니다(6편 4장).</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <h2><span class="no">8</span>Spark 운영 포인트</h2>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>주제</th><th>알아 둘 것</th></tr></thead>
+    <tbody>
+      <tr><td>메모리 오버헤드</td><td>executor 메모리를 8g로 주면 Pod는 그보다 큰 메모리를 요청합니다. JVM 밖에서 쓰는 메모리 몫(기본은 대략 10%, 최소 384MB)이 더해지고, PySpark는 Python 프로세스 몫도 필요합니다. 노드 하나에 몇 개가 들어가는지 계산할 때 빼먹기 쉽습니다</td></tr>
+      <tr><td>권한</td><td>driver는 executor Pod를 직접 만들므로, driver의 서비스 계정에 Pod와 Service를 만들 권한이 있어야 합니다. 설치 구성에 따라 사용자 네임스페이스에 Spark용 서비스 계정이 준비되어 있는지 확인합니다</td></tr>
+      <tr><td>Istio</td><td>driver와 executor는 7편의 분산 학습처럼 서로 직접 통신합니다. 사이드카가 통신을 막거나 작업이 끝나도 Pod가 완료되지 않을 수 있어 Spark Pod에서는 흔히 사이드카를 뺍니다</td></tr>
+      <tr><td>S3 연결</td><td>s3a:// 경로를 쓰려면 이미지에 hadoop-aws 등 연결 라이브러리가 있어야 하고, 엔드포인트와 자격 증명을 sparkConf나 Secret으로 줍니다</td></tr>
+      <tr><td>셔플 저장소</td><td>셔플 중간 결과는 executor의 로컬 디스크에 씁니다. 노드 디스크가 부족하면 Evicted(2편)가 납니다. 큰 작업은 로컬 볼륨을 넉넉히 줍니다</td></tr>
+      <tr><td>동적 할당</td><td>dynamicAllocation을 켜면 처리량에 따라 executor 수가 늘고 줄어 자원을 아낍니다. 상한을 꼭 둡니다</td></tr>
+      <tr><td>비용</td><td>executor는 중간에 죽어도 Spark가 그 파티션만 다시 계산하므로, 스팟 노드와 잘 맞습니다. driver는 죽으면 전체가 실패하므로 일반 노드에 둡니다</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>문제 해결</h2>
+  <p>SDK와 Spark에서 자주 만나는 증상입니다.</p>
+  <div class="chips" id="trChips" style="margin-top:14px"></div>
+  <div class="panel" id="trPanel" style="margin-top:14px" aria-live="polite"></div>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>용어 사전</h2>
+  <p>이 편에 새로 나온 용어입니다.</p>
+  <label for="gq" class="muted" style="font-size:14px">용어 검색</label>
+  <input class="gsearch" id="gq" type="search" placeholder="예: backend, executor, 셔플">
+  <div class="glist" id="glist"></div>
+  <p class="gempty" id="gempty" hidden>일치하는 용어가 없습니다. 다른 표기(한글 또는 영어)로 검색해 보세요.</p>
+</section>
+
+<section id="s11">
+  <h2><span class="no">11</span>확인 퀴즈</h2>
+  <p>여덟 문제입니다.</p>
+  <div id="quiz"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <button class="btn" id="quizReset" type="button">퀴즈 다시 풀기</button>
+</section>
+
+<section id="s12">
+  <h2><span class="no">12</span>정리와 다음 편</h2>
+  <ol class="keys">
+    <li><span>통합 Kubeflow SDK는 각 구성요소를 대체하지 않고, 같은 방식으로 부르게 해 주는 Python 층입니다. 만들어지는 것은 결국 Kubernetes 리소스입니다.</span></li>
+    <li><span>클라이언트 생성, 일 시키기, 돌아온 이름으로 기다리고 로그 보고 지우기. 다중 사용자 환경에서는 네임스페이스를 명시합니다.</span></li>
+    <li><span>Trainer는 실행 위치만 바꿔 로컬 프로세스, 로컬 컨테이너, 클러스터에서 같은 코드를 돌립니다. 클러스터 고유의 문제만 클러스터에서 만나게 하는 것이 목표입니다.</span></li>
+    <li><span>데이터가 한 대의 메모리를 넘으면 Spark. 파티션, executor, 코어로 규모를 어림하고, 셔플과 메모리 오버헤드를 계산에 넣습니다.</span></li>
+    <li><span>탐색은 Spark Connect로 노트북에서, 반복 처리는 SparkApplication으로. 파이프라인 단계가 SparkApplication을 만들고 기다리면 데이터 준비부터 등록까지 이어집니다.</span></li>
+  </ol>
+  <div class="next" style="border-left-color:var(--lv3)">
+    <span class="h">다음 편, Level 3 심화</span>
+    <h4>11편: GPU와 스케줄링 심화</h4>
+    <p>NVIDIA GPU Operator로 GPU 노드를 준비하고, MIG와 time-slicing으로 GPU 한 장을 나눠 씁니다. 7편에서 본 “일부 노드만 뜨고 나머지는 기다리는” 문제를 함께 배치(gang scheduling)로 풀고, Kueue로 팀마다 GPU 몫을 나누는 큐를 만듭니다.</p>
+  </div>
+</section>
+</main>
+</div>
+<footer>Kubeflow 강의 시리즈 10편. 2026년 10월 기준 Kubeflow SDK 문서(sdk.kubeflow.org), Spark Operator 문서, Community Distribution 26.03.1을 바탕으로 작성했습니다. SDK는 활발히 개발 중이어서 클래스와 인자 이름이 버전에 따라 다를 수 있습니다.</footer>
+<script>
+(function(){
+var root=document.documentElement;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function $(id){return document.getElementById(id);}
+var tbtn=$('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마로':'다크 테마로';try{localStorage.setItem('kf-theme',t);}catch(e){}}
+tbtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+setTheme(root.getAttribute('data-theme')||'dark');
+var prog=$('prog');function onScroll(){var h=document.documentElement;var m=h.scrollHeight-h.clientHeight;prog.style.width=(m>0?h.scrollTop/m*100:0)+'%';}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+var tocLinks=[].slice.call(document.querySelectorAll('#tocList a'));
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-25% 0px -65% 0px'});document.querySelectorAll('main section').forEach(function(s){io.observe(s);});}
+var ls=$('levelstrip');for(var i=1;i<=16;i++){var el=document.createElement('i');el.style.background='var('+(i<=4?'--lv1':i<=9?'--lv2':i<=12?'--lv3':'--lv4')+')';if(i===10)el.className='now';ls.appendChild(el);}
+function hlPy(s){return s.split('\n').map(function(l){var e=esc(l),k=e.indexOf('#'),c='';if(k>=0&&e.slice(0,k).split('&quot;').length%2===1){c='<span class="c">'+e.slice(k)+'</span>';e=e.slice(0,k);}
+  return e.replace(/\b(import|from|as|def|return|for|in|if)\b/g,'<span class="k">$1</span>')+c;}).join('\n');}
+function hlYaml(t){var e=esc(t),c='',k=e.indexOf(' #');if(k>=0){c='<span class="c">'+e.slice(k)+'</span>';e=e.slice(0,k);}return e.replace(/^(\s*-?\s*)([\w.\/-]+):/,'$1<span class="k">$2</span>:')+c;}
+
+/* sdk map */
+var CL={
+ trainer:{n:'TrainerClient',g:'--c-train',b:['local','container','k8s']},
+ optimizer:{n:'OptimizerClient',g:'--c-katib',b:['k8s']},
+ spark:{n:'SparkClient',g:'--c-data',b:['k8s']},
+ hub:{n:'ModelRegistryClient',g:'--c-hub',b:['k8s']},
+ kfp:{n:'Pipelines (kfp)',g:'--c-kfp',b:['local','k8s']}
+};
+var BK={local:'로컬 프로세스',container:'로컬 컨테이너',k8s:'Kubernetes'};
+var cur={c:'trainer',b:'k8s'};
+var cw=$('clients'),bw=$('backs');
+Object.keys(CL).forEach(function(k){var b=document.createElement('button');b.type='button';b.className='cl';b.dataset.k=k;b.style.setProperty('--g','var('+CL[k].g+')');b.textContent=CL[k].n;b.addEventListener('click',function(){cur.c=k;if(CL[k].b.indexOf(cur.b)<0)cur.b=CL[k].b[CL[k].b.length-1];renderS();});cw.appendChild(b);});
+Object.keys(BK).forEach(function(k){var b=document.createElement('button');b.type='button';b.className='bk';b.dataset.k=k;b.textContent=BK[k];b.addEventListener('click',function(){cur.b=k;renderS();});bw.appendChild(b);});
+function code(){var c=cur.c,b=cur.b;
+  if(c==='trainer'){var imp={local:'LocalProcessBackendConfig',container:'ContainerBackendConfig',k8s:'KubernetesBackendConfig'}[b];var arg={local:'LocalProcessBackendConfig()',container:'ContainerBackendConfig()',k8s:'KubernetesBackendConfig(namespace="kubeflow-user-example-com")'}[b];
+    return 'from kubeflow.trainer import TrainerClient, CustomTrainer, '+imp+'\n\n'+(b==='container'?'# Docker나 Podman이 필요합니다\n':'')+'client = TrainerClient(backend_config='+arg+')\njob = client.train(trainer=CustomTrainer(func=train_fn, num_nodes=2))\nclient.wait_for_job_status(job)';}
+  if(c==='optimizer')return 'from kubeflow.optimizer import OptimizerClient, Search, TrialConfig\n\njob = OptimizerClient().optimize(\n    trial_template=template,                 # 7편의 TrainJobTemplate\n    search_space={"lr": Search.loguniform(1e-5, 1e-1)},\n    trial_config=TrialConfig(num_trials=12, parallel_trials=3),\n)';
+  if(c==='spark')return 'from kubeflow.spark import SparkClient\n\nspark = SparkClient().connect(\n    num_executors=4,\n    resources_per_executor={"cpu": "2", "memory": "4Gi"},\n)\nspark.read.parquet("s3a://logs/clicks/").groupBy("user_id").count().show()';
+  if(c==='hub')return 'from kubeflow.hub import ModelRegistryClient\n\nhub = ModelRegistryClient(\n    "http://model-registry-service.kubeflow.svc.cluster.local", port=8080,\n    author="jieun@example.com")\nhub.register_model("digits-classifier", "s3://models/digits/v3",\n                   version="v3", model_format_name="sklearn")';
+  if(b==='local')return 'from kfp import local\n\nlocal.init(runner=local.SubprocessRunner())   # 5편 10장\nresult = digits_pipeline(n_estimators=50)';
+  return 'import kfp\n\nclient = kfp.Client()\nclient.create_run_from_pipeline_package(\n    "digits_pipeline.yaml", experiment_name="digits",\n    namespace="kubeflow-user-example-com")';}
+var MK={
+ trainer:{local:['내 PC의 Python 프로세스','리소스 없음'],container:['내 PC의 컨테이너 2개','로컬 네트워크로 통신'],k8s:['TrainJob','JobSet','학습 Pod 2개']},
+ optimizer:{k8s:['Katib Experiment','Suggestion','Trial마다 TrainJob']},
+ spark:{k8s:['SparkConnect','driver Pod','executor Pod 4개','노트북의 Spark 세션']},
+ hub:{k8s:['REST 호출','RegisteredModel','ModelVersion v3']},
+ kfp:{local:['내 PC의 Python 프로세스','단계마다 임시 환경'],k8s:['Run','Argo Workflow','단계별 Pod']}
+};
+var NT={
+ trainer:{local:'가장 빠른 확인용입니다. 코드 로직이 끝까지 도는지만 봅니다. 분산 통신과 이미지 환경은 확인되지 않습니다.',container:'이미지 안의 환경과, 여러 컨테이너를 노드처럼 띄운 분산 통신까지 확인합니다. GPU와 클러스터 권한은 확인되지 않습니다.',k8s:'실제 운영과 같습니다. 7편의 TrainJob이 만들어집니다. 앞의 두 단계를 거쳤다면 여기서는 클러스터 고유의 문제만 남습니다.'},
+ optimizer:{k8s:'Katib v0.19 이상이 필요합니다. 8편처럼 Trial마다 TrainJob이 만들어집니다.'},
+ spark:{k8s:'SDK 0.4부터 지원됩니다. Spark Operator의 SparkConnect 리소스가 driver와 executor를 띄우고, 노트북에는 접속된 세션만 돌아옵니다.'},
+ hub:{k8s:'Kubernetes 리소스를 만들지 않고 레지스트리 서버의 REST API를 부릅니다. 9편의 model-registry 패키지와 같은 일을 합니다.'},
+ kfp:{local:'파이프라인 쪽의 로컬 실행은 통합 SDK가 아니라 kfp 패키지의 기능입니다(5편 10장).',k8s:'파이프라인의 통합 SDK 지원은 진행 중이어서, 지금은 kfp 패키지가 기본입니다.'}
+};
+function renderS(){[].forEach.call(cw.children,function(b){var on=b.dataset.k===cur.c;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false');});
+  [].forEach.call(bw.children,function(b){var ok=CL[cur.c].b.indexOf(b.dataset.k)>=0;b.disabled=!ok;b.classList.toggle('on',b.dataset.k===cur.b);b.setAttribute('aria-pressed',b.dataset.k===cur.b?'true':'false');});
+  $('sdkCode').innerHTML='<code>'+hlPy(code())+'</code>';
+  $('makes').innerHTML='<i>만드는 것:</i> '+MK[cur.c][cur.b].map(function(x){return '<span>'+esc(x)+'</span>';}).join('<i>→</i>');
+  $('sdkNote').textContent=NT[cur.c][cur.b]+(CL[cur.c].b.length===1?' 이 클라이언트는 클러스터에서만 동작합니다.':'');}
+renderS();
+
+/* spark calc */
+function sp(){var D=Math.max(0.1,+$('spD').value||0.1),P=Math.max(16,+$('spP').value||128),E=Math.max(1,+$('spE').value||1),C=Math.max(1,+$('spC').value||1),M=Math.max(1,+$('spM').value||1),N=Math.max(1,+$('spN').value||1);
+  var parts=Math.ceil(D*1024/P),slots=E*C,waves=Math.ceil(parts/slots),ov=Math.max(0.384,M*0.1),podM=M+ov,tot=podM*E;
+  var shown=Math.min(parts,400),h='';for(var i=0;i<shown;i++){var w=Math.floor(i/slots)%4+1;h+='<i class="w'+w+'"></i>';}
+  $('spParts').innerHTML=h+(parts>shown?'<span style="font-size:12px;color:var(--muted);margin-left:6px">외 '+(parts-shown)+'개</span>':'');
+  $('spOut').innerHTML='<dt>파티션 수</dt><dd style="margin:0;font-weight:700">'+parts.toLocaleString('ko-KR')+'개</dd><dt>동시에 처리하는 파티션</dt><dd style="margin:0;font-weight:700">'+slots+'개 (executor '+E+' × 코어 '+C+')</dd><dt>처리 차례(wave)</dt><dd style="margin:0;font-weight:700">'+waves+'번</dd><dt>executor Pod 하나의 메모리</dt><dd style="margin:0;font-weight:700">약 '+podM.toFixed(1)+'GB (오버헤드 포함)</dd><dt>executor 전체 메모리</dt><dd style="margin:0;font-weight:700">약 '+tot.toFixed(1)+'GB</dd>';
+  var v=$('spV'),t,c;
+  if(D<1){c='--ok';t='1GB 미만이라면 노트북의 pandas로 충분합니다. Spark를 띄우는 시간이 처리 시간보다 길 수 있습니다.';}
+  else if(D<N/4){c='--c-train';t='노드 메모리의 4분의 1 이하라 pandas나 Polars로 한 대에서 처리할 수도 있습니다. 다만 pandas는 처리 중 데이터 크기의 몇 배 메모리를 쓰므로 빠듯하다면 Spark가 안전합니다.';}
+  else{c='--c-data';t='한 대의 메모리로는 위험한 크기입니다. Spark로 나눠 처리하세요.';}
+  if(waves>8)t+=' 처리 차례가 '+waves+'번이나 됩니다. executor나 코어를 늘리면 시간이 줄어듭니다.';
+  if(podM>N*0.9)t+=' executor 하나가 노드 한 대에 들어가지 않습니다. executor당 메모리를 줄이고 수를 늘리세요.';
+  v.style.setProperty('--v','var('+c+')');v.textContent=t;}
+['spD','spP','spE','spC','spM','spN'].forEach(function(id){$(id).addEventListener('input',sp);});sp();
+
+/* spark yaml */
+var SA=[['apiVersion: sparkoperator.k8s.io/v1beta2','kind'],['kind: SparkApplication','kind'],['metadata:',''],['  name: click-features-20261005','name'],['  namespace: kubeflow-user-example-com',''],['spec:',''],
+ ['  type: Python','type'],['  mode: cluster','mode'],['  image: registry.example.com/data/spark-py:3.5-s3','img'],['  mainApplicationFile: local:///opt/app/click_features.py','main'],['  sparkVersion: "3.5.0"','ver'],
+ ['  arguments: ["--date", "2026-10-05", "--out", "s3a://features/clicks/2026-10-05/"]','args'],
+ ['  sparkConf:','conf'],['    spark.hadoop.fs.s3a.endpoint: "https://s3.internal.example.com"','conf'],
+ ['  driver:','drv'],['    cores: 1','drv'],['    memory: 2g','drv'],['    serviceAccount: spark            # 설치에 따라 이름이 다름','sa'],['    annotations:',''],['      sidecar.istio.io/inject: "false"','istio'],
+ ['  executor:','exe'],['    instances: 4','exe'],['    cores: 4','exe'],['    memory: 8g','mem'],['    annotations:',''],['      sidecar.istio.io/inject: "false"','istio'],
+ ['  restartPolicy:','rp'],['    type: Never','rp'],['  timeToLiveSeconds: 86400','ttl']];
+var SN={
+ kind:['SparkApplication','Spark Operator의 배치 작업 리소스입니다. 예약 실행은 ScheduledSparkApplication, 대화형은 SparkConnect를 씁니다.'],
+ name:['name','driver Pod 이름(앱이름-driver)의 앞부분이 됩니다. 매일 돌린다면 날짜나 실행 ID를 붙여 이름이 겹치지 않게 합니다.'],
+ type:['type','Python, Scala, Java, R 중 하나입니다.'],
+ mode:['mode: cluster','driver도 클러스터 안의 Pod로 실행합니다. Kubernetes에서는 보통 cluster 모드를 씁니다.'],
+ img:['image','Spark와 PySpark, 필요한 Python 패키지, S3 연결 라이브러리(hadoop-aws 등)가 들어 있는 이미지입니다. driver와 executor가 같은 이미지를 씁니다.'],
+ main:['mainApplicationFile','실행할 스크립트입니다. local://은 이미지 안의 경로이고, s3a://로 오브젝트 스토리지의 파일을 지정할 수도 있습니다.'],
+ ver:['sparkVersion','이미지에 든 Spark 버전과 맞춥니다.'],
+ args:['arguments','스크립트에 넘기는 인자입니다. 날짜와 출력 위치를 인자로 받으면 같은 스크립트를 매일 재사용할 수 있습니다.'],
+ conf:['sparkConf','Spark 설정입니다. S3 엔드포인트 같은 값을 줍니다. 자격 증명은 여기에 적지 말고 Secret을 환경 변수로 연결합니다.'],
+ drv:['driver','지휘자 Pod입니다. 계획만 세우므로 보통 작게 줍니다. 결과를 driver로 모으는(collect) 코드가 있으면 크게 줘야 합니다.'],
+ sa:['serviceAccount','driver가 executor Pod를 만들 권한이 있는 서비스 계정입니다. 사용자 네임스페이스에 어떤 이름으로 준비되어 있는지 설치 구성을 확인합니다.'],
+ istio:['사이드카 제외','driver와 executor 사이의 직접 통신과 작업 종료를 위해 Spark Pod에서는 흔히 Istio 사이드카를 뺍니다(8장).'],
+ exe:['executor','일꾼 Pod입니다. 4개 × 코어 4개 = 파티션 16개를 동시에 처리합니다. 4장의 계산기로 규모를 정합니다.'],
+ mem:['executor memory','JVM에 주는 메모리입니다. Pod는 여기에 오버헤드를 더한 만큼 요청하므로 실제로는 9GB 가까이 됩니다.'],
+ rp:['restartPolicy','실패하면 다시 시작할지입니다. 파이프라인에서 재시도를 관리한다면 Never로 두고 파이프라인 쪽에서 다룹니다.'],
+ ttl:['timeToLiveSeconds','끝난 SparkApplication을 이 시간 뒤에 자동으로 지웁니다. 매일 쌓이는 것을 막습니다.']
+};
+var saPre=$('saPre');
+saPre.innerHTML=SA.map(function(l){return '<span class="ln'+(l[1]?' has':'')+'" data-k="'+l[1]+'"'+(l[1]?' tabindex="0" role="button"':'')+'>'+hlYaml(l[0])+'</span>';}).join('');
+function selS(k){saPre.querySelectorAll('.ln').forEach(function(s){s.classList.toggle('on',s.dataset.k===k);});var n=SN[k];$('saNote').innerHTML='<b>'+n[0]+'</b>'+n[1];}
+saPre.addEventListener('click',function(e){var s=e.target.closest('.ln.has');if(s)selS(s.dataset.k);});
+saPre.addEventListener('keydown',function(e){var s=e.target.closest('.ln.has');if(s&&(e.key==='Enter'||e.key===' ')){e.preventDefault();selS(s.dataset.k);}});
+selS('exe');
+
+/* copy */
+document.querySelectorAll('.cmd').forEach(function(c){var b=document.createElement('button');b.type='button';b.className='copy';b.textContent='복사';c.appendChild(b);
+  b.addEventListener('click',function(){var txt=c.querySelector('pre').innerText;function ok(){b.textContent='복사됨';setTimeout(function(){b.textContent='복사';},1400);}
+    function fb(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok();}catch(e){b.textContent='직접 선택하세요';}document.body.removeChild(ta);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,fb);}else fb();});});
+
+/* troubleshooting */
+var TS=[
+ ['내 PC에서 SDK를 쓰자 권한 오류','--c-katib','kubeconfig의 사용자에게 내 네임스페이스 권한이 없거나, backend 설정에 네임스페이스를 적지 않아 다른 네임스페이스로 갔습니다.','KubernetesBackendConfig에 프로필 네임스페이스를 명시합니다. 권한이 없다면 노트북 안에서 실행하거나 관리자에게 권한을 요청합니다.'],
+ ['로컬 컨테이너 실행이 시작되지 않음','--c-base','Docker나 Podman이 없거나 실행 중이 아니거나, 현재 사용자에게 사용 권한이 없습니다. 추가 패키지가 설치되지 않았을 수도 있습니다.','docker ps나 podman ps가 되는지 확인하고, pip install "kubeflow[docker]" 또는 "kubeflow[podman]"으로 설치합니다.'],
+ ['from kubeflow.spark 에서 ImportError','--c-base','Spark용 추가 패키지가 설치되지 않았습니다.','pip install "kubeflow[spark]"로 설치합니다. 레지스트리는 "kubeflow[hub]"입니다.'],
+ ['Spark Connect 접속이 시간 초과','--c-mon','driver나 executor Pod가 Pending이거나 이미지를 받는 중이거나, Istio 등 네트워크 문제로 접속하지 못합니다.','kubectl get pods로 Spark Pod 상태를 보고, describe의 Events를 확인합니다. 자원이 부족하면 executor 수와 메모리를 줄입니다.'],
+ ['executor가 OOMKilled','--c-data','파티션이 너무 크거나, 특정 키에 데이터가 몰려(skew) 한 파티션만 거대해졌거나, 오버헤드를 고려하지 않았습니다.','파티션 수를 늘리고(repartition), 몰린 키를 나누고, executor 메모리나 오버헤드 설정을 늘립니다.'],
+ ['executor Pod가 만들어지지 않음','--c-katib','driver의 서비스 계정에 Pod를 만들 권한이 없습니다. driver 로그에 forbidden이 보입니다.','권한이 있는 Spark용 서비스 계정을 지정합니다. 없다면 관리자에게 요청합니다.'],
+ ['s3a:// 경로에서 ClassNotFound','--c-hub','이미지에 S3 연결 라이브러리(hadoop-aws와 AWS SDK)가 없습니다.','연결 라이브러리를 포함한 Spark 이미지를 만들어 씁니다. Spark와 Hadoop 버전에 맞는 라이브러리 버전을 고릅니다.'],
+ ['groupBy나 join 단계가 유난히 느림','--c-train','셔플 단계에서 executor끼리 대량으로 주고받고 디스크에 쓰고 있습니다.','Spark UI(4040 포트)의 Stage 화면에서 셔플 크기를 봅니다. 셔플 파티션 수를 조정하고, 작은 테이블은 broadcast join을 씁니다.'],
+ ['작업은 끝났는데 Pod가 완료되지 않음','--c-katib','Istio 사이드카가 남아 있습니다.','driver와 executor의 annotations에 sidecar.istio.io/inject: "false"를 둡니다.']
+];
+var tc=$('trChips'),tpn=$('trPanel');
+TS.forEach(function(s,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+s[1]+')');b.textContent=s[0];b.addEventListener('click',function(){selTs(i);});tc.appendChild(b);});
+function selTs(i){var s=TS[i];[].forEach.call(tc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});tpn.style.setProperty('--c','var('+s[1]+')');tpn.innerHTML='<h4>'+esc(s[0])+'</h4><dl><dt>원인</dt><dd>'+esc(s[2])+'</dd><dt>해결</dt><dd>'+esc(s[3])+'</dd></dl>';}
+selTs(0);
+
+/* glossary */
+var GL=[
+ ['통합 Kubeflow SDK','Kubeflow SDK','pip install kubeflow로 설치하는, 여러 Kubeflow 구성요소를 같은 방식으로 부르는 Python SDK.'],
+ ['추가 패키지 묶음','extras','kubeflow[spark], kubeflow[hub]처럼 필요한 기능의 의존성만 더 설치하는 방식.'],
+ ['backend_config','backend_config','클라이언트가 어디서 실행할지 정하는 설정. Kubernetes, 로컬 프로세스, 로컬 컨테이너.'],
+ ['KubernetesBackendConfig','KubernetesBackendConfig','클러스터에 리소스를 만드는 실행 위치 설정. 네임스페이스를 지정한다.'],
+ ['로컬 프로세스 실행','LocalProcessBackendConfig','학습 함수를 내 PC의 프로세스로 실행하는 설정. 가장 빠른 로직 확인용.'],
+ ['로컬 컨테이너 실행','ContainerBackendConfig','Docker나 Podman 컨테이너로 실행하는 설정. 이미지 환경과 다중 노드를 흉내 낸다.'],
+ ['SparkClient','SparkClient','Spark Connect 세션을 만들고 접속하는 SDK 클라이언트.'],
+ ['ModelRegistryClient','ModelRegistryClient','통합 SDK의 레지스트리 클라이언트.'],
+ ['Apache Spark','Apache Spark','데이터를 파티션으로 나눠 여러 노드에서 처리하는 분산 처리 엔진.'],
+ ['driver','Spark driver','작업 계획을 세우고 일을 나눠 주는 Spark 프로세스. Pod 하나.'],
+ ['executor','Spark executor','파티션을 실제로 처리하는 Spark 프로세스. Pod 여러 개.'],
+ ['파티션','Partition','데이터의 조각. 코어 하나가 한 번에 하나를 처리한다.'],
+ ['처리 차례','Wave','동시에 처리할 수 있는 수만큼 파티션을 나눠 처리하는 한 묶음.'],
+ ['셔플','Shuffle','데이터를 키별로 다시 나누느라 executor끼리 대량으로 주고받는 단계.'],
+ ['지연 실행','Lazy evaluation','변환은 계획만 세우고, 결과가 필요한 동작에서 실제로 실행하는 방식.'],
+ ['데이터 쏠림','Data skew','특정 키에 데이터가 몰려 일부 파티션만 거대해지는 현상.'],
+ ['Spark Operator','Spark Operator','Spark 애플리케이션을 Kubernetes 리소스로 실행하는 Kubeflow 구성요소.'],
+ ['SparkApplication','SparkApplication','Spark 배치 작업 하나를 정의하는 리소스.'],
+ ['ScheduledSparkApplication','ScheduledSparkApplication','일정에 따라 SparkApplication을 만드는 리소스.'],
+ ['SparkConnect 리소스','SparkConnect','Spark Connect 서버를 띄우는 Spark Operator 리소스.'],
+ ['Spark Connect','Spark Connect','원격 Spark 서버에 가벼운 클라이언트가 접속해 DataFrame 코드를 보내는 방식. 기본 포트 15002.'],
+ ['메모리 오버헤드','Memory overhead','JVM 힙 밖에서 쓰는 메모리 몫. Pod 메모리 요청은 executor 메모리보다 크다.'],
+ ['동적 할당','Dynamic allocation','처리량에 따라 executor 수를 늘리고 줄이는 Spark 기능.'],
+ ['s3a','s3a','Spark와 Hadoop이 S3 호환 저장소를 읽고 쓰는 방식. 연결 라이브러리가 필요하다.'],
+ ['Spark UI','Spark UI','driver의 4040 포트에서 단계별 진행과 셔플 크기를 보여 주는 화면.']
+];
+var gl=$('glist'),gq=$('gq'),ge=$('gempty');
+function renderG(){var q=gq.value.trim().toLowerCase(),out=GL.filter(function(g){return !q||(g[0]+' '+g[1]+' '+g[2]).toLowerCase().indexOf(q)>=0;});gl.innerHTML=out.map(function(g){return '<div class="gitem"><b>'+esc(g[0])+'</b><small>'+esc(g[1])+'</small><p>'+esc(g[2])+'</p></div>';}).join('');ge.hidden=out.length>0;}
+gq.addEventListener('input',renderG);renderG();
+
+/* quiz */
+var Q=[
+ {q:'통합 SDK의 TrainerClient로 클러스터에 학습을 제출하면 실제로 만들어지는 것은?',o:['SDK만의 특별한 프로세스','TrainJob 같은 Kubernetes 리소스. kubectl로도 볼 수 있다','노트북 안의 스레드','Argo Workflow'],a:1,e:'SDK는 구성요소를 대체하지 않고, 같은 리소스를 만들어 줄 뿐입니다.'},
+ {q:'다중 사용자 환경에서 내 PC의 SDK로 제출할 때 권한 오류를 피하려면?',o:['네임스페이스를 생략한다','backend 설정에 내 프로필 네임스페이스를 명시하고, kubeconfig 사용자에게 그 권한이 있어야 한다','관리자 계정을 쓴다','로컬 컨테이너를 쓴다'],a:1,e:'생략하면 기본 네임스페이스로 가서 권한 오류가 나기 쉽습니다.'},
+ {q:'로컬 컨테이너 실행으로 확인할 수 있지만 로컬 프로세스로는 확인할 수 없는 것은?',o:['문법 오류','이미지 안의 환경 차이와 다중 노드 통신 설정','GPU 노드 배치','네트워크 정책'],a:1,e:'GPU와 클러스터 정책은 클러스터에서만 확인됩니다.'},
+ {q:'데이터 30GB, 노드 메모리 64GB. pandas로 한 번에 처리하려는 계획은?',o:['안전하다','처리 중 데이터 크기의 몇 배 메모리를 쓰므로 위험하다. Spark로 나눠 처리한다','GPU가 필요하다','Katib을 쓴다'],a:1,e:'한 대의 메모리를 넘거나 빠듯하면 Spark입니다.'},
+ {q:'파티션 160개, executor 4개, executor당 코어 4개라면 처리 차례는 몇 번?',o:['4번','10번','16번','40번'],a:1,e:'동시에 16개씩, 160 ÷ 16 = 10번입니다.'},
+ {q:'executor 메모리를 8g로 줬는데 Pod가 노드에 들어가지 않습니다. 놓친 것은?',o:['코어 수','메모리 오버헤드. Pod는 8g보다 더 많이 요청한다','이미지 크기','네임스페이스'],a:1,e:'JVM 밖의 몫과 PySpark 프로세스 몫이 더해집니다.'},
+ {q:'groupBy 단계에서만 유난히 느리고 디스크를 많이 씁니다. 무엇 때문일까요?',o:['지연 실행','셔플','Spark Connect','동적 할당'],a:1,e:'키별로 데이터를 다시 나누느라 executor끼리 주고받고 디스크에 씁니다.'},
+ {q:'Spark 처리를 파이프라인의 첫 단계로 넣는 가장 단순한 방법은?',o:['노트북에서 손으로 돌린다','단계 안에서 SparkApplication을 만들고 COMPLETED가 될 때까지 기다린다','Katib Trial로 만든다','KServe로 배포한다'],a:1,e:'결과 위치를 출력 파라미터로 내보내면 다음 단계가 받아 씁니다.'}
+];
+var qz=$('quiz'),sc=$('score'),dn2=0,rt=0;
+function renderQ(){dn2=0;rt=0;sc.textContent='';qz.innerHTML=Q.map(function(x,i){return '<div class="qq" data-i="'+i+'"><h4>'+(i+1)+'. '+esc(x.q)+'</h4>'+x.o.map(function(o,k){return '<button class="ans" type="button" data-k="'+k+'">'+esc(o)+'</button>';}).join('')+'<p class="exp"></p></div>';}).join('');}
+qz.addEventListener('click',function(e){var b=e.target.closest('.ans');if(!b||b.disabled)return;var box=b.closest('.qq'),x=Q[+box.dataset.i],k=+b.dataset.k;
+  box.querySelectorAll('.ans').forEach(function(a){a.disabled=true;if(+a.dataset.k===x.a)a.classList.add('right');});
+  if(k!==x.a)b.classList.add('wrong');else rt++;
+  var ex=box.querySelector('.exp');ex.textContent=(k===x.a?'정답입니다. ':'정답은 '+(x.a+1)+'번째 보기입니다. ')+x.e;ex.classList.add('show');
+  dn2++;if(dn2===Q.length){sc.textContent=Q.length+'문제 중 '+rt+'문제를 맞혔습니다.'+(rt===Q.length?' 개발 흐름과 데이터 처리를 손에 넣었습니다.':' 틀린 문제는 해설에 나온 장을 다시 읽어 보세요.');}});
+$('quizReset').addEventListener('click',renderQ);renderQ();
+})();
+</script>
+</body>
+</html>

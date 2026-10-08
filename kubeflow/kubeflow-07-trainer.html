@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kubeflow 강의 7편: Trainer, 분산 학습</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script>
+try{var t=localStorage.getItem('kf-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}
+</script>
+<style>
+:root{
+  --font:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r-s:6px;--r-m:12px;--r-l:20px;
+}
+html[data-theme="dark"]{
+  --bg:#0F1B2D;--surface:#15253B;--raised:#1C3049;--line:#2A405E;--text:#E7EEF7;--muted:#93A6BF;--brand:#4EA8F5;--on-c:#0F1B2D;
+  --c-data:#F26B3A;--c-nb:#9BD15A;--c-kfp:#2EC4B6;--c-train:#F2A541;--c-katib:#A78BFA;--c-hub:#F47C9A;--c-serve:#4EA8F5;--c-mon:#E8D44D;--c-base:#8DA2BD;
+  --lv1:#5BC48A;--lv2:#4EA8F5;--lv3:#A78BFA;--lv4:#F2667A;
+  --ok:#5BC48A;--bad:#F2667A;--code-bg:#0A1422;
+  color-scheme:dark;
+}
+html[data-theme="light"]{
+  --bg:#F2F5F9;--surface:#FFFFFF;--raised:#E8EEF5;--line:#D2DCE8;--text:#14233A;--muted:#55667D;--brand:#1F6FBF;--on-c:#FFFFFF;
+  --c-data:#C9501F;--c-nb:#4F8A17;--c-kfp:#0F7F76;--c-train:#A8670C;--c-katib:#6A4ED0;--c-hub:#C23E68;--c-serve:#1F6FBF;--c-mon:#8C7700;--c-base:#5F7189;
+  --lv1:#2E9A61;--lv2:#1F6FBF;--lv3:#6A4ED0;--lv4:#C9384F;
+  --ok:#2E9A61;--bad:#C9384F;--code-bg:#14233A;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+a{color:var(--brand)}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{max-width:1180px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:12px}
+.series{font-weight:700;font-size:15px;line-height:1.3}
+.series span{color:var(--muted);font-weight:500;margin-left:8px}
+.theme-btn{margin-left:auto;font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap}
+.progress{height:3px;width:0;background:linear-gradient(90deg,var(--c-data),var(--c-nb),var(--c-kfp),var(--c-train),var(--c-katib),var(--c-hub),var(--c-serve),var(--c-mon))}
+
+/* hero */
+.hero{max-width:1180px;margin:0 auto;padding:56px 24px 32px;display:grid;grid-template-columns:5fr 7fr;gap:44px;align-items:center}
+.hero h1{font-size:clamp(2.5rem,5.4vw,4.1rem);line-height:1.1;letter-spacing:-0.035em;font-weight:800;margin:0 0 22px}
+.hero .lede{font-size:1.14rem;color:var(--muted);margin:0;max-width:32em}
+.levelstrip{display:flex;gap:4px;margin:30px 0 8px;max-width:420px}
+.levelstrip i{flex:1;height:8px;border-radius:2px;opacity:.32}
+.levelstrip i.now{opacity:1;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.strip-cap{font-size:14px;color:var(--muted);margin:0}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:15px;margin:26px 0 0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;font-weight:600}
+.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:10px 10px 4px}
+.mapcap{font-size:14px;color:var(--muted);padding:2px 10px 8px;margin:0}
+@media (max-width:960px){.hero{grid-template-columns:1fr;padding-top:36px}}
+
+/* lifecycle map */
+.lcmap{width:100%;height:auto;display:block}
+.lcmap .seg{fill:none;stroke-width:11;stroke-linecap:round}
+.lcmap .st{cursor:pointer;outline:none}
+.lcmap .st .dot{fill:var(--surface);stroke:currentColor;stroke-width:4;transition:r .15s}
+.lcmap .st:hover .dot,.lcmap .st:focus-visible .dot{r:14}
+.lcmap .st.sel .dot{fill:currentColor}
+.lcmap .st:focus-visible .halo{stroke:var(--brand)}
+.lcmap .halo{fill:none;stroke:transparent;stroke-width:3}
+.lcmap .lbl{font-size:17px;font-weight:700;fill:var(--text);font-family:var(--font)}
+.lcmap .sub{font-size:13px;fill:var(--muted);font-weight:500;font-family:var(--font)}
+.lcmap .ctr1{font-size:24px;font-weight:800;fill:var(--text);font-family:var(--font);letter-spacing:-0.02em}
+.lcmap .ctr2{font-size:13.5px;fill:var(--muted);font-family:var(--font)}
+.lcmap .arrow{fill:var(--c-mon)}
+.lcmap.draw .seg{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .45s ease-out forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+/* layout */
+.layout{max-width:1180px;margin:0 auto;padding:0 24px 96px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+.toc{position:sticky;top:78px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;font-size:14.5px;padding:24px 0 0}
+.toc p{font-weight:700;margin:0 0 10px}
+.toc ol{list-style:none;margin:0;padding:0}
+.toc a{display:block;padding:5px 10px 5px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none;line-height:1.45}
+.toc a:hover{color:var(--text)}
+.toc a.on{color:var(--text);border-left-color:var(--brand);font-weight:600}
+main{min-width:0;max-width:800px}
+@media (max-width:960px){.layout{grid-template-columns:1fr;gap:0}.toc{display:none}}
+section{padding-top:60px}
+h2{font-size:clamp(1.6rem,3vw,2rem);line-height:1.3;letter-spacing:-0.02em;margin:0 0 18px;font-weight:800}
+h2 .no{color:var(--brand);margin-right:.35em}
+h3{font-size:1.24rem;line-height:1.4;margin:38px 0 12px;font-weight:700}
+p{margin:0 0 16px}
+.muted{color:var(--muted)}
+ul.plain{padding-left:1.2em;margin:0 0 16px}
+ul.plain li{margin:4px 0}
+strong{font-weight:700}
+
+/* callouts */
+.callout{border-left:4px solid var(--brand);background:var(--surface);padding:16px 20px;border-radius:0 var(--r-m) var(--r-m) 0;margin:22px 0}
+.callout p:last-child{margin-bottom:0}
+.callout .h{display:block;font-weight:700;margin-bottom:4px}
+.callout.warn{border-color:var(--c-train)}
+.callout.tip{border-color:var(--c-nb)}
+.callout.link{border-color:var(--c-katib)}
+
+/* goals */
+.goals{list-style:none;padding:0;margin:16px 0 0;display:grid;gap:10px}
+.goals li{display:grid;grid-template-columns:28px 1fr;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 16px}
+.goals li::before{content:"";width:18px;height:18px;margin-top:5px;border-radius:50%;border:3px solid var(--lv1)}
+
+/* tables */
+.tblwrap{overflow-x:auto;margin:16px 0 24px;border:1px solid var(--line);border-radius:var(--r-m)}
+.tbl{width:100%;border-collapse:collapse;font-size:15.5px;line-height:1.6;min-width:560px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl th{font-weight:700;background:var(--raised)}
+.tbl td:first-child{font-weight:600}
+.tbl .old{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 70%,transparent)}
+
+/* story */
+.story{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:24px 26px;margin:22px 0}
+.story-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.story-dots{display:flex;gap:6px}
+.story-dots button{width:30px;height:7px;border-radius:4px;border:0;background:var(--line);cursor:pointer;padding:0}
+.story-dots button.on{background:var(--brand)}
+.story-who{font-size:14px;color:var(--muted)}
+.story h4{font-size:1.25rem;margin:0 0 10px;line-height:1.4}
+.tag{display:inline-block;font-size:13px;font-weight:600;padding:2px 11px;border-radius:999px;background:var(--raised);border:1px solid var(--line);margin-bottom:10px}
+.tag.bad{border-color:var(--bad);color:var(--bad)}
+.story-nav{display:flex;justify-content:space-between;gap:10px;margin-top:20px}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:8px 16px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.btn:disabled{opacity:.4;cursor:default}
+.mapping{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;font-size:15.5px}
+.mapping dt{font-weight:700}
+.mapping dd{margin:0;color:var(--muted)}
+
+/* debt figure */
+.debt{display:grid;grid-template-columns:repeat(6,1fr);grid-auto-rows:56px;gap:6px;margin:18px 0 8px}
+.debt div{background:var(--raised);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:14px;line-height:1.35;display:flex;align-items:center}
+.debt .ml{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:700;justify-content:center}
+.figcap{font-size:14px;color:var(--muted);margin:0 0 20px}
+@media (max-width:600px){.debt{grid-template-columns:repeat(3,1fr)}.debt div{grid-column:auto!important;grid-row:auto!important}}
+
+/* maturity */
+.mat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.mat input[type=range]{width:100%;accent-color:var(--brand);margin:6px 0 2px}
+.mat-scale{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);margin-bottom:16px}
+.mat h4{margin:0 0 8px;font-size:1.15rem}
+.mat-kf{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px}
+
+/* station panel */
+.stbtns{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 14px}
+.stbtn{font:inherit;font-size:14.5px;font-weight:600;padding:6px 13px;border-radius:999px;border:2px solid var(--c);background:transparent;color:var(--text);cursor:pointer}
+.stbtn.on{background:var(--c);color:var(--on-c)}
+.panel{border:1px solid var(--line);border-top:6px solid var(--c);background:var(--surface);border-radius:var(--r-m);padding:20px 24px}
+.panel h4{font-size:1.25rem;margin:0 0 2px}
+.panel .meta{font-size:14.5px;color:var(--muted);margin:0 0 6px}
+.panel dl{display:grid;grid-template-columns:8.5em 1fr;gap:10px 18px;margin:14px 0 0}
+.panel dt{color:var(--muted);font-size:15px;font-weight:600}
+.panel dd{margin:0}
+@media (max-width:600px){.panel dl{grid-template-columns:1fr;gap:2px}.panel dd{margin-bottom:10px}}
+
+/* principles */
+.princ{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.princ div{padding:16px 18px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line)}
+.princ b{display:block;margin-bottom:4px;font-size:1.05rem}
+.princ p{margin:0;font-size:15.5px;color:var(--muted)}
+@media (max-width:600px){.princ{grid-template-columns:1fr}}
+
+/* timeline */
+.tl{list-style:none;margin:18px 0;padding:0;position:relative}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 18px 34px}
+.tl li::before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;background:var(--bg);border:3px solid var(--brand)}
+.tl li.now::before{background:var(--brand)}
+.tl b{display:block;font-size:15px;color:var(--brand)}
+
+/* component layers */
+.layers{display:flex;flex-direction:column;gap:8px;margin:20px 0 14px}
+.layer{border:1px solid var(--line);border-radius:var(--r-m);padding:12px 14px 14px;background:var(--surface)}
+.layer-h{font-size:14px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:15px;font-weight:600;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);border-left:5px solid var(--c);background:var(--raised);color:var(--text);cursor:pointer}
+.chip.on{background:var(--c);color:var(--on-c);border-color:var(--c)}
+.layer.base{background:var(--raised);display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:center;font-weight:700;font-size:15px}
+.layer.base span{color:var(--muted);font-weight:500}
+
+/* code */
+pre{background:var(--code-bg);color:#DCE6F2;font-family:var(--mono);font-size:14px;line-height:1.65;padding:18px 20px;border-radius:var(--r-m);overflow-x:auto;margin:10px 0 18px}
+pre .c{color:#7F93AD}pre .k{color:#F2A541}pre .s{color:#9BD15A}pre .f{color:#6FC3FF}
+code{font-family:var(--mono);font-size:.86em;background:var(--raised);padding:1px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+.codehead{font-weight:700;margin:26px 0 0;font-size:15.5px}
+
+/* decision helper */
+.decide{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:22px 24px;margin:18px 0}
+.q{margin-bottom:18px}
+.q p{font-weight:600;margin:0 0 8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{font:inherit;font-size:15px;padding:7px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer}
+.opt.on{background:var(--brand);border-color:var(--brand);color:var(--on-c);font-weight:600}
+.result{padding:16px 18px;border-radius:var(--r-m);background:var(--raised);border-left:4px solid var(--brand)}
+.result b{display:block;font-size:1.08rem;margin-bottom:4px}
+.result p{margin:0}
+
+/* install options */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.ways div{padding:16px;border-radius:var(--r-m);background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c)}
+.ways b{display:block;margin-bottom:6px}
+.ways p{font-size:15px;margin:0 0 8px;color:var(--muted)}
+.ways p:last-child{margin:0}
+@media (max-width:760px){.ways{grid-template-columns:1fr}}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-top:16px}
+.tab{font:inherit;font-size:15px;font-weight:600;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+.tabpanel{padding:18px 2px 4px}
+.tabpanel dl{display:grid;grid-template-columns:8em 1fr;gap:10px 18px;margin:0}
+.tabpanel dt{color:var(--muted);font-weight:600;font-size:15px}
+.tabpanel dd{margin:0}
+@media (max-width:600px){.tabpanel dl{grid-template-columns:1fr;gap:2px}.tabpanel dd{margin-bottom:10px}}
+
+/* cases */
+details.case{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin:10px 0}
+details.case summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;gap:12px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary small{font-weight:500;color:var(--muted);font-size:14px}
+details.case summary::after{content:"+";margin-left:auto;font-size:22px;line-height:1;color:var(--muted)}
+details.case[open] summary::after{content:"−"}
+.case-body{padding:0 18px 16px}
+.case-body p{font-size:15.8px}
+.mini{display:inline-block;font-size:13px;font-weight:600;padding:1px 10px;border-radius:999px;border:1.5px solid var(--c);margin:2px 4px 2px 0}
+
+/* glossary */
+.gsearch{width:100%;font:inherit;padding:11px 14px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.glist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px}
+.gitem{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px}
+.gitem b{display:block;line-height:1.4}
+.gitem small{color:var(--muted);font-size:13px}
+.gitem p{font-size:15px;margin:6px 0 0;line-height:1.6}
+.gempty{color:var(--muted);margin-top:12px}
+
+/* quiz */
+.qq{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:18px 20px;margin:12px 0}
+.qq h4{margin:0 0 10px;font-size:1.06rem;line-height:1.5}
+.ans{display:block;width:100%;text-align:left;font:inherit;font-size:15.5px;padding:10px 14px;margin:6px 0;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;line-height:1.5}
+.ans:disabled{cursor:default}
+.ans.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 20%,var(--raised))}
+.ans.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 18%,var(--raised))}
+.exp{display:none;font-size:15px;margin:10px 0 0;color:var(--muted)}
+.exp.show{display:block}
+.score{font-weight:700;font-size:1.05rem;margin-top:14px}
+
+/* wrap */
+.keys{counter-reset:k;list-style:none;padding:0;margin:16px 0}
+.keys li{counter-increment:k;display:grid;grid-template-columns:36px 1fr;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li::before{content:counter(k);font-weight:800;font-size:1.2rem;color:var(--brand)}
+.next{margin:28px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--lv1)}
+.next .h{font-size:14px;color:var(--muted);font-weight:600}
+.next h4{font-size:1.3rem;margin:4px 0 8px}
+footer{max-width:1180px;margin:0 auto;padding:24px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+/* ---- 2편 추가 스타일 ---- */
+.match{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 16px}
+.match-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.match-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.mcol-h{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--muted)}
+.mcol{display:flex;flex-direction:column;gap:6px}
+.mw{font:inherit;font-size:14.5px;line-height:1.4;text-align:left;padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;min-height:40px}
+.mw.ml{border-left:4px solid var(--c-train)}
+.mw.k8{border-left:4px solid var(--c-serve)}
+.mw.sel{outline:2px solid var(--brand);outline-offset:1px}
+.mw.done{background:color-mix(in srgb,var(--pc) 22%,var(--raised));border-color:var(--pc);cursor:default}
+.mw.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.mcard{margin-top:12px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:15px;min-height:68px}
+.mcard b{display:block}
+.mfoot{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--muted)}
+.mfoot .btn{font-size:13.5px;padding:5px 12px;margin-left:auto}
+.part{margin:72px 0 0;padding:22px 24px;border-radius:var(--r-l);background:var(--surface);border:1px solid var(--line);border-left:8px solid var(--pc)}
+.part .ph{font-size:14px;font-weight:700;color:var(--pc);margin:0}
+.part h2{margin:4px 0 8px}
+.part p{margin:0;color:var(--muted)}
+.part + section{padding-top:36px}
+.toc .tp{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:14px 0 4px 12px}
+.play{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.play svg{width:100%;height:auto;display:block}
+.play .axis{stroke:var(--line);stroke-width:1.5}
+.play .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.play .tick{fill:var(--muted);font-size:12px;font-family:var(--font)}
+.play .pt{fill:var(--c-train)}
+.play .err{stroke:var(--c-hub);stroke-width:1.5;opacity:.7}
+.play .fit{stroke:var(--c-kfp);stroke-width:3.5;stroke-linecap:round}
+.ctrls{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:12px}
+.ctrls label{font-size:14.5px;font-weight:600;display:block}
+.ctrls input[type=range]{width:100%;accent-color:var(--brand)}
+.ctrls output{font-weight:700;color:var(--brand)}
+.prow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.lossbox{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:12px;font-size:15px}
+.lossbox b{color:var(--c-hub)}
+.spark{width:100%;height:46px;display:block;margin-top:6px}
+.spark path{fill:none;stroke:var(--c-hub);stroke-width:2}
+@media (max-width:600px){.ctrls{grid-template-columns:1fr}.mgrid{gap:6px 8px}.mw{font-size:13.5px;padding:7px 8px}}
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.calc .in{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px 16px}
+.calc label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.calc input,.calc select{width:100%;font:inherit;font-size:15.5px;padding:8px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.calc .out{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line);display:grid;grid-template-columns:auto 1fr;gap:8px 18px;font-size:15.5px}
+.calc .out dt{color:var(--muted)}
+.calc .out dd{margin:0;font-weight:700}
+.calc .note{font-size:14px;color:var(--muted);margin:12px 0 0}
+.fits{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.fit-g{font-size:14px;padding:6px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised)}
+.fit-g.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--raised))}
+.fit-g.multi{border-color:var(--c-train);background:color-mix(in srgb,var(--c-train) 14%,var(--raised))}
+.arch{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0 12px}
+.arch .zone{grid-column:span 4;font-size:13px;font-weight:700;color:var(--muted);margin:6px 0 -2px}
+.arch .bx{padding:10px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:14px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx small{display:block;font-weight:500;color:var(--muted);font-size:12.5px}
+.arch .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:600px){.arch{grid-template-columns:repeat(2,1fr)}.arch .zone{grid-column:span 2}}
+.stepbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:18px 0}
+.stepbox h4{margin:0 0 6px;font-size:1.12rem}
+.yaml{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;margin:16px 0;align-items:start}
+.yaml pre{margin:0;padding:14px 0;font-size:13.5px}
+.yaml .ln{display:block;padding:0 14px 0 16px;border-left:3px solid transparent;white-space:pre}
+.yaml .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+.ynote{position:sticky;top:90px;background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c-train);border-radius:var(--r-m);padding:16px 18px;font-size:15.5px}
+.ynote b{display:block;font-size:1.05rem;margin-bottom:4px}
+.ynote code{font-size:.84em}
+@media (max-width:900px){.yaml{grid-template-columns:1fr}.ynote{position:static}}
+.check{list-style:none;padding:0;margin:10px 0 0}
+.check li{margin:6px 0}
+.check label{display:grid;grid-template-columns:24px 1fr;gap:8px;align-items:start;cursor:pointer;font-size:15.5px}
+.check input{width:18px;height:18px;margin-top:5px;accent-color:var(--ok)}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.cols2>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px;border-top:4px solid var(--pc)}
+.cols2 h4{margin:0 0 4px;font-size:1.05rem}
+@media (max-width:760px){.cols2{grid-template-columns:1fr}}
+/* ---- 3편 추가 스타일 ---- */
+.towerwrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.tw-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.tw-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.tower{display:flex;flex-direction:column-reverse;gap:3px}
+.blk{display:flex;align-items:center;gap:10px;font:inherit;text-align:left;width:100%;padding:3px 10px;min-height:27px;border-radius:5px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:13.5px;cursor:default;opacity:.55}
+.blk small{margin-left:auto;font-size:12px;color:var(--muted)}
+.blk.built{opacity:1;border:1px solid color-mix(in srgb,var(--g) 55%,var(--line));border-left:6px solid var(--g);background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text);font-weight:600;cursor:pointer}
+.blk.built small{font-weight:500}
+.blk.cur{outline:2px solid var(--text);outline-offset:1px}
+.blk.base{opacity:1}
+.tw-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.tw-legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--g);margin-right:5px;vertical-align:-1px}
+.tw-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:92px;line-height:1.6}
+.tw-card b{display:block;font-size:15px}
+.tw-ctrl{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tw-ctrl .btn{font-size:13.5px;padding:6px 12px}
+.res{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:18px 0}
+.res-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px}
+.res-list label{display:grid;grid-template-columns:22px 1fr;gap:6px;align-items:start;font-size:15px;cursor:pointer;padding:4px 0}
+.res-list input{width:17px;height:17px;margin-top:4px;accent-color:var(--brand)}
+.res-list small{display:block;color:var(--muted);font-size:12.5px}
+.res-list .req{color:var(--muted)}
+.res-sum{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res-sum div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.res-sum b{display:block;font-size:1.25rem;color:var(--text)}
+.res-mine{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:14px}
+.res-mine label{font-size:14px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px}
+.res-mine input{width:110px;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.verdict{margin-top:12px;padding:12px 16px;border-radius:var(--r-m);border-left:4px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised));font-size:15px}
+.tree{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:14px;margin:16px 0}
+.tree-list{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:14px}
+.tree-list button{font:inherit;text-align:left;padding:7px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.tree-list button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+@media (max-width:640px){.tree{grid-template-columns:1fr}}
+.steps{counter-reset:st;list-style:none;padding:0;margin:18px 0}
+.stp{counter-increment:st;position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:16px 18px 14px 58px;margin:10px 0}
+.stp::before{content:counter(st);position:absolute;left:16px;top:15px;width:28px;height:28px;border-radius:50%;background:var(--raised);border:2px solid var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand)}
+.stp.ok::before{content:"✓";background:var(--ok);border-color:var(--ok);color:var(--on-c)}
+.stp h4{margin:0 0 6px;font-size:1.08rem}
+.stp p{font-size:15.5px;margin:0 0 8px}
+.stp .opt-tag{font-size:12.5px;font-weight:700;color:var(--c-train);margin-left:6px}
+.cmd{position:relative}
+.cmd pre{margin:6px 0 8px;padding-right:76px}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:5px;border:1px solid #2A405E;background:#1C3049;color:#DCE6F2;cursor:pointer}
+.stp-done{display:inline-flex;gap:6px;align-items:center;font-size:14px;color:var(--muted);cursor:pointer}
+.stp-done input{accent-color:var(--ok);width:16px;height:16px}
+.stprog{position:sticky;top:64px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--bg);padding:8px 0;font-size:14px;color:var(--muted)}
+.stprog .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.stprog .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:16px 0 10px}
+.flow .bx{padding:10px 6px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);text-align:center;font-size:13.5px;font-weight:600;line-height:1.35;transition:background .2s,border-color .2s}
+.flow .bx small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.flow .bx.on{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 24%,var(--raised))}
+@media (max-width:700px){.flow{grid-template-columns:repeat(3,1fr)}}
+.dash{display:grid;grid-template-columns:210px minmax(0,1fr);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.dash-top{grid-column:span 2;display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.dash-top b{font-size:15px}
+.dash-ns{margin-left:auto;font:inherit;font-size:13.5px;padding:5px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.dash-side{border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column}
+.dash-side .grp{font-size:12px;font-weight:700;color:var(--muted);padding:10px 14px 2px}
+.dash-side button{font:inherit;font-size:14px;text-align:left;padding:7px 14px;border:0;border-left:3px solid transparent;background:none;color:var(--text);cursor:pointer}
+.dash-side button.on{border-left-color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);font-weight:600}
+.dash-main{padding:18px 20px;min-height:300px}
+.dash-main h4{margin:0 0 4px;font-size:1.15rem}
+.dash-main .meta{font-size:14px;color:var(--muted);margin:0 0 10px}
+@media (max-width:700px){.dash{grid-template-columns:1fr}.dash-top{grid-column:auto;flex-wrap:wrap}.dash-side{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dash-side .grp{display:none}.dash-side button{border-left:0;border-bottom:3px solid transparent;padding:6px 10px}.dash-side button.on{border-bottom-color:var(--brand)}}
+/* ---- 4편 추가 스타일 ---- */
+.anat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.anat-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.anat-top .h{font-weight:700;font-size:1.05rem;margin-right:auto}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg2 button{font:inherit;font-size:13.5px;font-weight:600;padding:5px 12px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg2 button.on{background:var(--brand);color:var(--on-c)}
+.nodes{display:flex;flex-direction:column;gap:5px}
+.node{display:flex;align-items:center;gap:8px;font:inherit;text-align:left;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--line);border-left:5px solid var(--g);background:var(--raised);color:var(--text);font-size:14px;cursor:pointer;transition:opacity .2s}
+.node small{margin-left:auto;font-size:12px;color:var(--muted);font-family:var(--mono)}
+.node.l1{margin-left:20px;width:calc(100% - 20px)}
+.node.l2{margin-left:40px;width:calc(100% - 40px)}
+.node.l3{margin-left:60px;width:calc(100% - 60px)}
+.node.off{opacity:.35;border-style:dashed}
+.node.cur{outline:2px solid var(--text);outline-offset:1px}
+.anat-card{margin-top:10px;padding:12px 14px;border-radius:var(--r-m);background:var(--raised);font-size:14.5px;min-height:96px;line-height:1.6}
+.anat-card b{display:block;font-size:15px}
+.spawn{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;margin:16px 0;align-items:start}
+.sform{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 18px 8px}
+.sform fieldset{border:0;padding:0;margin:0 0 14px}
+.sform legend,.sform .lab{font-size:14px;font-weight:700;margin-bottom:6px;display:block;padding:0}
+.sform input[type=text],.sform input[type=number],.sform select{width:100%;font:inherit;font-size:15px;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.sform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sform .inl{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14.5px}
+.sform .inl label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.sform input[type=checkbox],.sform input[type=radio]{accent-color:var(--brand);width:16px;height:16px}
+.sform .hint{font-size:12.5px;color:var(--muted);margin:4px 0 0}
+.sout{position:sticky;top:84px}
+.sout pre{margin:0 0 10px;font-size:13px;max-height:470px;overflow:auto}
+.checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.checks li{font-size:14.5px;padding:8px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--v)}
+@media (max-width:900px){.spawn{grid-template-columns:1fr}.sout{position:static}}
+.nbk{border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden;margin:16px 0;background:var(--surface)}
+.nbk-top{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--raised);border-bottom:1px solid var(--line);font-size:14px}
+.nbk-top b{font-family:var(--mono);font-size:13.5px}
+.nbk-top .btn{margin-left:auto;font-size:13px;padding:5px 12px}
+.cell{display:grid;grid-template-columns:62px minmax(0,1fr);gap:0 10px;padding:10px 14px 4px;border-bottom:1px solid var(--line)}
+.cell:last-child{border-bottom:0}
+.cell .pr{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:12px;text-align:right}
+.cell pre{margin:4px 0 6px;font-size:13.5px}
+.cell .md{font-size:15px;margin:6px 0}
+.cell .run{font:inherit;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:5px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;margin:0 0 8px}
+.cell .out{display:none;font-family:var(--mono);font-size:13px;white-space:pre-wrap;padding:8px 12px;margin:0 0 8px;border-left:3px solid var(--c-nb);background:var(--raised);border-radius:0 6px 6px 0;color:var(--text)}
+.cell .out.show{display:block}
+@media (max-width:600px){.cell{grid-template-columns:1fr}.cell .pr{text-align:left;padding-top:0}}
+/* ---- 5편 추가 스타일 ---- */
+.morph{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.morph-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.morph-sub{font-size:14px;color:var(--muted);margin:0 0 12px}
+.stages{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.stg{font:inherit;font-size:12.5px;font-weight:600;line-height:1.3;padding:8px 4px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer;text-align:center;position:relative}
+.stg b{display:block;font-size:15px;color:var(--text)}
+.stg.done{border-color:color-mix(in srgb,var(--g) 60%,var(--line));background:color-mix(in srgb,var(--g) 14%,var(--raised));color:var(--text)}
+.stg.on{outline:2px solid var(--text);outline-offset:1px}
+.mpanel{margin-top:12px;border-radius:var(--r-m);background:var(--raised);padding:12px 14px;min-height:250px}
+.mpanel h4{margin:0 0 4px;font-size:1.05rem}
+.mpanel p{font-size:14.5px;margin:0 0 8px;line-height:1.6}
+.mpanel pre{margin:0;font-size:12.5px;max-height:150px}
+.mctrl{display:flex;gap:8px;margin-top:10px}
+.mctrl .btn{font-size:13.5px;padding:6px 12px}
+@media (max-width:600px){.stages{grid-template-columns:repeat(4,1fr)}}
+.cls{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.cls-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:10px 14px}
+.cls-row .what{font-weight:600;font-size:15.5px}
+.cls-row .opts .opt{font-size:14px;padding:5px 12px}
+.cls-row .fb{grid-column:span 2;font-size:14.5px;color:var(--muted);display:none;border-top:1px dashed var(--line);padding-top:8px}
+.cls-row .fb.show{display:block}
+.cls-row.right{border-color:var(--ok)}
+.cls-row.wrong{border-color:var(--bad)}
+@media (max-width:600px){.cls-row{grid-template-columns:1fr}.cls-row .fb{grid-column:auto}}
+.csim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.csim .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 18px;margin-bottom:16px}
+.csim label.lab{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.csim select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.csim .ck{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer;padding-top:22px}
+.csim .ck input{accent-color:var(--brand);width:16px;height:16px}
+.tasks{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
+.tk{flex:1 1 150px;padding:12px 14px;border-radius:var(--r-m);border:2px solid var(--v);background:color-mix(in srgb,var(--v) 12%,var(--raised))}
+.tk b{display:block;font-family:var(--mono);font-size:14px}
+.tk span{font-size:14px}
+.tk small{display:block;font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.arr{align-self:center;padding:0 8px;color:var(--muted);font-size:20px}
+@media (max-width:640px){.tasks{flex-direction:column}.arr{transform:rotate(90deg);align-self:center;padding:4px}}
+/* ---- 6편 추가 스타일 ---- */
+.lego{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.lego-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.lego-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.toggles{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tg{font:inherit;font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1.5px solid var(--g);background:transparent;color:var(--text);cursor:pointer}
+.tg.on{background:var(--g);color:var(--on-c)}
+.dag{display:flex;flex-direction:column;align-items:stretch;gap:0;font-size:13.5px}
+.dn{align-self:center;padding:7px 14px;border-radius:8px;background:var(--raised);border:1.5px solid var(--g,var(--line));font-family:var(--mono);font-size:13px;text-align:center;position:relative;line-height:1.35}
+.dn em{display:block;font-style:normal;font-family:var(--font);font-size:11.5px;color:var(--muted)}
+.dn .bdg{position:absolute;top:-9px;right:-8px;font-family:var(--font);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--b);color:var(--on-c)}
+.dar{align-self:center;color:var(--muted);line-height:1;padding:3px 0;font-size:14px}
+.frame{border:1.5px dashed var(--g);border-radius:10px;padding:16px 10px 10px;position:relative;margin:4px 0}
+.frame>.fl{position:absolute;top:-10px;left:12px;background:var(--surface);padding:0 6px;font-size:12px;font-weight:700;color:var(--g)}
+.lanes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.lane{display:flex;flex-direction:column;align-items:center}
+.branches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lego pre{margin:12px 0 0;font-size:12px;max-height:260px}
+.gantt{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.gantt .ctl{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px;margin-bottom:14px}
+.gantt label{display:block;font-size:14px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.gantt input,.gantt select{width:100%;font:inherit;padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text)}
+.gchart{position:relative;border-left:2px solid var(--line);border-bottom:2px solid var(--line);padding:6px 0 6px 0;margin-left:70px}
+.grow{position:relative;height:24px;margin:3px 0}
+.grow .gl{position:absolute;left:-70px;width:64px;text-align:right;font-size:12.5px;color:var(--muted);top:3px;font-family:var(--mono)}
+.gbar{position:absolute;top:0;height:24px;border-radius:5px;background:color-mix(in srgb,var(--c-train) 70%,transparent);border:1px solid var(--c-train);font-size:11.5px;color:var(--text);padding:3px 6px;white-space:nowrap;overflow:hidden}
+.gstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.gstats div{background:var(--raised);border-radius:var(--r-s);padding:10px 12px;font-size:14px;color:var(--muted)}
+.gstats b{display:block;font-size:1.2rem;color:var(--text)}
+.cron{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:18px 20px;margin:16px 0}
+.cron input{width:100%;font-family:var(--mono);font-size:17px;padding:9px 12px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);margin-top:8px}
+.cfields{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
+.cfields div{background:var(--raised);border-radius:var(--r-s);padding:8px;text-align:center;font-size:12.5px;color:var(--muted)}
+.cfields b{display:block;font-family:var(--mono);font-size:16px;color:var(--text)}
+@media (max-width:600px){.cfields{grid-template-columns:repeat(3,1fr)}}
+.kale{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px;margin:16px 0;align-items:start}
+.kcell{border:1px solid var(--line);border-radius:var(--r-m);background:var(--surface);margin-bottom:8px;overflow:hidden}
+.kcell .ktag{display:flex;gap:6px;padding:6px 10px;background:var(--raised);border-bottom:1px solid var(--line)}
+.kcell .ktag span{font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;border:1.5px solid var(--c);color:var(--text)}
+.kcell pre{margin:0;border-radius:0;font-size:12.5px;padding:10px 12px}
+@media (max-width:800px){.kale{grid-template-columns:1fr}}
+/* ---- 7편 추가 스타일 ---- */
+.dsim{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 16px 14px}
+.dsim-h{font-weight:700;margin:0 0 2px;font-size:1.05rem}
+.dsim-sub{font-size:14px;color:var(--muted);margin:0 0 10px}
+.dctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:end;margin-bottom:12px}
+.dctl label{font-size:13px;font-weight:600;color:var(--muted);display:block;margin-bottom:3px}
+.dctl select,.dctl input{font:inherit;font-size:14px;padding:5px 8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--raised);color:var(--text);width:90px}
+.nodesg{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.nodebox{border:1.5px solid var(--line);border-radius:10px;padding:8px;background:var(--raised)}
+.nodebox .nh{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.gpus{display:grid;grid-template-columns:repeat(2,1fr);gap:5px}
+.gpu{font:inherit;font-size:12px;padding:6px 4px;border-radius:6px;border:1.5px solid var(--c-train);background:color-mix(in srgb,var(--c-train) 10%,var(--surface));color:var(--text);cursor:pointer;line-height:1.3;transition:background .2s}
+.gpu b{display:block;font-family:var(--mono);font-size:13px}
+.gpu.sel{outline:2px solid var(--text);outline-offset:1px}
+.gpu.p1{background:color-mix(in srgb,var(--c-data) 30%,var(--surface));border-color:var(--c-data)}
+.gpu.p2{background:color-mix(in srgb,var(--c-train) 35%,var(--surface))}
+.gpu.p3{background:color-mix(in srgb,var(--c-katib) 35%,var(--surface));border-color:var(--c-katib)}
+.gpu.p4{background:color-mix(in srgb,var(--c-kfp) 35%,var(--surface));border-color:var(--c-kfp)}
+.nodebox.master{border-color:var(--c-hub)}
+.phases{display:flex;gap:4px;margin:12px 0 0;flex-wrap:wrap}
+.phases button{flex:1 1 90px;font:inherit;font-size:12.5px;font-weight:600;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--raised);color:var(--muted);cursor:pointer}
+.phases button.on{background:var(--brand);border-color:var(--brand);color:var(--on-c)}
+.dinfo{margin-top:10px;padding:10px 12px;border-radius:var(--r-m);background:var(--raised);font-size:14px;line-height:1.6;min-height:70px}
+.envbox{margin-top:8px;font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--code-bg);color:#DCE6F2;border-radius:var(--r-s);padding:10px 12px;white-space:pre}
+.envbox .c{color:#7F93AD}
+.yaml2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:16px 0}
+.yaml2 h4{margin:0 0 6px;font-size:1rem}
+.yaml2 pre{margin:0;padding:12px 0;font-size:12.5px}
+.yaml2 .ln{display:block;padding:0 12px 0 14px;border-left:3px solid transparent;white-space:pre}
+.yaml2 .ln.has{cursor:pointer;border-left-color:color-mix(in srgb,var(--c-train) 55%,transparent)}
+.yaml2 .ln.has:hover{background:rgba(255,255,255,.05)}
+.yaml2 .ln.on{background:rgba(78,168,245,.2);border-left-color:#4EA8F5}
+@media (max-width:900px){.yaml2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="series">Kubeflow 강의<span>7편: Trainer, 분산 학습</span></div>
+    <button class="theme-btn" id="themeBtn" type="button">라이트 테마로</button>
+  </div>
+  <div class="progress" id="prog"></div>
+</div>
+
+<header class="hero">
+  <div>
+    <h1>Trainer<br>분산 학습</h1>
+    <p class="lede">GPU 한 장으로 사흘 걸리는 학습을 여러 장, 여러 노드에 나누면 몇 시간이 됩니다. 문제는 나누는 일 자체입니다. 프로세스마다 순번을 정하고, 대장의 주소를 알리고, 서로 기울기를 맞추게 해야 합니다. Kubeflow Trainer는 TrainJob 하나로 이 일을 대신합니다.</p>
+    <div class="levelstrip" id="levelstrip" aria-hidden="true"></div>
+    <p class="strip-cap">Level 2 실무 기초, 전체 16편 중 7편</p>
+    <dl class="facts">
+      <dt>기준 버전</dt><dd>Kubeflow Trainer v2.2 (Community Distribution 26.03.1), Kubeflow SDK</dd>
+      <dt>실습 환경</dt><dd>3편의 kind 클러스터, CPU만으로 2노드 분산 학습</dd>
+      <dt>사전 지식</dt><dd>2편 5장의 분산 학습 기초, 4편의 노트북</dd>
+      <dt>학습 시간</dt><dd>약 90분</dd>
+    </dl>
+  </div>
+  <div class="dsim">
+    <p class="dsim-h">데이터 병렬 학습 들여다보기</p>
+    <p class="dsim-sub">노드와 GPU 수를 바꾸고, GPU를 눌러 그 프로세스가 받는 환경 변수를 확인하세요. 아래 단계를 누르면 한 스텝의 흐름이 보입니다.</p>
+    <div class="dctl">
+      <div><label for="dN">노드 수</label><select id="dN"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></div>
+      <div><label for="dP">노드당 GPU</label><select id="dP"><option>1</option><option selected>2</option><option>4</option></select></div>
+      <div><label for="dB">GPU당 배치</label><input id="dB" type="number" min="1" value="32"></div>
+    </div>
+    <div class="nodesg" id="nodesg"></div>
+    <div class="phases" id="phases"></div>
+    <div class="dinfo" id="dinfo" aria-live="polite"></div>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="목차">
+  <p>목차</p>
+  <ol id="tocList">
+    <li><a href="#s0">이번 편에서 얻을 것</a></li>
+    <li><a href="#s1">1. 언제 분산 학습인가</a></li>
+    <li><a href="#s2">2. Training Operator에서 Trainer로</a></li>
+    <li><a href="#s3">3. 런타임과 TrainJob</a></li>
+    <li><a href="#s4">4. 실습: SDK로 분산 학습</a></li>
+    <li><a href="#s5">5. TrainJob 뒤에서 일어나는 일</a></li>
+    <li><a href="#s6">6. 네트워크와 Istio</a></li>
+    <li><a href="#s7">7. LLM 미세 조정</a></li>
+    <li><a href="#s8">8. 장애와 체크포인트</a></li>
+    <li><a href="#s9">9. 파이프라인과 연결</a></li>
+    <li><a href="#s10">10. 문제 해결</a></li>
+    <li><a href="#s11">11. 용어 사전</a></li>
+    <li><a href="#s12">12. 확인 퀴즈</a></li>
+    <li><a href="#s13">13. 정리와 다음 편</a></li>
+  </ol>
+</nav>
+<main>
+<section id="s0" style="padding-top:28px">
+  <h2>이번 편에서 얻을 것</h2>
+  <p>1편 노선도의 네 번째 정거장, 학습입니다. 2편 5장에서 분산 학습의 원리를 맛보았다면, 이번에는 실제로 돌립니다. 이 편을 마치면 다음을 할 수 있습니다.</p>
+  <ul class="goals">
+    <li>분산 학습이 필요한 상황을 판단하고, 데이터 병렬과 모델 병렬 계열 중 무엇이 맞는지 고를 수 있습니다.</li>
+    <li>TrainingRuntime과 TrainJob이 각각 누구의 몫이고 어떤 필드를 정하는지 설명하고, 예전 PyTorchJob을 TrainJob으로 옮길 수 있습니다.</li>
+    <li>Kubeflow SDK로 2노드 PyTorch 분산 학습을 제출하고, 로그와 환경 변수로 각 프로세스의 순번을 확인할 수 있습니다.</li>
+    <li>TrainJob이 JobSet과 Pod로 바뀌는 과정, Istio와 네트워크 주의점, 체크포인트와 장애 처리, 파이프라인과의 연결을 압니다.</li>
+  </ul>
+</section>
+
+<section id="s1">
+  <h2><span class="no">1</span>언제 분산 학습인가</h2>
+  <p>분산 학습은 공짜가 아닙니다. 코드가 복잡해지고, GPU끼리 통신하는 시간이 생기고, 실패할 지점이 늘어납니다. 먼저 정말 필요한지 따져 봅니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>상황</th><th>판단</th><th>방식</th></tr></thead>
+    <tbody>
+      <tr><td>GPU 한 장에 들어가고, 학습도 몇 시간이면 끝남</td><td>분산할 필요 없음</td><td>단일 GPU. 파이프라인 단계나 단일 노드 TrainJob</td></tr>
+      <tr><td>GPU 한 장에 들어가지만 학습이 너무 오래 걸림</td><td>데이터를 나눠 빨리 끝내기</td><td>데이터 병렬(PyTorch DDP)</td></tr>
+      <tr><td>모델이 GPU 한 장에 들어가지 않음</td><td>모델 자체를 나눠야 함</td><td>FSDP, DeepSpeed ZeRO, 텐서·파이프라인 병렬</td></tr>
+      <tr><td>큰 LLM의 미세 조정</td><td>먼저 LoRA 같은 경량 기법으로 한 장에 넣을 수 있는지 확인</td><td>LoRA로 안 되면 FSDP나 DeepSpeed</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>방식</th><th>무엇을 나누나</th><th>통신</th><th>Trainer 런타임</th></tr></thead>
+    <tbody>
+      <tr><td>DDP (데이터 병렬)</td><td>데이터. 모델은 GPU마다 통째로 복사</td><td>스텝마다 기울기 전체를 all-reduce</td><td>torch-distributed</td></tr>
+      <tr><td>FSDP</td><td>가중치, 기울기, 옵티마이저 상태를 GPU마다 조각으로</td><td>필요할 때 조각을 모으고 흩음. DDP보다 많음</td><td>torch-distributed</td></tr>
+      <tr><td>DeepSpeed ZeRO</td><td>FSDP와 비슷하게 단계별로 조각화, CPU나 NVMe로 내리기도</td><td>단계에 따라 다름</td><td>deepspeed-distributed</td></tr>
+      <tr><td>텐서·파이프라인 병렬</td><td>층 안의 행렬, 또는 층 묶음을 GPU마다</td><td>매우 많음. 빠른 연결(NVLink, InfiniBand) 필요</td><td>프레임워크(Megatron 등)를 담은 런타임</td></tr>
+    </tbody>
+  </table></div>
+  <p>이번 편은 가장 흔한 DDP를 중심으로 다룹니다. 맨 위의 그림이 DDP 한 스텝의 흐름입니다.</p>
+</section>
+
+<section id="s2">
+  <h2><span class="no">2</span>Training Operator에서 Trainer로</h2>
+  <p>Kubeflow의 예전 학습 구성요소인 Training Operator(v1)는 프레임워크마다 리소스가 따로 있었습니다. PyTorchJob, TFJob, MPIJob, XGBoostJob, JAXJob 등입니다. Trainer v2는 이것을 하나의 <strong>TrainJob</strong>으로 통일하고, 프레임워크와 인프라 설정은 <strong>런타임</strong>으로 분리했습니다. 두 API는 서로 호환되지 않으므로, 예전 자료의 YAML은 그대로 쓸 수 없습니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>구분</th><th>Training Operator v1</th><th>Trainer v2</th></tr></thead>
+    <tbody>
+      <tr><td>사용자 리소스</td><td>프레임워크별 CRD (PyTorchJob 등)</td><td>TrainJob 하나</td></tr>
+      <tr><td>인프라 설정</td><td>사용자가 Job마다 Pod 템플릿 전체를 작성</td><td>관리자가 런타임에 한 번 정의, 사용자는 이름으로 참조</td></tr>
+      <tr><td>실행 기반</td><td>Operator가 Pod를 직접 관리</td><td>Kubernetes의 JobSet 위에서 동작</td></tr>
+      <tr><td>데이터와 모델 준비</td><td>사용자 코드가 알아서</td><td>초기화 단계(initializer)가 학습 전에 내려받아 공유</td></tr>
+      <tr><td>Python에서</td><td>프레임워크별 SDK</td><td>통합 Kubeflow SDK의 TrainerClient</td></tr>
+      <tr><td>큐 스케줄링</td><td>별도 구성</td><td>Kueue와 함께 쓰도록 설계 (11편)</td></tr>
+    </tbody>
+  </table></div>
+  <h3>PyTorchJob을 TrainJob으로 옮기기</h3>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>PyTorchJob에서</th><th>TrainJob에서</th></tr></thead>
+    <tbody>
+      <tr><td><code>pytorchReplicaSpecs.Master</code>와 <code>Worker</code>의 replicas</td><td><code>trainer.numNodes</code> 하나 (마스터와 워커 구분 없음)</td></tr>
+      <tr><td><code>nprocPerNode</code></td><td><code>trainer.numProcPerNode</code></td></tr>
+      <tr><td>컨테이너의 image, command, args, env</td><td><code>trainer.image</code>, <code>command</code>, <code>args</code>, <code>env</code></td></tr>
+      <tr><td>컨테이너의 resources</td><td><code>trainer.resourcesPerNode</code></td></tr>
+      <tr><td>Pod 템플릿의 nodeSelector, tolerations, volumes 등</td><td>관리자가 런타임에 정의. 개별 조정이 필요하면 TrainJob의 Pod 템플릿 덮어쓰기 기능 사용</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s3">
+  <h2><span class="no">3</span>런타임과 TrainJob</h2>
+  <p>Trainer v2의 핵심 아이디어는 역할 분리입니다. 플랫폼 관리자는 “우리 회사에서 PyTorch 분산 학습은 이런 이미지, 이런 네트워크 설정, 이런 노드에서 돈다”를 런타임으로 정의합니다. 데이터 과학자는 런타임 이름을 고르고 코드와 규모만 정합니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>리소스</th><th>범위</th><th>누가</th><th>담는 것</th></tr></thead>
+    <tbody>
+      <tr><td>ClusterTrainingRuntime</td><td>클러스터 전체</td><td>플랫폼 관리자</td><td>모든 팀이 공유하는 표준 학습 환경</td></tr>
+      <tr><td>TrainingRuntime</td><td>네임스페이스 하나</td><td>팀 관리자</td><td>그 팀에만 필요한 학습 환경</td></tr>
+      <tr><td>TrainJob</td><td>네임스페이스 하나</td><td>데이터 과학자</td><td>코드, 이미지, 노드 수, 자원, 데이터 위치</td></tr>
+    </tbody>
+  </table></div>
+  <p>커뮤니티가 관리하는 기본 ClusterTrainingRuntime으로 torch-distributed, deepspeed-distributed, jax-distributed, mlx-distributed, xgboost-distributed 등이 있고, LLM 미세 조정용 런타임도 있습니다. 클러스터에 무엇이 있는지는 직접 확인합니다.</p>
+<pre><code>kubectl get clustertrainingruntimes
+kubectl get trainingruntimes -n kubeflow-user-example-com</code></pre>
+  <p>두 YAML을 나란히 봅시다. 줄을 누르면 아래에 설명이 나옵니다. 둘 다 같은 필드를 가질 수 있을 때 무엇이 이기는지가 핵심입니다.</p>
+  <div class="yaml2">
+    <div><h4>관리자: ClusterTrainingRuntime (단순화)</h4><pre id="rtPre"></pre></div>
+    <div><h4>사용자: TrainJob</h4><pre id="tjPre"></pre></div>
+  </div>
+  <div class="ynote" id="y2Note" aria-live="polite" style="position:static;border-top-color:var(--c-train)"></div>
+</section>
+<section id="s4">
+  <h2><span class="no">4</span>실습: SDK로 분산 학습</h2>
+  <p>4편의 손글씨 숫자 데이터를 작은 신경망으로 학습하되, 두 노드에 나눠 DDP로 돌립니다. GPU가 없으면 CPU용 통신 방식(gloo)으로 자동 전환되도록 써서, 3편의 kind 클러스터에서도 분산 학습의 모든 과정을 확인할 수 있습니다. 4편의 노트북에서 실행합니다.</p>
+  <p class="codehead">1단계: 학습 함수. 모든 import를 함수 안에 둡니다</p>
+  <div class="cmd"><pre><code><span class="k">def</span> train_digits_ddp():
+    <span class="k">import</span> os, torch, torch.distributed <span class="k">as</span> dist
+    <span class="k">from</span> torch <span class="k">import</span> nn
+    <span class="k">from</span> torch.utils.data <span class="k">import</span> DataLoader, TensorDataset
+    <span class="k">from</span> torch.utils.data.distributed <span class="k">import</span> DistributedSampler
+    <span class="k">from</span> torch.nn.parallel <span class="k">import</span> DistributedDataParallel <span class="k">as</span> DDP
+    <span class="k">from</span> sklearn.datasets <span class="k">import</span> load_digits
+
+    backend = <span class="s">"nccl"</span> <span class="k">if</span> torch.cuda.is_available() <span class="k">else</span> <span class="s">"gloo"</span>
+    dist.init_process_group(backend=backend)       <span class="c"># 주소와 순번은 환경 변수에서 읽음</span>
+    rank, world = dist.get_rank(), dist.get_world_size()
+    local_rank = int(os.environ.get(<span class="s">"LOCAL_RANK"</span>, <span class="s">0</span>))
+    device = torch.device(f<span class="s">"cuda:{local_rank}"</span> <span class="k">if</span> torch.cuda.is_available() <span class="k">else</span> <span class="s">"cpu"</span>)
+    print(f<span class="s">"rank {rank}/{world}, local_rank {local_rank}, device {device}"</span>)
+
+    X, y = load_digits(return_X_y=<span class="s">True</span>)
+    ds = TensorDataset(torch.tensor(X, dtype=torch.float32) / <span class="s">16.0</span>, torch.tensor(y))
+    sampler = DistributedSampler(ds, num_replicas=world, rank=rank, shuffle=<span class="s">True</span>, seed=<span class="s">42</span>)
+    loader = DataLoader(ds, batch_size=<span class="s">64</span>, sampler=sampler)  <span class="c"># 프로세스마다 다른 조각</span>
+
+    net = nn.Sequential(nn.Linear(<span class="s">64</span>, <span class="s">128</span>), nn.ReLU(), nn.Linear(<span class="s">128</span>, <span class="s">10</span>)).to(device)
+    model = DDP(net, device_ids=[local_rank] <span class="k">if</span> device.type == <span class="s">"cuda"</span> <span class="k">else</span> <span class="k">None</span>)
+    opt = torch.optim.Adam(model.parameters(), lr=<span class="s">1e-3</span>)
+
+    <span class="k">for</span> epoch <span class="k">in</span> range(<span class="s">10</span>):
+        sampler.set_epoch(epoch)                    <span class="c"># 에폭마다 섞는 순서를 바꿈</span>
+        <span class="k">for</span> xb, yb <span class="k">in</span> loader:
+            opt.zero_grad()
+            loss = nn.functional.cross_entropy(model(xb.to(device)), yb.to(device))
+            loss.backward()                         <span class="c"># 여기서 기울기를 모든 프로세스와 맞춤</span>
+            opt.step()
+        <span class="k">if</span> rank == <span class="s">0</span>:
+            print(f<span class="s">"epoch {epoch} loss {loss.item():.4f}"</span>)
+
+    <span class="k">if</span> rank == <span class="s">0</span>:                                   <span class="c"># 저장은 대표 한 프로세스만</span>
+        torch.save(model.module.state_dict(), <span class="s">"/tmp/digits-ddp.pt"</span>)  <span class="c"># 실무에서는 PVC나 S3</span>
+    dist.destroy_process_group()</code></pre></div>
+  <p class="codehead">2단계: TrainerClient로 제출하고 로그 보기</p>
+  <div class="cmd"><pre><code><span class="k">from</span> kubeflow.trainer <span class="k">import</span> TrainerClient, CustomTrainer
+
+client = TrainerClient()
+<span class="k">for</span> r <span class="k">in</span> client.list_runtimes():                     <span class="c"># 쓸 수 있는 런타임 확인</span>
+    print(r.name)
+
+job = client.train(
+    runtime=client.get_runtime(<span class="s">"torch-distributed"</span>),
+    trainer=CustomTrainer(
+        func=train_digits_ddp,
+        num_nodes=<span class="s">2</span>,
+        resources_per_node={<span class="s">"cpu"</span>: <span class="s">2</span>, <span class="s">"memory"</span>: <span class="s">"4Gi"</span>},  <span class="c"># kind 실습: GPU 없이</span>
+        packages_to_install=[<span class="s">"scikit-learn"</span>],
+    ),
+)
+client.wait_for_job_status(job)
+<span class="k">for</span> line <span class="k">in</span> client.get_job_logs(job, follow=<span class="s">True</span>):
+    print(line)</code></pre></div>
+  <p>로그에서 <code>rank 0/4</code>처럼 순번과 전체 프로세스 수를 확인하세요. 노드가 둘이고 노드마다 프로세스가 몇 개인지에 따라 전체 수가 정해집니다. 손실은 rank 0만 출력하므로 한 줄씩만 보입니다.</p>
+  <div class="callout warn">
+    <span class="h">GPU 없이 numProcPerNode가 auto일 때</span>
+    <p>기본 런타임의 노드당 프로세스 수는 auto입니다. GPU가 있으면 GPU 수만큼 뜨지만, GPU가 없을 때는 CPU 자원에 따라 정해질 수 있습니다. 그래서 실습에서는 CPU를 2로 작게 주고, 로그의 world 값으로 실제 프로세스 수를 확인합니다. 원하는 수가 있으면 TrainJob의 numProcPerNode로 직접 정하세요. SDK 함수와 인자 이름은 Kubeflow SDK 버전에 따라 조금 다를 수 있습니다.</p>
+  </div>
+<pre><code><span class="c"># 터미널에서도 확인</span>
+kubectl get trainjobs -n kubeflow-user-example-com
+kubectl get jobsets,jobs,pods -n kubeflow-user-example-com</code></pre>
+</section>
+
+<section id="s5">
+  <h2><span class="no">5</span>TrainJob 뒤에서 일어나는 일</h2>
+  <p>TrainJob 하나가 실제 Pod가 되기까지를 따라갑니다. 2편 7장의 컨트롤러 패턴이 한 겹 더 쌓인 구조입니다.</p>
+  <div class="stepbox">
+    <div class="flow" id="flow">
+      <div class="bx" data-b="tj">TrainJob<small>사용자</small></div>
+      <div class="bx" data-b="ctl">Trainer 컨트롤러<small>kubeflow-system</small></div>
+      <div class="bx" data-b="js">JobSet<small>Job 묶음</small></div>
+      <div class="bx" data-b="init">초기화 Job<small>데이터, 모델</small></div>
+      <div class="bx" data-b="node">학습 노드 Pod<small>node-0, node-1...</small></div>
+      <div class="bx" data-b="vol">공유 저장소<small>/workspace</small></div>
+    </div>
+    <div id="flowStep" aria-live="polite"></div>
+    <div class="story-nav"><button class="btn" type="button" id="flowPrev">이전 단계</button><button class="btn primary" type="button" id="flowNext">다음 단계</button></div>
+  </div>
+  <h3>Trainer가 넣어 주는 환경 변수</h3>
+  <p>PyTorch 런타임에서는 Trainer가 torchrun이 읽는 값들을 <code>PET_</code>로 시작하는 환경 변수로 넣고, torchrun이 이를 바탕으로 프로세스마다 RANK, LOCAL_RANK, WORLD_SIZE를 정해 줍니다. 맨 위 그림에서 GPU를 눌러 보면 프로세스별 값을 볼 수 있습니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>변수</th><th>누가</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td>PET_NNODES</td><td>Trainer</td><td>노드 수 (numNodes)</td></tr>
+      <tr><td>PET_NPROC_PER_NODE</td><td>Trainer</td><td>노드당 프로세스 수</td></tr>
+      <tr><td>PET_NODE_RANK</td><td>Trainer</td><td>이 노드의 순번 (0부터)</td></tr>
+      <tr><td>PET_MASTER_ADDR, PET_MASTER_PORT</td><td>Trainer</td><td>순번 0 노드의 주소와 포트. 모든 프로세스가 여기로 모여 서로를 찾음</td></tr>
+      <tr><td>RANK, LOCAL_RANK, WORLD_SIZE</td><td>torchrun</td><td>전체 순번, 노드 안 순번, 전체 프로세스 수. 학습 코드가 읽는 값</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s6">
+  <h2><span class="no">6</span>네트워크와 Istio</h2>
+  <p>분산 학습은 프로세스들이 서로 직접, 여러 포트로, 대량의 데이터를 주고받습니다. 웹 요청을 다루도록 만들어진 서비스 메시와는 잘 맞지 않습니다.</p>
+  <div class="callout warn">
+    <span class="h">프로필 네임스페이스에는 Istio 사이드카가 붙습니다</span>
+    <p>3편에서 본 것처럼 Kubeflow의 사용자 네임스페이스는 Istio 사이드카 주입이 켜져 있습니다. 학습 Pod에 사이드카가 붙으면 프로세스 간 통신이 막히거나, 사이드카가 끝나지 않아 학습이 끝나도 Pod가 Completed가 되지 않는 문제가 생길 수 있습니다. 그래서 학습 런타임의 Pod 템플릿에 <code>sidecar.istio.io/inject: "false"</code> 주석을 두어 사이드카를 빼는 구성이 흔합니다. 사이드카를 빼면 Istio 정책의 보호도 빠지므로, 네임스페이스 단위 NetworkPolicy로 보완합니다(13편).</p>
+  </div>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>점검할 것</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>NCCL_DEBUG=INFO</td><td>NCCL이 어떤 네트워크와 경로를 골랐는지 로그로 보여 줌. 첫 시험에서는 켜 두기</td></tr>
+      <tr><td>NCCL_SOCKET_IFNAME</td><td>노드에 네트워크 카드가 여럿일 때 통신할 카드를 지정</td></tr>
+      <tr><td>InfiniBand, RoCE</td><td>노드 간 통신이 많은 대규모 학습에서 일반 이더넷보다 훨씬 빠름. 장치 플러그인과 자원 요청이 따로 필요</td></tr>
+      <tr><td>/dev/shm 크기</td><td>DataLoader 워커와 NCCL이 공유 메모리를 씀(2편 9장). 런타임에 메모리 기반 볼륨으로 넉넉히</td></tr>
+      <tr><td>노드 배치</td><td>한 학습의 노드들이 가까운 곳(같은 랙, 같은 영역)에 놓이도록 affinity나 토폴리지 인식 스케줄링 고려(11편)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s7">
+  <h2><span class="no">7</span>LLM 미세 조정</h2>
+  <p>LLM 미세 조정에는 학습 코드 외에 큰 준비물이 둘 필요합니다. 수 GB에서 수백 GB의 사전 학습 모델과 데이터셋입니다. 노드마다 따로 내려받으면 느리고 낭비입니다. Trainer는 학습 전에 <strong>초기화 단계</strong>(initializer)가 Hugging Face나 S3에서 모델과 데이터셋을 공유 저장소로 한 번만 내려받고, 학습 노드들이 그것을 함께 읽게 합니다.</p>
+  <p class="codehead">초기화와 미세 조정 런타임을 쓰는 예 (개념을 보여 주는 단순화한 코드)</p>
+<pre><code><span class="k">from</span> kubeflow.trainer <span class="k">import</span> (TrainerClient, BuiltinTrainer, TorchTuneConfig, Initializer,
+                              HuggingFaceModelInitializer, HuggingFaceDatasetInitializer)
+
+client = TrainerClient()
+job = client.train(
+    runtime=client.get_runtime(<span class="s">"torchtune-llama3.2-1b"</span>),     <span class="c"># 이름은 list_runtimes로 확인</span>
+    initializer=Initializer(
+        model=HuggingFaceModelInitializer(storage_uri=<span class="s">"hf://meta-llama/Llama-3.2-1B-Instruct"</span>,
+                                          access_token=<span class="s">"..."</span>),   <span class="c"># 실무에서는 Secret으로</span>
+        dataset=HuggingFaceDatasetInitializer(storage_uri=<span class="s">"hf://tatsu-lab/alpaca"</span>),
+    ),
+    trainer=BuiltinTrainer(config=TorchTuneConfig(
+        resources_per_node={<span class="s">"gpu"</span>: <span class="s">1</span>},
+    )),
+)</code></pre>
+  <ul class="plain">
+    <li><strong>BuiltinTrainer</strong>는 학습 코드를 직접 쓰지 않고, 런타임에 들어 있는 미세 조정 방법(예: TorchTune 레시피)을 설정만으로 쓰는 방식입니다. 직접 짠 코드를 쓰려면 4장의 CustomTrainer를 씁니다.</li>
+    <li>모델 접근 토큰처럼 비밀 값은 코드에 적지 말고 Secret을 참조하게 합니다.</li>
+    <li>먼저 2편 5장의 계산기로 메모리를 어림하세요. LoRA로 GPU 한 장에 들어간다면 분산보다 그쪽이 훨씬 단순합니다.</li>
+    <li>위 코드의 클래스와 런타임 이름은 SDK와 Trainer 버전에 따라 다를 수 있습니다. 실제로는 공식 예제를 출발점으로 삼으세요.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <h2><span class="no">8</span>장애와 체크포인트</h2>
+  <p>노드가 많을수록 그중 하나가 실패할 확률도 커집니다. DDP는 모든 프로세스가 함께 걸어가는 방식이라, 하나가 멈추면 나머지도 통신에서 기다리다 멈춥니다. 그래서 실패를 다루는 기본 전략은 “묶음 전체를 다시 시작하고, 체크포인트에서 이어 간다”입니다.</p>
+  <div class="tblwrap"><table class="tbl">
+    <thead><tr><th>원칙</th><th>방법</th></tr></thead>
+    <tbody>
+      <tr><td>묶음 단위 재시작</td><td>JobSet의 실패 정책으로 묶음 전체를 다시 시작하는 횟수를 런타임에서 정합니다</td></tr>
+      <tr><td>체크포인트는 모두가 볼 수 있는 곳에</td><td>ReadWriteMany PVC나 오브젝트 스토리지. 노드 한 대의 로컬 디스크는 안 됨</td></tr>
+      <tr><td>쓰기는 한 프로세스만</td><td>rank 0만 저장하고, 시작할 때는 모든 프로세스가 같은 체크포인트를 읽음</td></tr>
+      <tr><td>적당한 간격</td><td>너무 자주 저장하면 학습이 느려지고, 너무 드물면 잃는 시간이 큼. 2편 2장 계산기로 간격을 정함</td></tr>
+      <tr><td>안전한 저장</td><td>임시 이름으로 쓴 뒤 이름 바꾸기(2편 11장)</td></tr>
+    </tbody>
+  </table></div>
+  <p>스팟이나 선점형 GPU를 쓰면 비용은 크게 줄지만 중단이 잦습니다. 체크포인트에서 이어 가는 코드가 없다면 스팟은 쓰지 않는 편이 낫습니다.</p>
+</section>
+
+<section id="s9">
+  <h2><span class="no">9</span>파이프라인과 연결</h2>
+  <p>5편과 6편의 파이프라인에서 train 단계를 분산 학습으로 바꾸려면, 파이프라인 단계 안에서 TrainJob을 제출하고 끝날 때까지 기다리는 컴포넌트를 씁니다. 파이프라인 단계 Pod도 프로필의 서비스 계정으로 실행되어, 같은 네임스페이스에 TrainJob을 만들 수 있습니다.</p>
+<pre><code><span class="f">@dsl.component</span>(base_image=<span class="s">"python:3.11"</span>, packages_to_install=[<span class="s">"kubeflow"</span>])
+<span class="k">def</span> distributed_train(num_nodes: int) -&gt; str:
+    <span class="k">from</span> kubeflow.trainer <span class="k">import</span> TrainerClient, CustomTrainer
+    <span class="k">def</span> train_fn():
+        ...                                    <span class="c"># 4장의 학습 함수</span>
+    client = TrainerClient()
+    job = client.train(runtime=client.get_runtime(<span class="s">"torch-distributed"</span>),
+                       trainer=CustomTrainer(func=train_fn, num_nodes=num_nodes))
+    client.wait_for_job_status(job)            <span class="c"># 끝날 때까지 이 단계가 기다림</span>
+    <span class="k">return</span> job</code></pre>
+  <p>학습 결과 모델은 TrainJob이 PVC나 오브젝트 스토리지에 저장하게 하고, 다음 단계가 그 위치를 받아 평가합니다. 이 연결을 끝까지 이어 붙이는 종합 실습은 12편에서 합니다.</p>
+</section>
+
+<section id="s10">
+  <h2><span class="no">10</span>문제 해결</h2>
+  <p>분산 학습에서 자주 만나는 증상입니다.</p>
+  <div class="chips" id="trChips" style="margin-top:14px"></div>
+  <div class="panel" id="trPanel" style="margin-top:14px" aria-live="polite"></div>
+</section>
+
+<section id="s11">
+  <h2><span class="no">11</span>용어 사전</h2>
+  <p>이 편에 새로 나온 용어입니다.</p>
+  <label for="gq" class="muted" style="font-size:14px">용어 검색</label>
+  <input class="gsearch" id="gq" type="search" placeholder="예: TrainJob, all-reduce, PET_">
+  <div class="glist" id="glist"></div>
+  <p class="gempty" id="gempty" hidden>일치하는 용어가 없습니다. 다른 표기(한글 또는 영어)로 검색해 보세요.</p>
+</section>
+
+<section id="s12">
+  <h2><span class="no">12</span>확인 퀴즈</h2>
+  <p>여덟 문제입니다.</p>
+  <div id="quiz"></div>
+  <p class="score" id="score" aria-live="polite"></p>
+  <button class="btn" id="quizReset" type="button">퀴즈 다시 풀기</button>
+</section>
+
+<section id="s13">
+  <h2><span class="no">13</span>정리와 다음 편</h2>
+  <ol class="keys">
+    <li><span>분산 학습은 필요할 때만. 모델이 한 장에 들어가면 DDP, 안 들어가면 FSDP나 DeepSpeed, LLM은 먼저 LoRA로 한 장에 넣을 수 있는지 봅니다.</span></li>
+    <li><span>Trainer v2는 프레임워크별 CRD를 TrainJob 하나로 통일하고, 인프라 설정은 관리자의 런타임으로 분리했습니다. 예전 PyTorchJob과는 호환되지 않습니다.</span></li>
+    <li><span>TrainJob은 JobSet과 초기화 Job, 학습 노드 Pod로 바뀌고, Trainer가 PET_ 환경 변수로 노드 수와 순번, 마스터 주소를 넣어 torchrun이 프로세스별 RANK를 정합니다.</span></li>
+    <li><span>사용자 네임스페이스의 Istio 사이드카는 분산 통신과 잘 맞지 않아 학습 Pod에서는 흔히 뺍니다. NCCL 로그와 공유 메모리, 노드 간 네트워크를 점검합니다.</span></li>
+    <li><span>장애는 묶음 단위로 다시 시작하고, 모두가 볼 수 있는 곳의 체크포인트에서 이어 갑니다. 저장은 rank 0만 합니다.</span></li>
+  </ol>
+  <div class="next" style="border-left-color:var(--lv2)">
+    <span class="h">다음 편, Level 2 실무 기초</span>
+    <h4>8편: Katib, 하이퍼파라미터 튜닝과 AutoML</h4>
+    <p>학습률, 배치 크기, 층 수의 좋은 조합을 사람 대신 찾습니다. Experiment, Trial, Suggestion의 관계, 탐색 알고리즘 비교(무작위, 그리드, 베이지안 최적화, TPE 등), 가망 없는 시도를 일찍 멈추는 조기 종료, 그리고 Kubeflow SDK로 튜닝을 제출하는 방법을 다룹니다.</p>
+  </div>
+</section>
+</main>
+</div>
+<footer>Kubeflow 강의 시리즈 7편. 2026년 10월 기준 Kubeflow Trainer v2 공식 문서와 Community Distribution 26.03.1(Trainer v2.2)을 바탕으로 작성했습니다. 런타임 이름, SDK 클래스와 인자, 환경 변수 이름은 버전에 따라 바뀔 수 있으니 사용하는 버전의 문서를 함께 확인하세요.</footer>
+<script>
+(function(){
+var root=document.documentElement;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function $(id){return document.getElementById(id);}
+var tbtn=$('themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마로':'다크 테마로';try{localStorage.setItem('kf-theme',t);}catch(e){}}
+tbtn.addEventListener('click',function(){setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+setTheme(root.getAttribute('data-theme')||'dark');
+var prog=$('prog');function onScroll(){var h=document.documentElement;var m=h.scrollHeight-h.clientHeight;prog.style.width=(m>0?h.scrollTop/m*100:0)+'%';}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+var tocLinks=[].slice.call(document.querySelectorAll('#tocList a'));
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){tocLinks.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id);});}});},{rootMargin:'-25% 0px -65% 0px'});document.querySelectorAll('main section').forEach(function(s){io.observe(s);});}
+var ls=$('levelstrip');for(var i=1;i<=16;i++){var el=document.createElement('i');el.style.background='var('+(i<=4?'--lv1':i<=9?'--lv2':i<=12?'--lv3':'--lv4')+')';if(i===7)el.className='now';ls.appendChild(el);}
+function hlYaml(t){var e=esc(t),c='',k=e.indexOf(' #');if(k>=0){c='<span class="c">'+e.slice(k)+'</span>';e=e.slice(0,k);}return e.replace(/^(\s*-?\s*)([\w.\/-]+):/,'$1<span class="k">$2</span>:')+c;}
+
+/* dsim */
+var PH=[
+ ['데이터 나누기','p1','전체 배치를 GPU 수만큼 나눠, 각 프로세스가 서로 다른 데이터 조각을 받습니다. 코드에서는 DistributedSampler가 이 일을 합니다.'],
+ ['순전파와 역전파','p2','각 프로세스가 같은 모델 복사본으로 자기 조각의 손실과 기울기를 계산합니다. 이 단계는 GPU 안에서만 일어나 통신이 없습니다.'],
+ ['기울기 맞추기','p3','모든 프로세스가 기울기를 서로 보내 평균을 내고 나눠 가집니다(all-reduce). NCCL이 맡고, 같은 노드 안은 NVLink나 PCIe로, 노드 사이는 네트워크로 오갑니다.'],
+ ['가중치 갱신','p4','모두 같은 평균 기울기로 가중치를 고치므로, 모든 복사본이 다시 똑같은 모델이 됩니다. 그리고 다음 스텝으로 갑니다.']
+];
+var ph=0,sel=[0,0];
+var phw=$('phases');PH.forEach(function(p,i){var b=document.createElement('button');b.type='button';b.textContent=(i+1)+'. '+p[0];b.addEventListener('click',function(){ph=i;renderD();});phw.appendChild(b);});
+function renderD(){var N=+$('dN').value,P=+$('dP').value,B=Math.max(1,+$('dB').value||1),W=N*P;if(sel[0]>=N)sel=[0,0];if(sel[1]>=P)sel[1]=0;
+  var h='';for(var n=0;n<N;n++){h+='<div class="nodebox'+(n===0?' master':'')+'"><div class="nh"><span>노드 '+n+'</span><span>'+(n===0?'마스터':'')+'</span></div><div class="gpus">';
+    for(var l=0;l<P;l++){var r=n*P+l;h+='<button type="button" class="gpu '+PH[ph][1]+(n===sel[0]&&l===sel[1]?' sel':'')+'" data-n="'+n+'" data-l="'+l+'"><b>rank '+r+'</b>GPU '+l+'</button>';}h+='</div></div>';}
+  $('nodesg').innerHTML=h;
+  [].forEach.call(phw.children,function(b,k){b.classList.toggle('on',k===ph);b.setAttribute('aria-pressed',k===ph?'true':'false');});
+  var note=PH[ph][2];if(ph===2)note+=N>1?' 지금은 노드가 '+N+'대라 노드 사이 네트워크를 탑니다. 네트워크가 느리면 GPU를 늘려도 빨라지지 않습니다.':' 지금은 노드가 한 대라 통신이 노드 안에서 끝납니다.';
+  var n0=sel[0],l0=sel[1];
+  var env='<span class="c"># Trainer가 넣는 값 (노드 '+n0+')</span>\nPET_NNODES='+N+'\nPET_NPROC_PER_NODE='+P+'\nPET_NODE_RANK='+n0+'\nPET_MASTER_ADDR=digits-ddp-node-0-0.digits-ddp   <span class="c"># 예시</span>\nPET_MASTER_PORT=29400                           <span class="c"># 예시</span>\n<span class="c"># torchrun이 정하는 값 (이 프로세스)</span>\nRANK='+(n0*P+l0)+'\nLOCAL_RANK='+l0+'\nWORLD_SIZE='+W;
+  $('dinfo').innerHTML='<strong>'+(ph+1)+'. '+PH[ph][0]+'</strong> '+esc(note)+'<br><span class="muted">전체 프로세스(WORLD_SIZE) '+W+'개, 한 스텝의 전역 배치 '+(B*W).toLocaleString('ko-KR')+'건 ('+B+' × '+W+')</span><div class="envbox">'+env+'</div>';}
+$('nodesg').addEventListener('click',function(e){var b=e.target.closest('.gpu');if(!b)return;sel=[+b.dataset.n,+b.dataset.l];renderD();});
+['dN','dP','dB'].forEach(function(id){$(id).addEventListener('input',renderD);$(id).addEventListener('change',renderD);});renderD();
+
+/* yaml2 */
+var RT=[['apiVersion: trainer.kubeflow.org/v1alpha1','rt-kind'],['kind: ClusterTrainingRuntime','rt-kind'],['metadata:',''],['  name: torch-distributed','rt-name'],['  labels:',''],['    trainer.kubeflow.org/framework: torch','rt-fw'],
+ ['spec:',''],['  mlPolicy:','ml'],['    numNodes: 1','nn'],['    torch:','ml'],['      numProcPerNode: auto','np'],['  template:              # JobSet 템플릿','tpl'],['    spec:',''],['      replicatedJobs:','tpl'],['      - name: node','node'],
+ ['        template:',''],['          metadata:',''],['            labels:',''],['              trainer.kubeflow.org/trainjob-ancestor-step: trainer','anc'],['          spec:',''],['            template:',''],['              metadata:',''],['                annotations:',''],
+ ['                  sidecar.istio.io/inject: "false"','istio'],['              spec:',''],['                containers:',''],['                - name: node',''],['                  image: pytorch/pytorch:<버전>','img']];
+var TJ=[['apiVersion: trainer.kubeflow.org/v1alpha1','tj-kind'],['kind: TrainJob','tj-kind'],['metadata:',''],['  name: digits-ddp','tj-name'],['  namespace: kubeflow-user-example-com','tj-ns'],['spec:',''],['  runtimeRef:','ref'],['    name: torch-distributed','ref'],
+ ['  trainer:','tr'],['    image: registry.example.com/reco/ddp:1.0','img'],['    command: ["torchrun", "/app/train_ddp.py"]','cmd'],['    numNodes: 2','nn'],['    numProcPerNode: 2','np'],['    resourcesPerNode:','res'],['      limits:','res'],['        nvidia.com/gpu: 2','res'],['        memory: 64Gi','res'],['    env:','env'],['    - name: NCCL_DEBUG','env'],['      value: INFO','env']];
+var YN={
+ 'rt-kind':['ClusterTrainingRuntime','클러스터 전체에서 쓰는 런타임입니다. 네임스페이스 하나에서만 쓰는 것은 TrainingRuntime으로 만듭니다. 관리자의 몫입니다.'],
+ 'rt-name':['런타임 이름','사용자가 TrainJob의 runtimeRef나 SDK의 get_runtime으로 부르는 이름입니다.'],
+ 'rt-fw':['프레임워크 라벨','이 라벨이 있어야 Kubeflow SDK가 어떤 프레임워크의 런타임인지 알아봅니다. 모든 런타임에 붙여야 합니다.'],
+ ml:['mlPolicy','분산 학습 방식에 대한 정책입니다. torch는 torchrun 기반으로 프로세스를 띄우는 방식이고, 프레임워크에 따라 다른 정책이 들어갑니다.'],
+ nn:['numNodes: 누가 이기나','런타임의 값은 기본값이고, TrainJob에 값이 있으면 TrainJob이 이깁니다. 여기서는 노드 2대로 실행됩니다.'],
+ np:['numProcPerNode','노드당 프로세스 수입니다. auto는 GPU가 있으면 GPU 수만큼입니다. TrainJob에서 덮어쓸 수 있으며, 노드당 GPU 수와 맞추는 것이 보통입니다.'],
+ tpl:['JobSet 템플릿','Trainer는 이 템플릿에 TrainJob의 값을 덮어써 JobSet을 만듭니다. 데이터와 모델 초기화 Job, 학습 노드 Job이 replicatedJobs로 들어갑니다.'],
+ node:['학습 노드 Job','numNodes만큼 Pod가 만들어지는 Job입니다. 각 Pod가 노드 하나입니다.'],
+ anc:['단계 표시 라벨','Trainer가 TrainJob의 trainer 설정을 템플릿의 어느 Job에 적용할지 찾는 내부 표시입니다.'],
+ istio:['사이드카 제외','분산 학습 Pod에서 Istio 사이드카를 빼는 설정입니다(6장). 런타임은 관리자의 정책이므로 여기서 정합니다. 설치에 들어 있는 기본 런타임에 이 설정이 있는지는 직접 확인하세요.'],
+ img:['image: 누가 이기나','런타임의 이미지가 기본이고, TrainJob의 trainer.image가 있으면 그것이 쓰입니다. 보통 관리자는 프레임워크 기본 이미지를, 사용자는 학습 코드가 든 자기 이미지를 줍니다.'],
+ 'tj-kind':['TrainJob','사용자가 만드는 리소스입니다. 코드, 규모, 자원만 담고 인프라 설정은 런타임에 맡깁니다.'],
+ 'tj-name':['TrainJob 이름','JobSet과 Pod 이름의 앞부분이 되고, 마스터 노드 주소에도 들어갑니다.'],
+ 'tj-ns':['네임스페이스','내 프로필 네임스페이스입니다. 할당량과 권한이 여기 적용됩니다.'],
+ ref:['runtimeRef','쓸 런타임을 가리킵니다. kind를 생략하면 ClusterTrainingRuntime으로 봅니다. 네임스페이스의 런타임을 쓰려면 kind: TrainingRuntime을 적습니다.'],
+ tr:['trainer','사용자가 정하는 학습 설정 묶음입니다.'],
+ cmd:['command','torchrun이 Trainer가 넣은 PET_ 환경 변수를 읽어 노드당 프로세스를 띄우고 학습 스크립트를 실행합니다. SDK의 CustomTrainer를 쓰면 이 명령을 SDK가 만들어 줍니다.'],
+ res:['resourcesPerNode','노드(Pod) 하나당 자원입니다. GPU 2장이면 numProcPerNode도 2로 맞춥니다. 전체 GPU는 노드 수 × 2 = 4장입니다.'],
+ env:['env','학습 컨테이너에 더할 환경 변수입니다. NCCL_DEBUG=INFO는 통신 문제를 진단할 때 첫 시험에서 켜 둡니다.']
+};
+function mk(pre,arr){pre.innerHTML=arr.map(function(l){return '<span class="ln'+(l[1]?' has':'')+'" data-k="'+l[1]+'"'+(l[1]?' tabindex="0" role="button"':'')+'>'+hlYaml(l[0])+'</span>';}).join('');
+  pre.addEventListener('click',function(e){var s=e.target.closest('.ln.has');if(s)selY(s.dataset.k);});
+  pre.addEventListener('keydown',function(e){var s=e.target.closest('.ln.has');if(s&&(e.key==='Enter'||e.key===' ')){e.preventDefault();selY(s.dataset.k);}});}
+mk($('rtPre'),RT);mk($('tjPre'),TJ);
+function selY(k){document.querySelectorAll('.yaml2 .ln').forEach(function(s){s.classList.toggle('on',s.dataset.k===k);});var n=YN[k];$('y2Note').innerHTML='<b>'+n[0]+'</b>'+n[1];}
+selY('nn');
+
+/* flow */
+var FL=[
+ {on:['tj'],t:'1. TrainJob 제출',d:'kubectl이나 SDK로 TrainJob을 만듭니다. 검사용 웹훅이 참조한 런타임이 있는지 등을 먼저 확인합니다.'},
+ {on:['ctl'],t:'2. 설계 합치기',d:'Trainer 컨트롤러가 런타임 템플릿에 TrainJob의 값(노드 수, 이미지, 자원, 환경 변수)을 덮어써 최종 설계를 만들고, PET_로 시작하는 분산 학습용 환경 변수를 넣습니다.'},
+ {on:['js'],t:'3. JobSet 만들기',d:'그 설계로 JobSet을 만듭니다. JobSet 컨트롤러는 안의 Job들과, 노드 Pod끼리 이름으로 서로를 찾을 수 있게 하는 헤드리스 서비스를 만듭니다.'},
+ {on:['init','vol'],t:'4. 초기화',d:'데이터셋이나 모델 초기화를 지정했다면 초기화 Job이 먼저 실행되어 Hugging Face나 S3에서 내려받아 공유 저장소(/workspace 아래)에 둡니다.'},
+ {on:['node','vol'],t:'5. 학습 시작',d:'학습 노드 Job이 numNodes만큼 Pod를 만듭니다. 각 Pod의 torchrun이 PET_ 변수를 읽어 프로세스를 띄우고, 모든 프로세스가 순번 0 노드의 주소로 모여 통신을 시작합니다.'},
+ {on:['node','tj'],t:'6. 완료 또는 재시작',d:'모든 노드가 정상 종료하면 JobSet이 완료되고 TrainJob 상태가 Complete가 됩니다. 하나라도 실패하면 런타임의 실패 정책에 따라 묶음 전체를 다시 시작하거나 실패로 끝냅니다.'}
+];
+var fi=0;function renderF(){var s=FL[fi];document.querySelectorAll('#flow .bx').forEach(function(b){b.classList.toggle('on',s.on.indexOf(b.dataset.b)>=0);});$('flowStep').innerHTML='<h4>'+s.t+'</h4><p style="margin:0">'+s.d+'</p>';$('flowPrev').disabled=fi===0;$('flowNext').disabled=fi===FL.length-1;}
+$('flowPrev').addEventListener('click',function(){if(fi>0){fi--;renderF();}});$('flowNext').addEventListener('click',function(){if(fi<FL.length-1){fi++;renderF();}});renderF();
+
+/* copy */
+document.querySelectorAll('.cmd').forEach(function(c){var b=document.createElement('button');b.type='button';b.className='copy';b.textContent='복사';c.appendChild(b);
+  b.addEventListener('click',function(){var txt=c.querySelector('pre').innerText;function ok(){b.textContent='복사됨';setTimeout(function(){b.textContent='복사';},1400);}
+    function fb(){var ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');ok();}catch(e){b.textContent='직접 선택하세요';}document.body.removeChild(ta);}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(ok,fb);}else fb();});});
+
+/* troubleshooting */
+var TS=[
+ ['런타임을 찾을 수 없다는 오류','--c-mon','runtimeRef의 이름이 틀렸거나, 네임스페이스의 TrainingRuntime을 쓰면서 kind를 적지 않았습니다.','kubectl get clustertrainingruntimes와 kubectl get trainingruntimes -n 네임스페이스로 이름을 확인합니다. 네임스페이스 런타임이면 kind: TrainingRuntime을 적습니다.'],
+ ['일부 노드만 Running, 나머지는 Pending','--c-train','남은 GPU가 전체 노드를 다 띄우기에 부족합니다. 먼저 뜬 Pod들은 나머지를 기다리며 GPU를 붙잡고 있습니다.','당장은 노드 수를 줄이거나 자원이 날 때까지 기다립니다. 근본적으로는 모든 Pod가 함께 배치될 수 있을 때만 시작하는 큐 기반 스케줄링(Kueue, 11편)을 씁니다.'],
+ ['시작은 했는데 학습이 진행되지 않음','--c-katib','프로세스들이 서로를 찾는 init_process_group 단계에서 기다리고 있습니다. Istio 사이드카, NetworkPolicy, 마스터 주소의 DNS 문제가 흔합니다.','NCCL_DEBUG=INFO로 로그를 봅니다. 학습 Pod에 사이드카가 붙어 있는지 kubectl get pod -o yaml로 확인합니다(6장).'],
+ ['학습은 끝났는데 Pod가 Completed가 안 됨','--c-katib','Istio 사이드카 컨테이너가 계속 살아 있어 Pod가 끝나지 않습니다.','학습 런타임에서 사이드카 주입을 끄는 주석을 둡니다.'],
+ ['NCCL error가 나며 죽음','--c-data','노드 간 네트워크 경로 문제, 공유 메모리 부족, 노드마다 다른 드라이버나 이미지 버전이 원인인 경우가 많습니다.','NCCL_DEBUG=INFO 로그에서 고른 네트워크를 확인하고, 필요하면 NCCL_SOCKET_IFNAME으로 지정합니다. /dev/shm 크기와 노드의 드라이버 버전도 확인합니다.'],
+ ['WORLD_SIZE가 예상과 다름','--c-mon','numProcPerNode가 auto이고 GPU가 없거나, GPU 수와 프로세스 수를 다르게 잡았습니다.','numProcPerNode를 명시하고, 노드당 GPU 수와 맞춥니다.'],
+ ['PyTorchJob을 적용하면 no matches for kind','--c-hub','Trainer v2에는 예전 Training Operator v1의 PyTorchJob API가 없습니다.','2장의 대응표대로 TrainJob으로 옮깁니다.'],
+ ['저장된 모델 파일이 깨져 있음','--c-hub','모든 프로세스가 같은 경로에 동시에 저장했습니다.','rank 0만 저장합니다. 경로는 모든 노드가 볼 수 있는 공유 저장소로 합니다.'],
+ ['GPU 사용률이 낮고 느림','--c-train','데이터를 불러오는 속도가 GPU를 따라가지 못하거나, 노드 간 통신이 병목입니다.','DataLoader의 num_workers와 /dev/shm을 늘리고, 배치를 키워 통신 횟수를 줄입니다. 노드 수를 줄여 비교해 보면 통신 병목인지 알 수 있습니다.']
+];
+var tc=$('trChips'),tpn=$('trPanel');
+TS.forEach(function(s,i){var b=document.createElement('button');b.type='button';b.className='chip';b.style.setProperty('--c','var('+s[1]+')');b.textContent=s[0];b.addEventListener('click',function(){selTs(i);});tc.appendChild(b);});
+function selTs(i){var s=TS[i];[].forEach.call(tc.children,function(b,k){b.classList.toggle('on',k===i);b.setAttribute('aria-pressed',k===i?'true':'false');});tpn.style.setProperty('--c','var('+s[1]+')');tpn.innerHTML='<h4>'+esc(s[0])+'</h4><dl><dt>원인</dt><dd>'+esc(s[2])+'</dd><dt>해결</dt><dd>'+esc(s[3])+'</dd></dl>';}
+selTs(0);
+
+/* glossary */
+var G=[
+ ['Trainer v2','Kubeflow Trainer','TrainJob과 런타임으로 분산 학습과 LLM 미세 조정을 실행하는 Kubeflow 구성요소.'],
+ ['Training Operator v1','Training Operator','PyTorchJob, TFJob 등 프레임워크별 CRD를 쓰던 예전 학습 구성요소.'],
+ ['TrainJob','TrainJob','사용자가 만드는 학습 작업 리소스. 코드, 규모, 자원을 담는다.'],
+ ['TrainingRuntime','TrainingRuntime','네임스페이스 하나에서 쓰는 학습 환경 정의.'],
+ ['ClusterTrainingRuntime','ClusterTrainingRuntime','클러스터 전체에서 쓰는 학습 환경 정의. 관리자가 만든다.'],
+ ['runtimeRef','runtimeRef','TrainJob이 쓸 런타임을 가리키는 필드.'],
+ ['mlPolicy','mlPolicy','런타임의 분산 방식 정책. 노드 수 기본값과 프레임워크별 설정.'],
+ ['numNodes','numNodes','학습 노드(Pod) 수.'],
+ ['numProcPerNode','numProcPerNode','노드당 학습 프로세스 수. 보통 노드당 GPU 수와 같다.'],
+ ['resourcesPerNode','resourcesPerNode','학습 노드 하나당 자원 요청.'],
+ ['JobSet','JobSet','여러 Job을 한 묶음으로 관리하는 Kubernetes 리소스. Trainer v2의 실행 기반.'],
+ ['헤드리스 서비스','Headless Service','Pod마다 고정 DNS 이름을 주는 서비스. 노드끼리 서로를 찾는 데 쓴다.'],
+ ['초기화 단계','Initializer','학습 전에 데이터셋과 모델을 공유 저장소로 내려받는 Job.'],
+ ['CustomTrainer','CustomTrainer','직접 쓴 학습 함수를 실행하는 SDK 설정.'],
+ ['BuiltinTrainer','BuiltinTrainer','런타임에 들어 있는 미세 조정 방법을 설정만으로 쓰는 SDK 설정.'],
+ ['TrainerClient','TrainerClient','Kubeflow SDK에서 TrainJob을 만들고 지켜보는 클라이언트.'],
+ ['torchrun','torchrun','PyTorch 분산 학습 프로세스를 띄우는 실행 도구. 프로세스별 RANK를 정한다.'],
+ ['PET_ 변수','PET_* environment variables','Trainer가 넣는 torchrun용 환경 변수. 노드 수, 노드 순번, 마스터 주소 등.'],
+ ['DDP','DistributedDataParallel','모델을 복사하고 데이터를 나눠 학습하는 PyTorch의 데이터 병렬 방식.'],
+ ['DistributedSampler','DistributedSampler','프로세스마다 서로 다른 데이터 조각을 나눠 주는 PyTorch 도구.'],
+ ['all-reduce','All-reduce','모든 프로세스의 값을 합치거나 평균 내어 다시 모두에게 나눠 주는 통신.'],
+ ['gloo','gloo','CPU에서 쓰는 PyTorch 분산 통신 방식.'],
+ ['FSDP','Fully Sharded Data Parallel','가중치와 옵티마이저 상태를 GPU마다 조각으로 나눠 갖는 PyTorch 방식.'],
+ ['DeepSpeed','DeepSpeed','ZeRO 등 대형 모델 학습 기법을 제공하는 라이브러리.'],
+ ['프레임워크 라벨','trainer.kubeflow.org/framework','런타임에 붙여 SDK가 프레임워크를 알아보게 하는 라벨.'],
+ ['묶음 재시작','Group restart','분산 학습의 일부가 실패하면 묶음 전체를 다시 시작하는 방식.'],
+ ['함께 배치','Gang scheduling','모든 Pod를 한꺼번에 배치할 수 있을 때만 시작하는 스케줄링. 11편.']
+];
+var gl=$('glist'),gq=$('gq'),ge=$('gempty');
+function renderG(){var q=gq.value.trim().toLowerCase(),out=G.filter(function(g){return !q||(g[0]+' '+g[1]+' '+g[2]).toLowerCase().indexOf(q)>=0;});gl.innerHTML=out.map(function(g){return '<div class="gitem"><b>'+esc(g[0])+'</b><small>'+esc(g[1])+'</small><p>'+esc(g[2])+'</p></div>';}).join('');ge.hidden=out.length>0;}
+gq.addEventListener('input',renderG);renderG();
+
+/* quiz */
+var Q=[
+ {q:'모델은 GPU 한 장에 들어가지만 학습이 너무 오래 걸립니다. 가장 알맞은 방식은?',o:['텐서 병렬','데이터 병렬(DDP)','분산하지 않는다','CPU로 바꾼다'],a:1,e:'모델이 들어가면 데이터를 나누는 DDP가 가장 단순합니다.'},
+ {q:'런타임의 numNodes가 1이고 TrainJob의 numNodes가 2라면 몇 대로 실행되나요?',o:['1대','2대','3대','오류'],a:1,e:'런타임 값은 기본값이고, TrainJob에 값이 있으면 TrainJob이 이깁니다.'},
+ {q:'예전 블로그의 PyTorchJob YAML을 26.03.1 클러스터에 그대로 적용하면?',o:['잘 동작한다','PyTorchJob API가 없어 적용되지 않으므로 TrainJob으로 옮겨야 한다','자동으로 TrainJob이 된다','경고만 나온다'],a:1,e:'Trainer v2의 API는 Training Operator v1과 호환되지 않습니다.'},
+ {q:'각 학습 프로세스는 순번 0 노드의 주소를 어떻게 알까요?',o:['코드에 하드코딩','Trainer가 PET_MASTER_ADDR 같은 환경 변수로 넣어 준다','DNS를 무작위로 찾는다','사용자가 실행 중에 입력한다'],a:1,e:'Trainer가 PET_ 변수를 넣고, torchrun이 이를 읽어 프로세스를 띄웁니다.'},
+ {q:'DistributedSampler의 역할은?',o:['모델을 GPU마다 나눈다','프로세스마다 서로 다른 데이터 조각을 준다','기울기를 평균 낸다','체크포인트를 저장한다'],a:1,e:'같은 데이터를 모든 프로세스가 학습하면 분산한 의미가 없습니다.'},
+ {q:'분산 학습에서 모델을 저장하는 바른 방법은?',o:['모든 프로세스가 각자 로컬 디스크에','rank 0만 모두가 볼 수 있는 공유 저장소에','저장하지 않는다','마지막에 끝난 프로세스가'],a:1,e:'동시에 쓰면 파일이 깨지고, 로컬 디스크는 Pod와 함께 사라집니다.'},
+ {q:'사용자 네임스페이스에서 TrainJob이 시작된 뒤 init_process_group에서 멈춰 있습니다. 먼저 의심할 것은?',o:['학습률','Istio 사이드카나 NetworkPolicy가 프로세스 간 통신을 막는지','이미지 태그','Katib 설정'],a:1,e:'Kubeflow 프로필 네임스페이스는 사이드카 주입이 켜져 있습니다. 학습 Pod에서는 흔히 뺍니다.'},
+ {q:'LLM 미세 조정에서 큰 모델 파일을 노드마다 따로 내려받지 않으려면?',o:['이미지에 모델을 넣는다','초기화 단계가 공유 저장소로 한 번 내려받게 한다','노드 수를 1로 고정한다','캐시를 끈다'],a:1,e:'Trainer의 초기화 단계가 데이터셋과 모델을 한 번만 내려받아 노드들이 함께 씁니다.'}
+];
+var qz=$('quiz'),sc=$('score'),dn2=0,rt=0;
+function renderQ(){dn2=0;rt=0;sc.textContent='';qz.innerHTML=Q.map(function(x,i){return '<div class="qq" data-i="'+i+'"><h4>'+(i+1)+'. '+esc(x.q)+'</h4>'+x.o.map(function(o,k){return '<button class="ans" type="button" data-k="'+k+'">'+esc(o)+'</button>';}).join('')+'<p class="exp"></p></div>';}).join('');}
+qz.addEventListener('click',function(e){var b=e.target.closest('.ans');if(!b||b.disabled)return;var box=b.closest('.qq'),x=Q[+box.dataset.i],k=+b.dataset.k;
+  box.querySelectorAll('.ans').forEach(function(a){a.disabled=true;if(+a.dataset.k===x.a)a.classList.add('right');});
+  if(k!==x.a)b.classList.add('wrong');else rt++;
+  var ex=box.querySelector('.exp');ex.textContent=(k===x.a?'정답입니다. ':'정답은 '+(x.a+1)+'번째 보기입니다. ')+x.e;ex.classList.add('show');
+  dn2++;if(dn2===Q.length){sc.textContent=Q.length+'문제 중 '+rt+'문제를 맞혔습니다.'+(rt===Q.length?' 분산 학습의 구조를 이해했습니다.':' 틀린 문제는 해설에 나온 장을 다시 읽어 보세요.');}});
+$('quizReset').addEventListener('click',renderQ);renderQ();
+})();
+</script>
+</body>
+</html>
