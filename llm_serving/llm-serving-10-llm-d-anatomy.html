@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 10편 · llm-d 해부: 분산 추론 플랫폼</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 10 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>10편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">왜 Prefill/Decode를 나누나</a></li>
+    <li><a href="#s3">P/D 분리 효과 계산기</a></li>
+    <li><a href="#s4">KV 캐시 인지 라우팅</a></li>
+    <li><a href="#s5">KV 전송 계층: NIXL</a></li>
+    <li><a href="#s6">llm-d 아키텍처</a></li>
+    <li><a href="#s7">설치 구조와 배포 방식</a></li>
+    <li><a href="#s8">잘 닦인 경로</a></li>
+    <li><a href="#s9">운영 관점</a></li>
+    <li><a href="#s10">MSP 관점 도입 조건</a></li>
+    <li><a href="#s11">흔한 오해</a></li>
+    <li><a href="#s12">실습</a></li>
+    <li><a href="#s13">용어 사전</a></li>
+    <li><a href="#s14">확인 퀴즈</a></li>
+    <li><a href="#s15">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 2 · 플랫폼 설계·구축 — 10편</div>
+    <h1>llm-d 해부<br>분산 추론 플랫폼</h1>
+    <p class="intro">2편에서 Prefill은 연산, Decode는 메모리 대역폭이 병목이라는 것과, 둘이 한 GPU에서 섞이면 긴 Prefill이 Decode를 멈칫하게 만든다는 것을 봤습니다. 이번 편은 그 문제를 아예 <b>다른 GPU로 나눠서</b> 푸는 Prefill/Decode 분리, 여러 레플리카 중 <b>캐시를 가진 곳으로 보내는</b> KV 캐시 인지 라우팅, 그리고 둘을 잇는 <b>KV 전송 계층(NIXL)</b>을 해부합니다. 이 세 가지를 쿠버네티스 위에서 “잘 닦인 경로”로 묶어 둔 것이 llm-d입니다.</p>
+    <div class="meta-row">
+      <span class="chip">기준 <b>llm-d v0.9.0 (2026-08)</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 120분</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="통합 서빙과 P/D 분리 비교 애니메이션">
+    <div class="stack-head"><strong>긴 입력 하나가 들어올 때</strong><span class="spacer"></span><button class="btn primary" id="pdRun">재생</button></div>
+    <div class="seg-tabs" id="pdTabs"><button class="btn on" data-m="agg">통합 서빙 (GPU 1)</button><button class="btn" data-m="pd">P/D 분리 (Prefill GPU + Decode GPU)</button></div>
+    <div id="pdLanes"></div>
+    <div class="readout">
+      <div><span>진행 중 요청 A의 최대 토큰 간격</span><b id="pdItl">—</b></div>
+      <div><span>새 요청 C의 첫 토큰까지</span><b id="pdTtft">—</b></div>
+      <div><span>GPU 수</span><b id="pdGpu">—</b></div>
+    </div>
+    <div class="layer-detail" id="pdNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">분산 추론은 GPU를 더 쓰는 기술이 아니라, 같은 GPU를 더 맞게 쓰는 기술입니다. 그리고 그 효과는 규모가 있어야 나타납니다.</p>
+  <div class="prose">
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>Prefill/Decode 분리가 해결하는 문제(간섭·서로 다른 최적 설정)와 오히려 손해가 되는 조건을 설명할 수 있다.</li>
+      <li>KV 전송량과 네트워크 대역폭으로 P/D 분리의 TTFT 비용을 계산하고, 선택적 P/D의 기준을 세울 수 있다.</li>
+      <li>근사·정밀 프리픽스 캐시 점수와 부하 점수를 조합하는 KV 캐시 인지 라우팅을 설명하고, 라운드로빈과의 차이를 보여 줄 수 있다.</li>
+      <li>NIXL·UCX·RDMA로 이어지는 KV 전송 경로와 네트워크 요구 사항을 설명할 수 있다.</li>
+      <li>llm-d Router(프록시+EPP), InferencePool, 모델 서버, P/D 사이드카 등 구성 요소와 요청 흐름을 그릴 수 있다.</li>
+      <li>llm-d의 설치 방식(standalone·gateway 모드, kustomize 오버레이)과 잘 닦인 경로를 고르고, 시뮬레이터로 라우팅 동작을 실습할 수 있다.</li>
+    </ol>
+    <div class="callout warnbox">
+      <span class="ttl">랩의 한계를 먼저 밝혀 둡니다</span>
+      <ul>
+        <li><b>P/D 분리는 GPU가 최소 두 장 있어야 의미가 있습니다.</b> 우리 랩의 GPU 서빙 장치는 GB10 한 장이라 P/D의 성능 효과는 측정할 수 없습니다. 이 편에서는 계산기로 효과를 예측하고, 멀티 GPU 환경에서의 측정 설계와 구성 파일 읽기로 대신합니다.</li>
+        <li>llm-d가 공식 검증하는 NVIDIA 장비는 A100·H100·H200·B200이며, GB10(DGX Spark·PGX)은 목록에 없습니다.</li>
+        <li>대신 llm-d가 제공하는 <b>GPU 없는 vLLM 시뮬레이터</b>로 여러 레플리카를 만들어 <b>라우팅 동작은 그대로 실습</b>합니다. 8편의 타임 슬라이싱을 쓸 수 있다면 실제 vLLM 두 개로 프리픽스 캐시 라우팅의 TTFT 효과도 측정합니다.</li>
+      </ul>
+    </div>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 손질 주방과 조리 주방</span>
+      <p>지금까지의 엔진은 한 주방에서 재료 손질(Prefill)과 조리(Decode)를 같이 했습니다. 단체 주문이 들어오면 손질에 화구를 뺏겨 진행 중이던 요리가 멈칫합니다. <b>P/D 분리</b>는 손질 전용 주방과 조리 전용 주방을 따로 두고, 손질된 재료(KV 캐시)를 컨베이어(NIXL)로 넘기는 방식입니다. <b>KV 캐시 인지 라우팅</b>은 “이 단골의 밑반찬을 이미 준비해 둔 주방”으로 주문을 보내는 홀 매니저입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>왜 Prefill/Decode를 나누나</h2>
+  <p class="lede">두 단계는 병목도, 좋아하는 설정도 다릅니다. 한 GPU에 두면 서로 양보해야 합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>관점</th><th>Prefill</th><th>Decode</th><th>같은 GPU에 있을 때의 문제</th></tr></thead>
+    <tbody>
+      <tr><td class="k">병목 (2편)</td><td>연산</td><td>메모리 대역폭</td><td>한쪽이 쓰는 동안 다른 쪽 자원이 놀거나, 서로 밀어냄</td></tr>
+      <tr><td class="k">좋은 배치 크기</td><td>토큰 수천 개를 한 번에</td><td>요청 수십~수백 개를 함께</td><td>한 스텝의 토큰 예산을 두고 경쟁 (4편 스케줄러)</td></tr>
+      <tr><td class="k">좋은 병렬화</td><td>작은 TP로 여러 레플리카 (처리량)</td><td>큰 TP로 메모리 확보 (KV 공간·동시성)</td><td>하나의 설정으로 둘 다 만족할 수 없음</td></tr>
+      <tr><td class="k">좋은 GPU</td><td>연산 강한 GPU</td><td>대역폭·메모리 큰 GPU</td><td>같은 GPU 종류로 고정</td></tr>
+      <tr><td class="k">결정하는 지표</td><td>TTFT</td><td>ITL·TPOT</td><td>긴 Prefill이 끼어들면 진행 중 요청의 ITL 꼬리가 튐 (3편)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>Chunked Prefill(2·4편)은 긴 Prefill을 잘게 쪼개 간섭을 줄이지만 없애지는 못합니다. P/D 분리는 Prefill과 Decode를 <b>서로 다른 Pod(GPU)</b>에 맡겨, Decode 전용 GPU에는 Prefill이 아예 끼어들지 않게 합니다. 대가는 Prefill이 만든 KV 캐시를 Decode GPU로 옮기는 <b>전송 시간과 네트워크</b>, 그리고 두 풀의 비율을 맞추는 <b>운영 복잡도</b>입니다.</p>
+    <div class="grid2">
+      <div class="callout" style="--c:var(--ok);margin:0"><span class="ttl">P/D가 이기는 조건</span><ul><li>입력이 긴 요청이 많다 (RAG·문서 요약·에이전트)</li><li>ITL·TPOT의 꼬리(p99)에 엄격한 SLO가 있다</li><li>대형 모델·대규모 트래픽으로 GPU가 여러 장 이상</li><li>노드 간 고속 네트워크(RDMA)가 있다</li></ul></div>
+      <div class="callout" style="--c:var(--bad);margin:0"><span class="ttl">P/D가 지는 조건</span><ul><li>입력이 짧다 (전송 비용이 Prefill 절약보다 큼)</li><li>모델이 작고 트래픽이 적다 (GPU 한두 장)</li><li>네트워크가 느리다 (일반 이더넷 TCP)</li><li>운영 인력이 두 풀의 비율·장애를 관리할 여력이 없다</li></ul></div>
+    </div>
+    <div class="callout tip">
+      <span class="ttl">선택적 P/D</span>
+      <p>llm-d의 스케줄러에는 입력이 충분히 길 때만 P/D 경로를 쓰고, 짧은 요청은 Decode Pod 하나에서 Prefill까지 처리하게 하는 선택적 P/D 기능이 있습니다(기본은 꺼짐). 프롬프트가 짧아 “나눠서 전송하는 일”이 “한곳에서 다 하는 일”보다 비쌀 때를 피하는 장치입니다. 다음 장 계산기로 그 경계를 가늠해 보세요.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>P/D 분리 효과 계산기</h2>
+  <p class="lede">KV 전송 비용과 Prefill 간섭 비용을 나란히 놓고 따져 봅니다.</p>
+  <div class="tool wide" id="pdcTool">
+    <div class="desc">2편의 단순 모델로 계산한 교육용 추정입니다. 통합 서빙에서는 들어오는 Prefill이 Decode를 멈추게 하는 시간을, P/D 분리에서는 KV 전송 시간을 계산합니다.</div>
+    <div class="form">
+      <label>모델 <select id="pdcModel"><option value="8.2,144">Qwen3-8B급 (KV 144KiB/토큰)</option><option value="32.8,256" selected>Qwen3-32B급 (256KiB)</option><option value="70.6,320">70B급 (320KiB)</option></select></label>
+      <label>GPU <select id="pdcGpu"><option value="1979">H100 (FP8 연산 약 1,979TF)</option><option value="4500" selected>B200 (FP8 약 4,500TF)</option></select></label>
+      <label>평균 입력 토큰 <span id="pdcInV">4,000</span><input type="range" id="pdcIn" min="128" max="32000" step="128" value="4000"></label>
+      <label>도착률 (요청/s, 레플리카 하나당) <span id="pdcRV">2</span><input type="range" id="pdcR" min="0.25" max="10" step="0.25" value="2"></label>
+      <label>KV 전송 대역폭 <select id="pdcBw"><option value="3">일반 이더넷 TCP (~3 GB/s)</option><option value="25">RoCE 200Gb (~25 GB/s)</option><option value="50" selected>InfiniBand/RoCE 400Gb (~50 GB/s)</option><option value="400">같은 노드 NVLink (~400 GB/s 실효)</option></select></label>
+    </div>
+    <div class="result">
+      <div class="r"><span>요청당 Prefill 시간</span><b id="pdcPre">—</b></div>
+      <div class="r"><span>요청당 KV 크기</span><b id="pdcKv">—</b></div>
+      <div class="r"><span>KV 전송 시간 (P/D의 TTFT 추가분)</span><b id="pdcXfer">—</b></div>
+      <div class="r"><span>통합 서빙에서 Decode가 멈추는 시간 비율</span><b id="pdcStall">—</b></div>
+      <div class="r"><span>통합 서빙 ITL 꼬리 (멈칫 한 번의 길이)</span><b id="pdcSpike">—</b></div>
+    </div>
+    <div class="verdict" id="pdcNote"></div>
+  </div>
+</section>
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>KV 캐시 인지 라우팅</h2>
+  <p class="lede">P/D 분리보다 먼저, 그리고 GPU가 두 장만 있어도 효과를 보는 것은 라우팅입니다.</p>
+  <div class="prose">
+    <p>vLLM의 프리픽스 캐시(4편)는 <b>레플리카마다 따로</b> 있습니다. 같은 시스템 프롬프트·같은 대화의 다음 턴이 지난번과 다른 레플리카로 가면 캐시는 쓸모가 없고 Prefill을 처음부터 다시 합니다. 일반 로드밸런서(라운드로빈)는 이를 모릅니다. llm-d Router의 Endpoint Picker(EPP)는 요청마다 후보 Pod에 점수를 매겨 고릅니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>점수 요소 (scorer)</th><th>보는 것</th><th>효과</th></tr></thead>
+    <tbody>
+      <tr><td class="k">근사 프리픽스 캐시</td><td>라우터가 지금까지 어느 Pod로 어떤 프리픽스를 보냈는지 기억</td><td>엔진 연동 없이 캐시 적중을 높임. 엔진이 캐시를 축출해도 라우터는 모를 수 있음</td></tr>
+      <tr><td class="k">정밀 프리픽스 캐시</td><td>엔진이 보내는 KV 이벤트(블록 생성·축출)로 클러스터 전체 KV 블록 위치를 추적</td><td>실제 캐시 상태 기반. 이벤트 수집 구성 요소 필요 (잘 닦인 경로로 제공)</td></tr>
+      <tr><td class="k">대기열 길이</td><td>Pod의 대기 요청 수</td><td>밀린 Pod 회피 (3편의 TTFT 꼬리 방지)</td></tr>
+      <tr><td class="k">KV 캐시 사용률</td><td>Pod의 KV 풀 점유율</td><td>선점 직전의 Pod 회피 (4편)</td></tr>
+      <tr><td class="k">LoRA 친화도</td><td>요청한 어댑터가 이미 올라간 Pod</td><td>어댑터 로딩 회피 (16편)</td></tr>
+      <tr><td class="k">예측 지연 기반</td><td>요청 특성으로 Pod별 예상 TTFT·TPOT를 예측</td><td>SLO 기준으로 고르기 (중간 성숙도)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>핵심은 <b>캐시 점수와 부하 점수의 균형</b>입니다. 캐시만 보면 인기 있는 프리픽스를 가진 Pod 하나에 요청이 몰리고, 부하만 보면 캐시가 깨집니다. 아래 시뮬레이터로 가중치를 바꿔 보세요.</p>
+  </div>
+  <div class="tool wide" id="rtTool">
+    <h4>라우팅 전략 시뮬레이터</h4>
+    <div class="desc">Pod 4개, 공통 앞부분을 가진 대화 세션 6개에서 요청 60개가 들어옵니다(세션 A가 가장 활발). 각 요청의 입력 2,000토큰 중 세션 공통 앞부분이 1,600토큰입니다. 캐시 적중 시 공통 부분의 Prefill을 건너뜁니다. 개념 설명용 단순 모델입니다.</div>
+    <div class="seg-tabs" id="rtTabs">
+      <button class="btn on" data-s="rr">라운드로빈</button>
+      <button class="btn" data-s="lq">최소 대기열</button>
+      <button class="btn" data-s="px">프리픽스 + 부하 점수</button>
+    </div>
+    <div class="form" id="rtW"><label>캐시 점수 가중치 (나머지는 부하 점수) <span id="rtWV">0.4</span><input type="range" id="rtWeight" min="0" max="1" step="0.05" value="0.4"></label></div>
+    <div class="pods" id="rtPods"></div>
+    <div class="result">
+      <div class="r"><span>프리픽스 캐시 적중률</span><b id="rtHit">—</b></div>
+      <div class="r"><span>계산한 Prefill 토큰 (전체)</span><b id="rtTok">—</b></div>
+      <div class="r"><span>Pod 간 계산량 불균형 (최대/평균)</span><b id="rtImb">—</b></div>
+    </div>
+    <div class="verdict" id="rtNote"></div>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>KV 전송 계층: NIXL</h2>
+  <p class="lede">P/D 분리의 성패는 Prefill GPU의 KV 블록을 Decode GPU로 얼마나 빨리, 얼마나 적은 CPU 개입으로 옮기느냐에 달렸습니다.</p>
+  <div class="prose">
+    <p><b>NIXL(NVIDIA Inference Xfer Library)</b>은 GPU 메모리·CPU 메모리·스토리지 사이의 데이터 이동을 하나의 API로 추상화한 라이브러리입니다. 아래에서는 UCX 같은 전송 백엔드가 같은 노드면 NVLink·PCIe, 다른 노드면 RDMA(InfiniBand·RoCE)를, 안 되면 TCP를 고릅니다. vLLM은 이를 <b>KV 커넥터</b>(4편)의 하나인 NixlConnector로 씁니다. llm-d와 NVIDIA Dynamo 모두 NIXL을 씁니다.</p>
+    <h3>P/D 요청 하나의 흐름 (llm-d 기준)</h3>
+    <ol class="pathlist">
+      <li style="--c:var(--l5)"><b>요청 도착 → llm-d Router</b><span>EPP가 P/D 프로파일에 따라 Decode Pod와 Prefill Pod를 고르고, 선택한 Prefill 대상 정보를 요청에 실어 Decode Pod로 보냅니다.</span></li>
+      <li style="--c:var(--l3)"><b>Decode Pod의 사이드카</b><span>Decode Pod 옆의 라우팅 사이드카가 먼저 Prefill Pod에 “Prefill만 하고 KV는 원격 Decode용으로 남겨 달라”는 요청을 보냅니다.</span></li>
+      <li style="--c:var(--l1)"><b>Prefill Pod</b><span>입력을 처리해 KV 블록을 만들고, 그 블록의 위치 정보(KV 전송 파라미터)를 응답으로 돌려줍니다.</span></li>
+      <li style="--c:var(--l2)"><b>NIXL 전송</b><span>Decode Pod의 vLLM이 그 정보로 Prefill Pod GPU 메모리의 KV 블록을 NIXL로 직접 읽어 옵니다(가능하면 RDMA, CPU를 거치지 않음).</span></li>
+      <li style="--c:var(--l6)"><b>Decode</b><span>받은 KV로 곧바로 토큰 생성을 이어 가고, 응답은 사이드카·Router를 거쳐 클라이언트로 스트리밍됩니다. Prefill Pod의 블록은 해제됩니다.</span></li>
+    </ol>
+    <h3>네트워크 요구 사항</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>환경</th><th>전송 경로</th><th>실효 대역폭 (대략)</th><th>P/D 적합성</th></tr></thead>
+    <tbody>
+      <tr><td class="k">같은 노드, NVLink</td><td>GPU ↔ GPU 직접</td><td>수백 GB/s</td><td>매우 좋음 (8장 GPU 노드 안에서 P·D 분리)</td></tr>
+      <tr><td class="k">노드 간 InfiniBand·RoCE + GPUDirect RDMA</td><td>NIC가 GPU 메모리 직접 접근</td><td>수십 GB/s (200~800Gb 포트)</td><td>좋음. 대규모 P/D의 표준 구성</td></tr>
+      <tr><td class="k">노드 간 RDMA, GPUDirect 없음</td><td>GPU → 호스트 메모리 → NIC</td><td>위보다 낮고 CPU 부하</td><td>보통</td></tr>
+      <tr><td class="k">일반 이더넷 TCP</td><td>커널 네트워크 스택</td><td>수 GB/s</td><td>긴 입력에서 전송 시간이 TTFT를 크게 늘림. 기능 검증용</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">P/D는 네트워크 프로젝트이기도 하다</span>
+      <p>P/D를 도입하려면 GPU 노드의 RDMA NIC, 스위치 구성(RoCE라면 무손실 설정), GPU와 NIC의 PCIe 정렬(8편 토폴로지), 쿠버네티스에서 RDMA 장치를 Pod에 주는 방법(SR-IOV·RDMA 장치 플러그인 또는 DRA)이 함께 준비되어야 합니다. 최근 llm-d 릴리스는 GB200·GB300용 P/D 구성에 DRA와 RDMA 레시피를 포함합니다. 인프라팀·네트워크팀과 함께 설계해야 하는 이유입니다.</p>
+    </div>
+    <p>NIXL 외에도 vLLM에는 여러 KV 커넥터가 있습니다(LMCache 연동, CPU 오프로딩, 다른 전송 방식 등). KV를 CPU·스토리지로 내리는 “계층형 프리픽스 캐시”는 15편에서 다룹니다.</p>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>llm-d 아키텍처</h2>
+  <p class="lede">vLLM, 쿠버네티스, Gateway API Inference Extension이라는 표준 위에 층을 쌓은 구조.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성 요소</th><th>역할</th><th>메모</th></tr></thead>
+    <tbody>
+      <tr><td class="k">llm-d Router</td><td>프록시 + Endpoint Picker(EPP). 요청마다 점수를 매겨 모델 서버 Pod 선택</td><td>v0.7에서 예전 “inference scheduler·inference gateway” 이름을 이것으로 통일. 저장소도 llm-d-router로</td></tr>
+      <tr><td class="k">InferencePool · InferenceObjective (GAIE API)</td><td>같은 모델 서버 Pod 묶음, 요청의 우선순위·목표</td><td>11편에서 자세히</td></tr>
+      <tr><td class="k">모델 서버</td><td>vLLM (SGLang도 일부 경로 지원)</td><td>P/D면 Prefill용·Decode용 Deployment 두 개</td></tr>
+      <tr><td class="k">P/D 라우팅 사이드카</td><td>Decode Pod 옆에서 Prefill 요청과 KV 전송을 조율</td><td>EPP와 같은 저장소(라우팅 엔진·사이드카)</td></tr>
+      <tr><td class="k">KV 캐시 인덱서</td><td>엔진의 KV 이벤트로 클러스터 전체 블록 위치 추적 (정밀 프리픽스 라우팅)</td><td>잘 닦인 경로로 제공</td></tr>
+      <tr><td class="k">계층형 프리픽스 캐시</td><td>KV를 CPU 메모리·스토리지로 오프로딩</td><td>15편</td></tr>
+      <tr><td class="k">워크로드 오토스케일러 (WVA)</td><td>모델 변형별 레플리카 수를 지표 기반으로 조정</td><td>18편. 실험 단계</td></tr>
+      <tr><td class="k">배치 게이트웨이·비동기 처리기</td><td>OpenAI 호환 Batch API, 메시지 큐 기반 요청 처리</td><td>배치 추론 워크로드</td></tr>
+      <tr><td class="k">빠른 모델 기동 (FMA)</td><td>콜드 스타트 지연을 줄이는 경로</td><td>v0.9에서 새 경로. 13편</td></tr>
+      <tr><td class="k">vLLM 시뮬레이터</td><td>GPU 없이 vLLM API·지표를 흉내 내는 서버</td><td>스케줄링 시험·이번 실습에 사용</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>요청 흐름 (통합 서빙, standalone 모드)</h3>
+    <div class="flowline">
+      <div class="st" style="--c:var(--l7)"><b>클라이언트</b>OpenAI 호환 요청</div><span class="ar">›</span>
+      <div class="st" style="--c:var(--l5)"><b>Router 프록시 (Envoy)</b>EPP Pod 안의 사이드카</div><span class="ar">›</span>
+      <div class="st" style="--c:var(--l4)"><b>EPP 점수 계산</b>캐시·대기열·KV 사용률</div><span class="ar">›</span>
+      <div class="st" style="--c:var(--l3)"><b>선택된 vLLM Pod</b>InferencePool의 구성원</div>
+    </div>
+    <p>v0.9에서는 이 경로 전체(점수 계산, P/D의 Prefill 스케줄링·KV 전송·Decode 완료)에 걸쳐 OpenTelemetry 트레이스가 이어지도록 관측 기능이 강화되었습니다(21편).</p>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>설치 구조와 배포 방식</h2>
+  <p class="lede">하나의 거대한 차트가 아니라, Router 차트 + 모델 서버 오버레이 + (선택) 게이트웨이의 조합입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>층</th><th>배포 방법</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">CRD</td><td><code>kubectl apply -k</code></td><td>Gateway API, Gateway API Inference Extension CRD (llm-d 문서 기준 최소 버전 명시)</td></tr>
+      <tr><td class="k">llm-d Router · standalone 모드</td><td>Helm 차트</td><td>InferencePool + EPP + EPP Pod 안의 프록시 사이드카(Envoy 기본). 쿠버네티스 Gateway 불필요. v0.7부터 기본 모드</td></tr>
+      <tr><td class="k">llm-d Router · gateway 모드</td><td>Helm 차트</td><td>InferencePool + EPP를 기존 Gateway(Istio, AgentGateway, Envoy AI Gateway, GKE 등)에 붙이고 HTTPRoute 생성</td></tr>
+      <tr><td class="k">모델 서버</td><td>kustomize 오버레이 (레시피 + 경로별 오버레이)</td><td>vLLM Deployment(통합 또는 Prefill·Decode), 노드 셀렉터·스토리지 등 환경별 패치</td></tr>
+      <tr><td class="k">경로별 추가 구성 요소</td><td>kustomize·Helm</td><td>KV 인덱서, 오토스케일러, 배치 게이트웨이 등</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>설치 방식의 변화</b>: 예전의 Helmfile·infra·modelservice 차트는 사용 중단되었고, kustomize 우선으로 옮겨 가는 중입니다. 오래된 블로그의 설치 명령은 그대로 동작하지 않을 수 있습니다.</li>
+      <li><b>게이트웨이 지원</b>: llm-d 기능 표 기준으로 Istio가 기본, AgentGateway는 새 자체 설치에 권장, GKE Gateway 지원, kgateway는 사용 중단 예정입니다. 우리 랩의 Envoy Gateway는 목록에 없으므로 <b>standalone 모드</b>로 Router를 띄우고, 7편 Gateway의 HTTPRoute가 Router 서비스를 가리키게 합니다(실습).</li>
+      <li><b>성숙도</b>: 같은 기능 표에서 통합 서빙 최적화 기본 경로와 vLLM·CUDA P/D 분리는 “높음”, 정밀 프리픽스 라우팅·계층형 캐시·예측 지연 스케줄링은 “중간”, 전문가 병렬·WVA·SGLang P/D는 “실험” 단계로 표시됩니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>잘 닦인 경로</h2>
+  <p class="lede">“검증되고, 문서화되고, 벤치마크된 구성”. 처음 도입은 반드시 여기서 시작합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>경로</th><th>무엇을 하나</th><th>언제</th><th>관련 편</th></tr></thead>
+    <tbody>
+      <tr><td class="k">최적화 기본 경로 (예전 이름: 지능형 추론 스케줄링)</td><td>vLLM 레플리카들 앞에 Router를 두고 프리픽스·부하 인지 라우팅</td><td><b>새 사용자의 출발점</b>. 레플리카 2개 이상이면 바로 효과</td><td>이번 편, 11편</td></tr>
+      <tr><td class="k">정밀 프리픽스 캐시 라우팅</td><td>KV 이벤트 기반 정확한 캐시 위치 추적</td><td>멀티턴·에이전트 비중이 커서 적중률이 비용을 좌우할 때</td><td>15편</td></tr>
+      <tr><td class="k">P/D 분리</td><td>Prefill·Decode Pod 분리 + NIXL</td><td>긴 입력·대형 모델·ITL SLO 엄격·RDMA 있음</td><td>이번 편</td></tr>
+      <tr><td class="k">대규모 전문가 병렬 (Wide EP)</td><td>대형 MoE를 여러 노드에 전문가 단위로 배치 (LWS)</td><td>DeepSeek급 초대형 MoE</td><td>17편</td></tr>
+      <tr><td class="k">계층형 프리픽스 캐시</td><td>KV를 CPU·스토리지로 확장</td><td>다른 경로와 조합. 긴 컨텍스트·많은 세션</td><td>15편</td></tr>
+      <tr><td class="k">오토스케일링 (HPA + 게이트웨이 지표, WVA)</td><td>추론 지표 기반 확장</td><td>트래픽 변동이 클 때</td><td>18편</td></tr>
+      <tr><td class="k">흐름 제어·배치 게이트웨이·비동기 처리</td><td>과부하 보호, 대량 오프라인 처리</td><td>배치·우선순위가 섞인 워크로드</td><td>24편</td></tr>
+      <tr><td class="k">빠른 모델 기동 (FMA)</td><td>콜드 스타트 단축</td><td>모델 전환·축소 확장이 잦을 때</td><td>13편</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>운영 관점</h2>
+  <p class="lede">구성 요소가 늘면 장애 지점도 늘어납니다. 각각이 실패할 때 무슨 일이 생기는지 알아야 합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>장애·이상</th><th>증상</th><th>먼저 볼 것</th></tr></thead>
+    <tbody>
+      <tr><td class="k">EPP(Router) 장애</td><td>모든 요청 실패 또는 무작위 분배로 후퇴</td><td>Router 레플리카·실패 시 동작 정책(통과/차단), 11편</td></tr>
+      <tr><td class="k">지표 수집 실패</td><td>라우팅이 사실상 라운드로빈이 됨, 캐시 적중률 급락</td><td>EPP가 모델 서버 지표를 읽는지, 엔진 지표 이름 변경(엔진 업그레이드 후)</td></tr>
+      <tr><td class="k">KV 전송 실패·지연</td><td>P/D 요청의 TTFT 급증, 타임아웃</td><td>NIXL·UCX 로그, RDMA 장치 할당, 네트워크 오류 카운터</td></tr>
+      <tr><td class="k">Prefill 풀 포화</td><td>Decode는 한가한데 TTFT만 증가</td><td>Prefill:Decode 비율, 입력 길이 분포 변화</td></tr>
+      <tr><td class="k">Decode 풀 KV 포화</td><td>선점 증가, ITL 꼬리</td><td>Decode TP·메모리, 동시성 상한(4편)</td></tr>
+      <tr><td class="k">버전 불일치</td><td>P/D 전송 실패, 지표 해석 오류</td><td>Router·사이드카·vLLM·NIXL 버전을 경로가 검증한 조합으로 고정</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">P:D 비율은 워크로드가 정한다</span>
+      <p>입력이 길고 출력이 짧으면 Prefill 풀이 더 많이, 입력이 짧고 출력이 길면 Decode 풀이 더 많이 필요합니다. 3장 계산기의 Prefill 시간과 출력 길이로 두 풀의 작업량 비율을 대략 잡고, 19편 방식으로 실측해 맞춥니다. 워크로드가 바뀌면 비율도 다시 맞춰야 하며, 이 조정을 자동화하는 것이 오토스케일러(18편)·Dynamo의 플래너 같은 구성 요소의 역할입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>MSP 관점 도입 조건</h2>
+  <p class="lede">고객에게 llm-d를 제안하기 전에 확인할 것들.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>단계</th><th>조건</th><th>제안</th></tr></thead>
+    <tbody>
+      <tr><td class="k">최적화 기본 경로</td><td>같은 모델 레플리카 2개 이상, 공통 프롬프트·멀티턴 비중</td><td>가장 먼저 제안. 엔진은 그대로, Router만 추가. 효과를 TTFT·캐시 적중률로 증명하기 쉬움</td></tr>
+      <tr><td class="k">KServe 경유</td><td>KServe를 표준으로 쓰는 고객 (9편)</td><td>LLMInferenceService로 같은 기능을 CRD로</td></tr>
+      <tr><td class="k">P/D 분리</td><td>긴 입력 비중이 크고, GPU 8장 이상, RDMA 네트워크, ITL SLO 엄격</td><td>네트워크·인프라 진단을 먼저. 고객사 네트워크팀 참여 필수</td></tr>
+      <tr><td class="k">대규모 전문가 병렬</td><td>초대형 MoE, 랙 단위 GPU, 전담 팀</td><td>벤더·커뮤니티 레퍼런스 구성 그대로부터</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>흔한 오해</h2>
+  <p class="lede">분산 추론에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>실습</h2>
+  <p class="lede">GPU 없는 vLLM 시뮬레이터 4개 앞에 llm-d Router(standalone 모드)를 세워 라우팅 결정을 관찰하고, 가능하면 실제 vLLM 두 개로 캐시 효과를 잰 뒤, P/D 구성 파일을 읽고 멀티 GPU 환경의 측정 계획을 세웁니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>7편 랩(<code>llmsvc-lab</code>, bench Pod, Envoy Gateway). 시뮬레이터와 Router는 GPU가 필요 없으므로 x86 노드(P3)에서 돌립니다.</li>
+        <li>Gateway API Inference Extension CRD는 클러스터 공용 리소스입니다. 추가만 하며 기존 리소스를 바꾸지 않지만, 11편에서도 계속 씁니다.</li>
+        <li>차트 주소·이미지 태그·values 키는 llm-d v0.9 문서 기준 예시입니다. 설치 전에 <code>helm show values</code>로 실제 키를 확인하세요.</li>
+      </ul>
+    </div>
+
+    <h3>실습 10-1 · GAIE CRD와 llm-d 저장소 준비</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># 이미 있는지 확인</span>
+kubectl get crd | grep -E "inference.networking" || echo "GAIE CRD 없음"
+
+<span class="c-cm"># llm-d 문서가 요구하는 최소 버전 이상으로 설치 (기능 표 기준 v1.5.0)</span>
+GAIE_VERSION=v1.5.0
+kubectl apply -k "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=${GAIE_VERSION}"
+kubectl get crd | grep inference.networking         <span class="c-cm"># inferencepools, inferenceobjectives …</span>
+
+<span class="c-cm"># 가이드·레시피를 보기 위해 llm-d 저장소를 릴리스 태그로</span>
+git clone https://github.com/llm-d/llm-d.git &amp;&amp; cd llm-d &amp;&amp; git checkout v0.9.0
+ls guides/ guides/recipes/ 2&gt;/dev/null</code></pre></div>
+
+    <h3>실습 10-2 · 시뮬레이터 4개 띄우기</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · sim-qwen.yaml</span><button class="copy">복사</button></div><pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata: { name: sim-qwen, namespace: llmsvc-lab, labels: { app: sim-qwen } }
+spec:
+  replicas: 4
+  selector: { matchLabels: { app: sim-qwen } }
+  template:
+    metadata: { labels: { app: sim-qwen } }
+    spec:
+      nodeSelector: { kubernetes.io/arch: amd64 }     <span class="c-cm"># GPU 불필요, x86 노드에</span>
+      containers:
+      - name: sim
+        image: ghcr.io/llm-d/llm-d-inference-sim:v0.8.2    <span class="c-cm"># 최신 태그 확인</span>
+        args: ["--model", "qwen3-8b", "--port", "8000"]    <span class="c-cm"># 지연·KV 흉내 옵션은 --help로 확인</span>
+        ports: [ { containerPort: 8000, name: http } ]
+        resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 256Mi } }
+        readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 5 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: sim-qwen, namespace: llmsvc-lab }   <span class="c-cm"># 비교용: 일반 Service (라운드로빈에 가까운 분배)</span>
+spec:
+  selector: { app: sim-qwen }
+  ports: [ { name: http, port: 8000, targetPort: http } ]</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl apply -f sim-qwen.yaml
+kubectl -n llmsvc-lab rollout status deploy/sim-qwen
+kubectl -n llmsvc-lab exec bench -- python -c "import urllib.request,json;print(json.load(urllib.request.urlopen('http://sim-qwen:8000/v1/models')))"
+kubectl -n llmsvc-lab exec deploy/sim-qwen -- /llm-d-inference-sim --help 2&gt;/dev/null | head -40 || true</code></pre></div>
+    <p>ResourceQuota의 CPU·메모리 요청 합에 여유가 있는지 확인하세요(시뮬레이터는 매우 가볍습니다). 시뮬레이터의 실행 파일 경로·이름이 다르면 <code>--help</code> 줄은 넘어가도 됩니다.</p>
+
+    <h3>실습 10-3 · llm-d Router를 standalone 모드로</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · router-values.yaml (키 이름은 helm show values로 확인 후 맞추기)</span><button class="copy">복사</button></div><pre><code>inferencePool:
+  modelServers:
+    matchLabels: { app: sim-qwen }       <span class="c-cm"># 이 라벨의 Pod들이 InferencePool 구성원</span>
+  targetPorts:
+  - number: 8000</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 설치</span><button class="copy">복사</button></div><pre><code>CHART=oci://ghcr.io/llm-d/charts/llm-d-router-standalone     <span class="c-cm"># 문서의 standalone 차트 주소 확인 (GAIE 레지스트리 주소일 수도 있음)</span>
+helm show values $CHART &gt; default-values.yaml               <span class="c-cm"># 실제 키 확인</span>
+
+<span class="c-cm"># llm-d 저장소의 기본 Router 레시피 + 최적화 기본 경로 값 + 우리 값</span>
+helm install lab-router $CHART -n llmsvc-lab \
+  -f llm-d/guides/recipes/router/base.values.yaml \
+  -f router-values.yaml
+kubectl -n llmsvc-lab get inferencepool,deploy,svc | grep -iE "router|pool|epp"
+kubectl -n llmsvc-lab logs deploy/$(kubectl -n llmsvc-lab get deploy -o name | grep -i router | head -1 | cut -d/ -f2) --all-containers | tail -30</code></pre></div>
+    <p>레시피 파일 경로는 릴리스마다 바뀔 수 있으니 저장소의 <code>guides/</code> 아래에서 최적화 기본 경로(optimized-baseline) 가이드가 가리키는 값 파일을 따르세요. EPP Pod에 프록시 사이드카가 함께 떠 있는지, 로그에 InferencePool의 Pod 4개가 발견되었는지 확인합니다.</p>
+
+    <h3>실습 10-4 · 라우팅 결정 관찰</h3>
+    <div class="codeblock"><div class="cap"><span>python · route_probe.py (50-tools/scripts에 추가)</span><button class="copy">복사</button></div><pre><code>"""세션별 공통 앞부분을 가진 요청을 보내고 지연을 기록한다. 같은 트래픽을 Router와 일반 Service에 각각 보내 비교.
+사용: python route_probe.py --base http://&lt;router-서비스&gt;/v1 --label router"""
+import argparse, random, statistics, time, json, urllib.request
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--base", required=True); ap.add_argument("--label", required=True)
+ap.add_argument("--model", default="qwen3-8b"); ap.add_argument("--rounds", type=int, default=10)
+a = ap.parse_args()
+WORDS = "노드 파드 쿼터 지연 처리량 메모리 대역폭 캐시 배치 스케줄러 게이트웨이 장애 알림 예산 토큰".split()
+sessions = {s: " ".join(random.Random(s).choice(WORDS) for _ in range(800)) for s in "ABCDEF"}
+
+def ask(prompt):
+    body = json.dumps({"model": a.model, "max_tokens": 16,
+                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    req = urllib.request.Request(a.base + "/chat/completions", body, {"Content-Type": "application/json"})
+    t0 = time.perf_counter(); urllib.request.urlopen(req, timeout=60).read()
+    return time.perf_counter() - t0
+
+lat = {s: [] for s in sessions}
+for r in range(a.rounds):
+    for s in ("A", "A", "A", "B", "B", "C", "D", "E", "F"):   # A가 가장 활발한 세션
+        lat[s].append(ask(f"[{s}] 공통 맥락: {sessions[s]}\n질문 {r}: 요약해 줘"))
+for s, v in lat.items():
+    print(f"{a.label} 세션 {s}: {len(v)}건, 중앙값 {statistics.median(v)*1000:.1f} ms, 첫 요청 {v[0]*1000:.1f} ms")</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 같은 트래픽을 두 경로로 보내고 Pod별 처리 건수 세기</span><button class="copy">복사</button></div><pre><code>kubectl cp route_probe.py llmsvc-lab/bench:/tmp/route_probe.py
+ROUTER_SVC=&lt;router 프록시 Service 이름&gt;:&lt;포트&gt;        <span class="c-cm"># 10-3에서 확인한 값</span>
+
+count(){  <span class="c-cm"># 각 시뮬레이터 Pod의 요청 로그 줄 수 (패턴은 실제 로그 한 줄을 보고 맞추기)</span>
+  for p in $(kubectl -n llmsvc-lab get pods -l app=sim-qwen -o name); do
+    echo "$p $(kubectl -n llmsvc-lab logs $p | grep -ciE 'chat/completions|request')"; done; }
+
+kubectl -n llmsvc-lab rollout restart deploy/sim-qwen &amp;&amp; kubectl -n llmsvc-lab rollout status deploy/sim-qwen
+kubectl -n llmsvc-lab exec bench -- python /tmp/route_probe.py --base http://sim-qwen:8000/v1 --label service
+count     <span class="c-cm"># 일반 Service: 4개 Pod에 고르게 퍼짐</span>
+
+kubectl -n llmsvc-lab rollout restart deploy/sim-qwen &amp;&amp; kubectl -n llmsvc-lab rollout status deploy/sim-qwen
+kubectl -n llmsvc-lab exec bench -- python /tmp/route_probe.py --base http://$ROUTER_SVC/v1 --label router
+count     <span class="c-cm"># Router: 세션이 특정 Pod에 붙고, 가장 활발한 세션 A는 부하 점수 때문에 일부 분산되는지 확인</span></code></pre></div>
+    <p><b>관찰 포인트</b>: 시뮬레이터에는 실제 KV 캐시가 없으므로 지연 차이가 아니라 <b>라우팅 결정</b>을 봅니다. 같은 세션의 요청이 같은 Pod로 모이는지(근사 프리픽스 점수), 한 Pod에만 몰리지는 않는지(부하 점수)를 4장 시뮬레이터의 결과와 비교하세요. 더 정확히 보려면 EPP 로그의 상세 수준을 높여 요청별 선택 결과를 확인할 수 있습니다(설정 키는 차트 값 참고).</p>
+
+    <h3>실습 10-5 · (선택) 실제 vLLM 두 개로 캐시 효과 측정</h3>
+    <p>8편 실습 8-3의 타임 슬라이싱(GPU를 2개로 광고)을 켤 수 있다면, Qwen3-0.6B vLLM 레플리카 두 개를 띄워 InferencePool로 묶고 같은 측정을 합니다. 이번에는 캐시 적중이 실제 TTFT 차이로 나타납니다.</p>
+    <ul>
+      <li>랩 쿼터의 GPU를 일시적으로 2로 올립니다: <code>kubectl -n llmsvc-lab patch resourcequota lab-quota --type merge -p '{"spec":{"hard":{"requests.nvidia.com/gpu":"2"}}}'</code></li>
+      <li>7편 <code>qwen3-0.6b</code> 오버레이를 복사해 <code>replicas: 2</code>, <code>gpu-memory-utilization: 0.12</code>로 바꾼 오버레이를 만들고, Router values의 matchLabels를 <code>app: llm-engine</code>으로 바꿔 다시 설치합니다.</li>
+      <li><code>route_probe.py --model qwen3-0.6b --rounds 20</code>을 Router와 <code>llm-engine</code> Service에 각각 실행해 세션별 “첫 요청 이후 중앙값”을 비교합니다. Router 쪽이 낮게 나온다면 같은 세션이 캐시를 가진 레플리카로 간 결과입니다.</li>
+      <li>끝나면 쿼터를 1로, 타임 슬라이싱을 8편 절차로 되돌립니다. 두 엔진이 하나의 GB10을 나눠 쓰므로 절대 지연은 의미가 없고, <b>두 경로의 상대 차이</b>만 봅니다.</li>
+    </ul>
+
+    <h3>실습 10-6 · P/D 구성 읽기와 멀티 GPU 측정 설계</h3>
+    <div class="codeblock"><div class="cap"><span>bash · P/D 가이드에서 찾아볼 것</span><button class="copy">복사</button></div><pre><code>cd llm-d
+ls guides | grep -i -E "pd|disagg"
+grep -rn -E "kv-transfer-config|NixlConnector|kv_role" guides/ | head          <span class="c-cm"># vLLM의 KV 커넥터 설정</span>
+grep -rn -iE "sidecar|routing-proxy|pd-profile|prefill" guides/ | head -20    <span class="c-cm"># Decode 사이드카·EPP의 P/D 설정</span>
+grep -rn -iE "rdma|roce|ib|sriov|resourceClaims" guides/ | head -20           <span class="c-cm"># 네트워크 장치 할당</span></code></pre></div>
+    <p>vLLM 쪽 핵심 설정은 대체로 <code>--kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'</code> 같은 형태입니다(정확한 값은 가이드·vLLM 버전 기준). 가이드에서 (1) Prefill·Decode Deployment의 레플리카·TP 차이, (2) Decode Pod의 사이드카 컨테이너, (3) EPP의 P/D 프로파일·선택적 P/D 임계값, (4) RDMA 장치 요청 방식을 찾아 아래 표에 적어 보세요. 그다음 멀티 GPU 환경(클라우드·고객사)에서 실행할 측정 계획을 세웁니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성</th><th>GPU 배치</th><th>부하</th><th>잴 지표</th><th>기대</th></tr></thead>
+    <tbody>
+      <tr><td class="k">A · 통합 서빙 + Router</td><td>GPU N장 = 레플리카 N개</td><td>짧은 입력 70% + 긴 입력(16K) 30%, 열린 루프(3편)</td><td>TTFT p95, ITL p99, 출력 처리량, Goodput</td><td>긴 입력이 섞일 때 ITL p99가 튐</td></tr>
+      <tr><td class="k">B · P/D 분리</td><td>Prefill k장 + Decode N−k장</td><td>같음</td><td>같음 + KV 전송 시간</td><td>ITL p99 안정, TTFT는 전송 시간만큼 증감</td></tr>
+      <tr><td class="k">C · 선택적 P/D</td><td>B와 같음</td><td>같음</td><td>같음</td><td>짧은 입력의 TTFT 손해 회피</td></tr>
+      <tr><td class="k">B′ · 비율 스윕</td><td>k = 1, 2, 3 …</td><td>같음</td><td>Goodput</td><td>워크로드에 맞는 P:D 비율 찾기</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>정리하기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>helm uninstall lab-router -n llmsvc-lab
+kubectl -n llmsvc-lab delete -f sim-qwen.yaml
+<span class="c-cm"># GAIE CRD는 11편에서 계속 사용하므로 유지</span>
+<span class="c-cm"># 10-5를 했다면: 쿼터 GPU 1로 복구, 타임 슬라이싱 해제(8편), ./lab.sh up qwen3-8b-fp8</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: NIXL, EPP, 사이드카, 선택적 P/D" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14" class="quiz">
+  <h2><span class="sec-num">14</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2><span class="sec-num">15</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>P/D 분리는 간섭을 없애고 단계별 최적 설정을 허용</b>한다. 대가는 KV 전송과 두 풀의 운영이다.</li>
+      <li><b>긴 입력·대형 모델·엄격한 ITL SLO·RDMA가 있을 때 이기고</b>, 짧은 입력·작은 규모·느린 네트워크에서는 진다. 선택적 P/D가 그 경계를 다룬다.</li>
+      <li><b>KV 캐시 인지 라우팅은 레플리카 두 개부터 효과</b>가 있고, 캐시 점수와 부하 점수의 균형이 핵심이다.</li>
+      <li><b>NIXL은 KV 전송을 추상화</b>하고, 성능은 NVLink·RDMA·GPUDirect 같은 아래 경로가 정한다. P/D는 네트워크 프로젝트이기도 하다.</li>
+      <li><b>llm-d = Router(프록시+EPP) + GAIE API + vLLM + 경로별 구성 요소.</b> standalone 모드와 kustomize 우선 설치로 바뀌었다.</li>
+      <li><b>도입은 최적화 기본 경로부터</b>, P/D·전문가 병렬은 조건이 맞을 때 잘 닦인 경로 그대로.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">P/D 분리가 손해가 되는 조건 세 가지를 말할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">입력 길이·KV 크기·대역폭으로 KV 전송 시간을 계산할 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">근사·정밀 프리픽스 점수의 차이와 부하 점수가 필요한 이유를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">P/D 요청이 Router → Decode 사이드카 → Prefill → NIXL → Decode로 흐르는 과정을 그릴 수 있다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">시뮬레이터 앞에 Router를 띄우고 일반 Service와 라우팅 결정을 비교했다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">P/D 가이드에서 KV 커넥터·사이드카·RDMA 설정을 찾아 읽었다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">멀티 GPU 환경에서 통합·P/D·선택적 P/D를 비교할 측정 계획을 세웠다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 11편 Inference Gateway: Gateway API Inference Extension</span>
+      <p>이번 편에서 llm-d Router 안에 숨어 있던 표준 API를 정면으로 다룹니다. InferencePool과 InferenceObjective, Endpoint Picker의 점수 체계와 확장, 게이트웨이와 EPP 사이의 프로토콜, 실패 시 동작, 그리고 7편의 Gateway 위에서 두 모델 레플리카에 추론 인지 라우팅을 적용하는 실습까지.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 10편 llm-d 해부 · 2026년 10월 기준(llm-d v0.9.0, Gateway API Inference Extension v1.5 계열, vLLM v0.31.0). 차트 주소·values 키·가이드 경로는 릴리스마다 바뀌므로 설치 시점의 llm-d 문서를 따르세요. 계산기와 시뮬레이터는 원리 설명용 단순 모델입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero P/D timeline ---------- */
+let pdm="agg";
+function blocksFor(m){const B=[];// [lane, start, end, color, label]
+ if(m==="agg"){for(let t=0;t<100;t+=4){if(t>=38&&t<62)continue;B.push(["gpu",t,t+2,t>=62?"#FFD59B":"#9BE2B6",""])}B.push(["gpu",40,62,"#C8B6FF","C Prefill"]);}
+ else{for(let t=0;t<100;t+=4){B.push(["dec",t,t+2,t>=62?"#FFD59B":"#9BE2B6",""])}B.push(["pre",40,58,"#C8B6FF","C Prefill"]);B.push(["xfer",58,62,"#FFB3C8",""]);}
+ return B;}
+function lanes(m){return m==="agg"?[["gpu","GPU (Prefill+Decode)"]]:[["pre","Prefill GPU"],["xfer","NIXL 전송"],["dec","Decode GPU"]];}
+function renderPD(upto){const L=lanes(pdm),B=blocksFor(pdm).filter(b=>b[1]<upto);
+ $("#pdLanes").innerHTML=L.map(([k,n])=>`<div style="font-size:.74rem;color:var(--faint);margin-top:6px">${n}</div><div class="pdlane" style="margin-top:2px">${B.filter(b=>b[0]===k).map(b=>`<div class="blk" style="left:${b[1]}%;width:${Math.max(0.8,Math.min(b[2],upto)-b[1])}%;background:${b[3]};${b[4]?"display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;color:#0B1220":""}">${b[4]}</div>`).join("")}</div>`).join("")+
+ `<div class="legend" style="margin-top:4px"><span><i style="background:#9BE2B6"></i>진행 중 요청 A·B의 Decode 스텝</span><span><i style="background:#C8B6FF"></i>새 요청 C의 Prefill</span><span><i style="background:#FFD59B"></i>C까지 포함한 Decode</span>${pdm==="pd"?'<span><i style="background:#FFB3C8"></i>KV 전송 (NIXL)</span>':""}</div>`;
+ const done=upto>=100;
+ $("#pdItl").textContent=done?(pdm==="agg"?"240 ms (평소 40 ms)":"40 ms (변화 없음)"):"…";
+ $("#pdTtft").textContent=done?(pdm==="agg"?"220 ms":"220 ms (전송 40 ms 포함)"):"…";
+ $("#pdGpu").textContent=pdm==="agg"?"1장":"2장 이상";
+ $("#pdNote").innerHTML=done?(pdm==="agg"?"<p>통합 서빙에서는 C의 Prefill이 GPU를 차지하는 동안 A·B의 토큰 생성이 멈춥니다. 사용자는 “잘 나오다가 멈칫”을 겪고, 이것이 ITL p99의 꼬리입니다(3편).</p>":"<p>P/D 분리에서는 Decode GPU가 Prefill에 방해받지 않아 A·B의 토큰 간격이 그대로입니다. C의 첫 토큰은 KV 전송 시간만큼 늦을 수 있지만, Prefill 전용 GPU 덕분에 상쇄되기도 합니다. 대신 GPU가 두 장 이상 필요하고 둘 사이 네트워크가 성능을 좌우합니다.</p>"):"<p>1칸 = 10ms인 개념 그림입니다.</p>";}
+$$("#pdTabs .btn").forEach(b=>b.addEventListener("click",()=>{pdm=b.dataset.m;$$("#pdTabs .btn").forEach(x=>x.classList.toggle("on",x===b));renderPD(100)}));
+let pb=false;$("#pdRun").addEventListener("click",async()=>{if(pb)return;pb=true;for(let u=0;u<=100;u+=2){renderPD(u);await wait(reduce?2:45)}pb=false});
+renderPD(100);
+
+/* ---------- P/D calculator ---------- */
+function pdc(){const [P,kv]=$("#pdcModel").value.split(",").map(Number),tf=+$("#pdcGpu").value,inT=+$("#pdcIn").value,r=+$("#pdcR").value,bw=+$("#pdcBw").value;
+ $("#pdcInV").textContent=fmt(inT);$("#pdcRV").textContent=r;
+ const pre=2*P*1e9*inT/(tf*1e12*0.5),kvB=inT*kv*1024,xfer=kvB/(bw*1e9),stall=Math.min(1,r*pre),chunk=2*P*1e9*Math.min(inT,2048)/(tf*1e12*0.5);
+ $("#pdcPre").textContent=fmt(pre*1000,1)+" ms";$("#pdcKv").textContent=fmt(kvB/1e9,2)+" GB";$("#pdcXfer").textContent=fmt(xfer*1000,1)+" ms";
+ $("#pdcStall").textContent=fmt(stall*100,1)+"%";$("#pdcSpike").textContent=`${fmt(pre*1000,0)} ms (청크 2,048이면 ${fmt(chunk*1000,0)} ms)`;
+ const ratio=xfer/pre;const v=$("#pdcNote");
+ let cls,msg;
+ if(ratio>1){cls="badv";msg=`KV 전송(${fmt(xfer*1000)}ms)이 Prefill 자체(${fmt(pre*1000)}ms)보다 깁니다. 이 네트워크·입력 길이에서는 P/D가 TTFT를 크게 늘립니다. 빠른 네트워크가 없다면 통합 서빙 + Chunked Prefill이 낫고, 이런 요청은 선택적 P/D로 통합 경로에 남기는 것이 맞습니다.`}
+ else if(stall<0.1&&inT<2048){cls="mid";msg=`입력이 짧고 Prefill이 GPU 시간의 ${fmt(stall*100,1)}%만 차지해 통합 서빙의 간섭이 작습니다. P/D의 이득보다 운영 복잡도가 클 가능성이 높습니다.`}
+ else{cls="good";msg=`통합 서빙이라면 GPU 시간의 ${fmt(stall*100,1)}%를 Prefill이 차지하고, 그때마다 진행 중 요청의 토큰 생성이 최대 ${fmt(pre*1000)}ms(청크 시 ${fmt(chunk*1000)}ms) 멈춥니다. P/D는 이 간섭을 없애는 대신 TTFT에 전송 ${fmt(xfer*1000,1)}ms(Prefill의 ${fmt(ratio*100)}%)를 더합니다. ITL 꼬리 SLO가 엄격하다면 P/D가 유리한 조건입니다.`}
+ v.className="verdict "+cls;v.innerHTML=msg+` <span style="color:var(--muted)">KV는 BF16 기준, FP8 KV면 전송량이 절반입니다.</span>`;}
+$$("#pdcTool input,#pdcTool select").forEach(e=>e.addEventListener("input",pdc));pdc();
+
+/* ---------- routing simulator ---------- */
+function rng(seed){let s=seed;return()=>{s=(s*16807)%2147483647;return s/2147483647}}
+const SESS=[["A",0.35,"#9BD2FF"],["B",0.2,"#C8B6FF"],["C",0.15,"#9BE2B6"],["D",0.1,"#FFD59B"],["E",0.1,"#FFB3C8"],["F",0.1,"#B8F0E6"]];
+const REQS=(()=>{const r=rng(9),out=[];for(let i=0;i<60;i++){let x=r(),acc=0;for(const s of SESS){acc+=s[1];if(x<=acc){out.push(s[0]);break}}if(out.length<=i)out.push("F")}return out})();
+function simulate(strat,w){const CAP=4000;const pods=[0,1,2,3].map(()=>({load:0,cache:[],count:0,work:0,bySess:{}}));let hits=0,tok=0;
+ REQS.forEach((s,i)=>{pods.forEach(p=>p.load=Math.max(0,p.load-500));let k;const order=[0,1,2,3].map(j=>(j+i)%4);
+  if(strat==="rr")k=i%4;
+  else if(strat==="lq"){k=order.reduce((b,j)=>pods[j].load<pods[b].load?j:b,order[0])}
+  else{let best=order[0],bs=-1;order.forEach(j=>{const p=pods[j];const sc=w*(p.cache.includes(s)?1:0)+(1-w)*(1-Math.min(1,p.load/CAP));if(sc>bs+1e-9){bs=sc;best=j}});k=best}
+  const p=pods[k];const hit=p.cache.includes(s);const cost=hit?400:2000;if(hit)hits++;tok+=cost;p.load+=cost;p.work+=cost;p.count++;p.bySess[s]=(p.bySess[s]||0)+1;
+  p.cache=p.cache.filter(x=>x!==s);p.cache.push(s);if(p.cache.length>3)p.cache.shift();});
+ const avgW=pods.reduce((a,p)=>a+p.work,0)/4,imb=Math.max(...pods.map(p=>p.work))/avgW;return{pods,hits,tok,imb};}
+let rs="rr";
+function rt(){const w=+$("#rtWeight").value;$("#rtWV").textContent=w.toFixed(2);$("#rtW").style.display=rs==="px"?"":"none";
+ const R=simulate(rs,w);
+ $("#rtPods").innerHTML=R.pods.map((p,i)=>`<div class="pod"><h5>Pod ${i+1} · ${p.count}건 · 계산 ${fmt(p.work)}토큰</h5>${SESS.filter(s=>p.bySess[s[0]]).map(s=>`<span class="chip2" style="background:${s[2]}">${s[0]} ×${p.bySess[s[0]]}</span>`).join("")}</div>`).join("");
+ $("#rtHit").textContent=fmt(R.hits/REQS.length*100,1)+"%";$("#rtTok").textContent=fmt(R.tok)+" 토큰";$("#rtImb").textContent=fmt(R.imb,2)+"배";
+ const base=simulate("rr",0);const others={rr:"라운드로빈",lq:"최소 대기열",px:"프리픽스+부하"};
+ let note=`${others[rs]}: 적중률 ${fmt(R.hits/REQS.length*100,1)}%, 라운드로빈 대비 Prefill 계산량 ${fmt((1-R.tok/base.tok)*100,1)}% 감소. `;
+ if(rs==="px"&&w>=0.95)note+="캐시 점수만 보면 같은 세션이 한 Pod에 계속 붙습니다. 이 예에서는 적중 요청이 가벼워 계산량 불균형이 크지 않지만, 실제로는 Decode 부하·KV 사용량이 한 Pod에 쌓여 대기열이 길어질 수 있습니다. ";
+ else if(rs==="px"&&w<=0.05)note+="부하 점수만 보면 최소 대기열과 거의 같아져 캐시 이점이 사라집니다. ";
+ else if(rs==="px")note+="세션이 캐시를 가진 Pod로 가되, 그 Pod가 밀리면 다른 Pod로 흘러가 균형을 유지합니다. 실제 llm-d Router의 기본 구성도 여러 점수의 가중합입니다. ";
+ else if(rs==="lq")note+="부하는 고르게 나누지만 세션과 Pod의 짝이 자주 바뀌어 캐시가 깨집니다. ";
+ else note+="세션과 무관하게 돌아가며 나누므로 캐시 적중은 우연에 맡겨집니다. ";
+ $("#rtNote").innerHTML=note;}
+$$("#rtTabs .btn").forEach(b=>b.addEventListener("click",()=>{rs=b.dataset.s;$$("#rtTabs .btn").forEach(x=>x.classList.toggle("on",x===b));rt()}));
+$("#rtWeight").addEventListener("input",rt);rt();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["P/D 분리는 항상 TTFT를 줄인다.","Prefill 전용 GPU 덕분에 줄어들 때도 있지만, KV 전송 시간이 더해집니다. 입력이 짧거나 네트워크가 느리면 오히려 늘어납니다. P/D의 확실한 이득은 Decode 쪽 ITL 꼬리의 안정입니다."],
+ ["GPU 한두 장인 우리도 P/D를 하면 빨라진다.","P/D는 두 풀로 나눌 GPU가 충분하고 트래픽이 커야 이득이 납니다. 소규모에서는 Router의 프리픽스·부하 라우팅부터 도입하는 것이 효과 대비 비용이 훨씬 좋습니다."],
+ ["프리픽스 캐시 라우팅은 같은 세션을 항상 같은 Pod로 보내는 것이다.","그렇게만 하면 인기 세션이 한 Pod를 포화시킵니다. 캐시 점수와 부하 점수의 균형이 핵심입니다."],
+ ["NIXL만 쓰면 어떤 네트워크에서도 빠르다.","NIXL은 전송을 추상화할 뿐, 실제 속도는 NVLink·RDMA·GPUDirect 같은 아래 경로가 정합니다. 일반 TCP에서는 긴 입력의 KV 전송이 수백 ms~초 단위가 될 수 있습니다."],
+ ["llm-d를 쓰려면 Istio 같은 서비스 메시가 꼭 필요하다.","v0.7부터 Router의 standalone 모드(EPP Pod 안의 프록시 사이드카)가 기본이 되어, 쿠버네티스 Gateway 없이도 배포할 수 있습니다. 게이트웨이와 통합하는 gateway 모드도 있습니다."],
+ ["llm-d는 vLLM을 대체하는 새 엔진이다.","llm-d는 vLLM(일부 경로는 SGLang) 위에서 라우팅·분리·캐시 관리를 하는 분산 계층입니다. 엔진은 그대로입니다."],
+ ["예전 블로그의 helmfile 명령으로 설치하면 된다.","Helmfile·infra·modelservice 차트는 사용 중단되었고 kustomize 우선으로 바뀌었습니다. 설치 시점 릴리스의 가이드를 따라야 합니다."],
+ ["시뮬레이터로 본 결과는 의미가 없다.","시뮬레이터는 KV 캐시·실제 지연이 없어 성능을 재지는 못하지만, 라우팅 결정·장애 시 동작·설정 오류를 GPU 없이 검증하는 데 매우 유용합니다. 플랫폼 테스트 환경에 상시로 두는 팀도 많습니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["P/D 분리","Prefill/Decode disaggregation","Prefill과 Decode를 서로 다른 Pod(GPU)에서 처리하는 구조."],
+ ["통합 서빙","Aggregated serving","한 엔진 인스턴스가 Prefill과 Decode를 모두 처리하는 일반 방식."],
+ ["선택적 P/D","Selective P/D","입력이 충분히 길 때만 P/D 경로를 쓰는 스케줄러 기능."],
+ ["간섭","Prefill interference","Prefill이 같은 GPU의 Decode를 멈추게 해 ITL 꼬리를 만드는 현상."],
+ ["NIXL","NVIDIA Inference Xfer Library","GPU·CPU·스토리지 간 데이터 이동 추상화 라이브러리. KV 전송에 사용."],
+ ["UCX","Unified Communication X","RDMA·TCP·공유 메모리 등을 고르는 통신 프레임워크. NIXL의 백엔드."],
+ ["RDMA","Remote Direct Memory Access","CPU 개입 없이 원격 메모리에 직접 접근. InfiniBand·RoCE."],
+ ["GPUDirect RDMA","GPUDirect RDMA","NIC가 GPU 메모리에 직접 접근하는 기능."],
+ ["NixlConnector","vLLM NixlConnector","NIXL로 KV를 주고받는 vLLM의 KV 커넥터."],
+ ["KV 전송 파라미터","KV transfer params","Prefill이 Decode에 넘기는 KV 블록 위치 정보."],
+ ["llm-d Router","llm-d Router","프록시 + EPP. v0.7에서 inference scheduler·gateway 명칭을 통일."],
+ ["EPP","Endpoint Picker","요청마다 점수로 모델 서버 Pod를 고르는 구성 요소."],
+ ["standalone 모드","Router standalone mode","EPP Pod 안의 프록시 사이드카로 동작, 쿠버네티스 Gateway 불필요."],
+ ["gateway 모드","Router gateway mode","기존 Gateway에 InferencePool·EPP를 붙이는 방식."],
+ ["근사 프리픽스 점수","Approximate prefix-cache scorer","라우터가 보낸 기록으로 캐시 위치를 추정."],
+ ["정밀 프리픽스 점수","Precise prefix-cache scorer","엔진 KV 이벤트로 실제 블록 위치를 추적."],
+ ["KV 이벤트","KV events","엔진이 KV 블록 생성·축출을 알리는 이벤트 스트림."],
+ ["P/D 사이드카","Routing sidecar","Decode Pod 옆에서 Prefill 요청과 KV 전송을 조율하는 컨테이너."],
+ ["잘 닦인 경로","Well-lit path","llm-d의 검증·문서화·벤치마크된 배포 구성."],
+ ["최적화 기본 경로","Optimized baseline","Router + vLLM 레플리카의 기본 경로(예전 inference-scheduling)."],
+ ["WVA","Workload Variant Autoscaler","모델 변형별 레플리카를 조정하는 llm-d 오토스케일러."],
+ ["FMA","Fast Model Actuation","콜드 스타트를 줄이는 llm-d v0.9의 새 경로."],
+ ["vLLM 시뮬레이터","llm-d-inference-sim","GPU 없이 vLLM API를 흉내 내는 테스트용 서버."],
+ ["P:D 비율","Prefill:Decode ratio","두 풀의 GPU 비율. 입력·출력 길이 분포가 정함."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["P/D 분리가 가장 확실하게 개선하는 지표는?",["모델 정확도","Decode 쪽 ITL 꼬리(p99)","GPU 메모리 사용률","토크나이저 속도"],1,"Decode GPU에 Prefill 간섭이 없어 토큰 간격이 안정됩니다."],
+ ["입력 4,000토큰, 토큰당 KV 256KiB, 대역폭 50GB/s일 때 KV 전송 시간은 대략?",["0.2ms","약 21ms","약 2초","20초"],1,"4,000×256KiB ≈ 1.05GB, ÷ 50GB/s ≈ 21ms."],
+ ["P/D가 오히려 손해가 되는 조건은?",["긴 입력이 많을 때","입력이 짧고 네트워크가 느릴 때","ITL SLO가 엄격할 때","GPU가 많을 때"],1,"전송 비용이 Prefill 절약보다 커집니다. 선택적 P/D가 이를 다룹니다."],
+ ["프리픽스 캐시 점수만으로 라우팅하면 생기는 문제는?",["캐시가 깨진다","인기 세션이 한 Pod에 몰려 포화된다","GPU가 꺼진다","TLS 오류"],1,"부하 점수와의 균형이 필요합니다."],
+ ["llm-d P/D 요청에서 Prefill Pod에 먼저 요청을 보내는 주체는?",["클라이언트","Decode Pod 옆의 라우팅 사이드카","GPU Operator","Kueue"],1,"사이드카가 Prefill 요청과 KV 전송을 조율합니다."],
+ ["llm-d v0.7 이후 기본 배포 모드는?",["Istio 필수 gateway 모드","EPP Pod 안 프록시 사이드카를 쓰는 standalone 모드","Knative 모드","Ray 모드"],1,"Gateway 없이도 배포할 수 있습니다."],
+ ["NIXL에 대한 설명으로 맞는 것은?",["vLLM을 대체하는 엔진","KV 등 데이터 이동을 추상화하고 RDMA·NVLink·TCP 같은 경로를 사용","쿠버네티스 스케줄러","양자화 도구"],1,"성능은 아래 전송 경로가 정합니다."],
+ ["GPU 두 장으로 서비스하는 고객에게 llm-d를 처음 제안한다면?",["대규모 전문가 병렬","P/D 분리부터","최적화 기본 경로(Router + vLLM 레플리카)","아무것도 안 함"],2,"레플리카 두 개부터 캐시·부하 인지 라우팅의 이득이 납니다."],
+ ["시뮬레이터 실습에서 관찰할 수 있는 것은?",["실제 TTFT 개선량","라우팅 결정(세션→Pod 고정성과 분산)","KV 전송 속도","GPU 온도"],1,"시뮬레이터에는 실제 KV 캐시가 없습니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 11편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 11편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 20편 · 서빙 지표 체계: 엔진·GPU·게이트웨이 메트릭</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+/* ---------- episode 15 additions ---------- */
+.tiers{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tiers div{display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+.pseg{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0}
+.pseg span{font-size:.72rem;padding:3px 7px;border-radius:5px;color:#0B1220;white-space:nowrap}
+.form label input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+.form label > span{display:inline-flex;align-items:center}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 20 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>20편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">지표 체계: 층과 황금 신호</a></li>
+    <li><a href="#s3">엔진 지표 (vLLM)</a></li>
+    <li><a href="#s4">지표 이름의 변화 다루기</a></li>
+    <li><a href="#s5">GPU·노드 지표 (DCGM)</a></li>
+    <li><a href="#s6">라우팅·게이트웨이 지표</a></li>
+    <li><a href="#s7">운영용 Prometheus 스택</a></li>
+    <li><a href="#s8">기록 규칙</a></li>
+    <li><a href="#s9">대시보드 설계</a></li>
+    <li><a href="#s10">히스토그램 바로 읽기</a></li>
+    <li><a href="#s11">MSP 관점</a></li>
+    <li><a href="#s12">흔한 오해</a></li>
+    <li><a href="#s13">실습</a></li>
+    <li><a href="#s14">용어 사전</a></li>
+    <li><a href="#s15">확인 퀴즈</a></li>
+    <li><a href="#s16">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 4 · 모니터링 — 20편 (Level 4 시작)</div>
+    <h1>서빙 지표 체계<br>엔진·GPU·게이트웨이 메트릭</h1>
+    <p class="intro">지금까지 지표는 실험할 때 잠깐 들여다보는 숫자였습니다. Level 4부터는 운영 중 늘 켜져 있는 관측입니다. 이번 편은 <b>어느 층에서 어떤 지표를 모아, 어떤 질문에 답할 것인가</b>를 정리합니다. vLLM 엔진·DCGM GPU·Inference Gateway·AI 게이트웨이의 지표를 하나의 체계로 묶고, 운영용 Prometheus 스택과 기록 규칙·대시보드를 세우며, 엔진 버전마다 지표 이름이 바뀌는 문제에 대비하는 방법까지 다룹니다.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>3·11·12·18편</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 150분</b></span>
+      <span class="chip">기준 <b>vLLM v0.31.0 지표</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="증상에서 지표로">
+    <div class="stack-head"><strong>이 증상이면 어떤 지표부터?</strong></div>
+    <div class="form"><label>증상 <select id="qSel"></select></label></div>
+    <ol class="pathlist" id="qPath" style="margin-top:10px"></ol>
+    <div class="layer-detail" id="qNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">좋은 지표 체계는 “무엇이 잘못됐나”보다 “어디가 잘못됐나”에 빨리 답합니다.</p>
+  <div class="prose">
+    <h3>Level 4의 구성</h3>
+    <ul>
+      <li><b>20편 (이번)</b>: 지표 — 숫자로 상태를 본다. 체계·수집·기록 규칙·대시보드.</li>
+      <li><b>21편</b>: 트레이스·로그와 SLO 운영 — 요청 하나의 경로를 따라가고, SLO와 오류 예산으로 운영한다.</li>
+      <li><b>22·23편</b>: 품질 관측과 경보·장애 대응 — 응답 품질을 운영 중에 재고, 경보를 사람이 대응할 수 있는 형태로 만든다.</li>
+    </ul>
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>LLM 서빙의 지표를 층(GPU·엔진·라우팅·게이트웨이·앱)과 황금 신호(트래픽·오류·지연·포화)로 분류할 수 있다.</li>
+      <li>vLLM 주요 지표의 뜻과 PromQL 활용, 그리고 엔진 간 대응 지표를 설명할 수 있다.</li>
+      <li>엔진 버전에 따른 지표 이름 변화를 기록 규칙·점검 스크립트로 흡수할 수 있다.</li>
+      <li>DCGM 지표 중 LLM 운영에 의미 있는 것과 GB10의 제약을 구분할 수 있다.</li>
+      <li>kube-prometheus-stack으로 운영용 수집·기록 규칙·대시보드를 구성할 수 있다.</li>
+      <li>히스토그램 백분위의 추정 오차와 올바른 집계 방법을 설명할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 병원 검사 체계</span>
+      <p>환자가 “어지럽다”고 하면(사용자 체감 지표) 의사는 혈압·혈액 검사(엔진 지표), 심전도(GPU 지표), 생활 기록(게이트웨이·요청 기록)을 순서대로 봅니다. 검사 항목마다 정상 범위가 있고, 검사 기기가 바뀌면 단위·이름이 달라지므로 검사 결과를 “표준 항목”으로 환산해 차트에 기록합니다(기록 규칙). 좋은 차트는 증상에서 원인까지 몇 번의 클릭으로 내려갈 수 있게 정리되어 있습니다(대시보드).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>지표 체계: 층과 황금 신호</h2>
+  <p class="lede">1편의 7계층 위에 “트래픽·오류·지연·포화”를 겹치면 지표 지도가 됩니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>층</th><th>트래픽</th><th>오류</th><th>지연</th><th>포화</th><th>수집원</th></tr></thead>
+    <tbody>
+      <tr><td class="k">AI 게이트웨이 (12편)</td><td>테넌트·모델별 요청·토큰</td><td>4xx·5xx, 429(한도), 폴백 횟수, 공급자 오류</td><td>게이트웨이 전체 지연, 공급자별 지연</td><td>테넌트 예산·한도 소진율</td><td>LiteLLM·Agent Router 지표</td></tr>
+      <tr><td class="k">Inference Gateway·EPP (11편)</td><td>풀로 들어온 요청</td><td>EPP 실패, 거절(흐름 제어)</td><td>스케줄링 지연</td><td>처리 중 요청, 대기열, 풀 포화도, 준비된 엔드포인트</td><td>EPP·Envoy 지표</td></tr>
+      <tr><td class="k">엔진 (vLLM)</td><td>요청 성공 수, 입력·출력 토큰</td><td>실패 요청, 선점</td><td>TTFT·ITL·E2E·대기 시간 히스토그램</td><td>실행·대기 요청, KV 사용률</td><td>엔진 /metrics</td></tr>
+      <tr><td class="k">GPU·노드</td><td>—</td><td>XID 오류, ECC, 스로틀링</td><td>—</td><td>SM 활성, 메모리 대역폭 활성, 전력·온도</td><td>DCGM Exporter, node-exporter</td></tr>
+      <tr><td class="k">쿠버네티스</td><td>—</td><td>재시작, OOMKilled, Pending</td><td>Pod 준비 시간 (13편)</td><td>쿼터 사용, 노드 자원</td><td>kube-state-metrics</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>사용자 체감(위쪽 층의 지연·오류)에서 시작해 아래로 원인을 찾아 내려가는 것이 기본 흐름입니다. 히어로의 탐색기가 증상별로 그 순서를 보여 줍니다.</p>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>엔진 지표 (vLLM)</h2>
+  <p class="lede">엔진 /metrics는 가장 풍부한 원인 지표의 출처입니다. 카운터는 노출될 때 이름 뒤에 <code>_total</code>이 붙습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>분류</th><th>지표 (vllm: 접두어)</th><th>형식</th><th>읽는 법 (PromQL 예)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">요청 상태</td><td>num_requests_running · num_requests_waiting · num_requests_waiting_by_reason</td><td>게이지</td><td>대기 &gt; 0 지속 = 포화. 대기 사유별로 원인 구분</td></tr>
+      <tr><td class="k">지연</td><td>time_to_first_token_seconds · inter_token_latency_seconds · e2e_request_latency_seconds</td><td>히스토그램</td><td><code>histogram_quantile(0.95, sum by (le, model_name) (rate(…_bucket[5m])))</code></td></tr>
+      <tr><td class="k">지연 분해</td><td>request_queue_time_seconds · request_prefill_time_seconds · request_decode_time_seconds</td><td>히스토그램</td><td>TTFT가 나쁠 때 대기 때문인지 Prefill 때문인지</td></tr>
+      <tr><td class="k">토큰</td><td>prompt_tokens · generation_tokens · prompt_tokens_cached · iteration_tokens_total</td><td>카운터·히스토그램</td><td><code>rate(vllm:generation_tokens_total[5m])</code> = 출력 tok/s</td></tr>
+      <tr><td class="k">요청 크기</td><td>request_prompt_tokens · request_generation_tokens · request_params_n</td><td>히스토그램</td><td>워크로드 변화 감지 (19편 워크로드 카드)</td></tr>
+      <tr><td class="k">KV·캐시</td><td>kv_cache_usage_perc · prefix_cache_queries · prefix_cache_hits · (표본) KV 블록 수명·축출 전 유휴 시간</td><td>게이지·카운터</td><td>적중률 = hits ÷ queries (15편)</td></tr>
+      <tr><td class="k">선점·결과</td><td>num_preemptions · request_success</td><td>카운터</td><td>선점률 &gt; 0 지속 = KV 부족 (14편)</td></tr>
+      <tr><td class="k">고급 기능</td><td>추측 디코딩(제안·수락 토큰) · LoRA 요청 정보 · KV 커넥터·오프로딩(NIXL·CPU 오프로드) · MFU(옵션)</td><td>여러 형식</td><td>16·10·15편 기능을 켰을 때만</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>모든 지표에는 <code>model_name</code>·<code>engine</code> 같은 라벨이 붙습니다. 레플리카 여러 개를 합칠 때는 히스토그램을 <code>sum by (le)</code>로 먼저 합친 뒤 백분위를 계산합니다(10장).</p>
+  </div>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>지표 이름의 변화 다루기</h2>
+  <p class="lede">엔진을 업그레이드했더니 대시보드가 빈 칸이 되는 일은 반드시 일어납니다. 미리 구조로 막아 둡니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>vLLM의 폐기 규칙</b>: 어떤 버전에서 폐기 예정이 된 지표는 다음 버전에서 숨겨지고(옵션으로 다시 켤 수 있음), 그다음 버전에서 제거됩니다. 실제로 V0 시절의 swap 관련 지표나 이전 이름의 KV 사용률 지표가 이렇게 사라졌습니다. 업그레이드 노트의 지표 변경 항목을 반드시 확인합니다.</li>
+      <li><b>엔진마다 이름이 다르다</b>: 같은 “실행 중 요청”도 엔진마다 이름이 다릅니다(아래 표). 여러 엔진을 운영하는 MSP라면 엔진 중립 이름이 필요합니다.</li>
+      <li><b>해법 ① 기록 규칙을 추상화 층으로</b>: 대시보드·경보·자동 확장은 엔진 지표를 직접 쓰지 않고 <code>llm:ttft_seconds:p95</code> 같은 우리 표준 이름의 기록 규칙만 씁니다. 엔진이 바뀌면 기록 규칙 한 곳만 고칩니다(8장).</li>
+      <li><b>해법 ② 업그레이드 점검</b>: 스테이징에서 새 버전의 /metrics 이름 목록을 뽑아 기대 목록과 비교하는 스크립트를 업그레이드 절차에 넣습니다(실습 20-4).</li>
+      <li><b>해법 ③ 버전 라벨</b>: 수집 시 엔진 버전·이미지 태그를 라벨(또는 정보 지표)로 붙여, 그래프의 변화가 버전 변경 시점과 겹치는지 바로 보이게 합니다.</li>
+    </ul>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>표준 의미</th><th>vLLM</th><th>SGLang</th><th>TensorRT-LLM (serve)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">실행 중 요청</td><td>vllm:num_requests_running</td><td>sglang:num_running_reqs</td><td>trtllm_num_requests_running</td></tr>
+      <tr><td class="k">토큰 간 지연</td><td>vllm:inter_token_latency_seconds</td><td>sglang:inter_token_latency_seconds</td><td>trtllm_time_per_output_token_seconds</td></tr>
+      <tr><td class="k">KV 사용률</td><td>vllm:kv_cache_usage_perc</td><td>(토큰 사용률 계열 지표)</td><td>(엔진 문서 확인)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>엔진별 이름은 버전에 따라 바뀌므로 5편의 “지표 이름 대응표”를 운영 문서로 관리하고, 업그레이드 때마다 갱신합니다.</p>
+  </div>
+</section>
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>GPU·노드 지표 (DCGM)</h2>
+  <p class="lede">GPU 지표는 “원인”이 아니라 “하드웨어가 무엇을 하고 있나”를 봅니다. 그중 LLM에 의미 있는 것은 소수입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>DCGM 필드</th><th>의미</th><th>LLM 운영에서</th></tr></thead>
+    <tbody>
+      <tr><td class="k">DCGM_FI_DEV_GPU_UTIL</td><td>커널이 실행 중인 시간 비율</td><td>배치에 요청이 조금만 있어도 높음. 확장·용량 판단에 쓰지 않음 (18편)</td></tr>
+      <tr><td class="k">DCGM_FI_PROF_SM_ACTIVE · SM_OCCUPANCY</td><td>SM이 실제로 일한 비율·점유</td><td>연산 쪽 여유. Prefill 비중이 크면 높음</td></tr>
+      <tr><td class="k">DCGM_FI_PROF_DRAM_ACTIVE</td><td>메모리 대역폭 사용 비율</td><td>Decode 포화의 하드웨어 측 증거 (2편 루프라인)</td></tr>
+      <tr><td class="k">DCGM_FI_PROF_PIPE_TENSOR_ACTIVE</td><td>텐서 코어 활성</td><td>양자화·커널 효과 확인</td></tr>
+      <tr><td class="k">DCGM_FI_DEV_FB_USED · FREE</td><td>GPU 메모리 사용</td><td>vLLM이 미리 잡아 부하와 무관. GB10은 “지원 안 됨”</td></tr>
+      <tr><td class="k">DCGM_FI_DEV_POWER_USAGE · GPU_TEMP · 클럭 스로틀 사유</td><td>전력·온도·스로틀링</td><td>같은 설정인데 성능이 떨어질 때 열·전력 제한 확인</td></tr>
+      <tr><td class="k">DCGM_FI_DEV_XID_ERRORS · ECC 오류</td><td>드라이버가 보고한 GPU 오류</td><td>즉시 경보 대상 (하드웨어·드라이버 장애)</td></tr>
+      <tr><td class="k">NVLink·PCIe 처리량</td><td>GPU 간·호스트 전송량</td><td>TP·P/D·오프로딩 통신 확인 (10·15·17편)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">GB10에서의 GPU 지표</span>
+      <p>GB10은 통합 메모리 구조라 프레임버퍼 메모리 사용량 같은 메모리 필드가 “지원 안 됨”으로 나옵니다(7·8편). GPU 메모리 대시보드 대신 노드 메모리(node-exporter)와 엔진의 KV 사용률로 봅니다. 일부 프로파일링 필드(SM·DRAM 활성)의 지원 여부는 DCGM Exporter 로그와 실제 수집값으로 확인합니다(실습 20-6).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>라우팅·게이트웨이 지표</h2>
+  <p class="lede">엔진 하나가 아니라 “풀”과 “테넌트”의 관점은 앞단에서만 보입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성 요소</th><th>지표 (예)</th><th>답하는 질문</th></tr></thead>
+    <tbody>
+      <tr><td class="k">EPP (llm-d Router)</td><td>처리 중 요청(llm_d_epp_request_running), 준비된 엔드포인트, 스케줄링 지연, 흐름 제어 대기열·포화도</td><td>풀 전체가 얼마나 찼나, 라우터가 병목인가, 몇 개 Pod에 보낼 수 있나 (11·18편)</td></tr>
+      <tr><td class="k">Envoy·Gateway</td><td>업스트림 요청 수·응답 코드·지연, 연결 수</td><td>입구에서의 오류·지연, 엔진 이전 단계의 문제</td></tr>
+      <tr><td class="k">AI 게이트웨이</td><td>테넌트·키·모델별 요청·입력·출력 토큰, 비용, 429, 폴백, 공급자 오류·지연</td><td>누가 얼마나 쓰나, 한도·폴백이 얼마나 일어나나, 외부 공급자가 느린가 (12편)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>게이트웨이 지표에는 테넌트 라벨이 붙으므로 <b>라벨 수(카디널리티)</b>에 주의합니다. 테넌트·모델 수준까지는 괜찮지만 사용자 ID·요청 ID를 라벨로 넣으면 Prometheus가 감당하지 못합니다. 그런 상세는 로그·트레이스(21편)로 보냅니다.</p>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>운영용 Prometheus 스택</h2>
+  <p class="lede">18편의 랩용 Prometheus를 운영 표준 구성으로 바꿉니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성 요소</th><th>역할</th><th>운영 포인트</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Prometheus Operator</td><td>Prometheus·Alertmanager·규칙을 CRD로 관리</td><td>ServiceMonitor·PodMonitor·PrometheusRule로 선언적 관리</td></tr>
+      <tr><td class="k">ServiceMonitor · PodMonitor</td><td>수집 대상 선언</td><td>엔진·EPP·게이트웨이·DCGM을 각각 선언. 라벨 선택자 규칙 통일</td></tr>
+      <tr><td class="k">PrometheusRule</td><td>기록 규칙·경보 규칙</td><td>표준 이름의 기록 규칙(8장), 경보(23편)</td></tr>
+      <tr><td class="k">Grafana</td><td>대시보드</td><td>대시보드를 코드(JSON·ConfigMap)로 관리, 기록 규칙 기반</td></tr>
+      <tr><td class="k">node-exporter · kube-state-metrics</td><td>노드·쿠버네티스 상태</td><td>GB10 메모리는 node-exporter로</td></tr>
+      <tr><td class="k">장기 보관 (Thanos·Mimir·VictoriaMetrics 등)</td><td>보존 기간 연장, 여러 클러스터 통합</td><td>MSP 다중 고객·다중 클러스터에서 필요 (11장)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>수집 주기</b>: 엔진 지표는 10~15초면 충분합니다. 너무 짧으면 엔진 API 서버에 부담이 됩니다.</li>
+      <li><b>라벨 설계</b>: <code>cluster</code>, <code>namespace</code>, <code>model_name</code>, <code>variant</code>(7편 오버레이), <code>tenant</code>(게이트웨이)를 표준 라벨로 정해 두면 모든 대시보드가 같은 변수로 움직입니다.</li>
+      <li><b>보존 기간</b>: 운영 대시보드는 2~4주, 용량 계획(19편)과 SLA 보고(26편)는 월·분기 단위 집계가 필요하므로 기록 규칙 결과를 장기 저장소에 보관합니다.</li>
+      <li><b>네트워크 정책</b>: 7편에서 만든 <code>allow-monitoring</code> 정책은 <code>llm-lab/monitoring: "true"</code> 라벨의 네임스페이스만 엔진 8000번 포트에 접근하게 합니다. 모니터링 네임스페이스에 이 라벨을 붙입니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>기록 규칙</h2>
+  <p class="lede">무거운 쿼리를 미리 계산해 두고, 엔진 이름을 우리 표준 이름으로 바꾸는 층입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>표준 이름 (예)</th><th>계산 (vLLM 기준)</th><th>쓰는 곳</th></tr></thead>
+    <tbody>
+      <tr><td class="k">llm:ttft_seconds:p95</td><td>histogram_quantile(0.95, sum by (le, model_name) (rate(vllm:time_to_first_token_seconds_bucket[5m])))</td><td>개요 대시보드, SLO (21편)</td></tr>
+      <tr><td class="k">llm:itl_seconds:p95</td><td>같은 방식으로 inter_token_latency_seconds</td><td>개요, SLO</td></tr>
+      <tr><td class="k">llm:ttft_slo_ratio</td><td>SLO 경계 버킷 이하 비율: rate(bucket{le="SLO"}) ÷ rate(count)</td><td>SLO 달성률, 오류 예산 (21편)</td></tr>
+      <tr><td class="k">llm:requests:rate5m</td><td>sum by (model_name) (rate(vllm:request_success_total[5m]))</td><td>트래픽, 용량 (19편)</td></tr>
+      <tr><td class="k">llm:output_tokens:rate5m</td><td>sum by (model_name) (rate(vllm:generation_tokens_total[5m]))</td><td>처리량, 비용</td></tr>
+      <tr><td class="k">llm:queue:sum</td><td>sum by (model_name) (vllm:num_requests_waiting)</td><td>포화, 자동 확장 (18편)</td></tr>
+      <tr><td class="k">llm:kv_usage:max</td><td>max by (model_name) (vllm:kv_cache_usage_perc)</td><td>포화</td></tr>
+      <tr><td class="k">llm:preemptions:rate5m</td><td>sum by (model_name) (rate(vllm:num_preemptions_total[5m]))</td><td>경보</td></tr>
+      <tr><td class="k">llm:prefix_hit_ratio</td><td>rate(prefix_cache_hits_total) ÷ rate(prefix_cache_queries_total)</td><td>효율 (15편)</td></tr>
+      <tr><td class="k">llm:tokens_per_gpu_second</td><td>출력 토큰 rate ÷ 엔진 Pod가 쓰는 GPU 수</td><td>효율·비용 (3편 토큰당 비용)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p><code>le</code> 값은 엔진이 노출하는 버킷 경계 중 하나여야 합니다. 경계가 SLO(예: 2.5초)와 다르면 가장 가까운 경계로 근사하게 되므로, 실제 버킷 경계를 /metrics에서 확인하고 SLO를 그 경계에 맞추거나 근사임을 표시합니다(10장).</p>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>대시보드 설계</h2>
+  <p class="lede">대시보드 하나에 모든 것을 넣지 않습니다. 질문 순서대로 내려가는 네 장으로 나눕니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>대시보드</th><th>보는 사람</th><th>핵심 패널</th></tr></thead>
+    <tbody>
+      <tr><td class="k">① 서비스 개요</td><td>운영 당직, 고객 보고</td><td>모델별 요청률·TTFT p95·ITL p95·오류율·SLO 달성률·레플리카 수</td></tr>
+      <tr><td class="k">② 엔진 내부</td><td>원인 분석</td><td>실행·대기 요청, KV 사용률, 선점, 대기·Prefill·Decode 시간 분해, 캐시 적중, 스텝당 토큰, 요청 크기 분포</td></tr>
+      <tr><td class="k">③ GPU·노드</td><td>인프라</td><td>SM·DRAM 활성, 전력·온도·스로틀, XID, 노드 메모리(GB10), Pod 재시작</td></tr>
+      <tr><td class="k">④ 게이트웨이·테넌트·비용</td><td>MSP 운영·영업</td><td>테넌트별 토큰·비용·429·폴백, 공급자 지연, 예산 소진</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>공통 변수(클러스터·네임스페이스·모델·변형)를 모든 대시보드에 같은 이름으로 두고, ①에서 이상한 모델을 클릭하면 같은 변수로 ②·③으로 넘어가도록 링크를 겁니다. 대시보드 JSON은 Git에 두고 ConfigMap으로 배포합니다(실습 20-5).</p>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>히스토그램 바로 읽기</h2>
+  <p class="lede">Prometheus의 백분위는 “버킷 안에서 고르게 퍼져 있다고 가정한 추정값”입니다.</p>
+  <div class="tool wide" id="hgTool">
+    <h4>버킷 경계와 p95 추정 오차</h4>
+    <div class="desc">실제 TTFT 분포에서 p95를 계산할 때, 버킷 경계가 거칠면 추정값이 얼마나 틀리는지 봅니다. Prometheus의 histogram_quantile처럼 버킷 안 선형 보간을 씁니다.</div>
+    <div class="form">
+      <label>버킷 경계 <select id="hgB">
+        <option value="0.1,0.25,0.5,1,2.5,5,10">거칠게 (0.1 · 0.25 · 0.5 · 1 · 2.5 · 5 · 10초)</option>
+        <option value="0.05,0.1,0.2,0.3,0.4,0.5,0.75,1,1.5,2,2.5,3,4,5,7.5,10" selected>촘촘하게 (16개)</option>
+      </select></label>
+      <label>실제 분포의 중앙값 (초) <span id="hgMV">0.8</span><input type="range" id="hgM" min="0.2" max="3" step="0.1" value="0.8"></label>
+      <label>꼬리 두께 (σ) <span id="hgSV">0.5</span><input type="range" id="hgS" min="0.2" max="1.0" step="0.05" value="0.5"></label>
+    </div>
+    <div class="result">
+      <div class="r"><span>실제 p95</span><b id="hgT">—</b></div>
+      <div class="r"><span>히스토그램 추정 p95</span><b id="hgE">—</b></div>
+      <div class="r"><span>오차</span><b id="hgErr">—</b></div>
+    </div>
+    <div class="verdict" id="hgNote"></div>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>합친 뒤 계산</b>: 여러 Pod의 p95를 평균 내지 말고, <code>sum by (le)</code>로 버킷을 합친 뒤 <code>histogram_quantile</code>을 씁니다.</li>
+      <li><b>창 길이</b>: <code>rate(…[5m])</code>의 창이 짧으면 요청이 적은 시간대에 값이 크게 흔들립니다(19편 표본 수 문제와 같음).</li>
+      <li><b>버킷 밖</b>: 가장 큰 버킷 경계를 넘는 값은 그 경계로 잘려 보입니다. 긴 요청의 E2E 지연이 이상하게 일정하면 버킷 상한을 의심합니다.</li>
+      <li><b>네이티브 히스토그램</b>: Prometheus 3의 네이티브(지수) 히스토그램은 고정 경계 문제를 줄여 줍니다. 엔진·수집기가 지원하는지 확인하고 도입을 검토합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>MSP 관점</h2>
+  <p class="lede">여러 고객의 지표를 한 체계로 운영하면서도 고객별로 분리해 보여 줘야 합니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>표준 지표 카탈로그</b>: 고객 환경이 vLLM이든 SGLang이든 같은 표준 이름(기록 규칙)으로 대시보드·보고서를 만들면 운영팀이 하나의 화면으로 모든 고객을 봅니다.</li>
+      <li><b>다중 클러스터 집계</b>: 고객 클러스터마다 Prometheus를 두고, 기록 규칙 결과만 중앙 장기 저장소로 보내면 비용과 데이터 이동을 줄일 수 있습니다. 원본 지표의 반출 범위는 고객 보안 정책과 합의합니다.</li>
+      <li><b>고객별 보기</b>: 고객에게 제공하는 대시보드는 테넌트 라벨로 범위를 제한하고, 다른 고객의 지표가 보이지 않도록 권한을 분리합니다.</li>
+      <li><b>보고서의 근거</b>: 월간 SLA 보고(26편)의 숫자는 기록 규칙의 장기 보관값에서 나와야 재현 가능합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>흔한 오해</h2>
+  <p class="lede">LLM 지표에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>실습</h2>
+  <p class="lede">kube-prometheus-stack으로 운영용 관측 스택을 세우고, 엔진·GPU 수집 대상과 표준 기록 규칙·대시보드를 코드로 배포한 뒤, 업그레이드 대비 지표 점검 스크립트를 만듭니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>7편 랩(qwen3-8b-fp8 엔진), 18편 KEDA. 18편의 랩용 Prometheus는 이번 실습 마지막에 정리합니다.</li>
+        <li>클러스터에 이미 모니터링 스택(예: RAG 플랫폼용)이 있다면 새로 설치하지 말고, 그 스택에 2~5의 PodMonitor·규칙·대시보드만 추가합니다. Prometheus Operator가 둘이면 CRD 버전 충돌이 날 수 있습니다.</li>
+        <li>차트·이미지 버전은 설치 시점의 안정 버전으로 고정합니다.</li>
+      </ul>
+    </div>
+
+    <h3>실습 20-1 · kube-prometheus-stack 설치</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · monitoring-values.yaml</span><button class="copy">복사</button></div><pre><code>prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    retention: 7d
+    serviceMonitorSelectorNilUsesHelmValues: false   <span class="c-cm"># 모든 네임스페이스의 ServiceMonitor·PodMonitor·규칙을 읽음</span>
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 20Gi } }
+grafana:
+  admin: { existingSecret: grafana-admin }          <span class="c-cm"># admin-user / admin-password 키</span>
+  sidecar:
+    dashboards: { enabled: true, label: grafana_dashboard, searchNamespace: ALL }
+alertmanager:
+  enabled: true                                      <span class="c-cm"># 경보 경로는 23편에서 구성</span></code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl create namespace monitoring
+kubectl label ns monitoring llm-lab/monitoring=true       <span class="c-cm"># 7편 allow-monitoring 정책이 엔진 접근을 허용</span>
+kubectl -n monitoring create secret generic grafana-admin \
+  --from-literal=admin-user=admin --from-literal=admin-password="$(openssl rand -hex 12)"
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts &amp;&amp; helm repo update
+helm install kps prometheus-community/kube-prometheus-stack --version &lt;안정 버전&gt; \
+  -n monitoring -f monitoring-values.yaml
+kubectl -n monitoring get pods
+kubectl -n monitoring get svc | grep -E "prometheus|grafana"</code></pre></div>
+
+    <h3>실습 20-2 · 엔진·GPU 수집 대상</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · podmonitors.yaml</span><button class="copy">복사</button></div><pre><code>apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: { name: vllm-engines, namespace: monitoring }
+spec:
+  namespaceSelector: { matchNames: [llmsvc-lab] }
+  selector: { matchLabels: { app: llm-engine } }
+  podMetricsEndpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+    relabelings:                                       <span class="c-cm"># 7편 오버레이 라벨을 지표 라벨로</span>
+    - { sourceLabels: [__meta_kubernetes_pod_label_llm_lab_variant], targetLabel: variant }
+    - { sourceLabels: [__meta_kubernetes_pod_label_llm_lab_engine], targetLabel: engine_type }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: { name: dcgm-exporter, namespace: monitoring }
+spec:
+  namespaceSelector: { matchNames: [gpu-operator] }
+  selector: { matchLabels: { app: nvidia-dcgm-exporter } }
+  podMetricsEndpoints:
+  - port: gpu-metrics                                  <span class="c-cm"># 실제 포트 이름은 아래 명령으로 확인</span>
+    interval: 15s</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n gpu-operator get pods -l app=nvidia-dcgm-exporter -o jsonpath='{.items[0].spec.containers[0].ports}'; echo
+kubectl apply -f podmonitors.yaml
+<span class="c-cm"># Prometheus 대상 확인 (포트 포워딩 후 브라우저의 Status → Targets, 또는 API)</span>
+kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090 &amp;
+sleep 3; curl -s 'localhost:9090/api/v1/targets?state=active' | python3 -c "import json,sys;[print(t['labels'].get('job'),t['health'],t['scrapeUrl']) for t in json.load(sys.stdin)['data']['activeTargets'] if 'llm' in t['scrapeUrl'] or '9400' in t['scrapeUrl']]"</code></pre></div>
+    <p>DCGM Exporter의 Pod 라벨·포트 이름은 GPU Operator 버전에 따라 다를 수 있으니 위 명령으로 확인해 맞춥니다. GPU Operator 설정(ClusterPolicy)에 ServiceMonitor를 켜는 옵션도 있지만, 공용 설정이므로 랩에서는 PodMonitor를 따로 둡니다.</p>
+
+    <h3>실습 20-3 · 표준 기록 규칙</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · llm-recording-rules.yaml</span><button class="copy">복사</button></div><pre><code>apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: { name: llm-recording-rules, namespace: monitoring }
+spec:
+  groups:
+  - name: llm-serving.rules
+    interval: 30s
+    rules:
+    <span class="c-cm"># 엔진 이름이 바뀌면 이 파일의 expr만 고친다. 대시보드·경보·자동 확장은 왼쪽 표준 이름만 쓴다.</span>
+    - record: llm:requests:rate5m
+      expr: sum by (namespace, model_name) (rate(vllm:request_success_total[5m]))
+    - record: llm:output_tokens:rate5m
+      expr: sum by (namespace, model_name) (rate(vllm:generation_tokens_total[5m]))
+    - record: llm:input_tokens:rate5m
+      expr: sum by (namespace, model_name) (rate(vllm:prompt_tokens_total[5m]))
+    - record: llm:ttft_seconds:p95
+      expr: histogram_quantile(0.95, sum by (le, namespace, model_name) (rate(vllm:time_to_first_token_seconds_bucket[5m])))
+    - record: llm:itl_seconds:p95
+      expr: histogram_quantile(0.95, sum by (le, namespace, model_name) (rate(vllm:inter_token_latency_seconds_bucket[5m])))
+    - record: llm:e2e_seconds:p95
+      expr: histogram_quantile(0.95, sum by (le, namespace, model_name) (rate(vllm:e2e_request_latency_seconds_bucket[5m])))
+    - record: llm:queue_time_seconds:p95
+      expr: histogram_quantile(0.95, sum by (le, namespace, model_name) (rate(vllm:request_queue_time_seconds_bucket[5m])))
+    - record: llm:queue:sum
+      expr: sum by (namespace, model_name) (vllm:num_requests_waiting)
+    - record: llm:running:sum
+      expr: sum by (namespace, model_name) (vllm:num_requests_running)
+    - record: llm:kv_usage:max
+      expr: max by (namespace, model_name) (vllm:kv_cache_usage_perc)
+    - record: llm:preemptions:rate5m
+      expr: sum by (namespace, model_name) (rate(vllm:num_preemptions_total[5m]))
+    - record: llm:prefix_hit_ratio
+      expr: sum by (namespace, model_name) (rate(vllm:prefix_cache_hits_total[5m])) / clamp_min(sum by (namespace, model_name) (rate(vllm:prefix_cache_queries_total[5m])), 1)
+    <span class="c-cm"># SLO 달성률: le 값은 엔진의 실제 버킷 경계 중 SLO에 맞는 값으로 (실습 20-4에서 확인)</span>
+    - record: llm:ttft_slo_ratio
+      expr: sum by (namespace, model_name) (rate(vllm:time_to_first_token_seconds_bucket{le="2.5"}[5m])) / clamp_min(sum by (namespace, model_name) (rate(vllm:time_to_first_token_seconds_count[5m])), 1e-9)
+    - record: gpu:sm_active:avg
+      expr: avg by (Hostname, gpu) (DCGM_FI_PROF_SM_ACTIVE)
+    - record: gpu:dram_active:avg
+      expr: avg by (Hostname, gpu) (DCGM_FI_PROF_DRAM_ACTIVE)</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl apply -f llm-recording-rules.yaml
+sleep 60; for r in llm:requests:rate5m llm:ttft_seconds:p95 llm:kv_usage:max gpu:sm_active:avg; do
+  echo "== $r"; curl -s "localhost:9090/api/v1/query?query=$r" | python3 -c "import json,sys;print(json.load(sys.stdin)['data']['result'][:3])"; done</code></pre></div>
+
+    <h3>실습 20-4 · 업그레이드 대비 지표 점검</h3>
+    <div class="codeblock"><div class="cap"><span>python · metric_inventory.py (bench Pod에서)</span><button class="copy">복사</button></div><pre><code>"""엔진 /metrics의 지표 이름 목록을 저장하고, 표준 기록 규칙이 쓰는 이름이 모두 있는지 확인한다.
+사용: python metric_inventory.py [엔진 주소] [저장 파일]   두 버전의 파일을 diff 하면 변경 목록."""
+import re, sys, urllib.request
+base = sys.argv[1] if len(sys.argv) &gt; 1 else "http://llm-engine:8000"
+out = sys.argv[2] if len(sys.argv) &gt; 2 else "/results/metrics-inventory.txt"
+txt = urllib.request.urlopen(base + "/metrics", timeout=10).read().decode()
+families = sorted(set(m.group(1) for m in re.finditer(r"^# TYPE (\S+) (\w+)", txt, re.M)))
+buckets = sorted(set(re.findall(r'vllm:time_to_first_token_seconds_bucket\{[^}]*le="([^"]+)"', txt)), key=lambda x: float(x) if x != "+Inf" else 1e9)
+REQUIRED = ["vllm:request_success", "vllm:generation_tokens", "vllm:prompt_tokens", "vllm:time_to_first_token_seconds",
+            "vllm:inter_token_latency_seconds", "vllm:e2e_request_latency_seconds", "vllm:request_queue_time_seconds",
+            "vllm:num_requests_waiting", "vllm:num_requests_running", "vllm:kv_cache_usage_perc",
+            "vllm:num_preemptions", "vllm:prefix_cache_hits", "vllm:prefix_cache_queries"]
+names = set(families) | set(f.removesuffix("_total") for f in families)
+missing = [r for r in REQUIRED if r not in names]
+open(out, "w").write("\n".join(families) + "\n")
+print(f"지표 패밀리 {len(families)}개 저장: {out}")
+print("TTFT 버킷 경계:", ", ".join(buckets))
+print("기록 규칙에 필요한데 없는 지표:", missing or "없음")</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 업그레이드 절차에 넣기</span><button class="copy">복사</button></div><pre><code>kubectl cp metric_inventory.py llmsvc-lab/bench:/tmp/metric_inventory.py
+kubectl -n llmsvc-lab exec bench -- python /tmp/metric_inventory.py http://llm-engine:8000 /results/metrics-v0.31.0.txt
+<span class="c-cm"># 새 버전을 스테이징에 올린 뒤 같은 명령으로 metrics-&lt;새 버전&gt;.txt를 만들고</span>
+<span class="c-cm"># diff results/metrics-v0.31.0.txt results/metrics-&lt;새 버전&gt;.txt  → 사라진·새 지표 확인 → 기록 규칙 수정</span></code></pre></div>
+    <p>출력된 TTFT 버킷 경계를 보고 20-3의 <code>le="2.5"</code>가 실제 경계인지 확인합니다. 없으면 가장 가까운 경계로 바꾸고, SLO 문구를 그 경계에 맞춥니다.</p>
+
+    <h3>실습 20-5 · 대시보드를 코드로</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · llm-overview-dashboard.yaml (Grafana 사이드카가 읽는 ConfigMap)</span><button class="copy">복사</button></div><pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-overview-dashboard
+  namespace: monitoring
+  labels: { grafana_dashboard: "1" }
+data:
+  llm-overview.json: |
+    {
+      "title": "LLM 서비스 개요", "uid": "llm-overview", "schemaVersion": 39,
+      "time": { "from": "now-1h", "to": "now" }, "refresh": "30s",
+      "templating": { "list": [
+        { "name": "model", "type": "query", "query": "label_values(llm:requests:rate5m, model_name)",
+          "includeAll": true, "multi": true, "refresh": 2 } ] },
+      "panels": [
+        { "type": "timeseries", "title": "요청률 (req/s)", "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+          "targets": [ { "expr": "llm:requests:rate5m{model_name=~\"$model\"}", "legendFormat": "{{model_name}}" } ] },
+        { "type": "timeseries", "title": "TTFT p95 (s)", "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+          "targets": [ { "expr": "llm:ttft_seconds:p95{model_name=~\"$model\"}", "legendFormat": "{{model_name}}" } ] },
+        { "type": "timeseries", "title": "ITL p95 (s)", "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+          "targets": [ { "expr": "llm:itl_seconds:p95{model_name=~\"$model\"}", "legendFormat": "{{model_name}}" } ] },
+        { "type": "stat", "title": "TTFT SLO 달성률", "gridPos": { "x": 0, "y": 8, "w": 6, "h": 6 },
+          "fieldConfig": { "defaults": { "unit": "percentunit" } },
+          "targets": [ { "expr": "llm:ttft_slo_ratio{model_name=~\"$model\"}" } ] },
+        { "type": "timeseries", "title": "실행 · 대기 요청", "gridPos": { "x": 6, "y": 8, "w": 9, "h": 6 },
+          "targets": [ { "expr": "llm:running:sum{model_name=~\"$model\"}", "legendFormat": "실행 {{model_name}}" },
+                       { "expr": "llm:queue:sum{model_name=~\"$model\"}", "legendFormat": "대기 {{model_name}}" } ] },
+        { "type": "timeseries", "title": "KV 사용률 · 프리픽스 적중률", "gridPos": { "x": 15, "y": 8, "w": 9, "h": 6 },
+          "fieldConfig": { "defaults": { "unit": "percentunit" } },
+          "targets": [ { "expr": "llm:kv_usage:max{model_name=~\"$model\"}", "legendFormat": "KV {{model_name}}" },
+                       { "expr": "llm:prefix_hit_ratio{model_name=~\"$model\"}", "legendFormat": "적중 {{model_name}}" } ] },
+        { "type": "timeseries", "title": "출력 토큰/s", "gridPos": { "x": 0, "y": 14, "w": 12, "h": 7 },
+          "targets": [ { "expr": "llm:output_tokens:rate5m{model_name=~\"$model\"}", "legendFormat": "{{model_name}}" } ] },
+        { "type": "timeseries", "title": "선점률 · GPU SM 활성", "gridPos": { "x": 12, "y": 14, "w": 12, "h": 7 },
+          "targets": [ { "expr": "llm:preemptions:rate5m{model_name=~\"$model\"}", "legendFormat": "선점 {{model_name}}" },
+                       { "expr": "gpu:sm_active:avg", "legendFormat": "SM {{Hostname}}/{{gpu}}" } ] }
+      ]
+    }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl apply -f llm-overview-dashboard.yaml
+kubectl -n monitoring port-forward svc/kps-grafana 3000:80 &amp;     <span class="c-cm"># 서비스 이름은 릴리스 이름에 따라 다름</span>
+<span class="c-cm"># 브라우저 http://localhost:3000 → 대시보드 “LLM 서비스 개요”</span></code></pre></div>
+    <p>vLLM 저장소에도 예제 Grafana 대시보드가 있습니다. 그대로 가져오면 엔진 지표 이름을 직접 쓰므로, 운영용으로는 위처럼 기록 규칙 기반으로 바꿔 두는 것을 권장합니다.</p>
+
+    <h3>실습 20-6 · 부하를 걸고 읽기, GB10 GPU 지표 확인</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>for r in 1 2 3 4; do kubectl -n llmsvc-lab exec bench -- python /scripts/slo_probe.py --label dash-r$r --rate $r --duration 120; done
+<span class="c-cm"># 대시보드에서: 도착률이 오를 때 실행·대기 요청 → KV → TTFT p95 순서로 변하는지, SLO 달성률이 언제 떨어지는지</span>
+
+<span class="c-cm"># GB10에서 실제로 값이 나오는 DCGM 필드 목록</span>
+curl -s "localhost:9090/api/v1/label/__name__/values" | python3 -c "import json,sys;print([n for n in json.load(sys.stdin)['data'] if n.startswith('DCGM_')])"
+curl -s 'localhost:9090/api/v1/query?query=DCGM_FI_DEV_FB_USED' | python3 -c "import json,sys;print(json.load(sys.stdin)['data']['result'][:2])"</code></pre></div>
+    <p><b>관찰 포인트</b>: 원인 지표(대기·KV)가 결과 지표(TTFT p95)보다 먼저 움직이는가 — 18편 자동 확장 신호 선택의 근거입니다. GB10에서 메모리 필드가 비어 있거나 0이면 9장의 대로 노드 메모리 패널로 대신합니다.</p>
+
+    <h3>실습 20-7 · 18편 랩 Prometheus 정리</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># KEDA ScaledObject의 serverAddress를 새 스택으로 (서비스 이름은 릴리스에 따라 다름)</span>
+<span class="c-cm">#   http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090</span>
+<span class="c-cm"># 쿼리도 엔진 지표 대신 기록 규칙(llm:running:sum + llm:queue:sum)으로 바꾸면 엔진 업그레이드에 강해짐</span>
+kubectl -n llmsvc-lab delete -f prometheus-lab.yaml --ignore-not-found</code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2><span class="sec-num">14</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: 기록 규칙, PodMonitor, histogram_quantile, DCGM" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15" class="quiz">
+  <h2><span class="sec-num">15</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S16 ================= -->
+<section id="s16">
+  <h2><span class="sec-num">16</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>층 × 황금 신호</b>로 지표를 정리하고, 사용자 체감에서 원인으로 내려간다.</li>
+      <li><b>vLLM 지표는 원인 분석의 중심</b>: 실행·대기, KV, 선점, 지연 분해(대기·Prefill·Decode), 캐시 적중, 요청 크기.</li>
+      <li><b>지표 이름은 바뀐다.</b> 기록 규칙을 표준 이름 층으로 두고, 업그레이드 때 이름 목록을 점검한다.</li>
+      <li><b>GPU 사용률보다 SM·DRAM 활성, 전력·스로틀·XID</b>를 본다. GB10은 메모리 필드 대신 노드 메모리.</li>
+      <li><b>운영 스택은 Operator + PodMonitor + PrometheusRule + 코드화된 대시보드</b>, 라벨 표준과 카디널리티 관리, 장기 보관.</li>
+      <li><b>히스토그램은 버킷을 합친 뒤 백분위</b>, 버킷 경계와 SLO를 맞춘다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">층 × 황금 신호 표를 우리 환경 기준으로 채울 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">TTFT가 나쁠 때 대기 때문인지 Prefill 때문인지 지표로 구분할 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">운영용 스택과 엔진·GPU 수집 대상을 구성했다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">표준 기록 규칙과 그 규칙을 쓰는 대시보드를 코드로 배포했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">지표 이름 점검 스크립트를 업그레이드 절차에 넣었다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">버킷 경계에 따른 p95 추정 오차를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">GB10에서 실제로 수집되는 GPU 필드를 확인했다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 21편 트레이스·로그와 SLO 운영</span>
+      <p>지표가 “전체가 어떤가”라면, 트레이스는 “이 요청 하나가 어디서 시간을 썼나”입니다. OpenTelemetry로 게이트웨이 → EPP → 엔진의 요청 경로를 잇고(GenAI 규약, llm-d·vLLM 트레이스), 로그를 구조화하며, 이번 편의 기록 규칙으로 SLO·오류 예산·소진율 경보를 운영하는 방법을 다룹니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 20편 서빙 지표 체계 · 2026년 10월 기준(vLLM v0.31.0 지표, DCGM Exporter, kube-prometheus-stack). 지표 이름·라벨·포트 이름은 버전마다 다르므로 실습 20-4의 점검으로 확인하세요. 계산기는 원리 설명용입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero: symptom → metrics ---------- */
+const SYM=[
+ ["사용자: 첫 응답이 늦다",[["게이트웨이 vs 엔진 TTFT","llm:ttft_seconds:p95와 게이트웨이 지연을 비교. 차이가 크면 앞단(게이트웨이·네트워크) 문제","--l5"],["지연 분해","llm:queue_time_seconds:p95가 크면 대기, 아니면 Prefill 시간(request_prefill_time_seconds)","--l4"],["대기라면","실행·대기 요청, 레플리카 수가 최대에 닿았는지(18편), 흐름 제어 대기열(11편)","--l3"],["Prefill이라면","입력 길이 분포(request_prompt_tokens) 변화, 프리픽스 적중률 하락(15편)","--l2"],["하드웨어","SM 활성·전력·스로틀링 (같은 부하인데 느려졌다면)","--l1"]],"TTFT는 대기와 Prefill의 합입니다. 어느 쪽인지 먼저 가르면 다음 행동이 정해집니다."],
+ ["사용자: 답변이 끊기듯 느리다",[["토큰 간 지연","llm:itl_seconds:p95·p99의 상승 시점","--l5"],["배치 크기","실행 중 요청 증가 → 한 스텝이 무거워짐(14편 동시 실행 상한)","--l4"],["긴 Prefill 끼어듦","스텝당 토큰 분포(iteration_tokens_total)가 토큰 예산에 자주 닿는지","--l3"],["메모리 대역폭","DRAM 활성 포화(2편)","--l2"],["추측 디코딩","수락률 하락(16편, 워크로드 변화)","--l1"]],"ITL 꼬리는 큰 배치·긴 Prefill 간섭·대역폭 포화에서 옵니다."],
+ ["429·거절이 늘었다",[["게이트웨이","테넌트·키별 429: 한도 소진인지 (12편)","--l5"],["Inference Gateway","흐름 제어 거절·풀 포화도 (11편)","--l4"],["엔진","대기열 지속 증가","--l3"],["확장","원하는 레플리카가 최대에 닿았거나 새 Pod가 Pending (18편)","--l2"]],"한도에 의한 정상 거절인지, 용량 부족인지 가릅니다."],
+ ["GPU가 노는 것 같다",[["하드웨어 활성","SM·DRAM 활성이 낮은지 (GPU_UTIL은 보지 않음)","--l1"],["요청이 없나","실행 중 요청·요청률","--l3"],["분배","Pod별 실행 요청 편차: 한 Pod만 바쁜지(11편)","--l4"],["CPU","엔진 Pod CPU 스로틀링(14편), API 서버 병목","--l2"]],"GPU가 놀면서 지연이 나쁘다면 CPU·프런트엔드 병목일 가능성이 큽니다."],
+ ["한 Pod만 바쁘다",[["Pod별 상태","Pod별 실행·대기·KV 사용률","--l3"],["EPP","지표 수집 실패로 점수가 같아졌는지, 준비된 엔드포인트 수(11편)","--l4"],["가중치","프리픽스 점수 과다로 인기 세션이 한 Pod에 몰림(10편)","--l5"],["준비 상태","다른 Pod가 Ready가 아니거나 기동 중(13편)","--l2"]],"라우팅 품질 문제는 오류 없이 나타나는 “조용한 장애”입니다."],
+ ["캐시 적중률이 떨어졌다",[["적중률 추이","llm:prefix_hit_ratio의 하락 시점","--l3"],["배포 이력","같은 시점에 프롬프트·채팅 템플릿 변경(앞부분에 동적 값, 15편)","--l5"],["KV 공간","KV 사용률 상승·축출 증가","--l2"],["라우팅","레플리카 증가·라우팅 설정 변경(10·11편)","--l4"]],"앱 배포가 원인인 경우가 가장 흔합니다."],
+ ["업그레이드 후 대시보드가 비었다",[["이름 목록 비교","metric_inventory.py 결과 diff (실습 20-4)","--l3"],["숨김 지표","폐기 예정 지표가 숨겨졌는지 (임시로 다시 켜는 옵션)","--l4"],["기록 규칙","표준 이름 규칙의 expr 수정, 대시보드는 그대로","--l5"]],"기록 규칙 층이 있으면 수정은 한 파일입니다."],
+ ["비용이 갑자기 늘었다",[["테넌트별 토큰","게이트웨이 테넌트·모델별 입력·출력 토큰 (12편)","--l5"],["외부 폴백","폴백 횟수·외부 공급자 비용","--l4"],["요청 크기","출력 길이 분포(request_generation_tokens) 증가","--l3"],["레플리카 수","확장으로 늘어난 GPU·시간 (18편)","--l2"]],"사용량 증가인지, 요청 크기·경로 변화인지 가릅니다."]
+];
+const sel=$("#qSel");SYM.forEach((s,i)=>{const o=document.createElement("option");o.value=i;o.textContent=s[0];sel.appendChild(o)});
+function q(){const s=SYM[+sel.value];$("#qPath").innerHTML=s[1].map(([t,d,c])=>`<li style="--c:var(${c})"><b>${t}</b><span>${d}</span></li>`).join("");$("#qNote").innerHTML=`<p>${s[2]}</p>`}
+sel.addEventListener("input",q);q();
+
+/* ---------- histogram quantile error ---------- */
+function erf(x){const s=Math.sign(x);x=Math.abs(x);const t=1/(1+0.3275911*x);const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);return s*y}
+const Phi=z=>0.5*(1+erf(z/Math.SQRT2));
+function hg(){const B=$("#hgB").value.split(",").map(Number),m=+$("#hgM").value,s=+$("#hgS").value;$("#hgMV").textContent=m.toFixed(1);$("#hgSV").textContent=s.toFixed(2);
+ const F=b=>b<=0?0:Phi((Math.log(b)-Math.log(m))/s),truth=m*Math.exp(1.6449*s);let est=null,prev=0;
+ for(const b of B){if(F(b)>=0.95){const fl=F(prev),fu=F(b);est=prev+(b-prev)*(0.95-fl)/Math.max(fu-fl,1e-12);break}prev=b}
+ let capped=false;if(est===null){est=B[B.length-1];capped=true}
+ const err=(est-truth)/truth*100;$("#hgT").textContent=fmt(truth,2)+" s";$("#hgE").textContent=fmt(est,2)+" s"+(capped?" (상한)":"");$("#hgErr").textContent=(err>=0?"+":"")+fmt(err,1)+"%";
+ const v=$("#hgNote");v.className="verdict "+(Math.abs(err)<5?"good":Math.abs(err)<15?"mid":"badv");
+ v.innerHTML=capped?"실제 p95가 가장 큰 버킷 경계를 넘어 추정값이 경계값에 묶였습니다. 긴 지연을 재려면 버킷 상한이 충분해야 합니다.":`버킷 안을 선형으로 가정하므로 추정이 ${fmt(Math.abs(err),1)}% ${err>0?"높게":"낮게"} 나옵니다. ${Math.abs(err)>=5?"SLO 경계(예: 2초) 근처에서 이 정도 오차면 “지켰다/어겼다” 판단이 바뀔 수 있습니다. SLO 값을 실제 버킷 경계에 맞추거나 더 촘촘한(또는 네이티브) 히스토그램을 쓰세요.":"이 정도면 운영 판단에 충분합니다."}`;}
+$$("#hgB,#hgM,#hgS").forEach(e=>e.addEventListener("input",hg));hg();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["GPU 사용률 대시보드면 GPU 상태는 다 본 것이다.","GPU_UTIL은 요청이 조금만 있어도 높게 보입니다. SM·DRAM 활성, 전력·스로틀링, XID 오류를 봐야 실제 상태를 압니다."],
+ ["Pod별 p95를 평균 내면 서비스 p95다.","백분위의 평균은 백분위가 아닙니다. 버킷을 합친 뒤 histogram_quantile을 계산합니다."],
+ ["엔진 지표를 대시보드에 바로 쓰면 간단하다.","엔진 업그레이드마다 이름이 바뀌어 대시보드·경보·자동 확장이 함께 깨집니다. 기록 규칙을 표준 이름 층으로 둡니다."],
+ ["라벨은 많을수록 분석에 좋다.","사용자·요청 ID 같은 고유 값 라벨은 시계열 수를 폭발시켜 Prometheus를 무너뜨립니다. 상세는 로그·트레이스로 보냅니다."],
+ ["GPU 메모리 사용량으로 KV 압박을 본다.","vLLM은 기동 시 메모리를 미리 잡아 항상 높습니다. KV 압박은 엔진의 KV 사용률·선점으로 봅니다. GB10은 메모리 필드 자체가 지원되지 않습니다."],
+ ["TTFT가 나쁘면 GPU를 늘리면 된다.","대기 때문이면 용량, Prefill 때문이면 입력 길이·캐시 문제입니다. 지연을 분해해서 원인에 맞게 대응합니다."],
+ ["Prometheus 백분위는 정확한 값이다.","버킷 안을 선형으로 가정한 추정값입니다. 버킷 경계와 SLO가 어긋나면 판단이 틀릴 수 있습니다."],
+ ["모니터링 스택은 한 번 깔면 끝이다.","엔진·게이트웨이·GPU Operator 업그레이드 때마다 지표 이름·라벨·포트가 바뀔 수 있습니다. 점검을 업그레이드 절차에 넣습니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["황금 신호","Golden signals","트래픽·오류·지연·포화. 서비스 관측의 기본 틀."],
+ ["카운터·게이지·히스토그램","Counter · Gauge · Histogram","누적값·현재값·분포. 카운터는 노출 시 _total 접미사."],
+ ["histogram_quantile","histogram_quantile","버킷 분포에서 백분위를 추정하는 PromQL 함수."],
+ ["rate","rate()","카운터의 초당 증가율."],
+ ["기록 규칙","Recording rule","무거운 쿼리를 미리 계산해 새 이름의 시계열로 저장하는 규칙."],
+ ["경보 규칙","Alerting rule","조건이 지속되면 경보를 내는 규칙 (23편)."],
+ ["카디널리티","Cardinality","라벨 조합으로 생기는 시계열 수."],
+ ["Prometheus Operator","Prometheus Operator","Prometheus 구성 요소를 CRD로 관리하는 오퍼레이터."],
+ ["kube-prometheus-stack","kube-prometheus-stack","Operator·Prometheus·Alertmanager·Grafana·exporter 묶음 Helm 차트."],
+ ["ServiceMonitor·PodMonitor","ServiceMonitor · PodMonitor","수집 대상을 선언하는 CRD."],
+ ["PrometheusRule","PrometheusRule","기록·경보 규칙 CRD."],
+ ["DCGM Exporter","DCGM Exporter","NVIDIA GPU 지표를 Prometheus 형식으로 내보내는 구성 요소."],
+ ["SM 활성","DCGM_FI_PROF_SM_ACTIVE","SM이 실제로 일한 시간 비율."],
+ ["DRAM 활성","DCGM_FI_PROF_DRAM_ACTIVE","메모리 대역폭 사용 비율."],
+ ["XID 오류","XID errors","드라이버가 보고하는 GPU 오류 코드."],
+ ["지연 분해","Latency breakdown","TTFT를 대기·Prefill로, E2E를 대기·Prefill·Decode로 나눈 것."],
+ ["숨김 지표","Hidden metrics","폐기 예정으로 숨겨진 지표. 한시적으로 다시 켤 수 있음."],
+ ["네이티브 히스토그램","Native histogram","고정 버킷 대신 지수 버킷을 쓰는 Prometheus 3 히스토그램."],
+ ["장기 보관","Long-term storage","Thanos·Mimir·VictoriaMetrics 등으로 지표를 오래·여러 클러스터에서 보관."]
+];
+function gl(qq){qq=(qq||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!qq||(g[0]+g[1]+g[2]).toLowerCase().includes(qq)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["TTFT p95가 나빠졌다. 원인을 가르는 첫 지표 쌍은?",["GPU 사용률과 온도","대기 시간과 Prefill 시간","출력 토큰과 비용","Pod 수와 노드 수"],1,"TTFT = 대기 + Prefill."],
+ ["여러 레플리카의 TTFT p95를 구하는 올바른 방법은?",["Pod별 p95 평균","sum by (le)로 버킷을 합친 뒤 histogram_quantile","최댓값","중앙값"],1,"분포를 합친 뒤 백분위를 계산합니다."],
+ ["엔진 업그레이드에 강한 대시보드 구성은?",["엔진 지표 직접 사용","기록 규칙으로 표준 이름을 만들고 대시보드는 그것만 사용","대시보드 없음","매번 새로 작성"],1,"수정 지점이 한 곳이 됩니다."],
+ ["LLM 엔진에서 KV 압박을 보는 지표는?",["GPU 메모리 사용량","vllm:kv_cache_usage_perc와 선점 횟수","CPU 사용률","네트워크 처리량"],1,"vLLM은 메모리를 미리 잡아 GPU 메모리는 항상 높습니다."],
+ ["Decode 대역폭 포화의 하드웨어 측 증거는?",["GPU_UTIL","DCGM_FI_PROF_DRAM_ACTIVE","XID 오류","온도"],1,"메모리 대역폭 사용 비율입니다."],
+ ["게이트웨이 지표에 사용자 ID 라벨을 넣으면?",["분석이 쉬워진다","시계열 수가 폭발해 Prometheus가 감당 못 함","보안이 좋아진다","변화 없음"],1,"상세는 로그·트레이스로 보냅니다."],
+ ["SLO 달성률 기록 규칙에서 le 값이 실제 버킷 경계와 다르면?",["정확하다","가장 가까운 경계로 근사되거나 0이 되어 판단이 틀릴 수 있음","오류 없음","자동 보정"],1,"버킷 경계를 확인해 맞춥니다."],
+ ["vLLM에서 폐기 예정된 지표의 처리 순서는?",["바로 삭제","다음 버전에서 숨김(옵션으로 복원 가능) → 그다음 버전에서 제거","영구 유지","이름만 바뀜"],1,"업그레이드 노트와 점검 스크립트로 대비합니다."],
+ ["GB10에서 GPU 메모리 대시보드 대신 쓸 지표는?",["DCGM_FI_DEV_FB_USED","노드 메모리(node-exporter)와 엔진 KV 사용률","GPU_UTIL","전력"],1,"통합 메모리라 GPU 메모리 필드가 지원되지 않습니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((x,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${x[0]}</p>${x[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${x[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const x=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[x[2]].classList.add("right");if(j!==x[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 21편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 21편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

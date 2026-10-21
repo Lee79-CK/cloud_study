@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 21편 · 트레이스·로그와 SLO 운영</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+/* ---------- episode 15 additions ---------- */
+.tiers{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tiers div{display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+.pseg{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0}
+.pseg span{font-size:.72rem;padding:3px 7px;border-radius:5px;color:#0B1220;white-space:nowrap}
+.form label input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+.form label > span{display:inline-flex;align-items:center}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 21 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>21편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">세 신호의 역할 분담</a></li>
+    <li><a href="#s3">요청 하나의 경로</a></li>
+    <li><a href="#s4">OpenTelemetry 기본</a></li>
+    <li><a href="#s5">서빙 스택의 트레이스</a></li>
+    <li><a href="#s6">로그</a></li>
+    <li><a href="#s7">LLM 서빙의 SLI·SLO</a></li>
+    <li><a href="#s8">오류 예산과 소진율 경보</a></li>
+    <li><a href="#s9">SLO 운영</a></li>
+    <li><a href="#s10">MSP 관점</a></li>
+    <li><a href="#s11">흔한 오해</a></li>
+    <li><a href="#s12">실습</a></li>
+    <li><a href="#s13">용어 사전</a></li>
+    <li><a href="#s14">확인 퀴즈</a></li>
+    <li><a href="#s15">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 4 · 모니터링 — 21편</div>
+    <h1>트레이스·로그와<br>SLO 운영</h1>
+    <p class="intro">20편의 지표는 “전체가 어떤가”를 보여 줍니다. 그런데 “이 고객의 이 요청은 왜 8초 걸렸나”에는 답하지 못합니다. 이번 편은 <b>트레이스</b>로 요청 하나가 게이트웨이·라우터·엔진에서 각각 얼마를 썼는지 따라가고, <b>로그</b>를 구조화해 트레이스와 잇고, 20편의 기록 규칙 위에 <b>SLO·오류 예산·소진율 경보</b>를 세워 “얼마나 나빠지면 사람이 움직여야 하나”를 정합니다.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>3·12·20편</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 150분</b></span>
+      <span class="chip">기준 <b>2026년 10월</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="오류 예산 계산기">
+    <div class="stack-head"><strong>장애 하나가 오류 예산을 얼마나 태우나</strong></div>
+    <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <label>SLO 목표 (30일) <select id="bT"><option value="0.99">99%</option><option value="0.995" selected>99.5%</option><option value="0.999">99.9%</option></select></label>
+      <label>장애 중 나쁜 요청 비율 <span id="bBV">20%</span><input type="range" id="bB" min="1" max="100" step="1" value="20"></label>
+      <label>장애 지속 시간 (분) <span id="bDV">30</span><input type="range" id="bD" min="1" max="720" step="1" value="30"></label>
+      <label>평소 나쁜 요청 비율 <span id="bNV">0.1%</span><input type="range" id="bN" min="0" max="1" step="0.05" value="0.1"></label>
+    </div>
+    <div class="meter" style="height:20px;margin-top:10px" id="bBar"></div>
+    <div class="readout">
+      <div><span>소진율 (장애 중)</span><b id="bRate">—</b></div>
+      <div><span>이 장애가 쓴 예산</span><b id="bUsed">—</b></div>
+      <div><span>먼저 울리는 경보</span><b id="bAlert">—</b></div>
+    </div>
+    <div class="layer-detail" id="bNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">관측의 목적은 데이터를 모으는 것이 아니라, 사용자가 느끼기 전에 알고 빠르게 원인에 도달하는 것입니다.</p>
+  <div class="prose">
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>지표·트레이스·로그의 역할 분담과 서로를 잇는 방법(트레이스 ID·예시)을 설명할 수 있다.</li>
+      <li>OpenTelemetry의 SDK·OTLP·Collector·문맥 전파·샘플링을 설명하고 서빙 스택에 적용할 수 있다.</li>
+      <li>vLLM·게이트웨이·라우터의 트레이스 속성(GenAI 규약 포함)으로 요청 지연을 분해할 수 있다.</li>
+      <li>LLM 서빙 로그에 남길 것과 남기지 말 것을 정하고, 트레이스와 연결할 수 있다.</li>
+      <li>가용성·TTFT·토큰 간 지연 SLI와 SLO를 설계하고 오류 예산을 계산할 수 있다.</li>
+      <li>다중 창 소진율 경보를 기록 규칙 위에 구성하고, 예산 정책으로 운영할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 택배 추적과 서비스 약속</span>
+      <p>지표는 “오늘 전체 배송의 95%가 이틀 안에 도착”이라는 통계, 트레이스는 송장 번호로 본 내 택배의 이동 기록(집하 → 터미널 → 배송), 로그는 각 지점의 상세 작업 일지입니다. SLO는 “한 달 동안 99.5%를 이틀 안에”라는 약속이고, 오류 예산은 그 약속 안에서 늦어도 되는 0.5%의 여유입니다. 예산이 빠르게 줄어들면(소진율이 높으면) 지금 당장 움직여야 하고, 천천히 줄면 다음 주 회의 안건이면 충분합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>세 신호의 역할 분담</h2>
+  <p class="lede">세 신호는 서로 대신할 수 없고, 서로를 가리키도록 이어 둘 때 가장 강합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>신호</th><th>답하는 질문</th><th>강점</th><th>약점</th><th>LLM 서빙 예</th></tr></thead>
+    <tbody>
+      <tr><td class="k">지표 (20편)</td><td>전체가 어떤가, 언제부터 나빠졌나</td><td>싸고 오래 보관, 경보·SLO의 기반</td><td>개별 요청을 모름, 라벨 수 제한</td><td>모델별 TTFT p95, 대기열, KV 사용률</td></tr>
+      <tr><td class="k">트레이스</td><td>이 요청이 어디서 시간을 썼나</td><td>구간별 지연, 서비스 간 인과</td><td>양이 많아 샘플링 필요</td><td>게이트웨이 → 라우터 → 엔진(대기·Prefill·Decode) 구간</td></tr>
+      <tr><td class="k">로그</td><td>정확히 무슨 일이 있었나</td><td>오류 메시지·상세 맥락</td><td>구조화하지 않으면 검색이 어려움, 개인정보 위험</td><td>엔진 오류, 게이트웨이 접근 기록, 감사 로그</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>잇는 고리 ① 트레이스 ID</b>: 게이트웨이·엔진 로그에 트레이스 ID를 남기면 로그에서 트레이스로, 트레이스에서 로그로 이동할 수 있습니다.</li>
+      <li><b>잇는 고리 ② 예시(exemplar)</b>: 히스토그램 지표에 대표 요청의 트레이스 ID를 붙이면, “p99가 튄 순간”의 그래프에서 바로 그 요청의 트레이스로 들어갈 수 있습니다(지원하는 수집기·백엔드에서).</li>
+      <li><b>잇는 고리 ③ 공통 속성</b>: 테넌트·모델·변형 이름을 세 신호 모두 같은 키로 남깁니다(20편 표준 라벨).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>요청 하나의 경로</h2>
+  <p class="lede">같은 “8초”라도 어디서 쓴 8초인지에 따라 대응이 완전히 다릅니다.</p>
+  <div class="tool wide" id="wfTool">
+    <h4>트레이스 폭포 그림</h4>
+    <div class="desc">한 요청의 스팬(구간)을 시간 순으로 그린 예시입니다. 상황을 바꿔 보며 어느 구간이 늘어나는지 보세요.</div>
+    <div class="seg-tabs" id="wfCase">
+      <button class="btn on" data-c="ok">정상</button>
+      <button class="btn" data-c="queue">엔진 대기열</button>
+      <button class="btn" data-c="prefill">긴 입력·캐시 미스</button>
+      <button class="btn" data-c="gw">게이트웨이 지연</button>
+      <button class="btn" data-c="fb">폴백 발생</button>
+    </div>
+    <div id="wfRows" style="margin-top:12px"></div>
+    <div class="verdict" id="wfNote"></div>
+  </div>
+</section>
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>OpenTelemetry 기본</h2>
+  <p class="lede">트레이스를 “만들고, 보내고, 모으는” 표준. 벤더와 무관하게 같은 형식으로 흐릅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성 요소</th><th>역할</th><th>운영 포인트</th></tr></thead>
+    <tbody>
+      <tr><td class="k">SDK·계측</td><td>애플리케이션 안에서 스팬을 만듦 (자동·수동)</td><td>엔진·게이트웨이는 내장 기능을 켜고, 앱은 SDK로 상위 스팬을 만듦</td></tr>
+      <tr><td class="k">OTLP</td><td>전송 형식 (gRPC 4317 · HTTP 4318)</td><td>모든 구성 요소가 Collector로 OTLP를 보내게 통일</td></tr>
+      <tr><td class="k">Collector</td><td>받기 → 처리(속성 추가·삭제·샘플링·배치) → 보내기</td><td>백엔드를 바꿔도 앱 설정은 그대로. 민감 속성 제거를 여기서</td></tr>
+      <tr><td class="k">문맥 전파</td><td>W3C <code>traceparent</code> 헤더로 트레이스 ID를 다음 서비스에 전달</td><td>프록시가 헤더를 지우지 않는지 확인. 엔진은 받은 헤더를 부모로 삼음</td></tr>
+      <tr><td class="k">샘플링</td><td>앞단(요청 시작 시 확률) · 뒷단(완료 후 오류·느린 요청 우선 보관)</td><td>LLM은 요청이 길고 비싸므로 “오류·느린 요청은 전부, 나머지는 일부”가 실용적 (Collector의 tail sampling)</td></tr>
+      <tr><td class="k">백엔드</td><td>저장·검색·시각화 (Tempo·Jaeger 등)</td><td>보존 기간, 지표·로그와의 연결</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>GenAI 의미 규약</h3>
+    <p>OpenTelemetry는 생성형 AI 호출을 위한 속성 이름(<code>gen_ai.*</code>)을 정하고 있습니다. 작업 이름(<code>gen_ai.operation.name</code>), 공급자(<code>gen_ai.provider.name</code>), 요청·응답 모델, 입력·출력·캐시 토큰 사용량(<code>gen_ai.usage.*</code>), 종료 사유 등이 대표적입니다. 규약은 아직 발전 중이라 버전에 따라 이름이 바뀌기도 하므로, 20편의 지표처럼 Collector에서 표준 이름으로 맞추는 층을 두면 안전합니다. 프롬프트·응답 본문을 속성으로 담는 옵션은 기본으로 끕니다(6장).</p>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>서빙 스택의 트레이스</h2>
+  <p class="lede">각 층이 무엇을 기록하는지 알면, 빠진 구간을 채울 수 있습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>층</th><th>켜는 법 (예)</th><th>남기는 것</th><th>메모</th></tr></thead>
+    <tbody>
+      <tr><td class="k">앱·SDK</td><td>OTel SDK로 상위 스팬 + <code>traceparent</code> 헤더 전송</td><td>사용자 동작 단위의 시작점</td><td>트레이스의 뿌리. 없으면 게이트웨이부터 시작</td></tr>
+      <tr><td class="k">AI 게이트웨이</td><td>Agent Router의 GenAI 트레이스, LiteLLM의 OTel 콜백 등</td><td>테넌트·모델·토큰·비용·폴백·공급자 호출</td><td>외부 공급자 호출 구간이 여기서만 보임 (12편)</td></tr>
+      <tr><td class="k">Inference Gateway·EPP</td><td>llm-d Router 트레이싱 설정</td><td>점수 계산·선택된 Pod·흐름 제어 대기, P/D의 Prefill 스케줄·KV 전송·Decode</td><td>llm-d v0.9에서 P/D 경로 전체가 하나의 트레이스로 이어지도록 강화 (10·11편)</td></tr>
+      <tr><td class="k">엔진 (vLLM)</td><td><code>--otlp-traces-endpoint</code> (+ 상세 트레이스 옵션), OTel 패키지 필요</td><td>요청당 스팬 하나: 토큰 사용량, TTFT, 대기·Prefill·Decode·모델 실행 시간 등</td><td>요청 헤더의 문맥을 부모로 이어 붙임. 상세 트레이스는 오버헤드가 있어 필요할 때만</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>vLLM은 요청마다 스팬 하나를 만들고, 그 안에 지연 분해 속성(대기 시간, Prefill·Decode 시간, 모델 실행 시간 등 vLLM 고유의 <code>gen_ai.latency.*</code>)과 토큰 사용량을 담습니다. 20편의 히스토그램이 “분포”를 준다면, 이 속성들은 “문제의 그 요청”에서 같은 분해를 보여 줍니다. vLLM 이미지에 OpenTelemetry 패키지가 포함되어 있는지는 버전마다 다르므로 실습 21-2에서 먼저 확인합니다.</p>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>로그</h2>
+  <p class="lede">LLM 로그의 가장 큰 위험은 “너무 적게”가 아니라 “프롬프트를 너무 많이” 남기는 것입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>로그</th><th>남길 것</th><th>남기지 말 것 (기본)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">게이트웨이 접근 로그</td><td>시각, 트레이스 ID, 테넌트·키 ID, 모델, 상태 코드, 입력·출력 토큰, 지연, 폴백 여부</td><td>프롬프트·응답 본문, 공급자 키, 개인정보</td></tr>
+      <tr><td class="k">엔진 로그</td><td>기동·설정(“기본값이 아닌 인자”), 경고·오류, 선점·OOM, 요청 ID</td><td>요청 본문 (vLLM의 요청 로그는 최근 버전에서 기본 꺼짐 — 켜더라도 길이 제한)</td></tr>
+      <tr><td class="k">감사 로그</td><td>키 발급·폐기, 정책 변경, 관리 API 호출, 어댑터 등록 (12·16편)</td><td>—</td></tr>
+      <tr><td class="k">디버깅용 본문 로그</td><td>합의된 테넌트·기간에만, 마스킹 후, 짧은 보존</td><td>상시 수집</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>구조화</b>: JSON 한 줄 로그로 남겨야 검색·집계가 됩니다. 필드 이름은 지표·트레이스와 같은 키(테넌트·모델·트레이스 ID)로.</li>
+      <li><b>수집</b>: 노드의 컨테이너 로그를 수집기(Fluent Bit·Grafana Alloy·OTel Collector의 파일 로그 수신기 등)로 모아 로그 저장소(Loki·OpenSearch 등)로 보냅니다.</li>
+      <li><b>보존</b>: 운영 로그 수 주, 감사 로그는 계약·규정에 따라. 본문이 섞일 수 있는 로그는 짧게.</li>
+      <li><b>비용</b>: 요청마다 큰 로그를 남기면 저장 비용이 GPU 비용에 근접할 수 있습니다. 지표로 충분한 것은 로그로 남기지 않습니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>LLM 서빙의 SLI·SLO</h2>
+  <p class="lede">SLI는 “좋은 사건 ÷ 전체 사건”으로 정의할 수 있어야 합니다. 그래야 오류 예산을 계산할 수 있습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>SLI</th><th>좋은 사건</th><th>측정 위치</th><th>SLO 예 (30일)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">가용성</td><td>서버 오류(5xx)·타임아웃이 아닌 응답</td><td>게이트웨이 (사용자에 가까움)</td><td>99.5%</td></tr>
+      <tr><td class="k">TTFT</td><td>첫 토큰이 X초 이내 (X는 히스토그램 버킷 경계)</td><td>엔진 히스토그램 또는 게이트웨이</td><td>95%가 2.5초 이내</td></tr>
+      <tr><td class="k">토큰 간 지연</td><td>토큰 간격이 Y초 이내</td><td>엔진 히스토그램</td><td>99%가 0.1초 이내</td></tr>
+      <tr><td class="k">완료 품질 (22편)</td><td>형식 준수·정답 등 평가 통과</td><td>온라인 평가</td><td>별도 정의</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>무엇을 나쁜 사건에서 뺄까</b>: 클라이언트 오류(400)는 빼고, 한도 초과(429)는 정책에 따라(정당한 한도면 제외, 용량 부족 때문이면 포함). 이 규칙을 SLO 문서에 명시합니다.</li>
+      <li><b>요청 크기</b>: 아주 긴 입력의 TTFT는 원래 깁니다. 입력 길이 구간별로 SLO를 나누거나, 일정 길이 이상은 TTFT SLO에서 제외하는 규칙을 둡니다(19편 워크로드 카드).</li>
+      <li><b>단위</b>: 모델별·테넌트 등급별로 SLO를 다르게 둘 수 있습니다(12편 등급).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>오류 예산과 소진율 경보</h2>
+  <p class="lede">“SLI가 목표 아래로 떨어지면 경보”는 너무 시끄럽거나 너무 늦습니다. 예산을 태우는 속도로 경보합니다.</p>
+  <div class="prose">
+    <div class="formula">오류 예산       = 1 − SLO 목표           (99.5%면 0.5%)
+나쁜 비율       = 1 − SLI                 (지금 창에서)
+소진율          = 나쁜 비율 ÷ 오류 예산    (1이면 기간 끝에 예산을 딱 다 씀)
+예산 사용 비율  ≈ 소진율 × (지속 시간 ÷ SLO 기간)</div>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>경보</th><th>긴 창 · 짧은 창</th><th>소진율 기준</th><th>의미</th><th>대응</th></tr></thead>
+    <tbody>
+      <tr><td class="k">긴급 1</td><td>1시간 · 5분</td><td>14.4</td><td>1시간에 30일 예산의 2%를 씀</td><td>호출(페이지)</td></tr>
+      <tr><td class="k">긴급 2</td><td>6시간 · 30분</td><td>6</td><td>6시간에 5%</td><td>호출</td></tr>
+      <tr><td class="k">일반 1</td><td>1일 · 2시간</td><td>3</td><td>하루에 10%</td><td>티켓</td></tr>
+      <tr><td class="k">일반 2</td><td>3일 · 6시간</td><td>1</td><td>3일에 10%</td><td>티켓</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>긴 창과 짧은 창을 <b>둘 다</b> 넘을 때만 울립니다. 긴 창은 “충분히 나빴다”를, 짧은 창은 “지금도 나쁘다”를 확인해, 이미 끝난 장애로 계속 울리는 것을 막습니다. 히어로 계산기로 장애의 크기·길이에 따라 어느 경보가 먼저 울리는지 확인해 보세요. 경보의 전달·대응 절차는 23편에서 다룹니다.</p>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>SLO 운영</h2>
+  <p class="lede">SLO는 대시보드 숫자가 아니라 팀의 의사결정 규칙입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>운영 요소</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">예산 정책</td><td>예산이 충분하면 새 모델·설정 배포를 진행, 소진되면 신뢰성 작업 우선·위험한 변경 보류. 미리 합의</td></tr>
+      <tr><td class="k">정기 검토</td><td>주간: 예산 소진 추이·주요 장애. 분기: SLO 목표·SLI 정의가 사용자 경험과 맞는지</td></tr>
+      <tr><td class="k">배포와의 연결</td><td>카나리(25편)의 판단 기준을 SLI로. 새 버전이 예산을 빠르게 태우면 자동 되돌리기</td></tr>
+      <tr><td class="k">도구</td><td>Sloth·Pyrra처럼 SLO 정의에서 기록·경보 규칙을 생성하는 도구를 쓰면 실수가 줄어듦</td></tr>
+      <tr><td class="k">보고</td><td>월간 SLO 달성률·예산 사용·주요 사건을 고객 보고서로 (26편)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>MSP 관점</h2>
+  <p class="lede">SLO는 고객 계약(SLA)과 내부 운영 목표 사이의 완충지대입니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>SLA보다 엄격한 SLO</b>: 계약 SLA가 99%라면 내부 SLO는 99.5%로 두어, SLA 위반 전에 대응할 여유를 만듭니다.</li>
+      <li><b>고객별 SLI</b>: 게이트웨이에서 테넌트별로 SLI를 계산하면, 한 고객만 겪는 문제(그 고객의 긴 입력, 그 고객의 한도)를 구분할 수 있습니다.</li>
+      <li><b>외부 공급자 구간</b>: 외부 API 지연은 MSP가 통제할 수 없으므로 SLA에서 분리하거나 별도 SLI로 둡니다. 트레이스로 구간을 증명할 수 있어야 합니다.</li>
+      <li><b>트레이스·로그의 데이터 주권</b>: 고객 데이터가 담길 수 있으므로 저장 위치·보존·접근 권한을 계약과 맞춥니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>흔한 오해</h2>
+  <p class="lede">트레이스·로그·SLO에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>실습</h2>
+  <p class="lede">OTel Collector와 Tempo를 세우고, vLLM 트레이스를 켜서 내가 만든 트레이스 ID로 요청 하나를 찾아 지연을 분해합니다. 로그에 프롬프트가 새지 않는지 확인하고, 20편 기록 규칙 위에 TTFT SLO의 소진율 경보를 만들어 실제로 울려 봅니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>20편의 kube-prometheus-stack(monitoring 네임스페이스, 릴리스 이름 <code>kps</code>), 7편 랩, bench Pod.</li>
+        <li>차트 값 키·서비스 이름은 차트 버전에 따라 다르므로 <code>helm show values</code>와 <code>kubectl get svc</code>로 확인해 맞춥니다.</li>
+        <li>트레이스 백엔드는 Grafana Tempo(단일 바이너리)를 씁니다. 이미 Jaeger 등 다른 백엔드가 있다면 Collector의 내보내기 대상만 바꾸면 됩니다.</li>
+      </ul>
+    </div>
+
+    <h3>실습 21-1 · Tempo와 OTel Collector</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · otel-collector-values.yaml (open-telemetry/opentelemetry-collector 차트)</span><button class="copy">복사</button></div><pre><code>mode: deployment
+image:
+  repository: otel/opentelemetry-collector-contrib     <span class="c-cm"># tail_sampling 등 contrib 프로세서 포함</span>
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc: { endpoint: 0.0.0.0:4317 }
+        http: { endpoint: 0.0.0.0:4318 }
+  processors:
+    batch: {}
+    attributes/strip-content:                          <span class="c-cm"># 본문이 속성으로 들어오면 제거 (6장)</span>
+      actions:
+      - { key: gen_ai.prompt, action: delete }
+      - { key: gen_ai.completion, action: delete }
+      - { key: gen_ai.input.messages, action: delete }
+      - { key: gen_ai.output.messages, action: delete }
+    tail_sampling:                                     <span class="c-cm"># 오류·느린 요청은 전부, 나머지는 20%</span>
+      decision_wait: 30s
+      policies:
+      - { name: errors, type: status_code, status_code: { status_codes: [ERROR] } }
+      - { name: slow, type: latency, latency: { threshold_ms: 5000 } }
+      - { name: sample, type: probabilistic, probabilistic: { sampling_percentage: 20 } }
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.monitoring.svc:4317
+      tls: { insecure: true }
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [attributes/strip-content, tail_sampling, batch]
+        exporters: [otlp/tempo]</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>helm repo add grafana https://grafana.github.io/helm-charts
+helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm repo update
+helm install tempo grafana/tempo --version &lt;안정 버전&gt; -n monitoring      <span class="c-cm"># 단일 바이너리, 보존 기간은 values의 retention 키로</span>
+helm install otel open-telemetry/opentelemetry-collector --version &lt;안정 버전&gt; -n monitoring -f otel-collector-values.yaml
+kubectl -n monitoring get svc | grep -E "tempo|otel"
+<span class="c-cm"># Grafana에 Tempo 데이터 소스 추가 (kps values의 grafana.additionalDataSources에 type: tempo, url: http://tempo.monitoring:3200)</span></code></pre></div>
+    <p>실험 중 모든 트레이스를 보고 싶다면 확률 정책의 비율을 100으로 올렸다가 끝나면 되돌립니다. 뒷단 샘플링은 Collector가 트레이스 전체를 잠시 모아 두므로 레플리카를 여러 개로 늘릴 때는 같은 트레이스가 같은 Collector로 가도록 구성해야 합니다(단일 레플리카면 신경 쓰지 않아도 됨).</p>
+
+    <h3>실습 21-2 · vLLM 트레이스 켜기</h3>
+    <div class="codeblock"><div class="cap"><span>bash · OTel 패키지가 엔진 이미지에 있는지 확인</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab exec deploy/llm-engine -- python -c \
+  "import opentelemetry.sdk, opentelemetry.exporter.otlp.proto.grpc.trace_exporter; print('OTel 있음')" \
+  || echo "없음 → 아래 구성 요소로 설치"</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>yaml · 30-serving/components/otel/kustomization.yaml (패키지가 없을 때 initContainer로 설치)</span><button class="copy">복사</button></div><pre><code>apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+- target: { kind: Deployment, name: llm-engine }
+  patch: |-
+    - op: add
+      path: /spec/template/spec/volumes/-
+      value: { name: otel-libs, emptyDir: {} }
+    - op: add
+      path: /spec/template/spec/initContainers
+      value:
+      - name: otel-install
+        image: vllm-image                                <span class="c-cm"># 엔진과 같은 이미지(같은 파이썬)</span>
+        command: ["sh", "-c", "pip install -q --target /otel opentelemetry-sdk opentelemetry-api opentelemetry-exporter-otlp opentelemetry-semantic-conventions-ai"]
+        volumeMounts: [ { name: otel-libs, mountPath: /otel } ]
+    - op: add
+      path: /spec/template/spec/containers/0/volumeMounts/-
+      value: { name: otel-libs, mountPath: /otel }
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value: { name: PYTHONPATH, value: /otel }
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value: { name: OTEL_SERVICE_NAME, value: vllm-qwen3-8b }
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value: { name: OTEL_EXPORTER_OTLP_TRACES_INSECURE, value: "true" }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 트레이스 엔드포인트 설정과 배포</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># qwen3-8b-fp8 오버레이의 vllm.yaml에 추가 (Collector 서비스 이름은 확인한 값으로)</span>
+<span class="c-cm">#   otlp-traces-endpoint: http://otel-opentelemetry-collector.monitoring.svc:4317</span>
+<span class="c-cm"># 오버레이 kustomization.yaml의 components에 ../../components/otel 추가 (패키지가 이미 있으면 생략하고 환경 변수만)</span>
+./lab.sh up qwen3-8b-fp8
+kubectl -n llmsvc-lab logs deploy/llm-engine | grep -iE "otlp|trac|opentelemetry" | head</code></pre></div>
+    <p><code>vllm[otel]</code> 추가 설치 묶음이 있는 버전이라면 그 목록을 따르는 것이 가장 안전합니다. initContainer 방식은 엔진 이미지의 패키지와 버전이 충돌할 수 있으므로, 운영에서는 엔진 이미지를 기반으로 OTel 패키지를 넣은 이미지를 따로 빌드해 다이제스트로 고정하는 것을 권장합니다(13편).</p>
+
+    <h3>실습 21-3 · 내 트레이스 ID로 요청 하나 따라가기</h3>
+    <div class="codeblock"><div class="cap"><span>python · trace_probe.py (bench Pod에서)</span><button class="copy">복사</button></div><pre><code>"""traceparent 헤더를 직접 만들어 요청을 보내고, Tempo에서 그 트레이스를 찾아 스팬과 gen_ai 속성을 출력한다.
+사용: python trace_probe.py [엔진·게이트웨이 주소] [Tempo 주소]"""
+import json, os, sys, time, urllib.request
+base = sys.argv[1] if len(sys.argv) &gt; 1 else "http://llm-engine:8000"
+tempo = sys.argv[2] if len(sys.argv) &gt; 2 else "http://tempo.monitoring.svc:3200"
+trace_id, span_id = os.urandom(16).hex(), os.urandom(8).hex()
+body = json.dumps({"model": "qwen3-8b", "max_tokens": 64,
+                   "messages": [{"role": "user", "content": "트레이스 실험입니다. 한 문장으로 답해 주세요. /no_think"}]}).encode()
+req = urllib.request.Request(base + "/v1/chat/completions", body, {
+    "Content-Type": "application/json", "traceparent": f"00-{trace_id}-{span_id}-01"})   # 01 = 샘플링함
+t0 = time.perf_counter(); urllib.request.urlopen(req, timeout=120).read()
+print(f"trace_id={trace_id}  클라이언트 측 지연 {(time.perf_counter() - t0) * 1000:.0f} ms")
+def val(v): return next(iter(v.values())) if isinstance(v, dict) and v else v
+for i in range(12):                                   # 뒷단 샘플링 대기(decision_wait) 때문에 잠시 기다림
+    time.sleep(5)
+    try: data = json.load(urllib.request.urlopen(f"{tempo}/api/traces/{trace_id}", timeout=10))
+    except Exception: continue
+    for b in data.get("batches", []):
+        svc = {a["key"]: val(a["value"]) for a in b.get("resource", {}).get("attributes", [])}.get("service.name")
+        for ss in b.get("scopeSpans", b.get("instrumentationLibrarySpans", [])):
+            for s in ss.get("spans", []):
+                dur = (int(s["endTimeUnixNano"]) - int(s["startTimeUnixNano"])) / 1e6
+                print(f"\n[{svc}] {s['name']}  {dur:.0f} ms")
+                for a in s.get("attributes", []):
+                    if a["key"].startswith("gen_ai"): print(f"   {a['key']} = {val(a['value'])}")
+    break
+else:
+    print("Tempo에서 찾지 못함: Collector 로그와 엔진의 otlp 설정을 확인")</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl cp trace_probe.py llmsvc-lab/bench:/tmp/trace_probe.py
+kubectl -n llmsvc-lab exec bench -- python /tmp/trace_probe.py                              <span class="c-cm"># 엔진 직접</span>
+kubectl -n llmsvc-lab exec bench -- python /tmp/trace_probe.py "$(./lab.sh gwurl)"           <span class="c-cm"># 게이트웨이 경유: 헤더가 전달되는지</span></code></pre></div>
+    <p><b>관찰 포인트</b>: 엔진 스팬의 지연 분해 속성(대기·Prefill·Decode)의 합이 스팬 길이와 맞는가, 클라이언트 측 지연과 엔진 스팬 길이의 차이(네트워크·게이트웨이 구간)는 얼마인가, 게이트웨이를 거쳐도 같은 트레이스 ID로 이어지는가. 부하를 걸어 둔 상태(14편 <code>slo_probe</code>)에서 다시 재면 대기 구간이 늘어나는 것이 3장 폭포 그림의 “엔진 대기열” 모양과 같아야 합니다.</p>
+
+    <h3>실습 21-4 · 로그에 본문이 새지 않는지</h3>
+    <div class="codeblock"><div class="cap"><span>bash · 카나리 문자열 시험</span><button class="copy">복사</button></div><pre><code>CANARY="PII-CANARY-$(date +%s)"
+kubectl -n llmsvc-lab exec bench -- python -c "import json,urllib.request;r=urllib.request.Request('http://llm-engine:8000/v1/chat/completions',json.dumps({'model':'qwen3-8b','max_tokens':8,'messages':[{'role':'user','content':'고객 메모: $CANARY'}]}).encode(),{'Content-Type':'application/json'});urllib.request.urlopen(r).read()"
+sleep 20
+echo "엔진 로그:";    kubectl -n llmsvc-lab logs deploy/llm-engine --since=5m | grep -c "$CANARY"
+echo "Collector 로그:"; kubectl -n monitoring logs deploy/otel-opentelemetry-collector --since=5m | grep -c "$CANARY"
+<span class="c-cm"># 기대: 둘 다 0. 0이 아니면 요청 로그 옵션·트레이스 본문 캡처 설정을 끄고, Collector의 삭제 규칙을 확인</span></code></pre></div>
+    <p>같은 시험을 게이트웨이(12편)·트레이스 백엔드 검색에도 해 봅니다. 이 시험을 배포 점검 목록에 넣으면, 누군가 디버깅용으로 본문 로그를 켜 둔 채 운영에 나가는 사고를 막을 수 있습니다.</p>
+
+    <h3>실습 21-5 · TTFT SLO 소진율 경보</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · slo-ttft-rules.yaml (SLO: 95%가 2.5초 이내, 예산 5%)</span><button class="copy">복사</button></div><pre><code>apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: { name: slo-ttft, namespace: monitoring }
+spec:
+  groups:
+  - name: slo-ttft.sli
+    interval: 30s
+    rules:
+    <span class="c-cm"># 나쁜 비율 = 1 − (2.5초 이하 요청 ÷ 전체). le는 20편에서 확인한 실제 버킷 경계</span>
+    - record: slo:ttft_bad_ratio:rate5m
+      expr: 1 - sum by (model_name) (rate(vllm:time_to_first_token_seconds_bucket{le="2.5"}[5m])) / clamp_min(sum by (model_name) (rate(vllm:time_to_first_token_seconds_count[5m])), 1e-9)
+    - record: slo:ttft_bad_ratio:rate30m
+      expr: 1 - sum by (model_name) (rate(vllm:time_to_first_token_seconds_bucket{le="2.5"}[30m])) / clamp_min(sum by (model_name) (rate(vllm:time_to_first_token_seconds_count[30m])), 1e-9)
+    - record: slo:ttft_bad_ratio:rate1h
+      expr: 1 - sum by (model_name) (rate(vllm:time_to_first_token_seconds_bucket{le="2.5"}[1h])) / clamp_min(sum by (model_name) (rate(vllm:time_to_first_token_seconds_count[1h])), 1e-9)
+    - record: slo:ttft_bad_ratio:rate6h
+      expr: 1 - sum by (model_name) (rate(vllm:time_to_first_token_seconds_bucket{le="2.5"}[6h])) / clamp_min(sum by (model_name) (rate(vllm:time_to_first_token_seconds_count[6h])), 1e-9)
+  - name: slo-ttft.alerts
+    rules:
+    - alert: LLMTTFTBudgetBurnFast
+      expr: slo:ttft_bad_ratio:rate1h &gt; (14.4 * 0.05) and slo:ttft_bad_ratio:rate5m &gt; (14.4 * 0.05)
+      labels: { severity: page, slo: ttft }
+      annotations: { summary: "TTFT SLO 예산을 1시간에 2% 이상 소진 중 ({{ $labels.model_name }})" }
+    - alert: LLMTTFTBudgetBurnSlow
+      expr: slo:ttft_bad_ratio:rate6h &gt; (6 * 0.05) and slo:ttft_bad_ratio:rate30m &gt; (6 * 0.05)
+      labels: { severity: page, slo: ttft }
+      annotations: { summary: "TTFT SLO 예산을 6시간에 5% 이상 소진 중 ({{ $labels.model_name }})" }
+    <span class="c-cm"># 랩 확인용: 짧은 창으로 바로 울려 보기 (운영에는 넣지 않음)</span>
+    - alert: LLMTTFTBudgetBurnLabDemo
+      expr: slo:ttft_bad_ratio:rate5m &gt; (6 * 0.05)
+      for: 1m
+      labels: { severity: info, slo: ttft, lab: "true" }
+      annotations: { summary: "랩 시연용: 최근 5분 TTFT 나쁜 비율 {{ $value | humanizePercentage }}" }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 과부하로 경보 울리기</span><button class="copy">복사</button></div><pre><code>kubectl apply -f slo-ttft-rules.yaml
+<span class="c-cm"># 14편 SLO 용량보다 높은 도착률로 6분간</span>
+kubectl -n llmsvc-lab exec bench -- python /scripts/slo_probe.py --label burn --rate 6 --duration 360 &amp;
+<span class="c-cm"># Prometheus UI(포트 포워딩) → Alerts 에서 LLMTTFTBudgetBurnLabDemo가 Pending → Firing 되는지</span>
+curl -s 'localhost:9090/api/v1/alerts' | python3 -c "import json,sys;[print(a['labels']['alertname'],a['state'],a['annotations'].get('summary','')) for a in json.load(sys.stdin)['data']['alerts'] if a['labels'].get('slo')=='ttft']"</code></pre></div>
+    <p><b>관찰 포인트</b>: 시연용 경보는 몇 분 만에 울리지만, 운영용 경보(1시간·6시간 창)는 이 짧은 과부하로는 울리지 않을 수 있습니다. 히어로 계산기에 “나쁜 비율·지속 시간”을 넣어 보면 왜 그런지 보입니다. 운영 경보는 “예산을 의미 있게 태울 때만” 사람을 깨우도록 설계된 것입니다. 경보를 사람에게 전달하는 경로(Alertmanager 수신자·대응 절차)는 23편에서 구성합니다.</p>
+
+    <h3>실습 21-6 · 오류 예산 패널</h3>
+    <div class="codeblock"><div class="cap"><span>PromQL · 30일 남은 예산 (데이터가 30일 쌓여야 정확)</span><button class="copy">복사</button></div><pre><code>1 - (
+  (1 - sum by (model_name) (increase(vllm:time_to_first_token_seconds_bucket{le="2.5"}[30d]))
+     / sum by (model_name) (increase(vllm:time_to_first_token_seconds_count[30d])))
+  / 0.05
+)</code></pre></div>
+    <p>20편 “서비스 개요” 대시보드에 이 값을 게이지로 추가하면, 9장의 예산 정책(예산이 남았으면 배포 진행, 소진되면 보류)을 대시보드 하나로 운영할 수 있습니다. 30일 창의 무거운 쿼리는 기록 규칙으로 하루 단위 집계를 만들어 두는 편이 좋습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: traceparent, 소진율, tail sampling, SLI" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14" class="quiz">
+  <h2><span class="sec-num">14</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2><span class="sec-num">15</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>지표는 전체, 트레이스는 요청 하나, 로그는 정확한 사건.</b> 트레이스 ID·예시·공통 속성으로 서로를 잇는다.</li>
+      <li><b>OpenTelemetry는 SDK·OTLP·Collector·W3C 문맥 전파</b>로 벤더와 무관하게 흐르고, LLM은 “오류·느린 요청 전부 + 나머지 일부” 뒷단 샘플링이 실용적이다.</li>
+      <li><b>vLLM 스팬은 요청당 하나에 토큰·지연 분해 속성</b>을 담고, 게이트웨이·라우터 스팬과 이어 구간별 원인을 찾는다.</li>
+      <li><b>로그에는 메타데이터, 본문은 기본 금지.</b> 카나리 문자열 시험을 배포 점검에 넣는다.</li>
+      <li><b>SLI = 좋은 사건 ÷ 전체 사건.</b> 오류 예산 = 1 − 목표, 소진율 = 나쁜 비율 ÷ 예산.</li>
+      <li><b>다중 창 소진율 경보</b>(14.4·6·3·1)로 예산을 의미 있게 태울 때만 사람을 깨우고, 예산 정책으로 배포를 결정한다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">Collector와 트레이스 백엔드를 세우고 vLLM 트레이스를 켰다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">내가 만든 traceparent로 요청 하나를 찾아 지연을 분해했다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">게이트웨이를 거쳐도 트레이스가 이어지는지 확인했다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">카나리 문자열로 로그·트레이스에 본문이 새지 않음을 확인했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">TTFT SLI·SLO와 오류 예산을 정의했다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">다중 창 소진율 경보를 만들고 과부하로 울려 보았다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">예산 정책(배포 진행·보류 조건)을 팀과 합의할 문서로 적었다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 22편 응답 품질 관측과 온라인 평가</span>
+      <p>지연과 가용성이 좋아도 답이 틀리면 실패입니다. 22편은 운영 중 응답 품질을 재는 방법 — 형식 준수율·거절률·출력 길이 같은 값싼 신호, 표본 기반 LLM 판정 평가, 사용자 피드백, 모델·설정 변경의 품질 회귀 감지, 가드레일 지표 — 을 다루고, 이번 편의 SLO 체계에 품질 SLI를 더합니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 21편 트레이스·로그와 SLO 운영 · 2026년 10월 기준(vLLM OTLP 트레이스, OpenTelemetry GenAI 규약, Grafana Tempo, kube-prometheus-stack). 규약의 속성 이름·차트 값 키는 버전마다 바뀌므로 설치 시점의 문서를 확인하세요. 계산기는 원리 설명용 단순 모델입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero: error budget ---------- */
+const RULES=[["긴급 1 (1h·5m, 14.4)",60,5,14.4,"호출"],["긴급 2 (6h·30m, 6)",360,30,6,"호출"],["일반 1 (1d·2h, 3)",1440,120,3,"티켓"],["일반 2 (3d·6h, 1)",4320,360,1,"티켓"]];
+function budget(){const T=+$("#bT").value,b=+$("#bB").value/100,D=+$("#bD").value,n=+$("#bN").value/100;
+ $("#bBV").textContent=fmt(b*100)+"%";$("#bDV").textContent=D>=60?`${fmt(D/60,1)}시간`:`${D}분`;$("#bNV").textContent=fmt(n*100,2)+"%";
+ const B=1-T,MONTH=30*24*60,burn=b/B,used=b*D/(B*MONTH),base=n/B;
+ const seg=(f,c,l)=>`<div style="width:${Math.min(100,f*100)}%;background:${c}" title="${l}"></div>`;
+ $("#bBar").innerHTML=seg(Math.min(1,base),"var(--faint)","평소 소진")+seg(Math.min(1-Math.min(1,base),used),"var(--bad)","이번 장애");
+ $("#bRate").textContent=fmt(burn,1)+"배";$("#bUsed").textContent=fmt(used*100,1)+"%";
+ let first=null;
+ for(const [name,L,S,k,act] of RULES){for(let t=1;t<=D;t++){const longAvg=(b*Math.min(t,L)+n*Math.max(0,L-t))/L;const shortOk=b>=k*B&&t>=Math.min(S,1);if(longAvg>=k*B&&shortOk){if(!first||t<first.t)first={name,t,act};break}}}
+ $("#bAlert").textContent=first?`${first.name} · ${first.t}분 뒤`:"울리지 않음";
+ let note=`오류 예산은 30일간 ${fmt(B*100,1)}%의 나쁜 요청입니다. 이 장애는 예산을 ${fmt(burn,1)}배 속도로 태워 한 번에 ${fmt(used*100,1)}%를 썼습니다(평소 소진 ${fmt(Math.min(1,base)*100)}%/월). `;
+ if(first)note+=`<b>${first.name}</b> 경보가 장애 시작 ${first.t}분 뒤 울리고, 대응은 “${first.act}”입니다. `;
+ else note+=burn<1?"소진율이 1보다 작아 이 속도로는 예산을 다 쓰지 않으므로 경보가 울리지 않는 것이 맞습니다. ":"짧게 끝나서 긴 창의 평균이 기준에 닿기 전에 끝났습니다. 예산 사용이 작다면 사람을 깨울 일이 아닙니다. ";
+ if(used>=1)note+="<b>이 장애 하나로 한 달 예산을 모두 썼습니다.</b> 예산 정책에 따라 위험한 배포를 멈추고 신뢰성 작업을 우선합니다.";
+ $("#bNote").innerHTML=`<p>${note}</p>`;}
+$$("#bT,#bB,#bD,#bN").forEach(e=>e.addEventListener("input",budget));budget();
+
+/* ---------- waterfall ---------- */
+const WF={
+ ok:{s:[["클라이언트 (앱)",0,2900,"--l7"],["AI 게이트웨이",10,2880,"--l5"],["Router·EPP 점수 계산",30,35,"--l4"],["vLLM: 대기",40,90,"--l3"],["vLLM: Prefill",90,390,"--l2"],["vLLM: Decode",390,2880,"--l6"]],n:"대부분의 시간이 Decode(출력 생성)에 쓰입니다. 출력 토큰 수 × TPOT로 설명되는 정상 모양입니다."},
+ queue:{s:[["클라이언트 (앱)",0,6900,"--l7"],["AI 게이트웨이",10,6880,"--l5"],["Router·EPP 점수 계산",30,35,"--l4"],["vLLM: 대기",40,4040,"--l3"],["vLLM: Prefill",4040,4340,"--l2"],["vLLM: Decode",4340,6880,"--l6"]],n:"엔진 대기 구간이 4초입니다. 용량 부족 또는 동시 실행 상한에 걸린 상태(14·18편). 지표의 대기열·레플리카 최대 도달과 함께 확인합니다."},
+ prefill:{s:[["클라이언트 (앱)",0,6100,"--l7"],["AI 게이트웨이",10,6080,"--l5"],["Router·EPP 점수 계산",30,35,"--l4"],["vLLM: 대기",40,90,"--l3"],["vLLM: Prefill",90,3590,"--l2"],["vLLM: Decode",3590,6080,"--l6"]],n:"Prefill이 3.5초입니다. 입력이 매우 길거나 캐시가 맞지 않은 요청입니다. 스팬의 입력·캐시 토큰 속성으로 확인하고(15편), 반복된다면 토큰 예산(14편)이나 프롬프트 구성(15편)을 봅니다."},
+ gw:{s:[["클라이언트 (앱)",0,4400,"--l7"],["AI 게이트웨이 (인증·한도 저장소 지연)",10,4380,"--l5"],["Router·EPP 점수 계산",1520,1525,"--l4"],["vLLM: 대기",1530,1580,"--l3"],["vLLM: Prefill",1580,1880,"--l2"],["vLLM: Decode",1880,4370,"--l6"]],n:"엔진에 도착하기 전 1.5초가 게이트웨이에서 쓰였습니다. 키 확인·한도 카운터 저장소(Redis 등) 지연이 흔한 원인입니다. 엔진 지표만 봤다면 찾지 못했을 구간입니다."},
+ fb:{s:[["클라이언트 (앱)",0,5600,"--l7"],["AI 게이트웨이",10,5590,"--l5"],["vLLM 호출 (타임아웃)",30,2030,"--bad"],["폴백: 외부 공급자 호출",2050,5580,"--l1"]],n:"셀프호스팅 호출이 2초 타임아웃 후 실패하고 외부 공급자로 폴백했습니다(12편). 사용자는 응답을 받았지만, 비용·데이터 경로가 바뀌었으므로 폴백 횟수 지표·경보와 함께 봅니다."}
+};
+let wfc="ok";
+function wf(){const c=WF[wfc],max=Math.max(...c.s.map(x=>x[2]));
+ $("#wfRows").innerHTML=c.s.map(([n,a,b,col],i)=>`<div style="display:grid;grid-template-columns:200px 1fr 70px;gap:8px;align-items:center;margin:4px 0;font-size:.82rem"><span style="padding-left:${i?14:0}px">${n}</span><div style="position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px"><div style="position:absolute;left:${a/max*100}%;width:${Math.max(0.6,(b-a)/max*100)}%;top:0;bottom:0;background:var(${col});border-radius:4px"></div></div><b style="text-align:right;font-family:var(--mono);font-size:.78rem">${fmt(b-a)} ms</b></div>`).join("");
+ $("#wfNote").innerHTML=c.n;}
+$$("#wfCase .btn").forEach(b=>b.addEventListener("click",()=>{wfc=b.dataset.c;$$("#wfCase .btn").forEach(x=>x.classList.toggle("on",x===b));wf()}));wf();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["지표가 있으니 트레이스는 필요 없다.","지표는 분포를 보여 주지만 “이 요청이 어디서 시간을 썼나”는 모릅니다. 특히 게이트웨이·폴백처럼 엔진 밖의 구간은 트레이스로만 보입니다."],
+ ["모든 트레이스를 다 저장해야 한다.","LLM 요청은 많고 길어 저장 비용이 큽니다. 오류·느린 요청은 전부, 나머지는 일부를 남기는 뒷단 샘플링이 실용적입니다."],
+ ["디버깅을 위해 프롬프트를 로그에 남겨 두면 편하다.","개인정보·기밀이 로그 저장소로 퍼지고 보존 기간 동안 남습니다. 기본은 메타데이터만, 본문은 합의된 범위에서 마스킹·짧은 보존."],
+ ["SLI가 목표 아래로 내려가면 바로 경보해야 한다.","순간적인 흔들림마다 사람을 깨우게 되고, 반대로 천천히 나빠지는 문제는 놓칩니다. 소진율 기반 다중 창 경보가 둘 다 해결합니다."],
+ ["SLO는 높을수록 좋다.","99.99%는 그만큼 변경·실험의 여유를 없앱니다. 사용자가 실제로 체감하는 수준과 비용의 균형으로 정합니다."],
+ ["TTFT SLO 하나면 충분하다.","스트리밍 중 끊김(토큰 간 지연)과 가용성은 따로 깨질 수 있습니다. 가용성·TTFT·토큰 간 지연을 함께 둡니다(품질은 22편)."],
+ ["traceparent는 프록시를 지나면 자동으로 이어진다.","프록시가 헤더를 지우거나 새로 만들면 끊깁니다. 실습 21-3처럼 게이트웨이를 거친 요청으로 직접 확인합니다."],
+ ["오류 예산은 다 쓰면 끝이다.","예산은 의사결정 도구입니다. 남아 있으면 과감하게 배포하고, 줄면 신뢰성 작업으로 전환하는 정책과 함께 운영합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["트레이스·스팬","Trace · Span","요청 하나의 전체 경로와 그 안의 시간 구간."],
+ ["OpenTelemetry","OTel","트레이스·지표·로그 수집의 벤더 중립 표준."],
+ ["OTLP","OpenTelemetry Protocol","OTel 전송 형식. gRPC 4317, HTTP 4318."],
+ ["Collector","OTel Collector","받기·처리·보내기 파이프라인. 샘플링·속성 삭제."],
+ ["traceparent","W3C Trace Context","트레이스 ID·부모 스팬 ID를 전달하는 표준 헤더."],
+ ["앞단 샘플링","Head sampling","요청 시작 시 확률로 보관 여부 결정."],
+ ["뒷단 샘플링","Tail sampling","트레이스 완료 후 오류·지연 등을 보고 보관 여부 결정."],
+ ["GenAI 의미 규약","gen_ai.* semantic conventions","생성형 AI 호출의 표준 속성 이름."],
+ ["예시","Exemplar","지표 값에 대표 요청의 트레이스 ID를 붙인 것."],
+ ["Tempo","Grafana Tempo","트레이스 저장·검색 백엔드."],
+ ["구조화 로그","Structured logging","JSON 등 필드가 있는 로그."],
+ ["카나리 문자열","Canary string","로그·트레이스에 본문이 새는지 확인하려고 넣는 고유 문자열."],
+ ["SLI","Service Level Indicator","좋은 사건 ÷ 전체 사건으로 정의한 서비스 지표."],
+ ["SLO","Service Level Objective","SLI의 목표 값과 기간."],
+ ["SLA","Service Level Agreement","고객과의 계약상 약속. 보통 SLO보다 느슨."],
+ ["오류 예산","Error budget","1 − SLO 목표. 허용된 나쁜 사건의 양."],
+ ["소진율","Burn rate","나쁜 비율 ÷ 오류 예산. 1이면 기간 끝에 예산을 딱 다 씀."],
+ ["다중 창 경보","Multi-window multi-burn-rate alert","긴 창·짧은 창을 함께 넘을 때만 울리는 경보."],
+ ["예산 정책","Error budget policy","예산 상태에 따른 배포·우선순위 규칙."],
+ ["Sloth·Pyrra","SLO 도구","SLO 정의에서 기록·경보 규칙을 생성하는 도구."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["“이 고객의 이 요청이 왜 8초 걸렸나”에 가장 직접적으로 답하는 신호는?",["지표","트레이스","CPU 사용률","대시보드 평균"],1,"요청 하나의 구간별 시간을 보여 줍니다."],
+ ["서비스 간 트레이스를 잇는 표준 헤더는?",["x-request-id","traceparent","authorization","x-forwarded-for"],1,"W3C Trace Context입니다."],
+ ["LLM 트레이스 샘플링으로 실용적인 방법은?",["전부 저장","앞단 1%만","오류·느린 요청은 전부 + 나머지 일부 (뒷단 샘플링)","저장 안 함"],2,"중요한 요청을 놓치지 않으면서 비용을 줄입니다."],
+ ["vLLM 트레이스를 켜는 옵션은?",["--enable-tracing-all","--otlp-traces-endpoint","--log-requests","--trace"],1,"OTLP 엔드포인트를 지정합니다."],
+ ["로그 정책으로 맞는 것은?",["모든 프롬프트 영구 보관","메타데이터 기본, 본문은 합의된 범위에서 마스킹·짧은 보존","로그 없음","응답만 보관"],1,"개인정보·기밀 확산을 막습니다."],
+ ["SLO 99.5%, 지금 나쁜 비율 7.2%일 때 소진율은?",["1.44","7.2","14.4","0.5"],2,"0.072 ÷ 0.005 = 14.4."],
+ ["다중 창 경보에서 짧은 창을 함께 보는 이유는?",["더 빨리 울리게","이미 끝난 장애로 계속 울리는 것을 막고 ‘지금도 나쁜지’ 확인","계산을 줄이려고","정확도 무관"],1,"긴 창은 충분히 나빴는지, 짧은 창은 지금도 나쁜지."],
+ ["SLA 99%인 고객에게 내부 SLO를 정하는 합리적인 방법은?",["98%","99%","99.5% (SLA보다 엄격)","100%"],2,"SLA 위반 전에 대응할 여유를 만듭니다."],
+ ["게이트웨이를 거친 요청의 트레이스가 엔진에서 끊긴다. 먼저 의심할 것은?",["GPU","프록시가 traceparent를 지우거나 새로 만듦","모델","KV 캐시"],1,"헤더 전달을 확인합니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((x,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${x[0]}</p>${x[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${x[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const x=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[x[2]].classList.add("right");if(j!==x[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 22편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 22편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

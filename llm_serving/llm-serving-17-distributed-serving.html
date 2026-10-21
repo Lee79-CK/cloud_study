@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 17편 · 분산 서빙: 병렬화 전략과 멀티노드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+/* ---------- episode 15 additions ---------- */
+.tiers{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tiers div{display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+.pseg{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0}
+.pseg span{font-size:.72rem;padding:3px 7px;border-radius:5px;color:#0B1220;white-space:nowrap}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 17 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>17편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">왜 나누나</a></li>
+    <li><a href="#s3">병렬화 다섯 가지</a></li>
+    <li><a href="#s4">통신 비용 계산</a></li>
+    <li><a href="#s5">하드웨어 토폴로지</a></li>
+    <li><a href="#s6">대형 MoE와 전문가 병렬</a></li>
+    <li><a href="#s7">vLLM 설정 매핑</a></li>
+    <li><a href="#s8">쿠버네티스 멀티노드: LWS</a></li>
+    <li><a href="#s9">병렬화 고르는 법</a></li>
+    <li><a href="#s10">장애와 운영</a></li>
+    <li><a href="#s11">MSP 관점</a></li>
+    <li><a href="#s12">흔한 오해</a></li>
+    <li><a href="#s13">실습</a></li>
+    <li><a href="#s14">용어 사전</a></li>
+    <li><a href="#s15">확인 퀴즈</a></li>
+    <li><a href="#s16">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 3 · 튜닝 — 17편</div>
+    <h1>분산 서빙<br>병렬화 전략과 멀티노드</h1>
+    <p class="intro">모델이 GPU 한 장에 들어가지 않거나, 들어가도 KV 공간이 모자라거나, 한 장의 속도로는 TPOT 목표를 못 맞출 때 모델을 여러 GPU에 나눕니다. 어떻게 나누느냐(텐서·파이프라인·데이터·전문가·컨텍스트 병렬)에 따라 GPU 사이로 오가는 데이터의 양과 패턴이 완전히 달라지고, 그래서 <b>어떤 연결(NVLink·PCIe·InfiniBand·RoCE) 위에서 어떤 병렬화를 쓰는가</b>가 성능을 정합니다. 이번 편은 그 원리와 계산, 그리고 쿠버네티스에서 여러 노드를 하나의 엔진으로 묶는 LeaderWorkerSet까지 다룹니다.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>2·3·4·8·10편</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 90분</b></span>
+      <span class="chip">기준 <b>vLLM v0.31.0 · LWS</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="병렬화 설계기">
+    <div class="stack-head"><strong>이 모델, 어떻게 나눌까?</strong></div>
+    <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <label>모델 <select id="dM">
+        <option value="8.2,0,36,4096,144">8B 밀집</option>
+        <option value="32.8,0,64,5120,256">32B 밀집</option>
+        <option value="70.6,0,80,8192,320" selected>70B 밀집</option>
+        <option value="235,22,94,4096,188">235B MoE (활성 22B)</option>
+        <option value="671,37,61,7168,70">671B MoE (활성 37B, MLA)</option>
+      </select></label>
+      <label>가중치 정밀도 <select id="dP"><option value="2">BF16</option><option value="1" selected>FP8</option><option value="0.57">4비트</option></select></label>
+      <label>GPU <select id="dG">
+        <option value="24,300,0">L4 24GB (NVLink 없음)</option>
+        <option value="80,2039,600">A100 80GB</option>
+        <option value="80,3350,900" selected>H100 80GB</option>
+        <option value="141,4800,900">H200 141GB</option>
+        <option value="180,8000,1800">B200 180GB</option>
+        <option value="128,273,0">GB10 128GB (노드당 1장)</option>
+      </select></label>
+      <label>노드당 GPU <select id="dN"><option>1</option><option>2</option><option>4</option><option selected>8</option></select></label>
+      <label>노드 간 연결 <select id="dL"><option value="25">200GbE RoCE (~25GB/s)</option><option value="50" selected>400Gb IB/RoCE (~50GB/s)</option><option value="100">800Gb (~100GB/s)</option></select></label>
+      <label>필요 KV 공간 (GB, 레플리카당) <span id="dKV">40</span><input type="range" id="dK" min="5" max="400" step="5" value="40"></label>
+    </div>
+    <div class="readout">
+      <div><span>추천 배치</span><b id="dRec">—</b></div>
+      <div><span>GPU당 메모리</span><b id="dMem">—</b></div>
+      <div><span>필요 GPU (레플리카 1개)</span><b id="dCnt">—</b></div>
+    </div>
+    <div class="layer-detail" id="dNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">병렬화는 “GPU를 더 쓰는 법”이 아니라 “GPU 사이 통신을 어디에 둘지 정하는 법”입니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">랩의 한계와 이 편의 진행 방식</span>
+      <p>우리 랩의 GPU 서빙 장치는 GB10 한 장이라 텐서·파이프라인 병렬의 성능은 직접 잴 수 없습니다. 이 편은 <b>계산(통신 비용·메모리 배치)</b>과 <b>설계(병렬화 선택·LWS 매니페스트)</b>를 중심으로 하고, 실습은 LeaderWorkerSet의 그룹 동작을 GPU 없이 확인한 뒤, 멀티 GPU 환경(클라우드·고객사, 또는 DGX Spark·PGX 두 대를 고속 네트워크로 연결한 구성)에서 그대로 쓸 수 있는 매니페스트와 측정 계획을 만듭니다.</p>
+    </div>
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>메모리·지연·처리량 중 무엇 때문에 나누는지에 따라 병렬화 방식이 달라지는 이유를 설명할 수 있다.</li>
+      <li>텐서·파이프라인·데이터·전문가·컨텍스트 병렬의 통신 패턴과 장단점을 비교할 수 있다.</li>
+      <li>텐서 병렬의 스텝당 통신량을 계산하고, 연결(NVLink·PCIe·IB)별로 계산 대비 통신 비중을 판단할 수 있다.</li>
+      <li>대형 MoE에서 전문가 병렬과 어텐션 데이터 병렬을 조합하는 이유를 설명할 수 있다.</li>
+      <li>vLLM의 병렬화·멀티노드 옵션과 프로세스 배치를 연결할 수 있다.</li>
+      <li>LeaderWorkerSet으로 멀티노드 인스턴스를 구성하고, 그룹 단위 장애·재시작·배치를 설계할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 큰 책을 여러 사람이 번역하기</span>
+      <p><b>텐서 병렬</b>은 한 페이지를 여러 명이 단락씩 나눠 번역하고 매 문단 끝마다 모여 맞춰 보는 방식입니다. 손이 빠르지만 회의가 잦아 같은 방(NVLink)에 있어야 합니다. <b>파이프라인 병렬</b>은 1~3장은 A가, 4~6장은 B가 맡고 원고를 넘기는 방식입니다. 넘길 때만 만나므로 다른 건물(다른 노드)에 있어도 되지만, 한 원고가 끝까지 가는 데는 시간이 걸립니다. <b>데이터 병렬</b>은 같은 책을 여러 팀이 각자 다른 독자에게 번역해 주는 것이고, <b>전문가 병렬</b>은 법률·의학·기술 담당 전문가가 나뉘어 있어 문장마다 해당 전문가에게 보내는 방식입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>왜 나누나</h2>
+  <p class="lede">나누는 이유가 세 가지이고, 이유마다 정답이 다릅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>이유</th><th>증상</th><th>먼저 볼 것</th><th>병렬화 방향</th></tr></thead>
+    <tbody>
+      <tr><td class="k">메모리: 가중치가 안 들어감</td><td>한 장에 로딩 불가</td><td>양자화로 들어가는가 (6편)</td><td>TP(노드 안) → 그래도 안 되면 PP(노드 간)</td></tr>
+      <tr><td class="k">메모리: KV 공간이 모자람</td><td>동시성 상한이 낮음, 긴 문맥 불가 (14편)</td><td>FP8 KV, 최대 길이 (14·15편)</td><td>TP로 가중치를 나눠 KV 자리 확보, 또는 레플리카(DP)</td></tr>
+      <tr><td class="k">지연: TPOT가 목표보다 큼</td><td>한 장의 대역폭으로 가중치를 읽는 시간이 김 (2편)</td><td>양자화, 추측 디코딩 (16편)</td><td>TP: 여러 GPU의 대역폭을 합쳐 한 토큰을 빨리</td></tr>
+      <tr><td class="k">처리량: 요청이 너무 많음</td><td>대기열, SLO 용량 부족 (14편)</td><td>튜닝으로 한 장의 용량부터 최대화</td><td>DP(레플리카 추가)가 가장 단순하고 효율적 (18편)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>원칙: <b>한 장에 들어가면 나누지 않고 레플리카를 늘린다(DP).</b> 나누는 순간 통신 비용과 장애 범위가 생기기 때문입니다. 나눠야 한다면 <b>가장 빠른 연결 안에서, 가장 적게</b> 나눕니다.</p>
+  </div>
+</section>
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>병렬화 다섯 가지</h2>
+  <p class="lede">무엇을 나누는지, 그 대가로 무엇이 GPU 사이를 오가는지가 핵심입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>방식</th><th>나누는 것</th><th>오가는 것</th><th>통신 빈도</th><th>장점</th><th>단점·주의</th></tr></thead>
+    <tbody>
+      <tr><td class="k">텐서 병렬 (TP)</td><td>각 층의 행렬을 열·행으로</td><td>층마다 활성값 all-reduce (어텐션 1회 + MLP 1회)</td><td>매 층, 매 스텝</td><td>가중치·KV를 n등분, 대역폭을 합쳐 TPOT 단축</td><td>통신이 잦아 NVLink 도메인 안에서만. 헤드 수 등 나눗셈 제약(2의 거듭제곱 권장)</td></tr>
+      <tr><td class="k">파이프라인 병렬 (PP)</td><td>층을 구간(스테이지)으로</td><td>스테이지 경계의 활성값 (점대점)</td><td>스테이지 경계에서만</td><td>통신량이 적어 노드 간에 적합</td><td>요청 하나가 모든 스테이지를 차례로 지나 지연 증가, 스테이지 불균형 시 빈 시간(버블)</td></tr>
+      <tr><td class="k">데이터 병렬 (DP)</td><td>요청 (모델 전체를 복제)</td><td>없음 (MoE의 어텐션 DP는 일부 동기화)</td><td>—</td><td>가장 단순, 처리량 선형 증가</td><td>복제마다 가중치 전체 메모리 필요</td></tr>
+      <tr><td class="k">전문가 병렬 (EP)</td><td>MoE의 전문가들을 GPU에 분산</td><td>토큰을 담당 전문가로 보내고 받기 (all-to-all)</td><td>MoE 층마다</td><td>대형 MoE의 가중치를 효율적으로 분산</td><td>전문가 부하 불균형, all-to-all 지연 → 전용 커널·부하 분산 필요</td></tr>
+      <tr><td class="k">컨텍스트 병렬 (CP)</td><td>긴 입력 시퀀스를 구간으로</td><td>어텐션을 위한 KV 교환</td><td>Prefill 어텐션</td><td>매우 긴 문맥의 Prefill 가속·메모리 분산</td><td>지원 엔진·모델 확인, 짧은 입력엔 이득 없음</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>실제 배포는 대개 조합입니다. 예: “노드 안 TP8 × 노드 간 PP2” (16장으로 한 모델), “어텐션은 DP, MoE 층은 EP” (대형 MoE), “TP2 레플리카를 DP4개” (처리량). 이 조합에서 통신이 많은 축(TP·EP)은 가장 빠른 연결 안에, 통신이 적은 축(PP·DP)은 느린 연결을 넘나들게 배치합니다.</p>
+  </div>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>통신 비용 계산</h2>
+  <p class="lede">텐서 병렬을 어디까지 늘려도 되는지는 “스텝당 통신 시간 ÷ 스텝당 계산 시간”이 알려 줍니다.</p>
+  <div class="prose">
+    <div class="formula">층당 all-reduce 2회, 메시지 크기 = 스텝 토큰 수 × 은닉 크기 × 2바이트(BF16)
+링 all-reduce에서 GPU 하나가 보내는 양 ≈ 2 × (n − 1) / n × 메시지 크기
+스텝당 통신 시간 ≈ 층 수 × 2 × [ 2(n−1)/n × 메시지 ÷ 링크 대역폭 + 지연 ]</div>
+  </div>
+  <div class="tool wide" id="tpTool">
+    <h4>텐서 병렬 통신 계산기</h4>
+    <div class="desc">H100급 GPU에서 모델을 n장으로 나눌 때 Decode·Prefill 한 스텝의 계산 시간과 all-reduce 통신 시간을 비교합니다. 통신과 계산의 겹침, 통신 알고리즘 최적화는 무시한 보수적 추정입니다.</div>
+    <div class="form">
+      <label>모델 <select id="tM"><option value="8.2,36,4096">8B (36층, 은닉 4096)</option><option value="70.6,80,8192" selected>70B (80층, 은닉 8192)</option></select></label>
+      <label>TP 크기 n <select id="tN"><option>2</option><option selected>4</option><option>8</option></select></label>
+      <label>연결 <select id="tL"><option value="900,8">NVLink (~900GB/s)</option><option value="64,15">PCIe 5.0 (~64GB/s)</option><option value="32,15">PCIe 4.0 (~32GB/s)</option><option value="50,25">노드 간 400Gb IB (~50GB/s)</option><option value="25,30">노드 간 200GbE RoCE (~25GB/s)</option></select></label>
+      <label>단계 <select id="tS"><option value="decode">Decode (배치 32토큰)</option><option value="prefill">Prefill (4,096토큰 조각)</option></select></label>
+    </div>
+    <div class="tiers" id="tBar"></div>
+    <div class="legend" style="margin-top:6px"><span><i style="background:#9BE2B6"></i>계산(또는 가중치 읽기)</span><span><i style="background:#FFB3B3"></i>all-reduce 통신</span></div>
+    <div class="result">
+      <div class="r"><span>스텝 계산 시간</span><b id="tC">—</b></div>
+      <div class="r"><span>스텝 통신 시간</span><b id="tX">—</b></div>
+      <div class="r"><span>통신 비중</span><b id="tR">—</b></div>
+    </div>
+    <div class="verdict" id="tNote"></div>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>하드웨어 토폴로지</h2>
+  <p class="lede">“GPU가 몇 장인가”보다 “GPU들이 어떻게 연결되어 있는가”가 병렬화를 정합니다(3·8편).</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성</th><th>GPU 사이 연결</th><th>TP 범위</th><th>예</th></tr></thead>
+    <tbody>
+      <tr><td class="k">HGX 8-GPU 노드</td><td>NVLink·NVSwitch로 8장 전부 연결</td><td>노드 안 TP8까지</td><td>H100·H200·B200 서버</td></tr>
+      <tr><td class="k">랙 단위 NVLink (NVL72 등)</td><td>랙 안 수십 장이 하나의 NVLink 도메인</td><td>랙 안 대규모 TP·EP</td><td>GB200·GB300 NVL72</td></tr>
+      <tr><td class="k">PCIe 전용 GPU 서버</td><td>PCIe 스위치 (일부 NVLink 브리지 2장)</td><td>TP2 정도까지, 그 이상은 통신 병목</td><td>L4·L40S 서버</td></tr>
+      <tr><td class="k">노드 사이</td><td>InfiniBand·RoCE + GPUDirect RDMA</td><td>TP는 피하고 PP·DP·EP(전용 커널)</td><td>멀티노드 클러스터</td></tr>
+      <tr><td class="k">DGX Spark·PGX 두 대</td><td>각 1장(GB10), 내장 고속 NIC로 직접 연결</td><td>두 대를 묶어 큰 모델을 올리는 구성. 노드 간 연결이므로 통신 비중 확인 필요</td><td>개발·검증용 소규모 클러스터</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>NCCL</b>: GPU 간 집합 통신 라이브러리. 토폴로지를 자동 탐지하지만, 쿠버네티스 Pod 안에서는 NIC·RDMA 장치가 보이도록(RDMA 장치 플러그인·SR-IOV·DRA, 공유 메모리) 해야 제대로 된 경로를 씁니다. 잘못되면 조용히 느린 TCP로 돌아갑니다.</li>
+      <li><b>GPU와 NIC 정렬</b>: 같은 PCIe 스위치 아래의 GPU와 NIC를 짝지어야 GPUDirect RDMA 성능이 납니다(8편 토폴로지 인지 배치).</li>
+      <li><b>확인 습관</b>: 엔진 기동 로그와 NCCL 디버그 로그(<code>NCCL_DEBUG=INFO</code>)에서 실제로 선택된 전송 경로(NVLink·IB·소켓)를 확인합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>대형 MoE와 전문가 병렬</h2>
+  <p class="lede">총 수백 B, 활성 수십 B. MoE는 메모리는 크고 토큰당 계산은 작은 모델이라 나누는 방법도 다릅니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>왜 TP만으로는 비효율적인가</b>: 전문가가 수백 개인 MoE를 TP로 나누면 모든 GPU가 모든 전문가의 조각을 들고 매 층 all-reduce를 해야 합니다. 전문가를 통째로 GPU에 나눠 주고(EP), 토큰을 담당 전문가가 있는 GPU로 보내는 것(all-to-all)이 더 효율적입니다.</li>
+      <li><b>어텐션 DP + MoE EP</b>: 어텐션 층은 각 GPU가 서로 다른 요청을 처리(DP)하고, MoE 층에서만 토큰을 전문가 GPU로 모읍니다. KV는 요청별로 한 GPU에만 있어 KV 중복이 없고, MLA 같은 압축 KV 모델과 궁합이 좋습니다.</li>
+      <li><b>대규모 전문가 병렬(Wide EP)</b>: 수십 장 이상에 전문가를 펼치는 구성. 전문가 간 부하 불균형을 줄이는 부하 분산(vLLM의 전문가 병렬 부하 분산 옵션), 빠른 all-to-all 커널(DeepEP 등), P/D 분리(10편)와 함께 쓰입니다. llm-d의 잘 닦인 경로 중 하나입니다.</li>
+      <li><b>랙 단위 NVLink의 장점</b>: all-to-all은 통신량이 많아 NVL72처럼 랙 전체가 NVLink로 묶인 시스템에서 크게 유리합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>vLLM 설정 매핑</h2>
+  <p class="lede">병렬화 개념을 vLLM 옵션과 프로세스로 옮깁니다(4편 프로세스 계산기와 함께 보세요).</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>옵션</th><th>의미</th><th>메모</th></tr></thead>
+    <tbody>
+      <tr><td class="k">-tp / --tensor-parallel-size</td><td>텐서 병렬 크기</td><td>노드 안 GPU 수 이하, 보통 2의 거듭제곱</td></tr>
+      <tr><td class="k">-pp / --pipeline-parallel-size</td><td>파이프라인 스테이지 수</td><td>노드 간 분할에 주로 사용</td></tr>
+      <tr><td class="k">-dp / --data-parallel-size</td><td>엔진 안 데이터 병렬 랭크 수</td><td>MoE의 어텐션 DP, 또는 한 서버에서 여러 엔진 랭크</td></tr>
+      <tr><td class="k">--enable-expert-parallel</td><td>MoE 층을 전문가 병렬로</td><td>DP·TP와 조합해 EP 크기 결정</td></tr>
+      <tr><td class="k">--distributed-executor-backend</td><td>mp(기본, 멀티프로세싱) 또는 ray</td><td>멀티노드도 mp로 가능 (아래)</td></tr>
+      <tr><td class="k">--nnodes · --node-rank · --master-addr · --headless</td><td>Ray 없이 멀티노드: 각 노드에서 vLLM을 띄우고 0번 노드가 API를 맡음</td><td>0번이 아닌 노드는 <code>--headless</code>로 API 서버 없이 참여</td></tr>
+      <tr><td class="k">데이터 병렬 주소·로컬 랭크 옵션</td><td>여러 노드에 걸친 DP 랭크 배치</td><td>대규모 EP 구성에서 사용 (옵션 이름은 버전 문서)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>bash · 두 노드 × 8 GPU에 TP8 × PP2 (Ray 없이)</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># 0번 노드 (API 서버 포함)</span>
+vllm serve &lt;모델 경로&gt; --tensor-parallel-size 8 --pipeline-parallel-size 2 \
+  --nnodes 2 --node-rank 0 --master-addr &lt;0번 노드 IP&gt;
+<span class="c-cm"># 1번 노드 (헤드리스)</span>
+vllm serve &lt;모델 경로&gt; --tensor-parallel-size 8 --pipeline-parallel-size 2 \
+  --nnodes 2 --node-rank 1 --master-addr &lt;0번 노드 IP&gt; --headless</code></pre></div>
+    <p>통신이 잦은 TP는 노드 안(8장)에, 통신이 적은 PP는 노드 사이에 둔 배치입니다. 모든 노드가 같은 모델 경로·패키지·병렬화 값을 가져야 합니다. Ray 기반 구성(0번에서 Ray 헤드, 나머지는 Ray 워커, <code>--distributed-executor-backend ray</code>)도 여전히 쓰이며, 일부 프레임워크는 Ray 방식을 택합니다.</p>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>쿠버네티스 멀티노드: LeaderWorkerSet</h2>
+  <p class="lede">Deployment는 Pod를 하나씩 다룹니다. 멀티노드 엔진은 “여러 Pod가 한 몸”이라 다른 단위가 필요합니다.</p>
+  <div class="prose">
+    <p>LeaderWorkerSet(LWS)은 쿠버네티스 SIG가 만든 API로, <b>리더 1개 + 워커 N−1개를 하나의 그룹</b>으로 묶고, 그 그룹을 레플리카 단위로 복제합니다. 그룹 안의 Pod는 리더 주소·그룹 크기·자기 인덱스를 환경 변수로 받아, 위 7장의 <code>--master-addr</code>·<code>--node-rank</code>에 그대로 연결합니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>기능</th><th>내용</th><th>왜 필요한가</th></tr></thead>
+    <tbody>
+      <tr><td class="k">그룹 단위 생성·삭제</td><td>리더와 워커를 한 단위로</td><td>일부만 떠 있는 엔진은 쓸모가 없음</td></tr>
+      <tr><td class="k">그룹 재시작 정책</td><td>그룹 안 Pod 하나가 재시작되면 그룹 전체를 다시 만들 수 있음</td><td>분산 엔진은 랭크 하나가 죽으면 전체가 망가짐</td></tr>
+      <tr><td class="k">환경 변수</td><td>리더 주소, 그룹 크기, 워커 인덱스</td><td>멀티노드 플래그 자동 연결</td></tr>
+      <tr><td class="k">그룹 단위 롤링 업데이트</td><td>그룹 하나씩 교체</td><td>업데이트 중에도 일부 레플리카 유지</td></tr>
+      <tr><td class="k">배치 정책</td><td>그룹을 같은 토폴로지 영역(랙·블록)에 모으는 설정, 그룹 단위 스케줄링과 결합</td><td>노드 간 통신 성능 (8편 Kueue TAS·DRA)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">갱(gang) 스케줄링을 함께</span>
+      <p>그룹의 Pod 일부만 GPU를 잡고 나머지가 Pending이면 GPU가 놉니다. 그룹 전체가 한 번에 배치되도록 Kueue(LWS 통합, 토폴로지 인지 스케줄링)나 Volcano·KAI 같은 갱 스케줄러와 함께 씁니다(8편). KServe·llm-d·Dynamo의 멀티노드 기능도 내부적으로 LWS나 비슷한 그룹 개념을 씁니다(9편).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>병렬화 고르는 법</h2>
+  <p class="lede">히어로의 설계기가 따르는 규칙입니다.</p>
+  <ol class="pathlist">
+    <li style="--c:var(--l6)"><b>한 장에 들어가는가?</b><span>가중치 + 필요한 KV + 여유가 한 장에 들어가면 나누지 않습니다. 처리량은 레플리카(DP)로 늘립니다.</span></li>
+    <li style="--c:var(--l4)"><b>노드 안에서 해결되는가?</b><span>들어가는 가장 작은 TP(2·4·8)를 고릅니다. TPOT 목표가 엄격하면 TP를 한 단계 키우는 것도 방법(대역폭 합산)이지만, 통신 비중을 4장 계산기로 확인합니다.</span></li>
+    <li style="--c:var(--l3)"><b>노드를 넘어야 하는가?</b><span>노드 안 TP(최대 NVLink 도메인) × 노드 간 PP. 노드 간 TP는 피합니다.</span></li>
+    <li style="--c:var(--l2)"><b>대형 MoE인가?</b><span>어텐션 DP + 전문가 병렬, 규모가 크면 Wide EP 경로(llm-d)와 P/D 분리를 검토합니다.</span></li>
+    <li style="--c:var(--l1)"><b>NVLink가 없는 GPU인가?</b><span>L4·L40S처럼 PCIe만 있으면 TP2 이상은 통신이 큰 비중을 차지합니다. 더 작은(양자화된) 모델로 한 장에 넣거나, 큰 GPU를 쓰는 편이 낫습니다.</span></li>
+  </ol>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>장애와 운영</h2>
+  <p class="lede">나누면 장애 범위가 커지고 기동이 길어집니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>운영 측면</th><th>단일 GPU 엔진</th><th>멀티 GPU·멀티노드 엔진</th></tr></thead>
+    <tbody>
+      <tr><td class="k">장애 범위</td><td>GPU 하나 = 레플리카 하나</td><td>GPU·노드·링크 하나라도 실패하면 인스턴스 전체 중단</td></tr>
+      <tr><td class="k">기동 시간 (13편)</td><td>한 장 로딩</td><td>모든 랭크의 로딩·통신 그룹 초기화가 끝나야 준비. 가장 느린 노드에 맞춰짐</td></tr>
+      <tr><td class="k">용량 단위</td><td>GPU 1장</td><td>TP×PP 장 단위로만 늘고 줆 (18편 자동 확장의 계단이 큼)</td></tr>
+      <tr><td class="k">업그레이드</td><td>Pod 단위</td><td>그룹 단위. 모든 노드의 이미지·드라이버·NCCL 버전 일치 필요</td></tr>
+      <tr><td class="k">관측 (20·21편)</td><td>Pod 하나</td><td>랭크별 GPU 사용률·통신 대기 시간을 함께 봐야 병목 노드를 찾음</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>MSP 관점</h2>
+  <p class="lede">병렬화 설계는 하드웨어 견적과 SLA의 출발점입니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>견적의 단위</b>: “70B FP8을 H100에 서빙”은 TP2(한 레플리카 2장)부터 시작하고, 처리량은 TP2 레플리카 수로 셉니다. 계산기 결과를 견적서의 근거로 첨부합니다.</li>
+      <li><b>NVLink 서버의 가치</b>: 같은 GPU라도 PCIe 서버와 NVLink 서버는 큰 모델에서 성능이 크게 다릅니다. 고객이 저렴한 PCIe 서버를 원하면 모델 크기·양자화 계획을 먼저 맞춥니다.</li>
+      <li><b>N+1</b>: 멀티노드 인스턴스는 장애 시 통째로 빠지므로, SLA를 위해 여유 그룹 하나를 두는 비용을 단가에 반영합니다.</li>
+      <li><b>소규모 고객</b>: DGX Spark·PGX 두 대 연결 같은 소형 클러스터는 “큰 모델을 시험해 보는” 용도에 적합하고, 서비스 용량은 측정 후에 약속합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>흔한 오해</h2>
+  <p class="lede">분산 서빙에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>실습</h2>
+  <p class="lede">LeaderWorkerSet의 그룹 동작을 GPU 없이 확인하고, 멀티노드 vLLM 매니페스트를 작성·검증한 뒤, 계산기로 세 가지 고객 시나리오의 병렬화를 설계합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>7편 랩(<code>llmsvc-lab</code>). 17-2는 GPU가 필요 없습니다.</li>
+        <li>LWS는 클러스터 공용 CRD·컨트롤러입니다. KServe(9편)·Kueue(8편) 설치 과정에서 이미 들어와 있을 수 있으니 먼저 확인합니다.</li>
+        <li>17-3의 매니페스트는 GPU 노드가 두 대 이상인 환경(클라우드·고객사, 또는 DGX Spark·PGX 두 대 연결)에서 실제로 띄웁니다. 랩에서는 서버 측 검증(dry-run)까지만 합니다.</li>
+      </ul>
+    </div>
+
+    <h3>실습 17-1 · LWS 설치 확인</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl get crd leaderworkersets.leaderworkerset.x-k8s.io 2&gt;/dev/null || {
+  LWS=&lt;LWS 릴리스 버전, 예: v0.x.y&gt;     <span class="c-cm"># github.com/kubernetes-sigs/lws 릴리스에서 확인</span>
+  kubectl apply --server-side -f https://github.com/kubernetes-sigs/lws/releases/download/$LWS/manifests.yaml
+}
+kubectl -n lws-system get pods 2&gt;/dev/null
+kubectl explain leaderworkerset.spec.leaderWorkerTemplate | head -30</code></pre></div>
+
+    <h3>실습 17-2 · GPU 없이 그룹 동작 보기</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · lws-demo.yaml</span><button class="copy">복사</button></div><pre><code>apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata: { name: lws-demo, namespace: llmsvc-lab }
+spec:
+  replicas: 1
+  leaderWorkerTemplate:
+    size: 3                                   <span class="c-cm"># 리더 1 + 워커 2 = 한 그룹</span>
+    restartPolicy: RecreateGroupOnPodRestart  <span class="c-cm"># 그룹 안 하나가 재시작되면 그룹 전체를 다시</span>
+    leaderTemplate:
+      spec:
+        containers:
+        - name: main
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 리더 index=$LWS_WORKER_INDEX size=$LWS_GROUP_SIZE leader=$LWS_LEADER_ADDRESS; sleep 3600"]
+          resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 100m, memory: 64Mi } }
+    workerTemplate:
+      spec:
+        containers:
+        - name: main
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 워커 index=$LWS_WORKER_INDEX leader=$LWS_LEADER_ADDRESS; until nslookup $LWS_LEADER_ADDRESS &gt;/dev/null 2&gt;&amp;1; do sleep 2; done; echo 리더 주소 확인됨; sleep 3600"]
+          resources: { requests: { cpu: 10m, memory: 16Mi }, limits: { cpu: 100m, memory: 64Mi } }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 관찰</span><button class="copy">복사</button></div><pre><code>kubectl apply -f lws-demo.yaml
+kubectl -n llmsvc-lab get pods -l leaderworkerset.sigs.k8s.io/name=lws-demo -L leaderworkerset.sigs.k8s.io/worker-index -o wide
+for p in $(kubectl -n llmsvc-lab get pods -l leaderworkerset.sigs.k8s.io/name=lws-demo -o name); do kubectl -n llmsvc-lab logs $p; done
+
+<span class="c-cm"># 워커 하나를 지우면 그룹 전체가 다시 만들어지는지 (Pod 생성 시각 비교)</span>
+kubectl -n llmsvc-lab delete pod lws-demo-0-1
+sleep 15; kubectl -n llmsvc-lab get pods -l leaderworkerset.sigs.k8s.io/name=lws-demo -o custom-columns=NAME:.metadata.name,START:.status.startTime
+
+<span class="c-cm"># 레플리카(그룹) 늘리기</span>
+kubectl -n llmsvc-lab patch lws lws-demo --type merge -p '{"spec":{"replicas":2}}'
+kubectl -n llmsvc-lab get pods -l leaderworkerset.sigs.k8s.io/name=lws-demo</code></pre></div>
+    <p><b>관찰 포인트</b>: Pod 이름 규칙(<code>lws-demo-0</code>이 리더, <code>lws-demo-0-1</code>·<code>-0-2</code>가 워커), 각 Pod가 받은 환경 변수, 리더 주소가 DNS로 풀리는지, 워커 하나 삭제 시 그룹의 리더까지 새로 만들어지는지(재시작 정책), 레플리카를 2로 올리면 <code>lws-demo-1</code> 그룹이 통째로 생기는지. 이 환경 변수들이 17-3에서 vLLM의 멀티노드 플래그로 들어갑니다.</p>
+
+    <h3>실습 17-3 · 멀티노드 vLLM 매니페스트</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · vllm-lws.yaml (노드 2대 × 노드당 GPU 8장 예: TP8 × PP2)</span><button class="copy">복사</button></div><pre><code>apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata: { name: llm-big, namespace: llmsvc-lab }
+spec:
+  replicas: 1
+  leaderWorkerTemplate:
+    size: 2                                   <span class="c-cm"># 노드 2대 = 리더 1 + 워커 1</span>
+    restartPolicy: RecreateGroupOnPodRestart
+    leaderTemplate:
+      metadata: { labels: { app: llm-big, role: leader } }
+      spec:
+        containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.31.0
+          command: ["sh", "-c"]
+          args:
+          - &gt;
+            vllm serve /models/&lt;모델&gt; --served-model-name big
+            --tensor-parallel-size 8 --pipeline-parallel-size 2
+            --nnodes $LWS_GROUP_SIZE --node-rank 0 --master-addr $LWS_LEADER_ADDRESS
+            --port 8000
+          env: &amp;ncclenv
+          - { name: HF_HUB_OFFLINE, value: "1" }
+          - { name: NCCL_DEBUG, value: "INFO" }               <span class="c-cm"># 실제 전송 경로 확인용 (확인 후 WARN)</span>
+          <span class="c-cm"># - { name: NCCL_SOCKET_IFNAME, value: "&lt;노드 간 NIC 이름&gt;" }</span>
+          ports: [ { containerPort: 8000, name: http } ]
+          resources:
+            limits: { nvidia.com/gpu: 8 }                     <span class="c-cm"># + RDMA 장치 (RDMA 장치 플러그인·SR-IOV·DRA 방식에 맞게)</span>
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, periodSeconds: 10 }
+          startupProbe:   { httpGet: { path: /health, port: 8000 }, periodSeconds: 10, failureThreshold: 360 }
+          volumeMounts: &amp;mounts
+          - { name: models, mountPath: /models, readOnly: true }
+          - { name: shm, mountPath: /dev/shm }
+        volumes: &amp;vols
+        - { name: models, persistentVolumeClaim: { claimName: &lt;공유 또는 노드별 모델 볼륨&gt; } }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 32Gi } }
+    workerTemplate:
+      metadata: { labels: { app: llm-big, role: worker } }
+      spec:
+        containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.31.0
+          command: ["sh", "-c"]
+          args:
+          - &gt;
+            vllm serve /models/&lt;모델&gt; --served-model-name big
+            --tensor-parallel-size 8 --pipeline-parallel-size 2
+            --nnodes $LWS_GROUP_SIZE --node-rank $LWS_WORKER_INDEX --master-addr $LWS_LEADER_ADDRESS
+            --headless
+          env: *ncclenv
+          resources:
+            limits: { nvidia.com/gpu: 8 }
+          volumeMounts: *mounts
+        volumes: *vols
+---
+apiVersion: v1
+kind: Service
+metadata: { name: llm-big, namespace: llmsvc-lab }
+spec:
+  selector: { app: llm-big, role: leader }    <span class="c-cm"># API는 리더만</span>
+  ports: [ { name: http, port: 8000, targetPort: 8000 } ]</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 랩에서는 서버 측 검증까지</span><button class="copy">복사</button></div><pre><code>kubectl apply --dry-run=server -f vllm-lws.yaml     <span class="c-cm"># 스키마·필드 검증 (쿼터·자원 부족은 실제 배포 때 드러남)</span></code></pre></div>
+    <ul>
+      <li><b>모델 볼륨</b>: 두 노드가 같은 경로로 모델을 읽어야 합니다. 노드별 로컬 캐시(13편, 같은 경로에 미리 받기) 또는 공유 볼륨·이미지 볼륨을 씁니다.</li>
+      <li><b>배치</b>: 두 Pod가 같은 랙·고속 네트워크 영역에 가도록 LWS의 배치 설정이나 Kueue 토폴로지 인지 스케줄링(8편)을 함께 씁니다.</li>
+      <li><b>DGX Spark·PGX 두 대라면</b>: 노드당 GPU 1장이므로 <code>--tensor-parallel-size 1 --pipeline-parallel-size 2</code>(통신 적음) 또는 TP2(노드 간 TP, 지연 확인 필요)를 비교합니다. 4장 계산기에서 200GbE RoCE를 골라 통신 비중을 먼저 예측하세요.</li>
+    </ul>
+
+    <h3>실습 17-4 · 설계 워크시트</h3>
+    <p>히어로의 설계기와 4장 계산기로 아래 세 고객 요청의 병렬화를 설계하고 근거를 적습니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>요청</th><th>설계 (TP·PP·DP·EP, GPU 수)</th><th>근거 (메모리·통신·SLO)</th><th>대안·위험</th></tr></thead>
+    <tbody>
+      <tr><td class="k">A. 70B FP8, H100 8장 서버 2대, 동시 사용자 200명·문맥 4K</td><td></td><td></td><td></td></tr>
+      <tr><td class="k">B. 235B MoE FP8, H200 8장 서버, 긴 문맥 RAG</td><td></td><td></td><td></td></tr>
+      <tr><td class="k">C. 32B, L4 8장 PCIe 서버 (NVLink 없음)</td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>실습 17-5 · (선택) 멀티 GPU 환경 측정 계획</h3>
+    <p>GPU 2장 이상을 쓸 수 있을 때, 같은 8B FP8 모델로 “TP1 × 레플리카 2”와 “TP2 × 레플리카 1”을 14편의 <code>slo_probe.py</code>로 비교합니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성</th><th>기대</th><th>측정</th></tr></thead>
+    <tbody>
+      <tr><td class="k">TP1 × DP2 (레플리카 2개)</td><td>처리량 최대, 단일 요청 TPOT는 한 장 속도</td><td>SLO 용량, TPOT p50</td></tr>
+      <tr><td class="k">TP2 × 1</td><td>단일 요청 TPOT 단축(대역폭 합산), 처리량은 통신 비용만큼 손해, KV 공간 증가</td><td>같은 항목 + 통신 비중(NCCL 로그·GPU 사용률)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>“TPOT 목표가 엄격하면 TP, 처리량이 목표면 DP”라는 원칙이 숫자로 확인되어야 합니다. 이것이 18편 자동 확장에서 “확장 단위”를 정하는 근거가 됩니다.</p>
+    <h3>정리하기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab delete lws lws-demo --ignore-not-found
+<span class="c-cm"># LWS 컨트롤러는 18편 이후(멀티노드 자동 확장 논의)에서도 참고하므로 유지 권장</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2><span class="sec-num">14</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: all-reduce, PP, EP, LWS" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15" class="quiz">
+  <h2><span class="sec-num">15</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S16 ================= -->
+<section id="s16">
+  <h2><span class="sec-num">16</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>한 장에 들어가면 나누지 않고 레플리카(DP)를 늘린다.</b> 나누면 통신 비용과 장애 범위가 생긴다.</li>
+      <li><b>TP는 층마다 all-reduce</b>라 NVLink 도메인 안에서만, <b>PP는 경계에서만 통신</b>해 노드 사이에 둔다.</li>
+      <li><b>통신 비중 = 스텝 통신 시간 ÷ 스텝 계산 시간.</b> PCIe·노드 간 TP는 이 비중이 커서 피한다.</li>
+      <li><b>대형 MoE는 어텐션 DP + 전문가 병렬</b>, 규모가 크면 Wide EP와 전용 all-to-all 커널을 쓴다.</li>
+      <li><b>vLLM 멀티노드는 Ray 없이도</b> --nnodes·--node-rank·--master-addr·--headless로 구성되고, LWS 환경 변수에 그대로 연결된다.</li>
+      <li><b>LWS는 리더·워커를 한 그룹으로</b> 만들고, 그룹 재시작·갱 스케줄링·토폴로지 배치와 함께 쓴다. 장애 범위·기동·용량 단위가 커지는 것을 운영 설계에 반영한다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">메모리·지연·처리량 중 무엇 때문에 나누는지에 따라 방식을 고를 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">TP의 스텝당 통신량을 계산하고 연결별 비중을 판단할 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">MoE에서 EP + 어텐션 DP를 쓰는 이유를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">LWS 그룹의 이름·환경 변수·재시작 동작을 확인했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">멀티노드 vLLM LWS 매니페스트를 작성하고 서버 측 검증을 통과시켰다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">세 고객 시나리오의 병렬화를 근거와 함께 설계했다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">멀티노드 인스턴스의 장애·기동·용량 단위 영향을 운영 설계에 반영할 수 있다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 18편 오토스케일링: KEDA·HPA·추론 지표 기반 확장</span>
+      <p>지금까지 정한 “레플리카 하나”의 크기(17편)와 용량(14편), 기동 시간(13편)을 바탕으로, 트래픽을 따라 레플리카를 늘리고 줄입니다. CPU 사용률이 아니라 대기열·KV 사용률·TTFT 같은 추론 지표로 확장하는 법, KEDA와 HPA, 0으로 축소와 FMA, llm-d의 워크로드 오토스케일러까지 다룹니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 17편 분산 서빙 · 2026년 10월 기준(vLLM v0.31.0 멀티노드 옵션, LeaderWorkerSet). 계산기는 통신·계산 겹침과 알고리즘 최적화를 무시한 보수적 단순 모델입니다. 옵션·필드 이름은 버전 문서를 확인하세요.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero designer ---------- */
+const p2=x=>{let v=1;while(v<x)v*=2;return v};
+function design(){const [P,act]=$("#dM").value.split(",").map(Number),b=+$("#dP").value,[M,bw,nv]=$("#dG").value.split(",").map(Number);
+ let N=+$("#dN").value;const gb10=M===128&&bw===273;if(gb10){N=1;$("#dN").value="1"}
+ const K=+$("#dK").value;$("#dKV").textContent=K;const W=P*b,usable=M*0.9-4,need=W+K,g=Math.ceil(need/usable);
+ let tp=1,pp=1,notes=[],rec;
+ if(g<=1){rec="TP1 (나누지 않음)";notes.push("한 장에 가중치와 KV가 모두 들어갑니다. 처리량은 레플리카(DP)를 늘려 확보합니다.")}
+ else if(g<=N){tp=Math.min(N,p2(g));rec=`TP${tp} (노드 안)`;notes.push(`노드 안 GPU ${tp}장으로 나누면 들어갑니다. 통신이 잦은 TP를 ${nv?"NVLink":"PCIe"} 안에 둡니다.`);if(!nv&&tp>2)notes.push("<b>NVLink가 없어 TP"+tp+"은 통신 비중이 큽니다(4장).</b> 더 작은 정밀도로 장 수를 줄이거나 큰 GPU를 검토하세요.")}
+ else{tp=N;pp=Math.ceil(g/N);rec=gb10?`PP${pp} (노드 ${pp}대, 노드당 1장)`:`TP${tp} × PP${pp} (노드 ${pp}대)`;notes.push(gb10?"GB10은 노드당 1장이라 여러 대를 고속 네트워크로 묶어야 합니다. 노드 간 TP보다 PP가 통신이 적습니다.":"노드 하나로 부족해 노드 안 TP × 노드 간 PP로 나눕니다. 노드 간 TP는 피합니다.")}
+ if(act>0&&(tp*pp>=8||P>200)){rec+=" → MoE: 어텐션 DP + 전문가 병렬 검토";notes.push(`MoE(총 ${P}B, 활성 ${act}B)는 토큰당 계산이 활성 파라미터만큼이라 작지만 가중치는 큽니다. 같은 GPU 수에서 TP 대신 어텐션 DP + EP로 펼치는 구성이 일반적으로 효율적입니다(6장).`)}
+ const per=need/(tp*pp);$("#dRec").textContent=rec;$("#dMem").textContent=`${fmt(per,1)} / ${fmt(usable,0)} GB`;$("#dCnt").textContent=`${tp*pp}장`;
+ if(per>usable)notes.push("<b>이 배치로도 GPU당 메모리가 넘칩니다.</b> KV 요구를 줄이거나 더 많은 노드가 필요합니다.");
+ if(gb10)notes.push("GB10은 128GB를 CPU·다른 프로세스와 공유하므로 실제 가용량은 8편 메모리 예산으로 정합니다(이 계산은 90% 기준).");notes.push(`가중치 ${fmt(W)}GB + KV ${K}GB. 같은 장 수로 더 많은 레플리카를 원하면 정밀도를 낮추는 것이 가장 효과적입니다(6편).`);
+ $("#dNote").innerHTML=`<p>${notes.join(" ")}</p>`;}
+$$("#dM,#dP,#dG,#dN,#dK").forEach(e=>e.addEventListener("input",design));design();
+
+/* ---------- TP comm calculator ---------- */
+function tpc(){const [P,L,Hd]=$("#tM").value.split(",").map(Number),n=+$("#tN").value,[bw,lat]=$("#tL").value.split(",").map(Number),st=$("#tS").value;
+ const tok=st==="decode"?32:4096,msg=tok*Hd*2,comm=L*2*(2*(n-1)/n*msg/(bw*1e9)+lat*1e-6);
+ const W=P*1e9*1,compute=st==="decode"?Math.max(W/n/(3350e9*0.75),2*P*1e9*tok/(n*989e12*0.5)):2*P*1e9*tok/(n*989e12*0.5);
+ const share=comm/(comm+compute);
+ $("#tBar").innerHTML=`<div style="flex:${compute};background:#9BE2B6">${share<0.88?"계산 "+fmt((1-share)*100)+"%":""}</div><div style="flex:${comm};background:#FFB3B3">${share>0.12?"통신 "+fmt(share*100)+"%":""}</div>`;
+ const ms=x=>fmt(x*1000,x<0.01?2:1)+" ms";$("#tC").textContent=ms(compute);$("#tX").textContent=ms(comm);$("#tR").textContent=fmt(share*100)+"%";
+ const v=$("#tNote");v.className="verdict "+(share<0.15?"good":share<0.4?"mid":"badv");
+ v.innerHTML=share<0.15?`통신 비중 ${fmt(share*100)}%로 TP${n}이 효율적입니다.`:share<0.4?`통신이 스텝의 ${fmt(share*100)}%를 차지합니다. 통신·계산 겹침 최적화가 있으면 줄지만, TP를 더 늘리는 것은 신중해야 합니다.`:`<b>통신이 스텝의 ${fmt(share*100)}%</b>입니다. 이 연결에서 TP${n}은 GPU를 대부분 통신 대기에 쓰게 됩니다. PP·DP로 바꾸거나 더 빠른 연결 안에 두세요.`;
+ if(st==="decode")v.innerHTML+=` Decode는 토큰 수가 적어 메시지는 작지만 층마다 지연(${lat}µs)이 쌓입니다. 느린 연결일수록 이 고정 지연이 TPOT를 지배합니다.`;}
+$$("#tM,#tN,#tL,#tS").forEach(e=>e.addEventListener("input",tpc));tpc();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["GPU를 두 배로 쓰면 TP로 속도도 두 배가 된다.","통신 비용 때문에 선형으로 늘지 않습니다. 처리량이 목표라면 TP보다 레플리카(DP)가 대개 효율적입니다."],
+ ["노드 두 대를 TP로 묶으면 GPU 16장짜리 한 대처럼 쓸 수 있다.","노드 간 연결은 NVLink보다 한참 느려 층마다 all-reduce를 하면 통신이 지배합니다. 노드 사이는 PP·DP·EP로 나눕니다."],
+ ["MoE는 활성 파라미터만큼만 메모리가 든다.","계산은 활성 파라미터만큼이지만, 모든 전문가의 가중치는 어딘가에 올라가 있어야 합니다. 메모리는 총 파라미터 기준입니다."],
+ ["PP는 통신이 적으니 항상 좋다.","요청 하나가 모든 스테이지를 차례로 지나 지연이 늘고, 스테이지가 불균형하면 빈 시간이 생깁니다. 노드를 넘어야 할 때 쓰는 도구입니다."],
+ ["멀티노드는 Ray가 있어야 한다.","vLLM은 멀티프로세싱 방식으로도 --nnodes·--node-rank·--master-addr·--headless로 멀티노드를 구성합니다. Ray 방식도 여전히 쓰입니다."],
+ ["Deployment 두 개로 리더·워커를 띄우면 된다.","일부만 떠 있거나 하나만 재시작되면 엔진이 망가집니다. LWS처럼 그룹 단위로 생성·재시작·업데이트하는 API가 필요합니다."],
+ ["NCCL은 알아서 가장 빠른 경로를 쓴다.","Pod 안에 RDMA 장치·공유 메모리가 제대로 보이지 않으면 조용히 TCP로 떨어집니다. 로그로 실제 경로를 확인해야 합니다."],
+ ["PCIe GPU 8장이면 큰 모델도 TP8로 잘 돈다.","NVLink가 없으면 TP 통신이 PCIe를 지나 비중이 큽니다. 양자화로 장 수를 줄이거나 NVLink 서버를 검토합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["텐서 병렬","Tensor Parallelism (TP)","층의 행렬을 나눠 여러 GPU가 함께 계산. 층마다 all-reduce."],
+ ["파이프라인 병렬","Pipeline Parallelism (PP)","층을 구간으로 나눠 GPU별 스테이지로. 경계에서만 통신."],
+ ["데이터 병렬","Data Parallelism (DP)","모델을 복제해 요청을 나눠 처리."],
+ ["전문가 병렬","Expert Parallelism (EP)","MoE 전문가를 GPU에 분산. 토큰을 all-to-all로 전달."],
+ ["컨텍스트 병렬","Context Parallelism (CP)","긴 입력 시퀀스를 나눠 Prefill 어텐션을 분산."],
+ ["all-reduce","All-reduce","모든 GPU의 값을 합쳐 모두가 같은 결과를 갖게 하는 집합 통신."],
+ ["all-to-all","All-to-all","각 GPU가 다른 모든 GPU에 서로 다른 데이터를 보내는 통신."],
+ ["파이프라인 버블","Pipeline bubble","스테이지가 기다리느라 비는 시간."],
+ ["NVLink 도메인","NVLink domain","NVLink로 직접 연결된 GPU 묶음(노드 8장, NVL72 랙 등)."],
+ ["NCCL","NVIDIA Collective Communications Library","GPU 간 집합 통신 라이브러리."],
+ ["GPUDirect RDMA","GPUDirect RDMA","NIC가 GPU 메모리에 직접 접근하는 기능."],
+ ["어텐션 DP","Attention data parallel","MoE에서 어텐션 층은 GPU별로 다른 요청을 처리하는 방식."],
+ ["Wide EP","Wide expert parallelism","수십 장 이상에 전문가를 펼치는 대규모 전문가 병렬."],
+ ["EPLB","Expert parallel load balancing","전문가 간 부하 불균형을 줄이는 재배치."],
+ ["헤드리스 노드","--headless","API 서버 없이 분산 엔진에 참여하는 vLLM 노드."],
+ ["LeaderWorkerSet","LWS","리더 1 + 워커들을 한 그룹으로 관리하는 쿠버네티스 API."],
+ ["그룹 재시작 정책","RecreateGroupOnPodRestart","그룹 안 Pod 하나가 재시작되면 그룹 전체를 다시 만드는 LWS 정책."],
+ ["갱 스케줄링","Gang scheduling","여러 Pod를 전부 한 번에 배치하거나 아예 배치하지 않는 스케줄링."],
+ ["LWS 환경 변수","LWS_LEADER_ADDRESS 등","리더 주소·그룹 크기·워커 인덱스를 Pod에 알려 주는 값."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["8B FP8 모델이 GPU 한 장에 여유 있게 들어간다. 처리량을 늘리는 가장 효율적인 방법은?",["TP2","레플리카(DP) 추가","PP2","EP"],1,"나누지 않고 복제하면 통신이 없습니다."],
+ ["텐서 병렬이 NVLink 도메인 안에 있어야 하는 이유는?",["보안","층마다 all-reduce를 해 통신이 매우 잦기 때문","메모리 절약","라이선스"],1,"느린 연결에서는 통신이 지배합니다."],
+ ["노드 두 대로 큰 모델을 나눌 때 일반적인 배치는?",["노드 간 TP16","노드 안 TP × 노드 간 PP","DP만","노드 간 EP만"],1,"통신이 적은 PP를 노드 사이에 둡니다."],
+ ["Decode에서 느린 연결의 TP가 특히 불리한 이유는?",["메시지가 커서","층마다 고정 지연이 쌓여 TPOT를 지배","KV가 늘어서","컴파일 때문"],1,"Decode는 토큰이 적어 지연이 지배적입니다."],
+ ["대형 MoE에서 TP 대신 어텐션 DP + EP를 쓰는 이유는?",["구현이 쉬워서","전문가를 통째로 나눠 all-to-all로 토큰을 보내는 편이 효율적이고 KV 중복이 없음","GPU가 적게 들어서","품질이 좋아져서"],1,"MoE 구조에 맞는 분할입니다."],
+ ["vLLM 멀티노드에서 0번이 아닌 노드에 붙이는 옵션은?",["--api-key","--headless","--enforce-eager","--served-model-name"],1,"API 서버 없이 참여합니다."],
+ ["LWS 그룹에서 워커 하나가 재시작될 때 RecreateGroupOnPodRestart의 동작은?",["워커만 재시작","그룹 전체를 다시 만듦","무시","레플리카 수 증가"],1,"분산 엔진은 랭크 하나가 죽으면 전체가 망가지기 때문입니다."],
+ ["멀티노드 엔진에서 NCCL이 느린 경로를 쓰는지 확인하는 방법은?",["GPU 온도","NCCL 디버그 로그에서 선택된 전송 경로 확인","Pod 이름","kubectl top"],1,"NCCL_DEBUG=INFO 로그로 봅니다."],
+ ["멀티노드 인스턴스의 운영상 특징으로 맞는 것은?",["장애 범위가 GPU 하나","GPU·노드 하나라도 실패하면 인스턴스 전체 중단, 용량이 큰 계단 단위","기동이 더 빠름","업그레이드가 Pod 단위"],1,"SLA·자동 확장 설계에 반영합니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 18편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 18편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

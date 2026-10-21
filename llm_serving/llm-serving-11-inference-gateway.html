@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 11편 · Inference Gateway: Gateway API Inference Extension</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 11 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>11편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">일반 로드밸런서로 부족한 이유</a></li>
+    <li><a href="#s3">GAIE 전체 구조</a></li>
+    <li><a href="#s4">InferencePool 해부</a></li>
+    <li><a href="#s5">InferenceObjective와 우선순위</a></li>
+    <li><a href="#s6">Endpoint Picker 해부</a></li>
+    <li><a href="#s7">장애 시 동작과 고가용성</a></li>
+    <li><a href="#s8">본문 기반 라우팅과 다중 모델</a></li>
+    <li><a href="#s9">Ingress·메시·AI 게이트웨이와의 관계</a></li>
+    <li><a href="#s10">구현체 고르기</a></li>
+    <li><a href="#s11">운영 관점</a></li>
+    <li><a href="#s12">흔한 오해</a></li>
+    <li><a href="#s13">실습</a></li>
+    <li><a href="#s14">용어 사전</a></li>
+    <li><a href="#s15">확인 퀴즈</a></li>
+    <li><a href="#s16">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 2 · 플랫폼 설계·구축 — 11편</div>
+    <h1>Inference Gateway<br>Gateway API Inference Extension</h1>
+    <p class="intro">10편에서 llm-d Router가 레플리카마다 점수를 매겨 요청을 보내는 것을 봤습니다. 이번 편은 그 아래에 있는 <b>쿠버네티스 표준</b>을 정면으로 다룹니다. 모델 서버 Pod 묶음을 나타내는 <b>InferencePool</b>, 요청의 우선순위를 나타내는 <b>InferenceObjective</b>, 게이트웨이와 대화하며 엔드포인트를 고르는 <b>Endpoint Picker(EPP)</b>, 그리고 이것들이 기존 Ingress·서비스 메시·AI 게이트웨이와 어떻게 층을 이루는지까지.</p>
+    <div class="meta-row">
+      <span class="chip">기준 <b>GAIE v1.6.2 (2026-09)</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 100분</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="Inference Gateway 구조">
+    <div class="stack-head"><strong>요청 하나가 엔드포인트를 얻기까지</strong><span class="spacer"></span><button class="btn primary" id="heroRun">재생</button></div>
+    <div class="arch" id="igMap">
+      <div class="tier"><span class="lab">입구</span>
+        <div class="boxes">
+          <button class="bx" data-k="client" style="--c:var(--l7)"><b>클라이언트·AI 게이트웨이</b><small>인증·쿼터 (12편)</small></button>
+          <button class="bx" data-k="gw" style="--c:var(--l5)"><b>Gateway (Envoy 등)</b><small>HTTPRoute → InferencePool</small></button>
+        </div>
+      </div>
+      <div class="wire">↕ ext_proc (gRPC)</div>
+      <div class="tier"><span class="lab">추론 확장</span>
+        <div class="boxes">
+          <button class="bx" data-k="epp" style="--c:var(--l4)"><b>Endpoint Picker</b><small>필터·점수·선택</small></button>
+          <button class="bx" data-k="pool" style="--c:var(--l3)"><b>InferencePool</b><small>Pod 선택자·포트·EPP 참조</small></button>
+          <button class="bx" data-k="obj" style="--c:var(--l6)"><b>Objective · 흐름 제어</b><small>우선순위·공정성</small></button>
+        </div>
+      </div>
+      <div class="wire">↓ 선택된 Pod로 직접</div>
+      <div class="tier"><span class="lab">모델 서버</span>
+        <div class="boxes">
+          <button class="bx" data-k="pods" style="--c:var(--l2)"><b>vLLM Pod들</b><small>/metrics: 대기열·KV·LoRA</small></button>
+        </div>
+      </div>
+    </div>
+    <div class="layer-detail" id="igNote"><h4>박스를 눌러 보세요</h4><p>각 구성 요소의 역할과 이 편의 해당 장이 표시됩니다.</p></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">“게이트웨이가 어느 Pod로 보낼지 묻는 표준 방법”. 이 한 줄이 Gateway API Inference Extension(GAIE)의 정체입니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">2026년 8월 이후 바뀐 것 (오래된 자료와 다른 점)</span>
+      <ul>
+        <li><b>GAIE v1.6.0(2026년 8월)</b>에서 완전한 기능의 EPP, 본문 기반 라우팅(BBR), 지연 예측기 구성 요소가 <b>llm-d 저장소로 옮겨졌습니다</b>. GAIE는 이제 표준 명세·CRD·적합성 시험에 집중하고, 적합성 시험용 참조 구현으로 <b>경량 EPP(lwepp)</b>를 제공합니다.</li>
+        <li>같은 릴리스에서 알파 API였던 <b>InferenceObjective, InferenceModelRewrite, EndpointPickerConfig가 GAIE에서 제거</b>되어 llm-d로 이전되었습니다. 커리큘럼의 “InferenceObjective”는 개념은 그대로지만, 이제 llm-d 쪽 API로 다룹니다.</li>
+        <li><b>InferencePool은 v1.0부터 GA</b>(<code>inference.networking.k8s.io/v1</code>)이고, v1.6에서 <code>endpointPickerRef</code>가 선택 사항이 되었습니다(사용자가 EPP를 직접 배포하지 않는 구현을 위해).</li>
+        <li>이 편은 “표준 API(GAIE)”와 “그 구현(llm-d Router·각 게이트웨이)”을 구분해서 설명합니다.</li>
+      </ul>
+    </div>
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>일반 L4·L7 로드밸런서가 LLM 추론에서 부족한 이유를 지표로 설명할 수 있다.</li>
+      <li>InferencePool의 필드(선택자·포트·EPP 참조·실패 모드)와 HTTPRoute 연결을 읽고 쓸 수 있다.</li>
+      <li>요청 우선순위(Objective)와 흐름 제어가 과부하 때 무엇을 지키는지 설명할 수 있다.</li>
+      <li>EPP의 동작(ext_proc 프로토콜, 데이터 수집, 필터·점수·선택 파이프라인)을 그리고, 가중치 조정의 효과를 예측할 수 있다.</li>
+      <li>EPP 장애 시 FailOpen·FailClose의 차이와 고가용성 구성을 설명할 수 있다.</li>
+      <li>Ingress·서비스 메시·AI 게이트웨이·Inference Gateway의 층 관계를 그리고, 구현체를 고를 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 병원 접수처</span>
+      <p>일반 로드밸런서는 “빈 진료실 아무 데나” 보내는 안내원입니다. Inference Gateway의 EPP는 각 진료실의 대기 인원(대기열), 남은 침상(KV 캐시), 이 환자의 이전 진료 기록이 있는 방(프리픽스 캐시), 필요한 장비가 있는 방(LoRA)을 보고 보내는 접수처입니다. InferencePool은 “내과 진료실 묶음”, Objective는 “응급·일반·예약 환자” 구분이고, 흐름 제어는 병원이 꽉 찼을 때 응급 환자부터 받는 규칙입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>일반 로드밸런서로 부족한 이유</h2>
+  <p class="lede">LLM 요청은 크기도, 걸리는 시간도, 재사용할 상태도 요청마다 다릅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>로드밸런서가 가정하는 것</th><th>LLM 추론의 현실</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr><td class="k">요청 비용이 비슷하다</td><td>입력 100토큰과 3만 토큰, 출력 10토큰과 4천 토큰이 섞임</td><td>요청 “개수”로 균형을 잡아도 실제 부하는 크게 쏠림</td></tr>
+      <tr><td class="k">응답이 빠르다 (ms)</td><td>수 초~수 분 스트리밍</td><td>연결 수 기반 균형도 부정확, 긴 연결이 오래 점유</td></tr>
+      <tr><td class="k">서버는 상태가 없다</td><td>프리픽스 KV 캐시가 서버마다 다름 (4·10편)</td><td>무작위 분배는 캐시를 버리고 Prefill을 다시 함</td></tr>
+      <tr><td class="k">서버 상태는 살았나·죽었나 둘 중 하나</td><td>KV 사용률 99%면 살아 있어도 곧 선점 (4편)</td><td>헬스 체크는 통과하는데 TTFT·ITL이 무너짐</td></tr>
+      <tr><td class="k">모든 서버가 같다</td><td>LoRA 어댑터가 서버마다 다르게 올라가 있음 (16편)</td><td>어댑터 로딩 지연 발생</td></tr>
+      <tr><td class="k">모든 요청이 동등하다</td><td>실시간 채팅과 배치 요약이 같은 풀을 공유</td><td>과부하 때 중요한 요청까지 같이 느려짐</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>GAIE는 이 차이를 메우기 위해 <b>“어느 Pod로 보낼지”의 결정을 게이트웨이 밖의 추론 전용 구성 요소(EPP)에 위임하는 표준 방법</b>을 정의합니다. 게이트웨이는 TLS·라우팅·관측 같은 자기 일을 하고, 엔드포인트 선택만 EPP에 묻습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>GAIE 전체 구조</h2>
+  <p class="lede">Gateway API의 “역할 분리” 철학을 추론에 그대로 확장했습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>리소스·구성 요소</th><th>API 위치 (2026-10)</th><th>누가 관리</th><th>역할</th></tr></thead>
+    <tbody>
+      <tr><td class="k">GatewayClass · Gateway</td><td>Gateway API 표준</td><td>인프라·플랫폼 관리자</td><td>입구(리스너·TLS). 7편에서 구성</td></tr>
+      <tr><td class="k">HTTPRoute</td><td>Gateway API 표준</td><td>추론 플랫폼 담당</td><td>경로 → <code>backendRef: kind InferencePool</code></td></tr>
+      <tr><td class="k">InferencePool</td><td><code>inference.networking.k8s.io/v1</code> (GA)</td><td>추론 플랫폼 담당</td><td>같은 모델을 서빙하는 Pod 묶음 + EPP 참조. Service를 대신하는 “추론 인지 백엔드”</td></tr>
+      <tr><td class="k">InferenceObjective</td><td>v1.6부터 GAIE에서 제거, llm-d로 이전</td><td>모델·워크로드 담당</td><td>요청의 우선순위(목표) 표현</td></tr>
+      <tr><td class="k">Endpoint Picker (EPP)</td><td>프로토콜은 GAIE 명세, 완전한 구현은 llm-d Router</td><td>추론 플랫폼 담당</td><td>필터·점수·선택, 흐름 제어</td></tr>
+      <tr><td class="k">경량 EPP (lwepp)</td><td>GAIE</td><td>(구현체 개발자)</td><td>적합성 시험용 최소 참조 구현</td></tr>
+      <tr><td class="k">본문 기반 라우팅 (BBR)</td><td>llm-d로 이전</td><td>추론 플랫폼 담당</td><td>요청 본문의 모델 이름을 헤더로 꺼내 라우팅에 사용</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>InferencePool 해부</h2>
+  <p class="lede">“이 라벨의 Pod들이 이 포트로 같은 모델을 서빙하고, 엔드포인트 선택은 저 EPP에게 물어라.”</p>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>yaml · InferencePool (GAIE v1)</span><button class="copy">복사</button></div><pre><code>apiVersion: inference.networking.k8s.io/v1
+kind: InferencePool
+metadata: { name: qwen3-8b-pool, namespace: llmsvc-lab }
+spec:
+  selector:
+    matchLabels: { app: llm-engine }       <span class="c-cm"># 모델 서버 Pod 라벨과 정확히 일치해야 함</span>
+  targetPorts:
+  - number: 8000                           <span class="c-cm"># 모델 서버 포트</span>
+  endpointPickerRef:                       <span class="c-cm"># v1.6부터 선택 사항 (구현체가 지원할 때만 생략)</span>
+    name: qwen3-8b-epp                     <span class="c-cm"># EPP Service 이름</span>
+    port: { number: 9002 }                 <span class="c-cm"># EPP의 ext_proc gRPC 포트</span>
+    failureMode: FailOpen                  <span class="c-cm"># EPP 무응답 시: FailOpen(게이트웨이가 직접 분배) / FailClose(요청 실패)</span></code></pre></div>
+    <div class="codeblock"><div class="cap"><span>yaml · HTTPRoute가 Service 대신 InferencePool을 가리킴 (gateway 모드)</span><button class="copy">복사</button></div><pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: llm-openai, namespace: llmsvc-lab }
+spec:
+  parentRefs: [ { name: inference-gateway } ]     <span class="c-cm"># GAIE를 지원하는 구현체의 Gateway</span>
+  rules:
+  - matches: [ { path: { type: PathPrefix, value: /v1 } } ]
+    backendRefs:
+    - group: inference.networking.k8s.io
+      kind: InferencePool
+      name: qwen3-8b-pool
+    timeouts: { request: 600s }</code></pre></div>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>필드·상태</th><th>의미</th><th>운영 포인트</th></tr></thead>
+    <tbody>
+      <tr><td class="k">selector</td><td>풀에 속할 Pod. Service의 선택자와 같은 개념</td><td>Prefill·Decode처럼 역할이 다른 Pod를 섞지 않도록 라벨 설계 (10편)</td></tr>
+      <tr><td class="k">targetPorts</td><td>모델 서버 포트 (여러 개 가능)</td><td>한 Pod에 여러 엔진 랭크가 있는 데이터 병렬 구성에서 여러 포트</td></tr>
+      <tr><td class="k">appProtocol</td><td>모델 서버와의 프로토콜 (gRPC 지원 추가)</td><td>엔진의 gRPC 인터페이스를 쓸 때</td></tr>
+      <tr><td class="k">endpointPickerRef</td><td>EPP Service 참조, 포트, 실패 모드</td><td>EPP를 사용자가 운영하는 구성에서는 필수로 생각</td></tr>
+      <tr><td class="k">status.parents</td><td>각 Gateway(부모)별 수용 여부·조건</td><td>“Accepted”, “ResolvedRefs”, 잘못된 확장 참조 등으로 문제 진단</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>InferenceObjective와 우선순위</h2>
+  <p class="lede">풀이 여유로울 때는 모두가 빠릅니다. 우선순위는 “꽉 찼을 때 누구를 먼저”를 정하는 장치입니다.</p>
+  <div class="prose">
+    <p>GAIE 초기에는 <b>InferenceModel</b>이 “모델 이름 + 중요도(criticality)”를 함께 표현했습니다. v1.0에서 이것이 <b>InferenceObjective</b>로 바뀌며 “요청의 서빙 목표(우선순위)”만 담당하게 되었고, 모델 이름 매칭·변경은 <b>InferenceModelRewrite</b>로 분리되었습니다. 그리고 v1.6에서 둘 다 알파 API인 채로 GAIE에서 빠져 llm-d로 옮겨졌습니다. 개념은 같습니다.</p>
+    <ul>
+      <li><b>Objective</b>: “이 종류의 요청은 우선순위 N”. 요청은 헤더(예: <code>x-gateway-inference-objective</code>)로 자기 Objective를 밝힙니다. 게이트웨이나 AI 게이트웨이(12편)가 테넌트·API 키에 따라 이 헤더를 붙이는 구성이 자연스럽습니다.</li>
+      <li><b>흐름 제어(Flow Control)</b>: EPP가 풀의 포화도를 감지해, 포화되면 요청을 바로 보내지 않고 <b>우선순위 대역별 대기열</b>에 넣습니다. 높은 대역부터 내보내고, 같은 대역 안에서는 공정성 정책(테넌트별 몫 등)으로 순서를 정하며, 더 버틸 수 없으면 낮은 우선순위부터 거절합니다. 최근 버전은 SLO 기한 기반 정렬, 진행 중 요청 중단 같은 정책도 갖추고 있습니다.</li>
+    </ul>
+  </div>
+  <div class="tool wide" id="fcTool">
+    <h4>흐름 제어 시뮬레이터</h4>
+    <div class="desc">풀의 동시 처리 용량을 100으로 두고, 세 등급(실시간·일반·배치)의 요청이 섞여 들어옵니다. 우선순위 흐름 제어가 있을 때와 없을 때(먼저 온 순서)를 비교합니다. 대기열 용량은 50입니다.</div>
+    <div class="form">
+      <label>전체 부하 (용량 대비) <span id="fcLV">120%</span><input type="range" id="fcL" min="40" max="250" step="5" value="120"></label>
+      <label>실시간 비율 <span id="fcCV">20%</span><input type="range" id="fcC" min="0" max="80" step="5" value="20"></label>
+      <label>배치 비율 <span id="fcSV">40%</span><input type="range" id="fcS" min="0" max="80" step="5" value="40"></label>
+    </div>
+    <div id="fcOut" style="margin-top:12px"></div>
+    <div class="legend"><span><i style="background:var(--ok)"></i>바로 처리</span><span><i style="background:var(--warn)"></i>대기열</span><span><i style="background:var(--bad)"></i>거절</span></div>
+    <div class="verdict" id="fcNote"></div>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>Endpoint Picker 해부</h2>
+  <p class="lede">게이트웨이가 “이 요청 어디로?”라고 물으면, EPP는 수집해 둔 Pod 상태로 답합니다.</p>
+  <div class="prose">
+    <h3>게이트웨이와 EPP의 대화: ext_proc</h3>
+    <ol class="pathlist">
+      <li style="--c:var(--l5)"><b>게이트웨이가 요청을 EPP로 넘김</b><span>Envoy의 외부 처리(ext_proc) gRPC 스트림으로 요청 헤더와 본문을 EPP에 보냅니다. 스트리밍 본문을 다루는 전이중 모드도 명세에 포함됩니다.</span></li>
+      <li style="--c:var(--l4)"><b>EPP가 본문을 해석</b><span>파서(OpenAI 형식, vLLM gRPC 등 교체 가능)가 모델 이름·프롬프트·LoRA 어댑터 같은 정보를 꺼냅니다.</span></li>
+      <li style="--c:var(--l3)"><b>스케줄링: 필터 → 점수 → 선택</b><span>수집해 둔 Pod 상태로 후보를 거르고 점수를 매겨 하나(또는 P/D면 두 개)를 고릅니다. 포화 시에는 흐름 제어 대기열로 보냅니다.</span></li>
+      <li style="--c:var(--l2)"><b>선택 결과 반환</b><span>고른 엔드포인트(Pod IP:포트)를 헤더와 동적 메타데이터로 게이트웨이에 돌려주면, 게이트웨이는 그 Pod로 직접 요청을 보냅니다(Service를 거치지 않음).</span></li>
+      <li style="--c:var(--l6)"><b>응답 경로</b><span>응답 헤더·본문도 EPP를 거칠 수 있어, 사용량 집계·프리픽스 기록 갱신 같은 후처리 플러그인이 동작합니다.</span></li>
+    </ol>
+    <h3>EPP가 보는 데이터</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>데이터</th><th>출처</th><th>쓰임</th></tr></thead>
+    <tbody>
+      <tr><td class="k">대기 요청 수</td><td>모델 서버 /metrics (vLLM: 대기열 지표)</td><td>대기열 점수, 포화 감지</td></tr>
+      <tr><td class="k">KV 캐시 사용률</td><td>모델 서버 /metrics</td><td>KV 점수, 포화 직전 Pod 필터</td></tr>
+      <tr><td class="k">올라간 LoRA 어댑터</td><td>모델 서버 /metrics</td><td>LoRA 친화도 점수</td></tr>
+      <tr><td class="k">프리픽스 기록·KV 이벤트</td><td>EPP 자체 기록 또는 엔진 KV 이벤트 (10편)</td><td>프리픽스 캐시 점수</td></tr>
+      <tr><td class="k">진행 중 토큰 수</td><td>EPP가 보낸 요청 집계</td><td>지표 수집 주기 사이의 부하 추정</td></tr>
+      <tr><td class="k">예측 지연</td><td>지연 예측 모델(학습형)</td><td>SLO 기반 선택 (중간 성숙도)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>엔진의 지표 이름이 바뀌면 EPP가 상태를 못 읽어 사실상 무작위 분배가 됩니다(10편 운영 표). 엔진 업그레이드 때 EPP 설정의 지표 매핑도 함께 확인해야 하는 이유입니다.</p>
+  </div>
+  <div class="tool wide" id="epTool">
+    <h4>EPP 점수 놀이터</h4>
+    <div class="desc">Pod 세 개의 상태와 점수 가중치를 바꿔 보며 어느 Pod가 선택되는지 봅니다. 각 점수는 0~1로 정규화해 가중합합니다(대기열은 짧을수록, KV 사용률은 낮을수록, 프리픽스 일치는 높을수록 높은 점수). 실제 EPP 플러그인의 계산식과는 다른 개념 모델입니다.</div>
+    <div class="seg-tabs" id="epPre">
+      <button class="btn" data-p="tug">캐시 vs 부하 줄다리기</button>
+      <button class="btn" data-p="kv">KV 포화 직전 Pod</button>
+      <button class="btn" data-p="lora">LoRA 어댑터 요청</button>
+    </div>
+    <div class="form">
+      <label>대기열 가중치 <span id="wQV">1</span><input type="range" id="wQ" min="0" max="5" step="0.5" value="1"></label>
+      <label>KV 사용률 가중치 <span id="wKV">1</span><input type="range" id="wK" min="0" max="5" step="0.5" value="1"></label>
+      <label>프리픽스 가중치 <span id="wPV">2</span><input type="range" id="wP" min="0" max="5" step="0.5" value="2"></label>
+      <label>LoRA 가중치 <span id="wLV">1</span><input type="range" id="wL" min="0" max="5" step="0.5" value="1"></label>
+      <label><span><input type="checkbox" id="epFilter" checked> KV 95% 이상 Pod 제외 (필터)</span></label>
+    </div>
+    <div class="epp" id="epPods"></div>
+    <div class="verdict" id="epNote"></div>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>장애 시 동작과 고가용성</h2>
+  <p class="lede">EPP는 모든 요청이 지나가는 결정 지점입니다. 죽었을 때 어떻게 할지 미리 정해야 합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>설정</th><th>EPP 무응답 시</th><th>장점</th><th>단점</th><th>맞는 곳</th></tr></thead>
+    <tbody>
+      <tr><td class="k">FailOpen</td><td>게이트웨이가 풀의 Pod들에 자체 방식(라운드로빈 등)으로 분배</td><td>서비스는 계속됨</td><td>그동안 캐시·부하 인지 이점이 사라지고, 흐름 제어·우선순위도 꺼짐</td><td>가용성이 최우선인 일반 서비스</td></tr>
+      <tr><td class="k">FailClose</td><td>요청 실패 (5xx)</td><td>정책(우선순위·테넌트 공정성) 우회가 없음</td><td>EPP 장애가 곧 서비스 장애</td><td>EPP의 정책 집행이 계약상 중요한 경우, 테넌트 격리</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="tool wide" id="fmTool">
+    <h4>장애 모드 시뮬레이터</h4>
+    <div class="form">
+      <label>실패 모드 <select id="fmMode"><option value="open">FailOpen</option><option value="close">FailClose</option></select></label>
+      <label>EPP 레플리카 <select id="fmRep"><option value="1">1개</option><option value="2" selected>2개 이상 (액티브-액티브)</option></select></label>
+      <label>상황 <select id="fmEv"><option value="ok">정상</option><option value="one">EPP Pod 하나 장애</option><option value="all">EPP 전체 장애</option><option value="metrics">EPP는 살았지만 모델 서버 지표 수집 실패</option></select></label>
+    </div>
+    <div class="verdict" id="fmOut"></div>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>EPP 레플리카를 2개 이상</b>으로 둡니다. llm-d는 EPP의 액티브-액티브 고가용성을 지원합니다(10편). standalone 모드에서는 프록시가 EPP Pod 안에 있으므로 Pod 수가 곧 입구의 수입니다.</li>
+      <li><b>EPP 자체의 자원</b>: 요청마다 점수 계산·프리픽스 해시를 하므로 높은 RPS에서는 CPU가 병목이 됩니다. EPP의 지연 지표(스케줄링 시간)를 대시보드에 둡니다.</li>
+      <li><b>“조용한 장애”</b>: 지표 수집 실패는 에러 없이 라우팅 품질만 떨어뜨립니다. 캐시 적중률·Pod 간 부하 편차를 경보 대상으로 둡니다(20~21편).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>본문 기반 라우팅과 다중 모델</h2>
+  <p class="lede">OpenAI 호환 API는 모델 이름이 URL이 아니라 요청 본문(JSON) 안에 있습니다. 그래서 일반 경로 라우팅으로는 모델별로 나눌 수 없습니다.</p>
+  <div class="prose">
+    <p><b>본문 기반 라우팅(BBR)</b>은 게이트웨이 앞단에서 요청 본문의 <code>model</code> 필드를 읽어 헤더로 꺼내 주는 구성 요소입니다. 그러면 HTTPRoute가 헤더 조건으로 모델별 InferencePool을 고를 수 있습니다. v1.6부터 BBR 구현은 llm-d 쪽에 있습니다.</p>
+    <div class="codeblock"><div class="cap"><span>yaml · 모델 이름으로 두 풀 나누기 (BBR이 모델 이름 헤더를 넣어 준다고 가정, 헤더 이름은 구현 문서 확인)</span><button class="copy">복사</button></div><pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: llm-by-model, namespace: llmsvc-lab }
+spec:
+  parentRefs: [ { name: inference-gateway } ]
+  rules:
+  - matches:
+    - path: { type: PathPrefix, value: /v1 }
+      headers: [ { name: X-Gateway-Model-Name, value: qwen3-8b } ]
+    backendRefs: [ { group: inference.networking.k8s.io, kind: InferencePool, name: qwen3-8b-pool } ]
+  - matches:
+    - path: { type: PathPrefix, value: /v1 }
+      headers: [ { name: X-Gateway-Model-Name, value: qwen3-0.6b } ]
+    backendRefs: [ { group: inference.networking.k8s.io, kind: InferencePool, name: qwen3-small-pool } ]</code></pre></div>
+    <ul>
+      <li><b>LoRA 어댑터</b>는 같은 베이스 모델의 같은 풀 안에서 처리하는 것이 보통입니다. EPP의 LoRA 친화도 점수가 어댑터가 이미 올라간 Pod를 고릅니다(16편).</li>
+      <li><b>모델 이름 바꾸기·트래픽 나누기</b>: 앱이 부르는 이름(예: <code>chat-default</code>)을 실제 모델 버전으로 바꾸거나, 새 버전에 일부만 보내는 기능은 예전 InferenceModelRewrite가 맡던 일입니다. 지금은 llm-d 쪽 API나 AI 게이트웨이(12편)에서 다룹니다. 어느 층에서 할지는 한 곳으로 정해 두세요.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>Ingress·메시·AI 게이트웨이와의 관계</h2>
+  <p class="lede">이름이 비슷한 것들이 서로 다른 층에서 다른 일을 합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성 요소</th><th>층</th><th>주로 하는 일</th><th>LLM에 대해 모르는 것</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Service (kube-proxy)</td><td>L4</td><td>Pod 사이 연결 분배</td><td>요청 내용·비용·캐시 전부</td></tr>
+      <tr><td class="k">Ingress (ingress-nginx 등)</td><td>L7 호스트·경로</td><td>외부 HTTP 진입, TLS</td><td>본문의 모델 이름, 서버의 KV 상태. ingress-nginx는 지원 종료(7편)</td></tr>
+      <tr><td class="k">Gateway API 구현</td><td>L7, 역할 분리, 확장 가능</td><td>입구·라우팅·정책 첨부</td><td>그 자체로는 추론 상태를 모름 → GAIE로 확장</td></tr>
+      <tr><td class="k">서비스 메시 (Istio 등)</td><td>동서 트래픽</td><td>서비스 간 mTLS, 재시도, 관측</td><td>메시의 L7 분배도 추론 상태를 모름. Istio는 GAIE를 구현해 입구에서 이를 보완</td></tr>
+      <tr><td class="k">Inference Gateway (GAIE 구현)</td><td>추론 인지 엔드포인트 선택</td><td>InferencePool + EPP</td><td>사용자·키·예산 같은 비즈니스 정책</td></tr>
+      <tr><td class="k">AI 게이트웨이 (12편)</td><td>API·정책</td><td>인증·키·토큰 쿼터·여러 공급자 통합·캐싱·가드레일</td><td>클러스터 안 Pod 상태 (Inference Gateway에 위임)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="flowline">
+      <div class="st" style="--c:var(--l7)"><b>앱</b>OpenAI 호환 호출</div><span class="ar">›</span>
+      <div class="st" style="--c:var(--l5)"><b>AI 게이트웨이</b>누가·얼마나·어느 모델 (키·쿼터·우선순위 헤더)</div><span class="ar">›</span>
+      <div class="st" style="--c:var(--l4)"><b>Inference Gateway</b>그 모델의 어느 Pod (EPP)</div><span class="ar">›</span>
+      <div class="st" style="--c:var(--l3)"><b>모델 서버</b>vLLM</div>
+    </div>
+    <p>Envoy AI Gateway·agentgateway처럼 두 층을 한 제품에서 함께 제공하는 경우도 있습니다. 그래도 “정책(누가)”과 “배치(어디로)”를 개념적으로 나눠 두면 장애 분석과 교체가 쉬워집니다.</p>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>구현체 고르기</h2>
+  <p class="lede">GAIE는 표준이고, 실제로는 게이트웨이 구현체 + EPP 구현체의 조합으로 씁니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>게이트웨이 구현</th><th>특징</th><th>메모</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Istio</td><td>서비스 메시와 입구를 함께. llm-d 경로의 기본 게이트웨이</td><td>메시를 이미 쓰는 조직에 자연스러움</td></tr>
+      <tr><td class="k">agentgateway</td><td>AI·에이전트 트래픽 지향 프록시. GAIE 빠른 시작 문서가 이것으로 전환됨</td><td>llm-d 문서에서 새 자체 설치에 권장</td></tr>
+      <tr><td class="k">Envoy AI Gateway</td><td>Envoy Gateway 기반 AI 게이트웨이, InferencePool·EPP 지원</td><td>7편 랩(Envoy Gateway)에서 이어 가기 쉬움. 12편</td></tr>
+      <tr><td class="k">GKE Gateway</td><td>관리형 Inference Gateway</td><td>GKE 사용 시</td></tr>
+      <tr><td class="k">NGINX Gateway Fabric · 기타</td><td>각자의 GAIE 지원</td><td>적합성 보고서 확인</td></tr>
+      <tr><td class="k">kgateway</td><td>llm-d 기능 표에서 사용 중단 예정</td><td>신규 도입 비권장</td></tr>
+      <tr><td class="k">(게이트웨이 없음) llm-d Router standalone</td><td>EPP Pod 안의 Envoy 사이드카가 입구 역할</td><td>게이트웨이 구현이 GAIE를 지원하지 않을 때. 10편·이번 실습</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>고를 때는 (1) GAIE 적합성 시험 통과 여부와 지원 버전, (2) llm-d 경로가 검증한 조합인지, (3) 이미 운영 중인 게이트웨이·메시와의 관계, (4) AI 게이트웨이 기능을 같은 제품에서 받을지를 봅니다. 구현체마다 지원 범위가 빠르게 바뀌므로 각 프로젝트의 최신 문서로 확인하세요.</p>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>운영 관점</h2>
+  <p class="lede">Inference Gateway를 들이면 새로 봐야 할 것들.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>볼 것</th><th>왜</th><th>어디서</th></tr></thead>
+    <tbody>
+      <tr><td class="k">EPP 스케줄링 시도·결과·지연</td><td>EPP가 병목이 되거나 실패하는지</td><td>EPP /metrics</td></tr>
+      <tr><td class="k">풀 포화도·흐름 제어 대기열 길이·거절 수</td><td>용량 부족을 사용자보다 먼저 알기</td><td>EPP /metrics (포화도 게이지 등)</td></tr>
+      <tr><td class="k">Pod별 요청 분배·캐시 적중률</td><td>라우팅 품질의 “조용한 저하” 감지</td><td>엔진 지표 + EPP 지표</td></tr>
+      <tr><td class="k">InferencePool·HTTPRoute 상태 조건</td><td>설정 오류(참조 대상 없음 등)</td><td><code>kubectl describe</code></td></tr>
+      <tr><td class="k">트레이스</td><td>요청이 EPP에서 얼마나 머물렀는지</td><td>EPP의 OpenTelemetry 트레이스 (21편)</td></tr>
+      <tr><td class="k">버전 조합</td><td>CRD·게이트웨이·EPP·엔진 지표 이름의 호환</td><td>검증된 조합 표로 고정</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>흔한 오해</h2>
+  <p class="lede">Inference Gateway에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>실습</h2>
+  <p class="lede">두 레플리카 앞에 InferencePool과 EPP를 세우고, 점수 가중치를 바꿔 라우팅이 어떻게 달라지는지, EPP가 죽으면 무슨 일이 생기는지 확인한 뒤, 7편 Gateway에 연결합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>10편 실습의 준비물: GAIE CRD, llm-d 저장소(v0.9.0), 시뮬레이터 매니페스트, <code>route_probe.py</code>, bench Pod.</li>
+        <li>레플리카 두 개는 <b>A안(기본): vLLM 시뮬레이터 2개</b> 또는 <b>B안(선택): 8편 타임 슬라이싱 + 실제 vLLM Qwen3-0.6B 2개</b>로 준비합니다. B안은 캐시 적중이 실제 지연 차이로 보이지만, 클러스터 공용 설정 변경이 필요합니다.</li>
+        <li>Helm 값 키·EPP 설정 형식은 llm-d·GAIE 버전마다 다릅니다. 아래 예시는 형식을 보여 주는 용도이며, <code>helm show values</code>와 차트의 기본 설정 파일로 실제 이름을 확인한 뒤 맞추세요.</li>
+      </ul>
+    </div>
+
+    <h3>실습 11-1 · 사전 점검</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># InferencePool CRD와 제공 버전 (v1이 보여야 함)</span>
+kubectl get crd inferencepools.inference.networking.k8s.io -o jsonpath='{.spec.versions[*].name}'; echo
+<span class="c-cm"># 우선순위 관련 리소스가 어느 API 그룹에 있는지 (GAIE v1.6 이후 llm-d로 이전)</span>
+kubectl api-resources | grep -iE "inference|objective" || true</code></pre></div>
+    <p>10편에서 llm-d v0.9 기능 표가 요구하는 GAIE CRD(v1.5.0)를 설치했습니다. GAIE 최신은 v1.6.2이지만, <b>llm-d가 검증한 조합</b>을 유지하는 것이 우선입니다. CRD를 올리려면 llm-d 릴리스 노트에서 지원 버전을 먼저 확인합니다.</p>
+
+    <h3>실습 11-2 · 레플리카 두 개 준비</h3>
+    <div class="codeblock"><div class="cap"><span>bash · A안: 시뮬레이터 2개</span><button class="copy">복사</button></div><pre><code>sed 's/replicas: 4/replicas: 2/' sim-qwen.yaml | kubectl apply -f -
+kubectl -n llmsvc-lab rollout status deploy/sim-qwen
+POOL_LABEL="app: sim-qwen"; MODEL=qwen3-8b</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · B안: 실제 vLLM 2개 (8편 실습 8-3의 타임 슬라이싱이 켜져 있을 때)</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab patch resourcequota lab-quota --type merge -p '{"spec":{"hard":{"requests.nvidia.com/gpu":"2"}}}'
+mkdir -p 30-serving/overlays/qwen3-0.6b-x2
+cat &gt; 30-serving/overlays/qwen3-0.6b-x2/kustomization.yaml &lt;&lt;'EOF'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [../../base]
+labels: [ { pairs: { llm-lab/variant: qwen3-0.6b-x2 } } ]
+replicas: [ { name: llm-engine, count: 2 } ]
+patches:
+- target: { kind: Deployment, name: llm-engine }
+  patch: |-
+    - op: replace
+      path: /spec/strategy
+      value: { type: RollingUpdate, rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } }
+configMapGenerator:
+- { name: llm-engine-env, behavior: replace, literals: [MODEL_PATH=/models/Qwen/Qwen3-0.6B, SERVED_NAME=qwen3-0.6b] }
+- { name: llm-engine-config, behavior: replace, files: [vllm.yaml] }
+EOF
+printf 'host: 0.0.0.0\nport: 8000\ngpu-memory-utilization: 0.12\nmax-model-len: 4096\n' &gt; 30-serving/overlays/qwen3-0.6b-x2/vllm.yaml
+./lab.sh up qwen3-0.6b-x2
+POOL_LABEL="app: llm-engine"; MODEL=qwen3-0.6b</code></pre></div>
+
+    <h3>실습 11-3 · InferencePool과 EPP 세우기</h3>
+    <div class="codeblock"><div class="cap"><span>bash · 차트의 실제 값 확인</span><button class="copy">복사</button></div><pre><code>CHART=oci://ghcr.io/llm-d/charts/llm-d-router-standalone    <span class="c-cm"># 10편과 동일 (문서의 최신 주소 확인)</span>
+helm show values $CHART &gt; default-values.yaml
+grep -nE "inferencePool|modelServers|targetPort|failureMode|replicas|plugins|Config" default-values.yaml | head -40</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>yaml · pool-values.yaml (A·B안 공통 형식 — 키 이름은 위 결과에 맞춰 조정)</span><button class="copy">복사</button></div><pre><code>inferencePool:
+  modelServers:
+    matchLabels: { app: sim-qwen }         <span class="c-cm"># B안이면 app: llm-engine</span>
+  targetPorts:
+  - number: 8000
+inferenceExtension:
+  replicas: 2                              <span class="c-cm"># 7장: EPP(와 standalone 프록시)를 두 개 이상</span></code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 설치와 해부</span><button class="copy">복사</button></div><pre><code>helm install lab-pool $CHART -n llmsvc-lab \
+  -f llm-d/guides/recipes/router/base.values.yaml -f pool-values.yaml
+
+kubectl -n llmsvc-lab get inferencepool -o yaml | sed -n '/^  spec:/,/^  status:/p'   <span class="c-cm"># selector·targetPorts·endpointPickerRef·failureMode</span>
+kubectl -n llmsvc-lab get inferencepool -o jsonpath='{.items[0].status}' | head -c 1500; echo
+kubectl -n llmsvc-lab get deploy,svc,cm | grep -iE "lab-pool|epp"
+<span class="c-cm"># EPP 설정(플러그인·가중치) 찾기</span>
+for cm in $(kubectl -n llmsvc-lab get cm -o name | grep -iE "lab-pool|epp"); do echo "== $cm"; kubectl -n llmsvc-lab get $cm -o yaml | sed -n '/data:/,$p' | head -50; done</code></pre></div>
+    <p><b>기록할 것</b>: InferencePool의 <code>endpointPickerRef</code>가 가리키는 Service·포트, <code>failureMode</code> 기본값, EPP 설정에 들어 있는 플러그인 목록(필터·점수·선택기)과 각 점수 플러그인의 가중치.</p>
+
+    <h3>실습 11-4 · 점수 가중치를 바꿔 라우팅 비교</h3>
+    <p>EPP 설정을 두 가지로 바꿔 같은 트래픽을 보냅니다. 아래는 예전 GAIE의 EPP 설정 형식을 바탕으로 한 <b>형식 예시</b>입니다. 플러그인 이름·API 버전·값 키는 11-3에서 본 기본 설정을 복사해 가중치만 고치는 방식으로 하세요.</p>
+    <div class="codeblock"><div class="cap"><span>yaml · epp-cache-heavy.yaml (형식 예시: 프리픽스 점수 가중치를 크게)</span><button class="copy">복사</button></div><pre><code>inferenceExtension:
+  pluginsCustomConfig:
+    custom-plugins.yaml: |
+      plugins:
+      - type: queue-scorer
+      - type: kv-cache-utilization-scorer
+      - type: prefix-cache-scorer
+      - type: max-score-picker
+      schedulingProfiles:
+      - name: default
+        plugins:
+        - { pluginRef: queue-scorer, weight: 1 }
+        - { pluginRef: kv-cache-utilization-scorer, weight: 1 }
+        - { pluginRef: prefix-cache-scorer, weight: 5 }
+        - { pluginRef: max-score-picker }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 두 설정 비교</span><button class="copy">복사</button></div><pre><code>count(){ for p in $(kubectl -n llmsvc-lab get pods -l ${POOL_LABEL/: /=} -o name); do
+  echo "$p $(kubectl -n llmsvc-lab logs $p --since=10m | grep -ciE 'chat/completions|request')"; done; }
+PROXY=&lt;lab-pool 프록시 Service:포트&gt;
+
+<span class="c-cm"># (1) 프리픽스 중심</span>
+helm upgrade lab-pool $CHART -n llmsvc-lab -f llm-d/guides/recipes/router/base.values.yaml -f pool-values.yaml -f epp-cache-heavy.yaml
+kubectl -n llmsvc-lab exec bench -- python /tmp/route_probe.py --base http://$PROXY/v1 --model $MODEL --label cache-heavy
+count
+
+<span class="c-cm"># (2) 프리픽스 가중치 0 (부하만) — 같은 파일에서 prefix 가중치를 0으로 바꾼 epp-load-only.yaml</span>
+helm upgrade lab-pool $CHART -n llmsvc-lab -f llm-d/guides/recipes/router/base.values.yaml -f pool-values.yaml -f epp-load-only.yaml
+kubectl -n llmsvc-lab exec bench -- python /tmp/route_probe.py --base http://$PROXY/v1 --model $MODEL --label load-only
+count</code></pre></div>
+    <p><b>기대 결과</b>: 프리픽스 중심에서는 같은 세션이 같은 Pod로 모이고(B안이면 두 번째 요청부터 지연이 짧아짐), 부하만 볼 때는 세션이 두 Pod에 섞입니다. 6장의 점수 놀이터 예측과 비교하세요. 설정이 반영됐는지는 EPP 로그의 기동 메시지(로드된 플러그인 목록)로 확인합니다.</p>
+
+    <h3>실습 11-5 · EPP 장애 실험</h3>
+    <div class="codeblock"><div class="cap"><span>python · status_loop.py (bench Pod에서 30초 동안 상태 코드 집계)</span><button class="copy">복사</button></div><pre><code>import sys, time, json, urllib.request, urllib.error, collections
+base, model = sys.argv[1], sys.argv[2]
+c = collections.Counter(); end = time.time() + 30
+while time.time() &lt; end:
+    req = urllib.request.Request(base + "/chat/completions", json.dumps({"model": model, "max_tokens": 4,
+          "messages": [{"role": "user", "content": "ping"}]}).encode(), {"Content-Type": "application/json"})
+    try:
+        c[urllib.request.urlopen(req, timeout=5).status] += 1
+    except urllib.error.HTTPError as e:
+        c[e.code] += 1
+    except Exception as e:
+        c[type(e).__name__] += 1
+    time.sleep(0.2)
+print(dict(c))</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl cp status_loop.py llmsvc-lab/bench:/tmp/status_loop.py
+EPP_DEPLOY=$(kubectl -n llmsvc-lab get deploy -o name | grep -iE "lab-pool|epp" | head -1)
+
+<span class="c-cm"># (1) 레플리카 2개 중 하나 삭제: 거의 영향 없어야 함</span>
+ONE=$(kubectl -n llmsvc-lab get pods -o name | grep -iE "lab-pool|epp" | head -1)
+kubectl -n llmsvc-lab exec bench -- python /tmp/status_loop.py http://$PROXY/v1 $MODEL &amp;
+sleep 5; kubectl -n llmsvc-lab delete $ONE --wait=false
+wait
+
+<span class="c-cm"># (2) 전부 내리기: standalone 모드에서는 입구(프록시)도 함께 사라짐</span>
+kubectl -n llmsvc-lab scale $EPP_DEPLOY --replicas=0
+kubectl -n llmsvc-lab exec bench -- python /tmp/status_loop.py http://$PROXY/v1 $MODEL
+kubectl -n llmsvc-lab scale $EPP_DEPLOY --replicas=2</code></pre></div>
+    <p><b>해석</b>: standalone 모드에서는 프록시가 EPP Pod 안에 있어 EPP가 전부 사라지면 입구 자체가 없어집니다(실패 모드와 무관하게 연결 실패). FailOpen·FailClose의 차이는 <b>게이트웨이와 EPP가 분리된 gateway 모드</b>에서 의미가 있으며, 이는 12편의 Envoy AI Gateway 구성에서 같은 방법으로 확인합니다.</p>
+
+    <h3>실습 11-6 · 7편 Gateway에 연결</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · HTTPRoute를 lab-pool 프록시로</span><button class="copy">복사</button></div><pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: llm-openai, namespace: llmsvc-lab }
+spec:
+  parentRefs: [ { name: lab-gw } ]
+  rules:
+  - matches: [ { path: { type: PathPrefix, value: /v1 } } ]
+    backendRefs: [ { name: &lt;lab-pool 프록시 Service&gt;, port: &lt;포트&gt; } ]
+    timeouts: { request: 600s }</code></pre></div>
+    <p>앱(외부)은 7편과 같은 게이트웨이 주소를 부르고, 그 뒤에서 Envoy Gateway → lab-pool 프록시 → EPP가 고른 Pod 순으로 갑니다. NetworkPolicy(7편)가 envoy-gateway-system에서 <b>lab-pool 프록시 Pod</b>로의 접근을 허용하는지 확인하세요(기존 정책은 <code>app: llm-engine</code>만 허용). <code>./lab.sh smoke</code>의 게이트웨이 항목으로 동작을 확인합니다.</p>
+
+    <h3>실습 11-7 · (읽기) gateway 모드와 우선순위</h3>
+    <ul>
+      <li><code>kubectl explain inferencepool.spec.endpointPickerRef</code>로 필드 설명을 읽고, 4장의 HTTPRoute(backendRef: InferencePool) 예시와 비교합니다. Envoy Gateway 자체를 gateway 모드로 쓰는 구성은 12편 Envoy AI Gateway 설치 후 진행합니다.</li>
+      <li>llm-d 문서에서 Objective(우선순위)와 흐름 제어 설정 방법을 찾아, 5장 시뮬레이터의 세 등급(실시간·일반·배치)을 어떤 설정으로 표현할지 적어 봅니다. 우선순위 효과는 풀이 포화될 때만 나타나므로 GPU 한 장 랩에서는 시뮬레이터로 대신합니다.</li>
+    </ul>
+
+    <h3>정리하기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl apply -k 40-gateway                     <span class="c-cm"># HTTPRoute를 7편 상태로</span>
+helm uninstall lab-pool -n llmsvc-lab
+kubectl -n llmsvc-lab delete deploy,svc sim-qwen --ignore-not-found
+<span class="c-cm"># B안을 했다면: ./lab.sh down, 쿼터 GPU 1 복구, 타임 슬라이싱 해제(8편), ./lab.sh up qwen3-8b-fp8</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2><span class="sec-num">14</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: InferencePool, ext_proc, FailOpen, BBR" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15" class="quiz">
+  <h2><span class="sec-num">15</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S16 ================= -->
+<section id="s16">
+  <h2><span class="sec-num">16</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>GAIE는 “게이트웨이가 엔드포인트 선택을 추론 전용 구성 요소에 묻는 표준”</b>이다. InferencePool이 GA API이고, 완전한 EPP·BBR 구현은 v1.6부터 llm-d에 있다.</li>
+      <li><b>InferencePool = 선택자 + 포트 + EPP 참조 + 실패 모드.</b> HTTPRoute는 Service 대신 InferencePool을 백엔드로 가리킨다.</li>
+      <li><b>우선순위(Objective)와 흐름 제어는 포화 때 무엇을 지킬지 정한다.</b> 높은 대역 먼저, 같은 대역 안은 공정하게, 버틸 수 없으면 낮은 쪽부터 거절한다.</li>
+      <li><b>EPP는 ext_proc로 요청을 받아 필터·점수·선택을 한다.</b> 엔진 지표 이름이 바뀌면 라우팅 품질이 조용히 떨어진다.</li>
+      <li><b>FailOpen은 가용성, FailClose는 정책 집행</b>을 택한다. EPP는 두 개 이상, 조용한 장애는 캐시 적중률·부하 편차로 잡는다.</li>
+      <li><b>AI 게이트웨이는 “누가·얼마나”, Inference Gateway는 “어느 Pod로”</b>. 한 제품이 둘 다 해도 개념은 나눠 둔다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">일반 로드밸런서가 LLM에서 부족한 이유를 세 가지 이상 말할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">InferencePool과 InferencePool을 가리키는 HTTPRoute를 직접 쓸 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">GAIE v1.6에서 무엇이 llm-d로 옮겨졌는지 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">EPP 점수 가중치를 바꿔 라우팅 결과가 달라지는 것을 확인했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">EPP 레플리카 하나·전체 장애 시의 동작을 실험하고 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">Ingress·서비스 메시·AI 게이트웨이·Inference Gateway의 층 관계를 그릴 수 있다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">7편 Gateway 뒤에 InferencePool 기반 라우팅을 연결했다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 12편 AI 게이트웨이: 멀티모델·멀티테넌트 진입점</span>
+      <p>“누가·얼마나·어느 모델”을 다루는 층입니다. LiteLLM·Envoy AI Gateway·Kong AI Gateway 등을 비교하고, API 키·테넌트별 토큰 쿼터·속도 제한·폴백·시맨틱 캐시, 셀프호스팅 vLLM과 Claude·OpenAI·Gemini API를 하나의 엔드포인트로 묶는 하이브리드 구성을 실습합니다. 이번 편의 우선순위 헤더와 gateway 모드도 거기서 이어집니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 11편 Inference Gateway · 2026년 10월 기준(Gateway API Inference Extension v1.6.2, InferencePool v1 GA, llm-d v0.9.0). GAIE v1.6에서 EPP·BBR·알파 API가 llm-d로 이전되었으므로, 오래된 문서의 API·차트 이름과 다를 수 있습니다. 시뮬레이터는 원리 설명용 단순 모델입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero ---------- */
+const NOTE={
+ client:["클라이언트·AI 게이트웨이","앱은 OpenAI 호환 API를 부릅니다. 앞단의 AI 게이트웨이가 키·쿼터를 확인하고, 테넌트에 따라 우선순위(Objective) 헤더를 붙일 수 있습니다.","9장, 12편"],
+ gw:["Gateway","Gateway API 구현체(Envoy·agentgateway·Istio 등)가 HTTPRoute를 따라 요청을 받습니다. 백엔드가 Service가 아니라 InferencePool이면, 엔드포인트 선택을 EPP에 묻습니다.","4·10장"],
+ epp:["Endpoint Picker (EPP)","ext_proc gRPC로 요청을 받아 본문을 해석하고, 수집한 Pod 상태로 필터·점수·선택을 한 뒤 고른 Pod 주소를 돌려줍니다. 포화 시 흐름 제어 대기열을 운영합니다.","6장"],
+ pool:["InferencePool","같은 모델을 서빙하는 Pod 묶음(선택자·포트)과 EPP 참조·실패 모드. GAIE의 GA API입니다.","4장"],
+ obj:["Objective · 흐름 제어","요청의 우선순위 대역과 공정성 정책. 풀이 꽉 찼을 때 누구를 먼저, 누구를 거절할지 정합니다. v1.6부터 API는 llm-d 쪽에 있습니다.","5장"],
+ pods:["vLLM Pod들","/metrics로 대기열·KV 사용률·LoRA 상태를 내놓고, 게이트웨이로부터 직접 요청을 받습니다(Service를 거치지 않음).","6장"]
+};
+const bxs=$$("#igMap .bx");
+function show(k){const n=NOTE[k];bxs.forEach(b=>b.classList.toggle("on",b.dataset.k===k));$("#igNote").innerHTML=`<h4>${n[0]}</h4><p>${n[1]}</p><p><b style="color:var(--text)">이 편</b> · ${n[2]}</p>`;}
+bxs.forEach(b=>b.addEventListener("click",()=>show(b.dataset.k)));
+let busy=false;$("#heroRun").addEventListener("click",async()=>{if(busy)return;busy=true;
+ const seq=[["client","1. 앱 → AI 게이트웨이: 인증·쿼터 통과, 우선순위 헤더 부착"],["gw","2. Gateway: HTTPRoute의 백엔드가 InferencePool"],["pool","3. InferencePool의 EPP 참조 확인"],["epp","4. ext_proc로 EPP에 질의 → 본문 해석·점수 계산"],["obj","5. 포화 시: 우선순위 대역 대기열 → 차례가 되면 진행"],["epp","6. 고른 Pod 주소를 Gateway에 반환"],["pods","7. Gateway가 그 Pod로 직접 전달, 응답 스트리밍"]];
+ for(const [k,t] of seq){const b=bxs.find(x=>x.dataset.k===k);b.classList.remove("flash");void b.offsetWidth;b.classList.add("flash");show(k);$("#igNote").insertAdjacentHTML("afterbegin",`<p style="margin:0 0 4px;color:var(--faint);font-size:.8rem">${t}</p>`);await wait(reduce?60:1100)}
+ busy=false;});
+show("pool");
+
+/* ---------- flow control ---------- */
+function fc(){const L=+$("#fcL").value,c=+$("#fcC").value,s=+$("#fcS").value;$("#fcLV").textContent=L+"%";$("#fcCV").textContent=c+"%";$("#fcSV").textContent=s+"%";
+ const st=Math.max(0,100-c-s);const cls=[["실시간",c,"#9BD2FF"],["일반",st,"#C8B6FF"],["배치",s,"#FFD59B"]].map(([n,p,col])=>({n,col,dem:L*p/100}));
+ const CAP=100,Q=50,tot=cls.reduce((a,x)=>a+x.dem,0);
+ // FIFO
+ const admF=Math.min(1,CAP/Math.max(tot,1e-9)),qF=tot>CAP?Math.min(1,Q/(tot-CAP)):0;
+ cls.forEach(x=>{x.f={a:x.dem*admF,q:(x.dem-x.dem*admF)*qF};x.f.r=x.dem-x.f.a-x.f.q;});
+ // priority
+ let cap=CAP,qq=Q;cls.forEach(x=>{const a=Math.min(x.dem,cap);cap-=a;const rem=x.dem-a;const q=Math.min(rem,qq);qq-=q;x.p={a,q,r:rem-q};});
+ const bar=(o,d)=>d<=0?'<div style="flex:1;background:var(--surface2);color:var(--faint)">요청 없음</div>':`<div style="flex:${o.a};background:var(--ok)">${o.a/d>=0.12?fmt(o.a/d*100)+"%":""}</div><div style="flex:${o.q};background:var(--warn)">${o.q/d>=0.12?fmt(o.q/d*100)+"%":""}</div><div style="flex:${o.r};background:var(--bad)">${o.r/d>=0.12?fmt(o.r/d*100)+"%":""}</div>`;
+ $("#fcOut").innerHTML=`<div class="table-scroll"><table style="min-width:620px"><thead><tr><th>등급</th><th>요청량</th><th>흐름 제어 없음 (먼저 온 순서)</th><th>우선순위 흐름 제어</th></tr></thead><tbody>${cls.map(x=>`<tr><td class="k"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${x.col};margin-right:6px"></span>${x.n}</td><td>${fmt(x.dem)}</td><td><div class="fcbar">${bar(x.f,x.dem)}</div></td><td><div class="fcbar">${bar(x.p,x.dem)}</div></td></tr>`).join("")}</tbody></table></div>`;
+ const crit=cls[0];const v=$("#fcNote");
+ if(tot<=CAP){v.className="verdict good";v.innerHTML=`전체 부하 ${fmt(tot)}로 용량 안입니다. 이때는 우선순위가 아무 차이를 만들지 않습니다. 부하를 100% 넘게 올려 보세요.`;}
+ else{v.className="verdict mid";const pc=x=>fmt(x/Math.max(crit.dem,1e-9)*100);v.innerHTML=`부하가 용량의 ${fmt(tot)}%입니다. 흐름 제어가 없으면 실시간 요청도 다른 요청과 똑같이 ${pc(crit.f.q)}%가 대기열에서 기다리고 ${pc(crit.f.r)}%가 거절됩니다. 우선순위 흐름 제어에서는 실시간 요청의 ${pc(crit.p.a)}%가 바로 처리되고, 기다림과 거절은 배치·일반 요청이 먼저 떠안습니다. 대기열에 들어간 요청은 TTFT가 늘어나므로, 대기 시간 한도와 클라이언트 재시도 정책을 함께 설계해야 합니다.`;}}
+$$("#fcTool input").forEach(e=>e.addEventListener("input",fc));fc();
+
+/* ---------- EPP playground ---------- */
+let PODS=[{n:"Pod A",q:6,kv:55,px:80,lora:false},{n:"Pod B",q:1,kv:30,px:0,lora:false},{n:"Pod C",q:3,kv:96,px:90,lora:true}];
+const PRE={tug:[{n:"Pod A",q:9,kv:60,px:85,lora:false},{n:"Pod B",q:1,kv:25,px:0,lora:false},{n:"Pod C",q:4,kv:50,px:20,lora:false}],
+ kv:[{n:"Pod A",q:2,kv:97,px:90,lora:false},{n:"Pod B",q:3,kv:40,px:10,lora:false},{n:"Pod C",q:2,kv:55,px:0,lora:false}],
+ lora:[{n:"Pod A",q:2,kv:40,px:30,lora:false},{n:"Pod B",q:4,kv:45,px:20,lora:true},{n:"Pod C",q:1,kv:35,px:10,lora:false}]};
+function renderPods(){$("#epPods").innerHTML=PODS.map((p,i)=>`<div class="pod" data-i="${i}"><h5>${p.n}</h5>
+ <div class="row"><span>대기열</span><b data-v="q">${p.q}</b></div><input type="range" data-f="q" min="0" max="20" value="${p.q}">
+ <div class="row"><span>KV 사용률</span><b data-v="kv">${p.kv}%</b></div><input type="range" data-f="kv" min="0" max="100" value="${p.kv}">
+ <div class="row"><span>프리픽스 일치</span><b data-v="px">${p.px}%</b></div><input type="range" data-f="px" min="0" max="100" value="${p.px}">
+ <div class="row"><label><input type="checkbox" data-f="lora" ${p.lora?"checked":""}> 요청한 LoRA 로드됨</label></div>
+ <div class="row" style="margin-top:6px"><span>점수</span><b data-v="score">—</b></div><div data-v="brk" style="font-size:.74rem;color:var(--muted)"></div></div>`).join("");
+ $$("#epPods input").forEach(inp=>inp.addEventListener("input",()=>{const i=+inp.closest(".pod").dataset.i,f=inp.dataset.f;PODS[i][f]=f==="lora"?inp.checked:+inp.value;ep(false)}));}
+function ep(re){const w={q:+$("#wQ").value,k:+$("#wK").value,p:+$("#wP").value,l:+$("#wL").value};$("#wQV").textContent=w.q;$("#wKV").textContent=w.k;$("#wPV").textContent=w.p;$("#wLV").textContent=w.l;
+ if(re)renderPods();const filt=$("#epFilter").checked;const maxQ=Math.max(1,...PODS.map(p=>p.q));
+ const res=PODS.map(p=>{const out=filt&&p.kv>=95;const s={q:1-p.q/maxQ,k:1-p.kv/100,p:p.px/100,l:p.lora?1:0};const tot=w.q*s.q+w.k*s.k+w.p*s.p+w.l*s.l;return{out,s,tot}});
+ const cand=res.map((r,i)=>({r,i})).filter(x=>!x.r.out);const win=cand.length?cand.reduce((b,x)=>x.r.tot>b.r.tot?x:b,cand[0]).i:-1;
+ $$("#epPods .pod").forEach((el,i)=>{const r=res[i],p=PODS[i];el.classList.toggle("win",i===win);el.classList.toggle("out",r.out);
+  el.querySelector('[data-v="q"]').textContent=p.q;el.querySelector('[data-v="kv"]').textContent=p.kv+"%";el.querySelector('[data-v="px"]').textContent=p.px+"%";
+  el.querySelector('[data-v="score"]').textContent=r.out?"필터로 제외":fmt(r.tot,2)+(i===win?" ✓ 선택":"");
+  el.querySelector('[data-v="brk"]').textContent=`대기열 ${fmt(w.q*r.s.q,2)} + KV ${fmt(w.k*r.s.k,2)} + 프리픽스 ${fmt(w.p*r.s.p,2)} + LoRA ${fmt(w.l*r.s.l,2)}`;});
+ const v=$("#epNote");if(win<0){v.innerHTML="모든 Pod가 필터로 제외되었습니다. 실제 EPP라면 흐름 제어 대기열로 보내거나(포화), 필터를 완화합니다.";return}
+ const W=PODS[win];let why=[];if(W.px>=50&&w.p>0)why.push("프리픽스 일치가 높아 Prefill 절약 효과가 큼");if(W.q===Math.min(...PODS.map(p=>p.q))&&w.q>0)why.push("대기열이 가장 짧음");if(W.lora&&w.l>0)why.push("LoRA가 이미 로드됨");
+ const filtered=res.filter(r=>r.out).length;
+ v.innerHTML=`<b>${W.n}</b> 선택${why.length?" — "+why.join(", "):""}. ${filtered?`KV 95% 이상인 Pod ${filtered}개는 프리픽스 일치가 높아도 필터에서 제외되었습니다(선점 직전 Pod로 보내면 TTFT·ITL이 무너짐). `:""}가중치를 바꿔 보며 “캐시를 따라갈지, 한가한 곳으로 갈지”의 균형점을 찾아보세요.`;}
+$$("#epTool .form input").forEach(e=>e.addEventListener("input",()=>ep(false)));
+$$("#epPre .btn").forEach(b=>b.addEventListener("click",()=>{PODS=JSON.parse(JSON.stringify(PRE[b.dataset.p]));$$("#epPre .btn").forEach(x=>x.classList.toggle("on",x===b));ep(true)}));
+ep(true);
+
+/* ---------- failure mode ---------- */
+function fm(){const m=$("#fmMode").value,r=+$("#fmRep").value,e=$("#fmEv").value;const o=$("#fmOut");let cls="good",t="";
+ if(e==="ok"){t="정상: 모든 요청이 EPP의 점수로 배치되고, 포화 시 흐름 제어가 우선순위를 지킵니다.";}
+ else if(e==="one"){if(r>=2){t="남은 EPP 레플리카가 요청을 계속 처리합니다. 프리픽스 기록이 레플리카마다 따로라면 잠시 캐시 적중률이 떨어질 수 있습니다(엔진 KV 이벤트 기반의 정밀 방식이면 영향이 작음).";cls="good"}else{cls="badv";t=m==="open"?"유일한 EPP가 죽어 전체 장애와 같습니다. FailOpen이라 게이트웨이가 직접 분배하지만 추론 인지 라우팅·흐름 제어가 사라집니다. 레플리카를 2개 이상으로 두세요.":"유일한 EPP가 죽어 FailClose로 모든 요청이 실패합니다. 레플리카 1개 + FailClose는 단일 장애점입니다."}}
+ else if(e==="all"){if(m==="open"){cls="mid";t="게이트웨이가 풀의 Pod들에 직접 분배해 서비스는 계속됩니다. 그동안 캐시 적중률이 떨어지고(TTFT 증가), 우선순위·공정성 정책이 꺼져 과부하 시 중요한 요청도 같이 느려집니다. 이 상태를 경보로 바로 알아야 합니다. (standalone 모드는 프록시가 EPP Pod 안에 있어 입구 자체가 사라집니다.)"}else{cls="badv";t="모든 요청이 실패합니다. 정책 우회는 없지만 EPP가 곧 서비스의 가용성입니다. 레플리카·자원·PodDisruptionBudget을 서비스 수준으로 관리해야 합니다."}}
+ else{cls="mid";t="에러는 없지만 EPP가 Pod 상태를 모르는 “조용한 장애”입니다. 점수가 사실상 같아져 무작위에 가까운 분배가 되고, 캐시 적중률이 떨어지며 KV 포화 Pod로도 요청이 갑니다. 엔진 업그레이드로 지표 이름이 바뀌었는지, EPP가 /metrics에 접근할 수 있는지(NetworkPolicy) 확인하세요.";}
+ o.className="verdict "+cls;o.innerHTML=t;}
+$$("#fmTool select").forEach(e=>e.addEventListener("input",fm));fm();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["InferencePool은 Service의 다른 이름일 뿐이다.","선택자로 Pod를 묶는 점은 같지만, 엔드포인트 선택을 EPP에 위임하는 참조와 실패 모드를 갖습니다. 게이트웨이는 Service의 무작위 분배 대신 EPP가 고른 Pod로 직접 보냅니다."],
+ ["InferenceObjective는 GAIE의 안정 API다.","InferencePool만 GA입니다. InferenceObjective·InferenceModelRewrite는 알파였고 GAIE v1.6에서 제거되어 llm-d로 이전되었습니다."],
+ ["GAIE를 설치하면 EPP도 함께 생긴다.","GAIE는 CRD·명세·적합성 시험에 집중하고, 적합성용 경량 EPP만 제공합니다. 운영용 완전한 EPP는 llm-d Router 같은 구현을 함께 배포해야 합니다."],
+ ["우선순위를 설정하면 평소에도 중요한 요청이 빨라진다.","풀이 여유로울 때는 모두가 바로 처리되므로 차이가 없습니다. 우선순위와 흐름 제어는 포화 상황에서 무엇을 지킬지를 정하는 장치입니다."],
+ ["FailOpen이 항상 안전한 선택이다.","가용성은 지키지만, 그동안 테넌트 공정성·우선순위가 꺼집니다. 정책 집행이 계약상 중요하면 FailClose와 EPP 고가용성을 함께 설계합니다."],
+ ["서비스 메시가 있으면 Inference Gateway는 필요 없다.","메시의 L7 분배도 KV 캐시·대기열 같은 추론 상태를 모릅니다. Istio처럼 메시 제품이 GAIE를 구현해 이를 보완하는 형태가 됩니다."],
+ ["AI 게이트웨이와 Inference Gateway는 같은 것이다.","AI 게이트웨이는 누가·얼마나·어느 모델(키·쿼터·공급자)을, Inference Gateway는 그 모델의 어느 Pod를 정합니다. 한 제품이 둘 다 제공해도 층은 다릅니다."],
+ ["EPP가 에러를 안 내면 잘 동작하는 것이다.","지표 수집 실패는 에러 없이 라우팅 품질만 떨어뜨립니다. 캐시 적중률·Pod 간 부하 편차를 경보로 감시해야 합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["GAIE","Gateway API Inference Extension","게이트웨이가 추론 인지 엔드포인트 선택을 위임하는 쿠버네티스 표준 확장."],
+ ["Inference Gateway","Inference Gateway","GAIE를 구현한 게이트웨이와 EPP의 조합을 부르는 말."],
+ ["InferencePool","InferencePool (v1)","같은 모델 서버 Pod 묶음 + 포트 + EPP 참조 + 실패 모드. GA API."],
+ ["endpointPickerRef","EndpointPickerRef","InferencePool이 참조하는 EPP Service·포트·실패 모드. v1.6부터 선택 사항."],
+ ["FailOpen · FailClose","Failure mode","EPP 무응답 시 게이트웨이가 직접 분배할지(Open), 실패할지(Close)."],
+ ["InferenceObjective","InferenceObjective","요청 우선순위 목표를 표현하던 알파 API. v1.6에서 llm-d로 이전."],
+ ["InferenceModelRewrite","InferenceModelRewrite","모델 이름 매칭·변경을 표현하던 알파 API. v1.6에서 llm-d로 이전."],
+ ["InferenceModel","InferenceModel","v1.0 이전의 모델·중요도 API. Objective로 대체."],
+ ["EPP","Endpoint Picker","필터·점수·선택으로 Pod를 고르는 구성 요소."],
+ ["lwepp","Lightweight EPP","GAIE v1.6의 적합성 시험용 최소 EPP 참조 구현."],
+ ["ext_proc","Envoy External Processing","Envoy가 요청·응답을 외부 gRPC 서비스로 보내 처리하게 하는 필터. EPP 프로토콜의 기반."],
+ ["파서","Pluggable parser","EPP가 OpenAI·vLLM gRPC 등 요청 형식을 해석하는 교체 가능한 모듈."],
+ ["스코어러","Scorer","Pod에 점수를 매기는 플러그인(대기열·KV·프리픽스·LoRA 등)."],
+ ["피커","Picker","점수로 최종 Pod를 고르는 플러그인(최고 점수 등)."],
+ ["스케줄링 프로파일","Scheduling profile","어떤 플러그인을 어떤 가중치로 쓸지 묶은 설정. P/D면 프로파일 두 개."],
+ ["흐름 제어","Flow control","포화 시 우선순위 대역·공정성 정책으로 요청을 대기·거절하는 EPP 기능."],
+ ["우선순위 대역","Priority band","같은 우선순위의 요청 대기열 묶음."],
+ ["풀 포화도","Pool saturation","풀이 더 받을 수 있는지의 지표. 흐름 제어의 기준."],
+ ["BBR","Body-Based Routing","요청 본문의 모델 이름을 헤더로 꺼내 라우팅에 쓰는 구성 요소. v1.6에서 llm-d로 이전."],
+ ["agentgateway","agentgateway","AI·에이전트 트래픽 지향 프록시. GAIE 빠른 시작의 기본 게이트웨이."],
+ ["Envoy AI Gateway","Envoy AI Gateway","Envoy Gateway 기반 AI 게이트웨이. InferencePool·EPP 지원."],
+ ["적합성 시험","Conformance tests","구현체가 GAIE 명세를 지키는지 확인하는 공식 시험."],
+ ["standalone 모드","Standalone mode","게이트웨이 없이 EPP Pod 안 프록시로 동작하는 llm-d Router 배포 방식."],
+ ["조용한 장애","Silent degradation","에러 없이 라우팅 품질만 떨어지는 상태(지표 수집 실패 등)."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["GAIE에서 GA(안정) 상태인 리소스는?",["InferenceObjective","InferencePool","InferenceModelRewrite","EndpointPickerConfig"],1,"InferencePool은 v1.0부터 inference.networking.k8s.io/v1 GA입니다."],
+ ["GAIE v1.6에서 일어난 변화로 맞는 것은?",["InferencePool 제거","완전한 EPP·BBR과 알파 API(Objective 등)가 llm-d로 이전","Gateway API 필요 없어짐","vLLM 내장"],1,"GAIE는 명세·CRD·적합성에 집중하고 경량 EPP만 제공합니다."],
+ ["HTTPRoute가 InferencePool을 가리킬 때 게이트웨이의 동작은?",["Service로 보내 kube-proxy가 분배","EPP에 ext_proc로 물어 받은 Pod로 직접 전달","DNS 라운드로빈","무작위"],1,"엔드포인트 선택을 EPP에 위임합니다."],
+ ["풀이 여유로울 때 우선순위 설정의 효과는?",["중요 요청이 2배 빨라짐","거의 없음 — 포화 시에만 차이","배치 요청이 거절됨","캐시 적중률 상승"],1,"흐름 제어는 포화 상황에서 동작합니다."],
+ ["KV 사용률 97%인 Pod가 프리픽스 일치 90%일 때 바람직한 EPP 동작은?",["무조건 그 Pod로","필터로 제외하거나 점수를 크게 낮춰 다른 Pod로","요청 거절","EPP 재시작"],1,"선점 직전 Pod로 보내면 TTFT·ITL이 무너집니다."],
+ ["FailOpen의 대가는?",["서비스 중단","EPP 장애 동안 추론 인지 라우팅·우선순위·공정성이 꺼짐","TLS 해제","GPU 낭비 없음"],1,"가용성을 지키는 대신 정책이 우회됩니다."],
+ ["llm-d Router standalone 모드에서 EPP Pod가 모두 사라지면?",["FailOpen으로 계속 서비스","프록시도 같은 Pod라 입구 자체가 사라짐","자동으로 Service로 우회","변화 없음"],1,"그래서 레플리카를 두 개 이상 둡니다."],
+ ["OpenAI 호환 요청을 모델 이름별로 다른 풀에 보내려면?",["경로만으로 충분","본문의 model을 헤더로 꺼내는 BBR + 헤더 조건 라우팅","DNS","NodePort"],1,"모델 이름은 URL이 아니라 본문에 있습니다."],
+ ["AI 게이트웨이와 Inference Gateway의 역할 구분으로 맞는 것은?",["둘 다 Pod를 고른다","AI 게이트웨이는 누가·얼마나·어느 모델, Inference Gateway는 어느 Pod","AI 게이트웨이가 GPU를 관리","같은 것"],1,"정책 층과 배치 층입니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 12편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 12편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

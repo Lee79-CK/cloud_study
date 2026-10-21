@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 4편 · vLLM 해부</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 4 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>4편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">vLLM은 무엇인가</a></li>
+    <li><a href="#s3">프로세스 아키텍처</a></li>
+    <li><a href="#s4">엔진 코어 루프</a></li>
+    <li><a href="#s5">스케줄러와 KV 캐시 관리자</a></li>
+    <li><a href="#s6">워커·모델 러너·어텐션 백엔드</a></li>
+    <li><a href="#s7">OpenAI 호환 서버 해부</a></li>
+    <li><a href="#s8">주요 실행 옵션</a></li>
+    <li><a href="#s9">멀티모달·툴 콜링·구조화 출력</a></li>
+    <li><a href="#s10">최신 기능과 업그레이드 주의점</a></li>
+    <li><a href="#s11">설치·배포 형태</a></li>
+    <li><a href="#s12">운영 관점 체크포인트</a></li>
+    <li><a href="#s13">흔한 오해</a></li>
+    <li><a href="#s14">실습</a></li>
+    <li><a href="#s15">용어 사전</a></li>
+    <li><a href="#s16">확인 퀴즈</a></li>
+    <li><a href="#s17">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 1 · 서빙 엔진 — 4편</div>
+    <h1>vLLM 해부</h1>
+    <p class="intro">2편에서 연속 배칭과 PagedAttention의 원리를, 3편에서 그것을 재는 지표를 배웠습니다. 이번 편에서는 그 원리가 <b>사실상 표준 오픈소스 엔진인 vLLM의 어느 프로세스, 어느 컴포넌트에 들어 있는지</b>를 따라갑니다. 요청 하나가 HTTP로 들어와 토큰으로 나갈 때까지 거치는 API 서버·엔진 코어·스케줄러·KV 캐시 관리자·워커·어텐션 백엔드를 해부하고, 실행 옵션 하나하나가 지표를 어떻게 움직이는지 연결합니다.</p>
+    <div class="meta-row">
+      <span class="chip">기준 버전 <b>vLLM v0.31.0</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 90분</b></span>
+      <span class="chip">기준 <b>2026년 10월</b></span>
+    </div>
+  </div>
+
+  <div class="stack-wrap" aria-label="vLLM 프로세스 구조 인터랙티브 다이어그램">
+    <div class="stack-head"><strong>요청 하나가 지나가는 길</strong><span class="spacer"></span><button class="btn primary" id="heroRun">요청 보내기</button></div>
+    <div class="arch" id="heroArch">
+      <div class="tier"><span class="lab">API 서버 프로세스 (CPU)</span>
+        <div class="boxes">
+          <button class="bx" data-k="http" style="--c:var(--l7)"><b>HTTP · OpenAI 호환 라우터</b><small>FastAPI, 요청 검증</small></button>
+          <button class="bx" data-k="render" style="--c:var(--l5)"><b>입력 처리</b><small>채팅 템플릿, 토큰화, 멀티모달</small></button>
+          <button class="bx" data-k="out" style="--c:var(--l4)"><b>출력 처리</b><small>디토큰화, 파서, SSE</small></button>
+        </div>
+      </div>
+      <div class="wire">↕ ZMQ 소켓 (프로세스 경계)</div>
+      <div class="tier"><span class="lab">엔진 코어 프로세스 (CPU, 바쁜 루프)</span>
+        <div class="boxes">
+          <button class="bx" data-k="sched" style="--c:var(--l3)"><b>스케줄러</b><small>이번 스텝에 누구를 몇 토큰</small></button>
+          <button class="bx" data-k="kv" style="--c:var(--l6)"><b>KV 캐시 관리자</b><small>블록 할당·해제·프리픽스 캐시</small></button>
+        </div>
+      </div>
+      <div class="wire">↕ 실행기(Executor) → 워커</div>
+      <div class="tier"><span class="lab">GPU 워커 (GPU당 하나)</span>
+        <div class="boxes">
+          <button class="bx" data-k="runner" style="--c:var(--l2)"><b>모델 러너</b><small>입력 텐서 준비, CUDA 그래프</small></button>
+          <button class="bx" data-k="attn" style="--c:var(--l1)"><b>모델 + 어텐션 백엔드</b><small>FlashAttention·FlashInfer 등</small></button>
+        </div>
+      </div>
+    </div>
+    <div class="layer-detail" id="heroNote"><h4>박스를 눌러 보세요</h4><p>각 컴포넌트가 하는 일과 관련 옵션, 이 편의 해당 장이 표시됩니다. “요청 보내기”를 누르면 요청이 지나가는 순서가 재생됩니다.</p></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">엔진 내부 구조를 알면 로그·지표·옵션이 “어디서 나온 숫자인지” 보이기 시작합니다.</p>
+  <div class="prose">
+    <p>이 편은 <b>vLLM v0.31.0</b>(2026년 10월 5일 릴리스)을 기준으로 씁니다. vLLM은 몇 주 간격으로 버전이 올라가고 옵션 이름이 바뀌기도 하므로, 실제 운영에서는 <b>쓰는 버전의 <code>--help</code>와 릴리스 노트</b>를 기준으로 삼아야 합니다. 이 편의 목표는 옵션을 외우는 것이 아니라, 새 옵션을 봤을 때 “이건 어느 컴포넌트를 건드리는 옵션인가”를 판단할 수 있게 되는 것입니다.</p>
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>vLLM의 프로세스 구조(API 서버·엔진 코어·GPU 워커·DP 코디네이터)를 그리고, TP·DP 설정에 따른 프로세스 수를 계산할 수 있다.</li>
+      <li>엔진 코어의 루프에서 스케줄러와 KV 캐시 관리자가 한 스텝마다 무엇을 결정하는지 설명할 수 있다.</li>
+      <li>모델 러너·CUDA 그래프·torch.compile·어텐션 백엔드가 성능과 기동 시간에 어떤 영향을 주는지 설명할 수 있다.</li>
+      <li>OpenAI 호환 서버 안에서 요청이 처리되는 경로와 제공 엔드포인트를 알고, 플랫폼 관점의 보안·운영 주의점을 짚을 수 있다.</li>
+      <li>주요 실행 옵션을 범주별로 분류하고, 각 옵션이 3편의 지표(TTFT·TPOT·처리량·메모리)를 어떻게 움직이는지 설명할 수 있다.</li>
+      <li>멀티모달·툴 콜링·구조화 출력·추론 출력을 켜고 API로 호출할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 식당의 세 구역</span>
+      <p><b>API 서버</b>는 홀입니다. 손님(HTTP 요청)을 맞고 주문서를 주방 언어(토큰)로 옮겨 적고, 완성된 요리를 접시에 담아 내갑니다. <b>엔진 코어</b>는 주방 매니저입니다. 매 순간 어떤 주문을 몇 개 화구에 올릴지(스케줄러), 선반 칸을 어떻게 나눠 줄지(KV 캐시 관리자)를 정합니다. <b>GPU 워커</b>는 화구 앞 요리사입니다. 매니저가 준 작업표대로 실제로 굽습니다. 셋을 다른 방(프로세스)에 둔 이유는, 홀이 아무리 붐벼도 매니저와 요리사의 리듬이 끊기지 않게 하기 위해서입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>vLLM은 무엇인가</h2>
+  <p class="lede">연구 프로젝트에서 시작해 서빙 생태계의 공용 부품이 된 엔진.</p>
+  <div class="prose">
+    <p>vLLM은 UC 버클리 Sky Computing Lab에서 PagedAttention 논문(2023)과 함께 공개된 오픈소스 추론·서빙 엔진입니다. 이후 커뮤니티 프로젝트로 성장해 PyTorch Foundation 산하 프로젝트가 되었고, 내부 구조를 처음부터 다시 쓴 <b>V1 아키텍처</b>가 지금의 기본입니다. 이 시리즈에서 “vLLM”이라고 하면 V1 구조를 말합니다.</p>
+    <h3>플랫폼 엔지니어가 vLLM을 기본값으로 고르는 이유</h3>
+    <ul>
+      <li><b>모델 지원 폭</b>: 새 공개 모델이 나오면 대개 출시 당일이나 며칠 안에 지원됩니다. 텍스트·비전·음성·임베딩·리랭커까지 한 엔진으로 서빙할 수 있습니다.</li>
+      <li><b>하드웨어 지원 폭</b>: NVIDIA(CUDA 12.9·13.0 빌드), AMD ROCm, Intel XPU, CPU, TPU와 여러 플러그인 백엔드를 지원합니다. v0.31.0 릴리스에는 arm64용 CUDA wheel도 함께 배포됩니다.</li>
+      <li><b>표준 인터페이스</b>: OpenAI 호환 API를 기본 제공하고, Responses API와 Anthropic Messages 형식(<code>/v1/messages</code>)까지 받아들입니다. 게이트웨이(12편)와 앱 입장에서 교체가 쉽습니다.</li>
+      <li><b>생태계의 기본 부품</b>: KServe, llm-d, NVIDIA Dynamo, AIBrix, KubeAI, Ray Serve 등 대부분의 상위 프레임워크가 vLLM을 엔진으로 씁니다(9·10편). vLLM을 이해하면 그 위의 플랫폼들이 무엇을 조율하는지 보입니다.</li>
+    </ul>
+    <div class="callout warnbox">
+      <span class="ttl">빠른 변화는 장점이자 운영 위험</span>
+      <p>v0.31.0 한 릴리스에만 700개 넘는 커밋이 들어갔고, 옵션 이름 변경·기본값 변경·기능 제거 같은 호환성 변경도 매번 있습니다. 플랫폼 운영의 원칙은 단순합니다. <b>이미지 태그를 고정하고, 릴리스 노트의 “Breaking Changes” 절을 읽고, 스테이징에서 벤치마크·회귀 테스트를 통과한 뒤 올린다.</b> 업그레이드 절차는 25편에서 다룹니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>프로세스 아키텍처</h2>
+  <p class="lede">vLLM V1은 하나의 프로그램이 아니라 역할이 나뉜 여러 프로세스의 묶음입니다.</p>
+  <div class="prose">
+    <p>vLLM V1은 관심사를 분리하고 처리량을 높이기 위해 다중 프로세스 구조를 씁니다. 공식 아키텍처 문서가 정리한 네 종류의 프로세스는 다음과 같습니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>프로세스</th><th>개수</th><th>하는 일</th><th>자원</th><th>운영 포인트</th></tr></thead>
+    <tbody>
+      <tr><td class="k">API 서버</td><td>기본 1개, DP 사용 시 DP 수만큼 자동 증가 (<code>--api-server-count</code>로 조정)</td><td>HTTP 처리, 토큰화, 멀티모달 데이터 로딩, 결과 스트리밍</td><td>CPU</td><td>각 API 서버는 모든 엔진 코어와 ZMQ로 다대다 연결. 미디어 로딩용 스레드를 여러 개 씀</td></tr>
+      <tr><td class="k">엔진 코어</td><td>DP 랭크당 1개</td><td>스케줄러 실행, KV 캐시 관리, GPU 워커 조율. 쉬지 않고 도는 바쁜 루프</td><td>CPU 코어 하나를 거의 독점</td><td>CPU가 부족하면 GPU가 놀게 됨. CPU 요청량을 넉넉히</td></tr>
+      <tr><td class="k">GPU 워커</td><td>GPU당 1개 (= DP × PP × TP)</td><td>가중치 로딩, 순전파 실행, GPU 메모리 관리</td><td>GPU + CPU 약간</td><td>워커 하나의 장애가 그 엔진 인스턴스 전체의 장애</td></tr>
+      <tr><td class="k">DP 코디네이터</td><td>DP &gt; 1일 때만 1개</td><td>DP 랭크 간 부하 분산, MoE 모델의 동기화된 순전파 조율</td><td>CPU</td><td>데이터 병렬 배포(17편)에서 등장</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>API 서버와 엔진 코어를 분리한 핵심 이유는 <b>파이썬의 GIL</b>(한 프로세스에서 파이썬 코드가 동시에 하나만 실행되는 제약)입니다. HTTP 처리·토큰화·JSON 직렬화 같은 CPU 작업이 엔진의 스케줄링 루프와 같은 프로세스에 있으면 서로 발목을 잡아 GPU가 다음 스텝을 기다리며 놀게 됩니다. 프로세스를 나누고 ZMQ 소켓으로 통신하게 해서 이 경합을 없앴습니다.</p>
+
+    <div class="tool" id="pcTool">
+      <h4>프로세스 수 계산기</h4>
+      <div class="desc">vllm serve의 병렬화 옵션에 따라 컨테이너 안에 몇 개의 프로세스가 생기는지 계산합니다. Pod의 CPU 요청량을 정할 때 출발점이 됩니다.</div>
+      <div class="form">
+        <label>텐서 병렬 (-tp) <input type="number" id="pcTP" value="1" min="1" max="16"></label>
+        <label>파이프라인 병렬 (-pp) <input type="number" id="pcPP" value="1" min="1" max="8"></label>
+        <label>데이터 병렬 (-dp) <input type="number" id="pcDP" value="1" min="1" max="16"></label>
+        <label>API 서버 수 (0 = 기본값) <input type="number" id="pcA" value="0" min="0" max="32"></label>
+      </div>
+      <div class="proc" id="pcOut"></div>
+      <div class="verdict" id="pcNote"></div>
+    </div>
+    <div class="callout tip">
+      <span class="ttl">TP=1일 때는 어떻게 보이나</span>
+      <p>GPU가 하나뿐인 구성에서는 실행기 구현에 따라 워커가 엔진 코어 프로세스 안에서 함께 돌 수도 있습니다. 실제 프로세스 모양은 버전과 설정에 따라 다르므로, 실습 4-2에서 컨테이너 안의 프로세스 목록을 직접 확인합니다. 중요한 것은 개수가 아니라 <b>역할의 분리</b>와 <b>각 역할이 쓰는 자원</b>입니다.</p>
+    </div>
+  </div>
+</section>
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>엔진 코어 루프</h2>
+  <p class="lede">엔진 코어는 “받고, 정하고, 돌리고, 정리하고, 보낸다”를 쉬지 않고 반복합니다.</p>
+  <div class="prose">
+    <p>엔진 코어 프로세스는 바쁜 루프(busy loop)를 돌며 요청을 계속 스케줄하고 GPU 워커에 일을 보냅니다. ZMQ 입출력은 백그라운드 스레드가 맡아, 직렬화 작업이 GPU 실행과 겹쳐 진행되도록 합니다. 루프 한 바퀴가 2편에서 말한 “Decode 한 스텝”입니다.</p>
+    <ol class="pathlist">
+      <li style="--c:var(--l7)"><b>입력 수신</b><span>API 서버가 보낸 새 요청(이미 토큰화된 상태)과 취소 요청을 대기열(waiting)에 반영합니다. 클라이언트가 연결을 끊으면 취소가 여기까지 전달되어야 GPU 낭비가 없습니다.</span></li>
+      <li style="--c:var(--l3)"><b>스케줄</b><span>스케줄러가 이번 스텝에 처리할 요청과 요청별 토큰 수를 정하고, KV 캐시 관리자에게 블록을 받아 둡니다. 결과물은 “스케줄러 출력” 한 묶음입니다(5장).</span></li>
+      <li style="--c:var(--l2)"><b>실행</b><span>실행기가 워커들에게 스케줄러 출력을 전달하고, 워커는 모델 러너로 순전파를 하고 다음 토큰을 샘플링합니다(6장).</span></li>
+      <li style="--c:var(--l6)"><b>갱신</b><span>생성된 토큰을 각 요청에 붙이고, 종료 조건(EOS 토큰, 최대 토큰 수 등)을 확인합니다. 끝난 요청의 블록은 반납하되, 꽉 찬 블록은 프리픽스 캐시용으로 해시를 붙여 남겨 둡니다.</span></li>
+      <li style="--c:var(--l4)"><b>출력 전송</b><span>새 토큰 ID들을 API 서버로 보냅니다. 글자로 바꾸는 디토큰화와 stop 문자열 판정은 API 서버의 출력 처리기가 합니다. stop 문자열이 나오면 엔진 쪽에 중단을 알립니다.</span></li>
+    </ol>
+    <div class="callout tip">
+      <span class="ttl">비동기 스케줄링</span>
+      <p>단순하게 하면 “스케줄 → GPU 실행 → 결과 확인 → 다음 스케줄” 순서라 CPU가 스케줄하는 동안 GPU가 놉니다. 비동기 스케줄링은 GPU가 현재 스텝을 실행하는 동안 CPU가 다음 스텝을 미리 계획해, 스텝 사이의 빈틈을 줄입니다. 작은 모델·작은 배치에서 TPOT 개선 효과가 크고, 기능 조합에 따라 제약이 있을 수 있어 버전별 기본값과 호환성을 확인해야 합니다. 엔진 코어 CPU가 느리면 바로 이 구간이 TPOT를 깎아 먹습니다. <b>GPU 서버의 CPU를 아끼면 안 되는 이유</b>입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>스케줄러와 KV 캐시 관리자</h2>
+  <p class="lede">2편의 연속 배칭과 PagedAttention이 실제로 구현된 곳.</p>
+  <div class="prose">
+    <h3>V1 스케줄러의 핵심 아이디어: Prefill과 Decode를 구분하지 않는다</h3>
+    <p>V1 스케줄러는 요청마다 “지금까지 계산한 토큰 수”와 “계산해야 할 토큰 수”만 봅니다. 한 스텝에 각 요청에 몇 토큰을 배정해 그 차이를 줄여 나갈 뿐입니다. 입력 3,000토큰짜리 새 요청에 이번 스텝 1,000토큰을 배정하면 Chunked Prefill이고, 이미 다 따라잡은 요청에 1토큰을 배정하면 Decode입니다. 프리픽스 캐시 적중은 “이미 계산된 토큰”이 처음부터 많은 상태일 뿐이고, 추측 디코딩은 한 요청에 여러 토큰을 배정하는 경우일 뿐입니다. 이 단순한 모델 덕분에 여러 최적화가 한 스케줄러 안에서 자연스럽게 합쳐집니다.</p>
+
+    <h3>한 스텝을 정하는 규칙</h3>
+    <ol>
+      <li><b>토큰 예산</b>: 한 스텝에 처리할 수 있는 토큰 수의 상한(<code>--max-num-batched-tokens</code>). 이 예산이 Chunked Prefill 조각의 크기와 활성값 메모리를 정합니다.</li>
+      <li><b>실행 중(running) 요청 먼저</b>: 이미 진행 중인 요청의 Decode 토큰과 남은 Prefill 조각을 먼저 배정합니다. 진행 중인 사용자의 TPOT를 지키기 위해서입니다.</li>
+      <li><b>남은 예산으로 대기(waiting) 요청 받기</b>: 기본은 도착 순서(FCFS), <code>--scheduling-policy priority</code>로 우선순위 방식도 가능합니다. 한 요청이 너무 큰 조각을 가져가지 않도록 하는 임계값(<code>--long-prefill-token-threshold</code>)이 있고, v0.31.0에서는 대기 중인 Prefill 수에 맞춰 이 값이 적응하도록 바뀌었습니다.</li>
+      <li><b>동시 실행 상한</b>: 동시에 배치에 들어갈 요청 수의 상한(<code>--max-num-seqs</code>). v0.31.0에는 실행 상태 진입만 따로 제한하는 <code>--max-num-active-seqs</code>도 추가되었습니다.</li>
+      <li><b>KV 블록 확인</b>: 배정한 토큰을 담을 블록이 없으면 그 요청은 이번 스텝에 못 들어갑니다. 실행 중 요청조차 블록이 모자라면 <b>선점</b>이 일어납니다. 가장 나중에 들어온 실행 중 요청의 블록을 회수하고 대기열로 돌려보내, 나중에 다시 계산하게 합니다. v0.31.0에서는 이미 KV 블록을 쥐고 있는 대기 요청을 먼저 스케줄하도록 대기열 처리가 바뀌었습니다.</li>
+    </ol>
+  </div>
+
+  <div class="tool wide" id="scTool">
+    <h4>스케줄러 한 스텝씩 따라가기</h4>
+    <div class="desc">요청 6개(긴 답변을 생성 중인 실행 요청 2개 + 대기 4개)를 토큰 예산·동시 실행 상한·KV 블록 수 제약 아래에서 스텝별로 배정합니다. 블록 하나는 16토큰입니다. 교육용 단순화 모델이며 실제 스케줄러의 세부 규칙과는 차이가 있습니다.</div>
+    <div class="form">
+      <label>토큰 예산 (max-num-batched-tokens) <span id="scBV">2,048</span><input type="range" id="scB" min="256" max="8192" step="256" value="2048"></label>
+      <label>동시 실행 상한 (max-num-seqs) <span id="scSV">4</span><input type="range" id="scS" min="1" max="8" step="1" value="4"></label>
+      <label>KV 블록 수 (블록당 16토큰) <span id="scKV">400</span><input type="range" id="scK" min="200" max="800" step="10" value="400"></label>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn primary" id="scStep">다음 스텝</button>
+      <button class="btn" id="scStep5">5스텝 진행</button>
+      <button class="btn" id="scReset">처음부터</button>
+    </div>
+    <div class="result">
+      <div class="r"><span>스텝</span><b id="scN">0</b></div>
+      <div class="r"><span>이번 스텝 토큰 (Decode / Prefill)</span><b id="scTok">—</b></div>
+      <div class="r"><span>KV 블록 사용</span><b id="scKvU">—</b></div>
+      <div class="r"><span>누적 선점</span><b id="scPre">0</b></div>
+    </div>
+    <div class="meter" style="height:14px"><div id="scBarD" style="background:var(--l6)"></div><div id="scBarP" style="background:var(--l3)"></div></div>
+    <div class="legend" style="margin-top:6px"><span><i style="background:var(--l6)"></i>Decode 토큰</span><span><i style="background:var(--l3)"></i>Prefill 토큰</span><span>막대 전체 = 토큰 예산</span></div>
+    <div class="sched">
+      <div class="q"><h5>실행 중 (running)</h5><div id="scRun"></div></div>
+      <div class="q"><h5>대기 (waiting) · 완료</h5><div id="scWait"></div></div>
+    </div>
+    <div class="verdict" id="scLog">“다음 스텝”을 눌러 시작하세요.</div>
+  </div>
+
+  <div class="prose">
+    <p>시뮬레이터로 해 볼 것: 토큰 예산을 256으로 줄이면 긴 입력(R3)의 Prefill이 여러 스텝에 나뉘어 TTFT가 길어지지만 실행 중 요청의 Decode는 매 스텝 이어집니다. 예산을 8,192로 키우면 R3가 한 번에 들어가 TTFT는 짧아지지만 그 스텝은 무거워집니다(실제로는 그 스텝 동안 다른 요청의 ITL이 튑니다). KV 블록을 200~230 정도로 줄이면 긴 입력의 Prefill이 진행되는 동안 블록이 모자라 선점이 발생합니다. 이것이 3편에서 본 지연 꼬리의 정체입니다.</p>
+
+    <h3>KV 캐시 관리자</h3>
+    <p>KV 캐시 관리자는 2편의 PagedAttention 블록 풀을 관리합니다. 기동 시 확보한 GPU 메모리를 블록으로 나누고, 요청에 블록을 빌려주고 돌려받습니다.</p>
+    <ul>
+      <li><b>블록 해시와 프리픽스 캐시</b>: 꽉 찬 블록은 “앞 블록의 해시 + 이 블록의 토큰들 + 추가 키”로 해시를 계산해 등록합니다. 같은 앞부분을 가진 새 요청은 해시를 찾아 그 블록을 재사용합니다. 추가 키에는 LoRA 어댑터, 멀티모달 입력의 해시, <code>cache_salt</code> 등이 들어가 서로 다른 맥락의 블록이 섞이지 않게 합니다. V1에서는 프리픽스 캐싱이 <b>기본으로 켜져</b> 있습니다.</li>
+      <li><b>참조 수와 지연 축출</b>: 요청이 끝나도 해시가 붙은 블록은 바로 지우지 않고 “빈 블록 목록”에 넣어 두었다가, 공간이 필요할 때 오래된 것부터 실제로 재사용합니다. 그래서 프리픽스 캐시 적중은 메모리 여유가 있을수록 높아집니다.</li>
+      <li><b>하이브리드 KV 캐시</b>: 슬라이딩 윈도우 층, Mamba 같은 상태 공간 층이 섞인 모델은 층 그룹마다 다른 방식으로 캐시를 관리합니다. 2편의 gpt-oss 계산에서 본 차이가 여기서 처리됩니다.</li>
+      <li><b>KV 커넥터</b>: KV 블록을 CPU 메모리·SSD·다른 노드로 보내고 받는 확장 지점입니다. KV 오프로딩(15편)과 Prefill/Decode 분리(10편)가 이 인터페이스를 씁니다.</li>
+    </ul>
+    <div class="callout msp">
+      <span class="ttl">MSP 관점: 프리픽스 캐시와 테넌트 격리</span>
+      <p>여러 고객이 한 엔진을 공유하면, 이론적으로 응답 속도 차이로 “다른 테넌트가 같은 프롬프트를 보냈는지”를 추정하는 타이밍 부채널이 생길 수 있습니다. 요청에 테넌트별 <code>cache_salt</code>를 넣으면 테넌트끼리는 캐시를 공유하지 않게 됩니다. 이 값은 앱이 아니라 <b>게이트웨이가 테넌트 ID로 강제로 주입</b>하는 것이 안전합니다(12·24편). v0.31.0에서는 LoRA 이름과 <code>cache_salt</code>가 충돌하지 않도록 추가 키에 출처 태그를 붙이는 보안 수정도 들어갔습니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>워커·모델 러너·어텐션 백엔드</h2>
+  <p class="lede">GPU 위에서 실제로 계산이 일어나는 층. 성능과 기동 시간의 대부분이 여기서 정해집니다.</p>
+  <div class="prose">
+    <h3>워커가 기동할 때 하는 일</h3>
+    <ol>
+      <li><b>장치 초기화</b>: 자기 GPU를 잡고, 텐서 병렬이면 다른 워커들과 통신 그룹(NCCL)을 만듭니다.</li>
+      <li><b>가중치 로딩</b>: 모델을 만들면서 동시에 자기 몫의 가중치만 읽어 들입니다. 텐서 병렬 분할과 양자화를 “로딩 후 변환”이 아니라 “초기화하면서” 하는 설계라, 큰 모델도 GPU마다 자기 몫만큼의 메모리만 씁니다.</li>
+      <li><b>메모리 프로파일링</b>: 최대 크기의 가짜 배치로 순전파를 한 번 돌려 활성값 최대치를 잽니다.</li>
+      <li><b>KV 캐시 할당</b>: 남은 메모리로 KV 블록 풀을 만듭니다. 2편에서 계산한 그 숫자입니다.</li>
+      <li><b>컴파일과 CUDA 그래프 캡처</b>: torch.compile로 연산을 최적화하고, 자주 쓰는 배치 크기별로 CUDA 그래프를 녹화합니다. 기동 시간이 긴 가장 큰 이유 중 하나입니다.</li>
+    </ol>
+
+    <h3>모델 러너</h3>
+    <p>모델 러너는 스케줄러 출력을 GPU가 먹을 수 있는 텐서로 바꿉니다. 여러 요청의 토큰을 패딩 없이 한 줄로 이어 붙이고, 각 토큰의 위치, 각 요청의 블록 테이블, 새 KV를 쓸 슬롯 위치를 함께 만들어 넘깁니다. 순전파가 끝나면 로짓에서 샘플링을 하고, 구조화 출력이 켜져 있으면 문법에 맞지 않는 토큰을 가립니다. 최근 vLLM에는 다시 설계된 <b>Model Runner V2</b>가 함께 발전하고 있으며, v0.31.0에서 추측 디코딩·사용자 정의 로짓 프로세서 지원 등이 추가되었습니다. 어느 러너가 기본으로 쓰이는지는 버전과 기능 조합에 따라 다르므로 기동 로그로 확인합니다.</p>
+
+    <h3>CUDA 그래프와 torch.compile: 최적화 레벨</h3>
+    <p>Decode 스텝은 GPU 계산 자체는 짧은데 커널 수백 개를 하나씩 띄우는 CPU 오버헤드가 상대적으로 큽니다. <b>CUDA 그래프</b>는 커널 실행 순서를 한 번 녹화해 두고 통째로 재생해 이 오버헤드를 없앱니다. 대신 배치 크기별로 녹화해야 하고, 녹화에 시간과 약간의 메모리가 듭니다. vLLM은 이 트레이드오프를 <code>-O</code> 최적화 레벨로 묶어 제공합니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>레벨</th><th>CUDA 그래프</th><th>컴파일·퓨전</th><th>기동 시간</th><th>언제 쓰나</th></tr></thead>
+    <tbody>
+      <tr><td class="k">-O0</td><td>없음</td><td>없음 (자동 튜닝도 끔)</td><td>가장 빠름</td><td>개발·디버깅, 기능 검증</td></tr>
+      <tr><td class="k">-O1</td><td>PIECEWISE (어텐션 사이 구간만)</td><td>컴파일 + 기본 퓨전</td><td>빠름</td><td>잦은 재기동이 필요한 개발 환경</td></tr>
+      <tr><td class="k">-O2 (기본값)</td><td>FULL_AND_PIECEWISE</td><td>추가 퓨전, 추가 컴파일 범위</td><td>가장 느림</td><td>프로덕션 권장값</td></tr>
+      <tr><td class="k">-O3</td><td>현재 -O2와 같음</td><td>향후 공격적 최적화 예정</td><td>—</td><td>실험</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>사용자가 개별 플래그(<code>-cc.cudagraph_mode=...</code> 등)를 직접 주면 레벨 기본값보다 우선합니다. <code>--enforce-eager</code>는 CUDA 그래프를 끄는 오래된 스위치이며, v0.31.0부터는 JIT 커널 워밍업까지 함께 꺼집니다. <b>운영에서 기동 시간이 문제라면 레벨을 낮추기 전에 13편의 로딩 최적화와 v0.31.0의 preload·snapshot 기능(10장)을 먼저 검토</b>하세요. 레벨을 낮추면 매 요청의 TPOT를 영구히 손해 봅니다.</p>
+
+    <h3>어텐션 백엔드</h3>
+    <p>어텐션 계산은 GPU 세대·모델 구조·정밀도에 따라 가장 빠른 구현이 달라서, vLLM은 여러 백엔드를 두고 자동으로 고릅니다. 대표적인 것은 다음과 같습니다(지원 조합은 공식 문서의 백엔드 기능 표에서 확인).</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>백엔드</th><th>특징</th><th>주로 쓰이는 곳</th></tr></thead>
+    <tbody>
+      <tr><td class="k">FlashAttention</td><td>가장 널리 쓰이는 어텐션 커널 계열. GPU 세대에 맞는 버전 사용</td><td>NVIDIA 범용 기본값</td></tr>
+      <tr><td class="k">FlashInfer</td><td>서빙에 특화된 커널 라이브러리. 다양한 KV 레이아웃·FP8 KV·샘플링 커널 제공</td><td>Hopper·Blackwell, FP8 KV, 특정 모델</td></tr>
+      <tr><td class="k">Triton 기반</td><td>이식성이 높은 구현</td><td>다른 백엔드가 지원하지 않는 조합, AMD 등</td></tr>
+      <tr><td class="k">FlashMLA 등 MLA 전용</td><td>DeepSeek 계열의 MLA·희소 어텐션 전용 커널</td><td>DeepSeek V3·V4 계열, 최신 GPU</td></tr>
+      <tr><td class="k">TRT-LLM 생성 커널</td><td>NVIDIA 최적화 커널을 vLLM 안에서 호출</td><td>Blackwell 계열 특정 경로</td></tr>
+      <tr><td class="k">ROCm AITER</td><td>AMD 최적화 커널 모음</td><td>MI300 계열</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>백엔드는 대부분 자동 선택에 맡기는 것이 맞습니다. 다만 “같은 모델인데 노드마다 성능이 다르다”면 GPU 드라이버나 이미지 차이로 다른 백엔드가 선택된 것일 수 있으니, 기동 로그의 백엔드 선택 줄을 꼭 비교하세요. 강제로 바꾸는 방법(환경 변수 또는 CLI 옵션)은 버전에 따라 이름이 바뀌어 왔으므로 해당 버전 문서를 따릅니다.</p>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>OpenAI 호환 서버 해부</h2>
+  <p class="lede">플랫폼과 가장 많이 맞닿는 부분. 엔드포인트, 요청 처리 경로, 보안 경계를 정확히 알아야 게이트웨이를 설계할 수 있습니다.</p>
+  <div class="prose">
+    <h3>채팅 요청 하나의 서버 내부 경로</h3>
+    <ol class="pathlist">
+      <li style="--c:var(--l7)"><b>HTTP 수신·검증</b><span>FastAPI 라우터가 요청 본문을 OpenAI 스키마로 검증합니다. <code>--api-key</code>가 설정돼 있으면 여기서 확인합니다.</span></li>
+      <li style="--c:var(--l5)"><b>채팅 템플릿 렌더링</b><span>messages와 tools를 모델의 채팅 템플릿으로 하나의 프롬프트 문자열로 만듭니다(2편). <code>--chat-template</code>으로 바꿀 수 있습니다.</span></li>
+      <li style="--c:var(--l5)"><b>토큰화·멀티모달 처리</b><span>문자열을 토큰 ID로 바꾸고, 이미지·오디오가 있으면 내려받아 전처리합니다. 입력 길이가 최대 길이를 넘으면 여기서 400 에러가 납니다.</span></li>
+      <li style="--c:var(--l3)"><b>샘플링 파라미터 확정</b><span>요청에 없는 값은 모델 저장소의 <code>generation_config.json</code>에서 가져오는 것이 기본 동작입니다(<code>--generation-config</code>). 그래서 같은 요청도 모델에 따라 기본 temperature가 다를 수 있습니다.</span></li>
+      <li style="--c:var(--l3)"><b>엔진 코어로 전송</b><span>비동기 엔진 클라이언트가 ZMQ로 엔진 코어에 요청을 넘기고, 출력 스트림을 기다립니다.</span></li>
+      <li style="--c:var(--l4)"><b>출력 처리</b><span>토큰 ID를 글자로 바꾸고(디토큰화), stop 문자열을 검사하고, 추론(reasoning) 파서·툴 콜 파서가 켜져 있으면 출력을 <code>reasoning_content</code>·<code>tool_calls</code> 필드로 나눕니다.</span></li>
+      <li style="--c:var(--l4)"><b>응답 전송</b><span>스트리밍이면 SSE 청크로, 아니면 완성된 JSON으로 보냅니다. 마지막에 사용량(입력·출력 토큰 수)을 담습니다. 게이트웨이의 계측(12편)은 이 값을 씁니다.</span></li>
+    </ol>
+    <h3>엔드포인트 지도</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>경로</th><th>용도</th><th>플랫폼 메모</th></tr></thead>
+    <tbody>
+      <tr><td class="k">/v1/chat/completions</td><td>OpenAI 채팅 API</td><td>대부분의 앱이 쓰는 기본 경로</td></tr>
+      <tr><td class="k">/v1/completions</td><td>프롬프트 완성 (채팅 템플릿 없음)</td><td>FIM(코드 중간 채우기) 등 특수 용도</td></tr>
+      <tr><td class="k">/v1/responses</td><td>OpenAI Responses API</td><td>에이전트형 클라이언트, MCP 도구 연동 예제가 공식 문서에 있음</td></tr>
+      <tr><td class="k">/v1/messages</td><td>Anthropic Messages 형식</td><td>Anthropic SDK 기반 도구를 로컬 모델에 붙일 때. v0.31.0에서 thinking 필드 지원 추가</td></tr>
+      <tr><td class="k">/v1/embeddings, /v1/rerank, /score, /pooling</td><td>임베딩·리랭크·점수 (풀링 모델)</td><td>RAG의 임베딩·리랭커를 같은 엔진으로 서빙</td></tr>
+      <tr><td class="k">/v1/audio/transcriptions</td><td>음성 인식 (Whisper 계열 등)</td><td>지원 모델 한정</td></tr>
+      <tr><td class="k">/v1/models</td><td>서빙 중인 모델 목록</td><td><code>--served-model-name</code>으로 노출 이름 지정</td></tr>
+      <tr><td class="k">/tokenize, /detokenize</td><td>토큰화 도구</td><td>게이트웨이가 입력 길이를 미리 재는 데 활용 가능</td></tr>
+      <tr><td class="k">/inference/v1/generate 등</td><td>토큰 입력·토큰 출력 API, 렌더러 API</td><td>상위 라우터·RL 프레임워크용</td></tr>
+      <tr><td class="k">/health, /metrics, /version</td><td>헬스 체크, Prometheus 지표, 버전</td><td>프로브와 수집기용. 외부에 노출하지 않는다</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">보안 경계는 엔진 바깥에 둔다</span>
+      <ul>
+        <li><code>--api-key</code>는 <code>/v1</code> 아래 경로만 보호합니다. 그 밖의 관리·도구 경로는 보호 대상이 아니므로, vLLM 포트를 클러스터 밖에 직접 노출하지 말고 반드시 게이트웨이 뒤에 둡니다.</li>
+        <li>슬립 모드 제어 같은 개발용 엔드포인트는 개발 모드 환경 변수를 켰을 때만 열립니다. 프로덕션 이미지에서 켜지 않습니다.</li>
+        <li>v0.31.0부터 요청 단위로 멀티모달 전처리 인자를 넘기는 것은 기본 거부되고, 신뢰된 환경에서만 <code>--trust-request-mm-kwargs</code>로 허용합니다. 업그레이드 시 이런 기본값 변화가 앱 오류로 보일 수 있습니다.</li>
+        <li>요청 본문 로깅(<code>--enable-log-requests</code>)은 프롬프트 전문을 남길 수 있어 개인정보 문제가 됩니다. 디버깅 기간에만 켭니다(21편).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>주요 실행 옵션</h2>
+  <p class="lede">수백 개 옵션 중 플랫폼 엔지니어가 반드시 알아야 할 것들을, 어느 컴포넌트를 건드리고 어떤 지표를 움직이는지로 정리합니다.</p>
+  <div class="prose">
+    <p>옵션은 <code>vllm serve &lt;모델&gt; [옵션...]</code>의 인자로 주거나, 같은 이름의 키를 가진 YAML 파일을 <code>--config</code>로 넘길 수 있습니다. 운영에서는 YAML 파일을 ConfigMap으로 관리하면 변경 이력이 남고 리뷰가 쉬워집니다. 기본값은 버전과 GPU에 따라 자동으로 정해지는 것이 많으므로, <b>기동 로그에 찍힌 최종 설정값</b>을 항상 기록해 두세요.</p>
+  </div>
+  <div class="wide">
+    <div class="optf" id="optCats"></div>
+    <input type="search" class="gloss-search" id="optQ" placeholder="옵션 이름이나 설명으로 검색 (예: memory, 예산, lora, 보안)" aria-label="옵션 검색" style="max-width:780px">
+    <div class="table-scroll"><table id="optTable"></table></div>
+  </div>
+  <div class="prose">
+    <p style="font-size:.86rem;color:var(--muted)">표시된 “영향” 태그는 그 옵션이 주로 움직이는 지표입니다. 일부 옵션은 버전에 따라 이름이나 기본값이 다를 수 있으므로 사용하는 버전의 <code>vllm serve --help</code>로 최종 확인하세요. 실습 4-6에서 <code>--help=키워드</code> 검색으로 옵션을 찾는 방법을 익힙니다.</p>
+    <h3>옵션 고르기의 출발점</h3>
+    <div class="formula">1. 모델이 들어가는가        → --quantization, --kv-cache-dtype, -tp
+2. KV 공간이 충분한가       → --gpu-memory-utilization, --max-model-len
+3. 지연과 처리량의 균형     → --max-num-batched-tokens, --max-num-seqs
+4. 기동 시간 vs 실행 성능   → -O 레벨, 로딩 방식(--load-format), preload
+5. 기능                     → 툴 콜·추론 파서, 구조화 출력, LoRA, 멀티모달 상한
+6. 운영·보안                → --served-model-name, 로깅, 트레이싱, 게이트웨이 뒤 배치</div>
+    <p>튜닝 실전은 14편에서 이 순서 그대로 벤치마크와 함께 합니다. 이 편에서는 각 옵션이 엔진의 어느 부분을 건드리는지 연결하는 것까지가 목표입니다.</p>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>멀티모달·툴 콜링·구조화 출력</h2>
+  <p class="lede">텍스트 생성 너머의 기능들. 대부분 “서버 옵션으로 켜고, 요청 필드로 쓴다”는 같은 패턴을 따릅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>기능</th><th>서버 쪽 설정</th><th>요청 쪽 사용</th><th>플랫폼에 주는 영향</th></tr></thead>
+    <tbody>
+      <tr><td class="k">멀티모달 입력</td><td>비전·음성 지원 모델을 서빙. 프롬프트당 이미지·영상·오디오 개수 상한 <code>--limit-mm-per-prompt '{"image":4,"video":0}'</code></td><td>messages의 content에 <code>image_url</code>, <code>input_audio</code> 등 블록</td><td>이미지 한 장이 수백~수천 토큰으로 바뀌어 입력 길이·KV·TTFT가 커짐. 비전 인코더 계산도 추가. 이미지 URL을 서버가 내려받으므로 외부 접근 정책 필요</td></tr>
+      <tr><td class="k">툴 콜링 (자동)</td><td><code>--enable-auto-tool-choice --tool-call-parser &lt;모델 계열&gt;</code>. 파서는 모델 계열별로 다름(예: Qwen 계열은 hermes 형식)</td><td><code>tools</code>, <code>tool_choice: "auto"</code></td><td>모델이 출력한 텍스트를 파서가 <code>tool_calls</code>로 변환. 파서가 모델과 맞지 않으면 툴 호출이 일반 텍스트로 새어 나옴</td></tr>
+      <tr><td class="k">툴 콜링 (강제)</td><td>위와 같음</td><td><code>tool_choice: "required"</code> 또는 특정 함수 지정</td><td>구조화 출력 엔진으로 형식을 강제하므로 파싱 실패가 거의 없음. v0.31.0에 엄격도 조절 <code>--tool-strict-level</code> 추가</td></tr>
+      <tr><td class="k">구조화 출력</td><td>백엔드 자동 선택(기본 xgrammar 계열). 필요 시 백엔드 지정</td><td><code>response_format</code>(json_object, json_schema). vLLM 확장으로 선택지·정규식·문법 제약도 지원</td><td>매 스텝 허용 토큰 마스크 계산 비용, 새 스키마의 첫 컴파일 지연. v0.31.0부터 <code>tool_choice=auto</code>와 <code>response_format</code> 동시 사용 가능</td></tr>
+      <tr><td class="k">추론(reasoning) 출력</td><td><code>--reasoning-parser &lt;모델 계열&gt;</code> (예: qwen3)</td><td>응답의 추론 필드와 본문이 분리되어 옴. 모델에 따라 <code>chat_template_kwargs</code>로 생각 모드 끄기</td><td>추론 토큰도 출력 토큰이라 비용·TPOT·KV에 그대로 반영. 사용량 계측에서 추론 토큰을 따로 보고 싶다면 응답의 상세 사용량 필드 확인</td></tr>
+      <tr><td class="k">LoRA 어댑터</td><td><code>--enable-lora --max-loras N --max-lora-rank R --lora-modules 이름=경로</code></td><td>model 필드에 어댑터 이름</td><td>한 베이스 모델로 여러 테넌트·업무용 변형을 서빙(16편). 어댑터 메모리와 배치 효율 고려</td></tr>
+      <tr><td class="k">임베딩·리랭크</td><td>풀링 모델을 서빙 (모델에 따라 자동 인식, 필요 시 실행 모드 지정)</td><td><code>/v1/embeddings</code>, <code>/v1/rerank</code></td><td>RAG의 검색 단계를 같은 엔진·같은 운영 방식으로. 생성 모델과는 별도 인스턴스 권장</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">파서 이름과 필드 이름은 바뀐다</span>
+      <p>툴 콜 파서·추론 파서의 이름, 구조화 출력의 vLLM 확장 파라미터 이름, 추론 내용을 담는 응답 필드 이름은 지난 1년 사이에도 여러 번 바뀌었습니다. 예전 블로그 글의 옵션을 그대로 쓰면 무시되거나 오류가 납니다. 모델 카드의 “vLLM으로 서빙하기” 절과 vLLM 공식 레시피, 사용하는 버전의 문서를 기준으로 하고, 실습처럼 <b>호출 결과를 테스트 코드로 고정</b>해 두면 업그레이드 때 깨지는 것을 바로 압니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>최신 기능과 업그레이드 주의점</h2>
+  <p class="lede">v0.31.0 릴리스에서 플랫폼 운영과 직접 관련된 변화들.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>기능</th><th>무엇인가</th><th>플랫폼에서의 의미</th></tr></thead>
+    <tbody>
+      <tr><td class="k">vllm preload</td><td>양자화까지 끝난 가중치를 GPU 메모리에 상주시키는 가중치 캐시 데몬. 엔진을 재시작해도 가중치를 다시 읽지 않음. DP·MTP 드래프트 모델, /health, 준비 대기 지원</td><td>설정 변경·크래시 후 재기동 시간 단축. 콜드 스타트 대책의 새 선택지(13편)</td></tr>
+      <tr><td class="k">초기화된 엔진 스냅샷 (실험)</td><td><code>vllm snapshot create/restore</code>로 CRIU를 이용해 초기화가 끝난 TP1 엔진을 통째로 복원</td><td>기동 과정 전체를 건너뛰는 방식. 아직 실험 단계라 프로덕션은 신중히</td></tr>
+      <tr><td class="k">슬립 모드·KV 메모리 해제</td><td>엔진을 재우거나 KV 캐시 메모리만 해제(<code>release_kv_cache_memory</code>)</td><td>한 GPU를 시간대별로 여러 모델·학습 작업과 나눠 쓰는 시나리오, 강화학습 루프</td></tr>
+      <tr><td class="k">배치 불변 모드</td><td><code>VLLM_BATCH_INVARIANT=1</code>로 배치 구성과 무관하게 같은 결과가 나오도록 하는 모드</td><td>2편에서 본 “같은 seed, 다른 답” 문제의 해법. 평가·감사 용도. 성능 비용이 있음</td></tr>
+      <tr><td class="k">스케줄링 제어 확장</td><td><code>--max-num-active-seqs</code>, 적응형 <code>--long-prefill-token-threshold</code>, KV를 쥔 대기 요청 우선</td><td>긴 Prefill 혼입으로 인한 ITL 꼬리 관리 수단이 늘어남(14편)</td></tr>
+      <tr><td class="k">관측·로깅</td><td><code>--logging-config</code>와 <code>--log-level</code>로 로깅 설정, JSON 로깅 수정, 요청별 지표</td><td>로그 수집 파이프라인(21편)과 맞추기 쉬워짐</td></tr>
+      <tr><td class="k">API 확장</td><td>Anthropic <code>/v1/messages</code>의 thinking, Responses API 요청별 지표, 토큰 입출력 API의 추측 디코딩 지표</td><td>Anthropic 형식 클라이언트도 게이트웨이 뒤 로컬 모델로 연결 가능</td></tr>
+      <tr><td class="k">벤치마크 도구</td><td><code>vllm bench serve</code>에 Responses API 백엔드 추가, sweep·startup 측정 도구</td><td>3편 실습과 19편 벤치마크 랩에서 활용</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>v0.31.0 업그레이드 전 확인 목록</h3>
+    <p>릴리스 노트의 호환성 변경 중 플랫폼 운영자가 특히 확인할 항목입니다.</p>
+    <ul class="cl">
+      <li><input type="checkbox" id="u1"><label for="u1">요청 단위 <code>mm_processor_kwargs</code>·<code>media_io_kwargs</code>를 쓰는 앱이 있는가? 이제 <code>--trust-request-mm-kwargs</code> 없이는 오류가 납니다.</label></li>
+      <li><input type="checkbox" id="u2"><label for="u2"><code>quantization="fp8"</code> 온라인 양자화를 쓰는가? <code>fp8_per_tensor</code> 단축형으로 바뀌었습니다.</label></li>
+      <li><input type="checkbox" id="u3"><label for="u3"><code>tokenizer_mode="slow"</code>, <code>--enable-mamba-fine-grained-prefix-cache</code>, <code>--collect-detailed-traces</code>의 쉼표 구분 형식을 쓰는가? 제거되거나 이름·형식이 바뀌었습니다.</label></li>
+      <li><input type="checkbox" id="u4"><label for="u4"><code>--enforce-eager</code>를 쓰는가? 이제 JIT 커널 워밍업도 꺼지므로 첫 요청 지연을 다시 측정합니다.</label></li>
+      <li><input type="checkbox" id="u5"><label for="u5">기본 이미지가 CUDA 13.0 기반입니다. 노드 드라이버가 CUDA 13을 지원하는지 확인하고, 아니라면 <code>-cu129</code> 태그 이미지를 씁니다.</label></li>
+      <li><input type="checkbox" id="u6"><label for="u6">스테이징에서 3편의 열린 루프 벤치마크로 SLO 용량이 이전 버전과 같거나 나은지 확인했다.</label></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>설치·배포 형태</h2>
+  <p class="lede">같은 vLLM이라도 어떤 형태로 들여오느냐에 따라 운영 책임이 달라집니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>형태</th><th>얻는 방법 (v0.31.0 기준)</th><th>장점</th><th>주의점</th></tr></thead>
+    <tbody>
+      <tr><td class="k">pip / uv 설치</td><td><code>pip install vllm</code> (CUDA 13.0 빌드), <code>uv pip install vllm --torch-backend=auto</code>. CUDA 12.9·arm64용 wheel은 릴리스 자산으로 제공</td><td>개발 머신에서 빠름. 호스트 직접 실행</td><td>파이썬·CUDA·드라이버 조합 관리가 사용자 몫. 프로덕션 재현성 낮음</td></tr>
+      <tr><td class="k">공식 Docker 이미지</td><td><code>vllm/vllm-openai:v0.31.0</code> (CUDA 13.0), <code>vllm/vllm-openai:v0.31.0-cu129</code>, ROCm·CPU·XPU 전용 이미지</td><td>릴리스와 같은 날 나옴. 엔트리포인트가 OpenAI 서버</td><td>태그별로 지원 아키텍처(amd64/arm64)를 확인. 이미지가 커서 노드 캐시 전략 필요</td></tr>
+      <tr><td class="k">NVIDIA NGC 컨테이너</td><td><code>nvcr.io/nvidia/vllm:&lt;YY.MM&gt;-py3</code></td><td>NVIDIA가 DGX 등 자사 플랫폼용으로 검증·최적화. GB10 같은 arm64 장비에서 시작하기 쉬움</td><td>업스트림 최신 버전보다 몇 주~몇 달 늦을 수 있음. 포함된 vLLM 버전을 릴리스 노트로 확인</td></tr>
+      <tr><td class="k">소스 빌드</td><td>저장소에서 직접 빌드</td><td>최신 수정·커스텀 커널 적용</td><td>빌드 시간·유지보수 부담. 꼭 필요할 때만</td></tr>
+      <tr><td class="k">상위 프레임워크 경유</td><td>Helm 차트, production-stack, KServe, llm-d, AIBrix, KubeAI 등</td><td>배포·확장·라우팅을 프레임워크가 관리</td><td>프레임워크가 쓰는 vLLM 버전과 옵션 전달 방식을 따로 파악해야 함(9편)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">드라이버·CUDA·이미지 삼각 관계</span>
+      <p>컨테이너 안의 CUDA 런타임 버전은 노드의 NVIDIA 드라이버가 지원하는 범위 안에 있어야 합니다. CUDA 13 계열 이미지는 그에 맞는 최신 드라이버가 필요합니다. 노드 드라이버를 GPU Operator가 관리한다면(7·8편) 드라이버 버전 정책과 이미지 업그레이드 일정을 함께 계획해야 합니다. “이미지만 올렸는데 GPU를 못 찾는다”의 가장 흔한 원인입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>운영 관점 체크포인트</h2>
+  <p class="lede">vLLM을 Kubernetes에 올릴 때 구조에서 바로 나오는 설정들.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>항목</th><th>권장</th><th>구조상의 이유</th></tr></thead>
+    <tbody>
+      <tr><td class="k">CPU 요청량</td><td>프로세스 수(3장 계산기) + 여유. 최소 수 코어</td><td>엔진 코어의 바쁜 루프와 API 서버의 토큰화가 CPU를 씀. CPU 스로틀링은 곧 TPOT 악화</td></tr>
+      <tr><td class="k">/dev/shm</td><td>메모리 기반 emptyDir를 충분히 마운트</td><td>프로세스 간 통신과 텐서 병렬 통신이 공유 메모리를 씀. 기본 64MB로는 부족</td></tr>
+      <tr><td class="k">startupProbe</td><td>실패 허용 시간을 길게 (모델 다운로드·로딩·컴파일 시간 이상)</td><td>기동에 수 분~수십 분. 짧으면 기동 도중 재시작이 무한 반복</td></tr>
+      <tr><td class="k">readinessProbe</td><td><code>/health</code></td><td>준비되기 전에는 트래픽을 받지 않게</td></tr>
+      <tr><td class="k">livenessProbe</td><td>느슨하게 (긴 주기·높은 실패 허용)</td><td>과부하로 응답이 느린 것을 장애로 오인해 재시작하면 콜드 스타트로 상황이 악화</td></tr>
+      <tr><td class="k">종료 처리</td><td>충분한 <code>terminationGracePeriodSeconds</code>, 종료 전 트래픽 차단</td><td>진행 중인 스트리밍 응답이 끊기지 않게</td></tr>
+      <tr><td class="k">이미지·모델 고정</td><td>이미지 다이제스트, 모델 리비전(<code>--revision</code>) 고정</td><td>재배포할 때마다 다른 엔진·다른 가중치가 뜨는 사고 방지</td></tr>
+      <tr><td class="k">모델 저장소 인증</td><td>Hugging Face 토큰은 Secret으로</td><td>게이트 모델 다운로드. 로그에 토큰이 찍히지 않게</td></tr>
+      <tr><td class="k">원격 코드 실행</td><td><code>--trust-remote-code</code>는 검증한 모델에만</td><td>모델 저장소의 파이썬 코드를 실행하는 옵션. 공급망 위험(24편)</td></tr>
+      <tr><td class="k">노출 범위</td><td>Service는 ClusterIP, 외부는 게이트웨이 경유</td><td><code>--api-key</code>는 <code>/v1</code>만 보호. <code>/metrics</code>는 수집기만</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>흔한 오해</h2>
+  <p class="lede">vLLM을 처음 운영할 때 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2><span class="sec-num">14</span>실습</h2>
+  <p class="lede">단일 GPU에 vLLM을 운영 형태(Deployment·ConfigMap·프로브)로 띄우고, 프로세스 구조를 확인하고, 모든 주요 API를 직접 호출합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>기존 RKE2 클러스터의 GB10 GPU 노드(arm64), 네임스페이스 <code>llmsvc-lab</code>, 인터넷 접근 가능.</li>
+        <li>모델은 Qwen/Qwen3-8B(약 16GB). 호스트에서 다른 모델이 메모리를 쓰고 있으면 <code>gpu-memory-utilization</code>을 낮추거나 Qwen/Qwen3-0.6B로 바꾸세요.</li>
+        <li>3편까지 쓴 Pod(vllm-slo 등)가 남아 있으면 GPU를 점유하므로 먼저 지웁니다: <code>kubectl -n llmsvc-lab delete pod,svc --all</code></li>
+      </ul>
+    </div>
+
+    <h3>실습 4-1 · 이미지 고르기: 아키텍처와 버전 확인</h3>
+    <p>공식 이미지가 arm64를 지원하는지 태그별로 확인하고, 아니면 NGC 이미지를 씁니다. 어느 쪽이든 <b>이미지 안의 vLLM 버전</b>을 기록합니다.</p>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># 방법 1: docker buildx가 있는 머신에서</span>
+docker buildx imagetools inspect vllm/vllm-openai:v0.31.0 | grep -E "Platform|Name"
+
+<span class="c-cm"># 방법 2: skopeo가 있다면</span>
+skopeo inspect --raw docker://docker.io/vllm/vllm-openai:v0.31.0 | grep -o '"architecture":"[a-z0-9]*"' | sort -u
+
+<span class="c-cm"># linux/arm64가 있으면 공식 이미지, 없으면 NGC 이미지(nvcr.io/nvidia/vllm:&lt;YY.MM&gt;-py3)를 사용</span>
+<span class="c-cm"># 노드 드라이버가 CUDA 13을 지원하지 않으면 -cu129 태그를 고려 (nvidia-smi 상단의 CUDA Version 확인)</span></code></pre></div>
+
+    <h3>실습 4-2 · 운영 형태로 띄우기: ConfigMap + Deployment + Service</h3>
+    <p>옵션을 YAML 설정 파일로 분리하고, 기동 시간이 긴 엔진에 맞는 프로브를 겁니다. <code>IMAGE</code> 값은 4-1에서 고른 것으로 바꾸세요.</p>
+    <div class="codeblock"><div class="cap"><span>yaml · vllm-qwen.yaml</span><button class="copy">복사</button></div><pre><code>apiVersion: v1
+kind: ConfigMap
+metadata: { name: vllm-qwen-config, namespace: llmsvc-lab }
+data:
+  vllm.yaml: |
+    served-model-name: qwen3-8b          <span class="c-cm"># API에서 쓸 이름 (모델 경로를 숨김)</span>
+    host: 0.0.0.0
+    port: 8000
+    gpu-memory-utilization: 0.35         <span class="c-cm"># GB10 통합 메모리 128GB 중 약 35%</span>
+    max-model-len: 16384
+    enable-auto-tool-choice: true        <span class="c-cm"># 실습 4-4용</span>
+    tool-call-parser: hermes
+    reasoning-parser: qwen3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: vllm-qwen, namespace: llmsvc-lab, labels: { app: vllm-qwen } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }           <span class="c-cm"># GPU 1장: 새 Pod가 뜨기 전에 기존 Pod를 내려야 함</span>
+  selector: { matchLabels: { app: vllm-qwen } }
+  template:
+    metadata: { labels: { app: vllm-qwen } }
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector: { kubernetes.io/arch: arm64 }
+      tolerations: [ { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule } ]
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.31.0  <span class="c-cm"># 4-1 결과에 따라 NGC 이미지로 교체</span>
+        command: ["vllm", "serve", "Qwen/Qwen3-8B", "--config", "/config/vllm.yaml"]
+        env:
+        - { name: HF_HOME, value: /cache }
+        ports: [ { containerPort: 8000, name: http } ]
+        resources:
+          requests: { cpu: "4", memory: 8Gi }
+          limits:   { nvidia.com/gpu: 1 }
+        startupProbe:                     <span class="c-cm"># 다운로드·로딩·컴파일까지 최대 40분 허용</span>
+          httpGet: { path: /health, port: http }
+          periodSeconds: 10
+          failureThreshold: 240
+        readinessProbe:
+          httpGet: { path: /health, port: http }
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:                    <span class="c-cm"># 느슨하게: 과부하를 장애로 오인하지 않도록</span>
+          httpGet: { path: /health, port: http }
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 10
+        volumeMounts:
+        - { name: config, mountPath: /config }
+        - { name: cache, mountPath: /cache }
+        - { name: shm, mountPath: /dev/shm }
+      volumes:
+      - { name: config, configMap: { name: vllm-qwen-config } }
+      - { name: cache, emptyDir: {} }     <span class="c-cm"># 재시작마다 재다운로드. 영구 캐시는 13편에서</span>
+      - { name: shm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: vllm-qwen, namespace: llmsvc-lab, labels: { app: vllm-qwen } }
+spec:
+  selector: { app: vllm-qwen }
+  ports: [ { name: http, port: 8000, targetPort: http } ]</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 배포와 기동 과정 관찰</span><button class="copy">복사</button></div><pre><code>kubectl apply -f vllm-qwen.yaml
+kubectl -n llmsvc-lab rollout status deploy/vllm-qwen --timeout=45m
+
+<span class="c-cm"># 기동 로그에서 이 편의 컴포넌트를 찾아보기</span>
+kubectl -n llmsvc-lab logs deploy/vllm-qwen | grep -Ei \
+  "version|non-default args|attention backend|model loading|kv cache|concurrency|cuda graph|compil|application startup" | head -40
+
+<span class="c-cm"># 컨테이너 안의 프로세스 구조 (ps가 없는 이미지도 있어 /proc를 직접 읽음)</span>
+kubectl -n llmsvc-lab exec deploy/vllm-qwen -- sh -c \
+  'for p in /proc/[0-9]*; do c=$(tr "\0" " " &lt; $p/cmdline 2&gt;/dev/null | cut -c1-110); [ -n "$c" ] &amp;&amp; echo "${p#/proc/}  $c"; done'</code></pre></div>
+    <p><b>기록할 것</b>: (1) 로그에 찍힌 vLLM 버전과 기본값이 아닌 인자 목록, (2) 선택된 어텐션 백엔드, (3) 가중치 로딩 시간과 메모리, (4) KV 캐시 토큰 수와 최대 동시성(2편 계산과 비교), (5) 컴파일·CUDA 그래프 캡처에 걸린 시간, (6) 프로세스 목록에서 API 서버와 엔진 코어(프로세스 이름에 EngineCore 같은 표시가 붙는 경우가 많음)를 구분할 수 있는가.</p>
+
+    <h3>실습 4-3 · 엔드포인트 투어</h3>
+    <div class="codeblock"><div class="cap"><span>bash · 다른 터미널에서 port-forward 후</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab port-forward svc/vllm-qwen 8000:8000 &amp;
+B=http://localhost:8000
+
+curl -s $B/version; echo
+curl -s $B/v1/models | jq '.data[] | {id, max_model_len}'
+
+<span class="c-cm"># 1) 채팅 (비스트리밍) — usage 필드의 토큰 수 확인</span>
+curl -s $B/v1/chat/completions -H 'Content-Type: application/json' -d '{
+  "model": "qwen3-8b",
+  "messages": [{"role":"user","content":"vLLM의 엔진 코어가 하는 일을 두 문장으로."}],
+  "max_tokens": 300,
+  "chat_template_kwargs": {"enable_thinking": false}
+}' | jq '{text: .choices[0].message.content, finish: .choices[0].finish_reason, usage}'
+
+<span class="c-cm"># 2) 스트리밍 — SSE 청크가 하나씩 오는 모습 (-N: 버퍼링 끄기)</span>
+curl -sN $B/v1/chat/completions -H 'Content-Type: application/json' -d '{
+  "model":"qwen3-8b","stream":true,"stream_options":{"include_usage":true},
+  "messages":[{"role":"user","content":"하나부터 다섯까지 세어 줘."}],
+  "max_tokens":60,"chat_template_kwargs":{"enable_thinking":false}
+}' | head -20
+
+<span class="c-cm"># 3) 토큰화 — 채팅 템플릿이 붙은 실제 입력 토큰 수</span>
+curl -s $B/tokenize -H 'Content-Type: application/json' -d '{
+  "model":"qwen3-8b","messages":[{"role":"user","content":"안녕하세요"}]
+}' | jq '{count, first_tokens: .tokens[0:12]}'
+
+<span class="c-cm"># 4) Responses API</span>
+curl -s $B/v1/responses -H 'Content-Type: application/json' -d '{
+  "model":"qwen3-8b","input":"GPU 메모리 활용률 옵션의 의미를 한 문장으로.","max_output_tokens":200
+}' | jq '.output[] | select(.type=="message") | .content[0].text'
+
+<span class="c-cm"># 5) Anthropic Messages 형식</span>
+curl -s $B/v1/messages -H 'Content-Type: application/json' -H 'anthropic-version: 2023-06-01' -d '{
+  "model":"qwen3-8b","max_tokens":200,
+  "messages":[{"role":"user","content":"KV 캐시를 한 문장으로 설명해 줘."}]
+}' | jq '.content'
+
+<span class="c-cm"># 6) 지표 — 3편에서 쓴 히스토그램과 카운터</span>
+curl -s $B/metrics | grep -E "^vllm:(num_requests_(running|waiting)|kv_cache_usage|prefix_cache|num_preemptions|generation_tokens_total|prompt_tokens_total)" | head -20</code></pre></div>
+    <p><b>확인할 것</b>: 같은 내용의 질문을 세 가지 API 형식(chat·responses·messages)으로 보냈을 때 모두 같은 엔진이 처리한다는 점, <code>/tokenize</code>의 토큰 수와 채팅 응답 <code>usage.prompt_tokens</code>가 일치하는지, 응답 후 <code>/metrics</code>의 토큰 카운터가 늘었는지. 지표 이름 일부가 다르면 <code>grep "^vllm:"</code>로 전체 목록을 보고 맞는 이름을 찾으세요.</p>
+
+    <h3>실습 4-4 · 추론 출력·툴 콜링·구조화 출력</h3>
+    <div class="codeblock"><div class="cap"><span>python · features.py</span><button class="copy">복사</button></div><pre><code>"""4-2에서 켠 추론 파서·툴 콜 파서와 구조화 출력을 차례로 확인한다. (pip install openai)"""
+import json
+from openai import OpenAI
+
+c = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+M = "qwen3-8b"
+
+def extra(msg, *keys):
+    data = msg.model_extra or {}
+    for k in keys:
+        if data.get(k):
+            return data[k]
+    return None
+
+print("=== 1) 추론 출력: 생각과 답이 분리되어 오는가 ===")
+r = c.chat.completions.create(model=M, max_tokens=800,
+    messages=[{"role": "user", "content": "GPU 3장으로 텐서 병렬을 하면 왜 불편할까? 짧게."}])
+m = r.choices[0].message
+think = extra(m, "reasoning_content", "reasoning")
+print("생각(앞 200자):", (think or "(없음)")[:200].replace("\n", " "))
+print("답:", m.content)
+print("출력 토큰:", r.usage.completion_tokens, "← 생각 토큰도 포함됨")
+
+print("\n=== 2) 툴 콜링: 모델이 함수를 고르고, 결과를 받아 답하는가 ===")
+tools = [{"type": "function", "function": {
+    "name": "get_gpu_status",
+    "description": "지정한 노드의 GPU 사용률과 메모리 사용량을 조회한다",
+    "parameters": {"type": "object",
+                   "properties": {"node": {"type": "string", "description": "노드 이름"}},
+                   "required": ["node"]}}}]
+msgs = [{"role": "user", "content": "pgx-01 노드 GPU 상태 알려줘"}]
+r = c.chat.completions.create(model=M, messages=msgs, tools=tools, tool_choice="auto",
+                              max_tokens=600, extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+call = r.choices[0].message.tool_calls[0]
+print("선택한 함수:", call.function.name, "인자:", call.function.arguments)
+msgs += [r.choices[0].message.model_dump(exclude_none=True),
+         {"role": "tool", "tool_call_id": call.id,
+          "content": json.dumps({"node": "pgx-01", "util": 87, "mem_used_gb": 61})}]
+r = c.chat.completions.create(model=M, messages=msgs, tools=tools, max_tokens=300,
+                              extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+print("최종 답:", r.choices[0].message.content)
+
+print("\n=== 3) 구조화 출력: JSON 스키마를 반드시 지키는가 ===")
+schema = {"type": "object",
+          "properties": {"severity": {"type": "string", "enum": ["info", "warning", "critical"]},
+                         "component": {"type": "string"},
+                         "action": {"type": "string"}},
+          "required": ["severity", "component", "action"], "additionalProperties": False}
+r = c.chat.completions.create(model=M, max_tokens=300,
+    messages=[{"role": "user", "content": "로그: 'vllm: KV cache usage 99%, preemptions rising' 를 분류해 줘"}],
+    response_format={"type": "json_schema", "json_schema": {"name": "alert", "schema": schema}},
+    extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+print(json.loads(r.choices[0].message.content))
+
+print("\n=== 4) vLLM 확장: 선택지 중 하나만 고르게 하기 ===")
+try:
+    r = c.chat.completions.create(model=M, max_tokens=10,
+        messages=[{"role": "user", "content": "응답 지연이 5초를 넘었다. 상태는?"}],
+        extra_body={"structured_outputs": {"choice": ["정상", "경고", "장애"]},
+                    "chat_template_kwargs": {"enable_thinking": False}})
+    print(r.choices[0].message.content)
+except Exception as e:
+    print("이 버전에서 확장 파라미터 이름이 다를 수 있음 → 문서의 Structured Outputs 확인:", e)</code></pre></div>
+    <p><b>확인할 것</b>: (1) 추론 파서가 생각 부분을 별도 필드로 분리했는지, 생각 토큰이 출력 토큰 수에 포함되는지, (2) 툴 호출 인자가 올바른 JSON인지, 두 번째 호출에서 도구 결과를 반영해 답하는지, (3) JSON 스키마의 enum 밖 값이 절대 나오지 않는지, (4) 첫 구조화 출력 요청이 두 번째보다 느린지(문법 컴파일 비용).</p>
+
+    <h3>실습 4-5 · (선택) 멀티모달: 비전 모델 띄우기</h3>
+    <p>GPU 메모리 여유가 있다면 같은 방식으로 소형 비전 언어 모델을 띄워 이미지 입력을 확인합니다. 먼저 4-2 Deployment의 replicas를 0으로 줄여 GPU를 비우세요.</p>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab scale deploy/vllm-qwen --replicas=0
+
+<span class="c-cm"># vllm-qwen.yaml을 복사해 이름을 vllm-vl로 바꾸고, 아래 두 군데만 수정</span>
+<span class="c-cm">#   command: ["vllm","serve","Qwen/Qwen2.5-VL-3B-Instruct","--config","/config/vllm.yaml"]</span>
+<span class="c-cm">#   ConfigMap: served-model-name: qwen-vl / 툴·추론 파서 줄 삭제 / 아래 한 줄 추가</span>
+<span class="c-cm">#   limit-mm-per-prompt: '{"image": 2, "video": 0}'</span></code></pre></div>
+    <div class="codeblock"><div class="cap"><span>python · vision.py (로컬 이미지 파일을 data URL로 전송)</span><button class="copy">복사</button></div><pre><code>import base64, sys
+from openai import OpenAI
+c = OpenAI(base_url="http://localhost:8000/v1", api_key="EMPTY")
+path = sys.argv[1]                                   # 예: 대시보드 스크린샷.png
+b64 = base64.b64encode(open(path, "rb").read()).decode()
+r = c.chat.completions.create(model="qwen-vl", max_tokens=300, messages=[{"role": "user", "content": [
+    {"type": "text", "text": "이 이미지에서 이상 징후가 보이는 부분을 설명해 줘."},
+    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}]}])
+print(r.choices[0].message.content)
+print("입력 토큰:", r.usage.prompt_tokens, "← 이미지가 토큰으로 바뀐 양을 확인")</code></pre></div>
+
+    <h3>실습 4-6 · 옵션 찾기와 최적화 레벨 비교</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># 키워드로 옵션 검색, 옵션 그룹 목록 보기</span>
+kubectl -n llmsvc-lab exec deploy/vllm-qwen -- vllm serve --help=max-num
+kubectl -n llmsvc-lab exec deploy/vllm-qwen -- vllm serve --help=listgroup
+
+<span class="c-cm"># 최적화 레벨 비교: ConfigMap에 아래 한 줄을 넣고 재배포 → 기동 시간과 TPOT 비교</span>
+<span class="c-cm">#   optimization-level: 0      (원복할 때는 줄 삭제 = 기본값 -O2)</span>
+kubectl -n llmsvc-lab edit configmap vllm-qwen-config
+kubectl -n llmsvc-lab rollout restart deploy/vllm-qwen
+time kubectl -n llmsvc-lab rollout status deploy/vllm-qwen --timeout=45m</code></pre></div>
+    <p>두 설정에서 2편의 <code>phase_and_batch.py</code>(모델 이름을 <code>qwen3-8b</code>로 바꿔서)를 실행해 TPOT와 처리량을 비교하세요. 기동 시간 단축과 실행 성능 손실의 맞교환을 숫자로 확인하는 것이 목적입니다. 설정 파일 키 이름이 다르게 해석되면 기동 로그의 “non-default args” 줄로 실제 적용 여부를 확인하고, 필요하면 command에 <code>-O0</code>를 직접 추가합니다.</p>
+
+    <h3>정리하기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab delete deploy,svc,configmap -l app=vllm-qwen --ignore-not-found
+kubectl -n llmsvc-lab delete configmap vllm-qwen-config --ignore-not-found
+kubectl -n llmsvc-lab delete deploy,svc vllm-vl --ignore-not-found
+<span class="c-cm"># vllm-qwen.yaml은 5편 이후에도 기준 배포로 재사용합니다</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2><span class="sec-num">15</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: EngineCore, ZMQ, CUDA 그래프, 파서" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S16 ================= -->
+<section id="s16" class="quiz">
+  <h2><span class="sec-num">16</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S17 ================= -->
+<section id="s17">
+  <h2><span class="sec-num">17</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>vLLM V1은 API 서버·엔진 코어·GPU 워커(+DP 코디네이터)로 나뉜 다중 프로세스 구조</b>이며, ZMQ로 통신해 GIL 경합 없이 GPU를 바쁘게 유지한다.</li>
+      <li><b>엔진 코어는 받고·정하고·돌리고·정리하고·보내는 루프</b>를 쉬지 않고 돈다. CPU가 부족하면 이 루프가 느려져 TPOT가 나빠진다.</li>
+      <li><b>스케줄러는 Prefill과 Decode를 구분하지 않고 토큰 예산을 나눈다.</b> 실행 중 요청이 먼저, 남은 예산으로 대기 요청을 받고, KV 블록이 모자라면 선점한다.</li>
+      <li><b>KV 캐시 관리자는 블록 해시로 프리픽스 캐시를 기본 제공</b>하며, 테넌트 격리는 게이트웨이가 주입하는 cache_salt로 한다.</li>
+      <li><b>워커는 로딩 → 프로파일링 → KV 할당 → 컴파일·CUDA 그래프 순으로 기동</b>하고, -O 레벨이 기동 시간과 실행 성능을 맞바꾼다.</li>
+      <li><b>OpenAI·Responses·Anthropic 형식을 모두 받는 서버</b>이지만 보안 경계는 엔진 밖 게이트웨이에 둔다. 옵션은 “어느 컴포넌트를 건드리는가”로 이해한다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">TP=2, DP=2 구성의 프로세스 수와 각 프로세스의 역할을 말할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">토큰 예산을 줄였을 때와 키웠을 때 TTFT·ITL이 어떻게 바뀌는지 스케줄러 동작으로 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">선점이 왜 생기고 어떤 지표로 보이는지 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">-O0과 -O2의 차이를 기동 시간과 TPOT로 측정했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">ConfigMap + Deployment + 프로브로 vLLM을 띄우고 기동 로그에서 백엔드·KV 크기·버전을 찾았다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">채팅·스트리밍·토큰화·Responses·Messages·지표 엔드포인트를 호출했다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">추론 파서·툴 콜링·JSON 스키마 구조화 출력이 동작함을 확인했다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 5편 엔진 비교: SGLang · TensorRT-LLM · 기타</span>
+      <p>vLLM의 구조를 기준선으로 삼아 SGLang(RadixAttention, 빠른 스케줄러), TensorRT-LLM(컴파일형 최적화), llama.cpp·Ollama(경량 실행) 등을 같은 해부 틀로 비교합니다. 같은 모델·같은 GPU에서 엔진을 바꿔 3편 방식으로 측정하고, 선택 기준을 정리합니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 4편 vLLM 해부 · vLLM v0.31.0(2026-10-05 릴리스) 기준. 옵션 이름·기본값·엔드포인트는 버전에 따라 바뀔 수 있으므로 사용하는 버전의 문서와 <code>--help</code>로 확인하세요. 스케줄러 시뮬레이터는 동작 원리 설명을 위한 단순화 모델입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero ---------- */
+const NOTE={
+ http:["HTTP · OpenAI 호환 라우터","FastAPI가 요청을 받아 OpenAI 스키마로 검증합니다. /v1/chat/completions, /v1/responses, /v1/messages 등 여러 형식이 같은 엔진으로 모입니다.","--host · --port · --api-key · --served-model-name","7장"],
+ render:["입력 처리","채팅 템플릿으로 messages를 하나의 프롬프트로 만들고 토큰화합니다. 이미지·오디오는 여러 스레드로 내려받아 전처리합니다. 입력이 최대 길이를 넘으면 여기서 거부됩니다.","--chat-template · --limit-mm-per-prompt · --max-model-len","7·9장"],
+ out:["출력 처리","엔진이 보낸 토큰 ID를 글자로 바꾸고, stop 문자열을 검사하고, 추론·툴 콜 파서로 응답 필드를 나눈 뒤 SSE로 흘려보냅니다. 마지막에 사용량을 붙입니다.","--reasoning-parser · --tool-call-parser · --enable-auto-tool-choice","7·9장"],
+ sched:["스케줄러","매 스텝 토큰 예산을 실행 중 요청(Decode·남은 Prefill)에 먼저 나누고, 남는 예산으로 대기 요청을 받습니다. Prefill과 Decode를 구분하지 않고 “계산할 토큰 수”로만 봅니다.","--max-num-batched-tokens · --max-num-seqs · --scheduling-policy","5장"],
+ kv:["KV 캐시 관리자","기동 때 잡은 KV 블록 풀을 요청에 빌려주고 돌려받습니다. 꽉 찬 블록에 해시를 붙여 프리픽스 캐시로 재사용하고, 블록이 모자라면 선점이 일어납니다.","--gpu-memory-utilization · --kv-cache-dtype · --enable-prefix-caching","5장"],
+ runner:["모델 러너","스케줄러 출력을 패딩 없는 평탄한 입력 텐서·블록 테이블·슬롯 매핑으로 바꾸고, 녹화해 둔 CUDA 그래프로 순전파를 재생한 뒤 다음 토큰을 샘플링합니다.","-O 레벨 · --enforce-eager · -cc(컴파일 설정)","6장"],
+ attn:["모델 + 어텐션 백엔드","실제 행렬 곱과 어텐션 계산. GPU 세대·모델 구조·정밀도에 맞춰 FlashAttention·FlashInfer·MLA 전용 커널 등이 자동 선택됩니다.","--quantization · -tp · --dtype","6장"]
+};
+const bxs=$$("#heroArch .bx");
+function showNote(k){const n=NOTE[k];bxs.forEach(b=>b.classList.toggle("on",b.dataset.k===k));$("#heroNote").innerHTML=`<h4>${n[0]}</h4><p>${n[1]}</p><p><b style="color:var(--text)">관련 옵션</b> · <code>${n[2]}</code></p><p><b style="color:var(--text)">이 편</b> · ${n[3]}</p>`;}
+bxs.forEach(b=>b.addEventListener("click",()=>showNote(b.dataset.k)));
+let busy=false;
+$("#heroRun").addEventListener("click",async()=>{if(busy)return;busy=true;
+ const seq=["http","render","sched","kv","runner","attn","sched","runner","attn","sched","runner","attn","out","http"];
+ const label={http:"HTTP 수신",render:"템플릿·토큰화",sched:"스케줄",kv:"KV 블록 할당",runner:"입력 준비·그래프 재생",attn:"순전파·샘플링",out:"디토큰화·SSE"};
+ let step=0;
+ for(const k of seq){step++;const b=bxs.find(x=>x.dataset.k===k);b.classList.remove("flash");void b.offsetWidth;b.classList.add("flash");showNote(k);
+  $("#heroNote").insertAdjacentHTML("afterbegin",`<p style="margin:0 0 4px;color:var(--faint);font-size:.8rem">${step} / ${seq.length} · ${label[k]}${["sched","runner","attn"].includes(k)&&step>6&&step<13?" (Decode 스텝 반복)":""}</p>`);
+  await wait(reduce?60:650);}
+ $("#heroNote").innerHTML=`<h4>한 바퀴 요약</h4><p>요청은 API 서버에서 토큰이 되어 ZMQ로 엔진 코어에 넘어가고, 스케줄러와 KV 캐시 관리자가 자리를 잡아 준 뒤 GPU 워커가 순전파를 합니다. Decode 동안에는 가운데 세 단계(스케줄 → 러너 → 순전파)만 토큰 수만큼 반복되고, 토큰은 그때그때 API 서버로 돌아가 글자로 바뀌어 흘러나갑니다.</p>`;
+ bxs.forEach(b=>b.classList.remove("on"));busy=false;});
+
+/* ---------- process calculator ---------- */
+function pc(){const tp=Math.max(1,+$("#pcTP").value||1),pp=Math.max(1,+$("#pcPP").value||1),dp=Math.max(1,+$("#pcDP").value||1),a0=Math.max(0,+$("#pcA").value||0);
+ const A=a0||dp,E=dp,N=dp*pp*tp,C=dp>1?1:0,total=A+E+N+C;
+ const chips=[];for(let i=0;i<A;i++)chips.push(`<span style="background:#FFB3C8">API 서버 ${i+1}</span>`);
+ for(let i=0;i<E;i++)chips.push(`<span style="background:#C8B6FF">엔진 코어 DP${i}</span>`);
+ for(let d=0;d<dp;d++)for(let p=0;p<pp;p++)for(let t=0;t<tp;t++)chips.push(`<span style="background:#9BE2B6">워커 DP${d}·PP${p}·TP${t}</span>`);
+ if(C)chips.push(`<span style="background:#FFD59B">DP 코디네이터</span>`);
+ $("#pcOut").innerHTML=chips.join("");
+ $("#pcNote").innerHTML=`총 <b>${total}개</b> 프로세스, GPU <b>${N}장</b>. CPU를 꾸준히 쓰는 프로세스는 엔진 코어 ${E}개(바쁜 루프)와 API 서버 ${A}개(토큰화·스트리밍)입니다. 출발점으로 Pod CPU 요청량은 <b>${Math.max(4,E*2+A+Math.ceil(N/2))}코어 이상</b>을 권합니다(엔진 코어당 2, API 서버당 1, GPU 2장당 1 기준의 경험칙). ${pp>1?"파이프라인 병렬은 보통 노드 간 분할에 쓰이며 멀티노드 구성이 필요합니다(17편). ":""}${N>8?"GPU 8장을 넘으면 한 노드의 NVLink 도메인을 벗어나는 경우가 많습니다. ":""}`;}
+$$("#pcTP,#pcPP,#pcDP,#pcA").forEach(e=>e.addEventListener("input",pc));pc();
+
+/* ---------- scheduler simulator ---------- */
+const BS=16;let S;
+const INIT=[["R1",400,40,"running",400],["R2",900,60,"running",900],["R3",2600,8,"waiting",0],["R4",1200,6,"waiting",0],["R5",300,12,"waiting",0],["R6",700,5,"waiting",0]];
+const blocksFor=t=>Math.ceil(t/BS);
+function scReset(){const K=+$("#scK").value;S={step:0,pre:0,reqs:INIT.map(r=>({id:r[0],prompt:r[1],out:r[2],status:blocksFor(r[1]+r[2])>K?"done":r[3],rejected:blocksFor(r[1]+r[2])>K,computed:r[4],gen:0,blocks:blocksFor(r[1]+r[2])>K?0:blocksFor(r[4]),ttft:r[3]==="running"?0:null})),log:"“다음 스텝”을 눌러 시작하세요.",dTok:0,pTok:0};scRender();}
+function used(){return S.reqs.filter(r=>r.status==="running").reduce((a,r)=>a+r.blocks,0)}
+function scStep(){const B=+$("#scB").value,SEQ=+$("#scS").value,K=+$("#scK").value;
+ if(S.reqs.every(r=>r.status==="done"))return;
+ S.step++;let budget=B,dTok=0,pTok=0;const notes=[];
+ const running=()=>S.reqs.filter(r=>r.status==="running");
+ const waitingQ=()=>S.reqs.filter(r=>r.status==="waiting");
+ const plan=new Map();const preNow=new Set();
+ function ensure(r,newTotal){let need=blocksFor(newTotal)-r.blocks;while(need>K-used()-[...plan.values()].reduce((a,p)=>a+p.nb,0)){
+   const victims=running().filter(x=>!plan.has(x.id));const v=victims[victims.length-1];
+   if(!v)return false;
+   if(v===r){preNow.add(r.id);r.status="waiting";r.prompt+=r.gen;r.out-=r.gen;r.gen=0;r.computed=0;r.blocks=0;S.pre++;
+     const i0=S.reqs.indexOf(r);S.reqs.splice(i0,1);const fw=S.reqs.findIndex(x=>x.status==="waiting");S.reqs.splice(fw<0?S.reqs.length:fw,0,r);
+     notes.push(`${r.id} 자기 자신 선점(블록 부족, 계산한 것을 버리고 대기열로)`);return false;}
+   preNow.add(v.id);v.status="waiting";v.prompt+=v.gen;v.out-=v.gen;v.gen=0;v.computed=0;v.blocks=0;S.pre++;
+   const idx=S.reqs.indexOf(v);S.reqs.splice(idx,1);const firstW=S.reqs.findIndex(x=>x.status==="waiting");S.reqs.splice(firstW<0?S.reqs.length:firstW,0,v);
+   notes.push(`${v.id} 선점(블록 회수, 대기열 맨 앞으로)`);}
+  plan.set(r.id,{r,nb:need});return true;}
+ // running first
+ for(const r of running()){if(budget<=0)break;if(r.status!=="running")continue;
+  if(r.computed<r.prompt){const ch=Math.min(r.prompt-r.computed,budget);if(!ensure(r,r.computed+ch)){continue}
+   plan.get(r.id).tok=ch;plan.get(r.id).kind="p";budget-=ch;pTok+=ch;}
+  else{if(!ensure(r,r.computed+r.gen+1)){continue}plan.get(r.id).tok=1;plan.get(r.id).kind="d";budget-=1;dTok+=1;}}
+ // waiting
+ for(const w of waitingQ()){if(budget<=0)break;if(preNow.has(w.id)){notes.push(`${w.id}는 방금 선점되어 다음 스텝부터 재입장 시도`);break}if(running().length>=SEQ){notes.push(`동시 실행 상한(${SEQ}) 도달, ${w.id} 대기`);break}
+  const ch=Math.min(w.prompt-w.computed,budget);const need=blocksFor(w.computed+ch)-w.blocks;const free=K-used()-[...plan.values()].reduce((a,p)=>a+p.nb,0);
+  if(need>free){notes.push(`KV 블록 부족, ${w.id} 입장 보류`);break}
+  w.status="running";plan.set(w.id,{r:w,nb:need,tok:ch,kind:"p"});budget-=ch;pTok+=ch;notes.push(`${w.id} 입장 (Prefill ${fmt(ch)}토큰${ch<w.prompt-w.computed?", 조각":""})`);}
+ // apply
+ for(const p of plan.values()){const r=p.r;if(!p.tok)continue;r.blocks+=p.nb;
+  if(p.kind==="p"){r.computed+=p.tok;if(r.computed>=r.prompt){r.gen+=1;if(r.ttft===null)r.ttft=S.step;r.blocks=blocksFor(r.computed+r.gen);}}
+  else{r.gen+=1;r.blocks=blocksFor(r.computed+r.gen);}
+  if(r.gen>=r.out){r.status="done";r.blocks=0;notes.push(`${r.id} 완료`);}}
+ S.dTok=dTok;S.pTok=pTok;S.log=`스텝 ${S.step}: `+(notes.length?notes.join(" · "):"실행 중 요청 Decode 진행");scRender();}
+function scRender(){const B=+$("#scB").value,K=+$("#scK").value;
+ $("#scBV").textContent=fmt(B);$("#scSV").textContent=$("#scS").value;$("#scKV").textContent=fmt(K)+` (${fmt(K*BS)}토큰)`;
+ $("#scN").textContent=S.step;$("#scTok").textContent=`${fmt(S.dTok)} / ${fmt(S.pTok)}`;$("#scKvU").textContent=`${used()} / ${K} (${fmt(used()/K*100)}%)`;$("#scPre").textContent=S.pre;
+ $("#scBarD").style.width=Math.min(100,S.dTok/B*100)+"%";$("#scBarP").style.width=Math.min(100,S.pTok/B*100)+"%";
+ const row=r=>{const pre=r.computed<r.prompt;const st=r.rejected?"거부 (요청 하나가 KV 전체보다 큼)":r.status==="done"?"완료":pre?`Prefill ${fmt(r.computed)}/${fmt(r.prompt)}`:`Decode ${r.gen}/${r.out}`;
+  return `<div class="rq ${r.status==="done"?"done":pre?"pre":"dec"}"><span>${r.id} · ${st}${r.ttft!==null&&r.ttft>0?` · 첫 토큰 스텝 ${r.ttft}`:""}</span><b>${r.blocks}블록</b></div>`};
+ $("#scRun").innerHTML=S.reqs.filter(r=>r.status==="running").map(row).join("")||'<div style="color:var(--muted);font-size:.86rem">없음</div>';
+ $("#scWait").innerHTML=S.reqs.filter(r=>r.status!=="running").map(row).join("")||'<div style="color:var(--muted);font-size:.86rem">없음</div>';
+ const done=S.reqs.every(r=>r.status==="done");
+ $("#scLog").innerHTML=S.log+(done?` <b>· 모든 요청 완료 (${S.step}스텝, 선점 ${S.pre}회)</b>`:"");}
+$("#scStep").addEventListener("click",scStep);$("#scStep5").addEventListener("click",()=>{for(let i=0;i<5;i++)scStep()});$("#scReset").addEventListener("click",scReset);
+$$("#scB,#scS,#scK").forEach(e=>e.addEventListener("input",()=>{scReset()}));scReset();
+
+/* ---------- options explorer ---------- */
+const CATS={load:"모델·로딩",mem:"메모리·KV",sched:"스케줄링",par:"병렬화",perf:"컴파일·성능",feat:"기능",srv:"서버·보안",obs:"관측"};
+const OPTS=[
+ ["load","&lt;model&gt; (위치 인자)","Hugging Face 모델 ID 또는 로컬 경로","기능","운영에서는 --revision으로 리비전 고정"],
+ ["load","--served-model-name","API에 노출할 모델 이름(여러 개 가능)","기능","내부 경로를 숨기고 게이트웨이 라우팅 키로 사용"],
+ ["load","--revision","모델 저장소 커밋·태그 고정","기능","재배포 때 가중치가 바뀌는 사고 방지"],
+ ["load","--dtype","연산 정밀도(auto, bfloat16, float16)","메모리·TPOT","보통 auto"],
+ ["load","--quantization","양자화 방식 지정(대부분 체크포인트에서 자동 인식)","메모리·TPOT·품질","6편. 온라인 FP8은 v0.31.0에서 fp8_per_tensor로 표기 변경"],
+ ["load","--load-format","가중치 로딩 방식(safetensors, 스트리머 계열 등)","기동","13편 콜드 스타트 최적화"],
+ ["load","--max-model-len","요청당 최대 컨텍스트(입력+출력)","메모리·동시성","크면 긴 요청 허용, 최대 동시성 숫자는 줄어듦(2편)"],
+ ["load","--trust-remote-code","모델 저장소의 파이썬 코드 실행 허용","보안","검증된 모델에만"],
+ ["load","--generation-config","기본 샘플링 값의 출처(기본: 모델의 generation_config)","품질","모델마다 기본 temperature가 다를 수 있음"],
+ ["load","--chat-template","채팅 템플릿 교체","기능·품질","바꾸면 회귀 테스트 필수(2편)"],
+ ["mem","--gpu-memory-utilization","엔진이 쓸 GPU 메모리 비율. 나머지가 KV 풀","메모리·동시성","GPU 공유 시 낮추고, 전용이면 0.9 안팎"],
+ ["mem","--kv-cache-dtype","KV 캐시 정밀도(auto, fp8 등)","메모리·동시성·품질","FP8이면 KV 공간이 두 배"],
+ ["mem","--block-size","KV 블록당 토큰 수","메모리","대부분 기본값 유지"],
+ ["mem","--enable-prefix-caching","프리픽스 캐시 사용(V1 기본 켜짐)","TTFT","끄려면 --no-enable-prefix-caching"],
+ ["mem","--cpu-offload-gb","가중치 일부를 CPU 메모리에 둠","메모리·TPOT","들어가지 않는 모델을 느리게라도 돌릴 때"],
+ ["sched","--max-num-batched-tokens","한 스텝의 토큰 예산","TTFT·ITL·처리량·메모리","작으면 ITL 안정, 크면 Prefill 빠름(14편)"],
+ ["sched","--max-num-seqs","동시에 배치에 들어가는 요청 수 상한","TPOT·처리량","3편의 운영점과 직결"],
+ ["sched","--max-num-active-seqs","실행 상태 진입만 별도로 제한 (v0.31.0 신규)","TPOT·처리량","대기열에 둔 채 실행 수만 조절"],
+ ["sched","--long-prefill-token-threshold","한 요청이 한 스텝에 가져갈 Prefill 토큰 상한 (v0.31.0에서 적응형)","ITL·TTFT","긴 문서가 다른 요청을 막는 문제 완화"],
+ ["sched","--scheduling-policy","fcfs 또는 priority","TTFT 분포","우선순위 요청 필드와 함께(24편)"],
+ ["sched","--async-scheduling","다음 스텝 계획을 GPU 실행과 겹침","TPOT","기능 조합 제약 확인"],
+ ["par","-tp / --tensor-parallel-size","한 모델을 여러 GPU로 분할","메모리·TPOT","NVLink 도메인 안에서(3·17편)"],
+ ["par","-pp / --pipeline-parallel-size","층 단위로 분할(주로 노드 간)","메모리","멀티노드(17편)"],
+ ["par","-dp / --data-parallel-size","엔진 복제본을 한 서버 안에서 여럿","처리량","MoE 전문가 병렬과 조합"],
+ ["par","--enable-expert-parallel","MoE 전문가를 GPU에 분산","메모리·처리량","대형 MoE(17편)"],
+ ["par","--api-server-count","API 서버 프로세스 수","TTFT(토큰화 병목)","멀티모달·고동시성에서 증설"],
+ ["perf","-O0 ~ -O3","최적화 레벨(기본 -O2)","기동·TPOT","6장 표"],
+ ["perf","-cc / --compilation-config","컴파일·CUDA 그래프 세부 설정","기동·TPOT","레벨 기본값보다 우선"],
+ ["perf","--enforce-eager","CUDA 그래프 끄기(v0.31.0: JIT 워밍업도 끔)","기동·TPOT","디버깅용"],
+ ["perf","--speculative-config","추측 디코딩 설정(드래프트, MTP, n-gram 등)","TPOT","16편"],
+ ["feat","--enable-auto-tool-choice","tool_choice=auto 허용","기능","파서와 함께"],
+ ["feat","--tool-call-parser","모델 계열별 툴 호출 파서","기능","모델 카드 확인"],
+ ["feat","--tool-strict-level","툴 호출 엄격도 (v0.31.0 신규)","기능","스키마 위반 처리 수준"],
+ ["feat","--reasoning-parser","추론 내용을 별도 필드로 분리","기능","추론 토큰도 비용"],
+ ["feat","--enable-lora · --max-loras · --lora-modules","LoRA 어댑터 서빙","메모리·처리량","16편"],
+ ["feat","--limit-mm-per-prompt","프롬프트당 이미지·영상·오디오 개수 상한","메모리·TTFT","JSON 형식으로 지정"],
+ ["feat","--trust-request-mm-kwargs","요청 단위 멀티모달 전처리 인자 허용 (v0.31.0 신규, 기본 거부)","보안","신뢰된 내부 환경에서만"],
+ ["srv","--host · --port","바인딩 주소와 포트","—","컨테이너에서는 0.0.0.0"],
+ ["srv","--api-key","/v1 경로 인증 키","보안","/v1 외 경로는 보호 안 됨. 게이트웨이 뒤에"],
+ ["srv","--config","YAML 설정 파일","운영","ConfigMap으로 관리"],
+ ["srv","--enable-log-requests","요청 내용 로깅","보안·디버깅","프롬프트 노출 위험. 기간 한정"],
+ ["obs","--logging-config · --log-level","로깅 설정 (v0.31.0)","운영","JSON 로그로 수집(21편)"],
+ ["obs","--otlp-traces-endpoint","OpenTelemetry 트레이스 전송","관측","21편"],
+ ["obs","--collect-detailed-traces","상세 트레이스 수집 대상(리스트 형식)","관측","v0.31.0에서 쉼표 형식 제거"],
+ ["obs","--disable-log-stats","주기적 통계 로그 끄기","운영","지표는 /metrics로"]
+];
+let cat="all";
+$("#optCats").innerHTML=`<button class="btn on" data-c="all">전체</button>`+Object.entries(CATS).map(([k,v])=>`<button class="btn" data-c="${k}">${v}</button>`).join("");
+$$("#optCats .btn").forEach(b=>b.addEventListener("click",()=>{cat=b.dataset.c;$$("#optCats .btn").forEach(x=>x.classList.toggle("on",x===b));ot()}));
+function ot(){const q=($("#optQ").value||"").trim().toLowerCase();
+ const rows=OPTS.filter(o=>(cat==="all"||o[0]===cat)&&(!q||(o.join(" ")).toLowerCase().includes(q)));
+ $("#optTable").innerHTML=`<thead><tr><th>옵션</th><th>범주</th><th>무엇을 하나</th><th>영향</th><th>메모</th></tr></thead><tbody>`+(rows.map(o=>`<tr><td>${o[1]}</td><td>${CATS[o[0]]}</td><td>${o[2]}</td><td>${o[3]}</td><td>${o[4]}</td></tr>`).join("")||`<tr><td colspan="5" style="color:var(--muted)">검색 결과가 없습니다.</td></tr>`)+`</tbody>`;}
+$("#optQ").addEventListener("input",ot);ot();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["vLLM은 파이썬 프로그램 하나라서 CPU 1코어면 충분하다.","API 서버·엔진 코어·워커가 별도 프로세스이고, 엔진 코어는 바쁜 루프로 CPU 한 코어를 거의 계속 씁니다. CPU를 아끼면 스케줄링이 늦어져 GPU가 놀고 TPOT가 나빠집니다."],
+ ["Prefill과 Decode는 엔진 안에서 별도 단계로 나뉘어 처리된다.","V1 스케줄러는 둘을 구분하지 않고 “계산할 토큰 수”만 봅니다. 한 스텝 안에 어떤 요청은 Prefill 조각을, 어떤 요청은 Decode 1토큰을 함께 처리합니다."],
+ ["--enforce-eager로 띄우면 더 안정적이니 운영에서도 쓰자.","CUDA 그래프를 끄면 작은 배치 Decode에서 CPU 커널 실행 오버헤드가 그대로 드러나 TPOT가 나빠집니다. 기동 시간이 문제라면 로딩 최적화·preload를 먼저 검토하세요."],
+ ["--api-key를 걸었으니 vLLM을 외부에 바로 노출해도 된다.","--api-key는 /v1 경로만 보호합니다. 지표·도구 경로는 보호 대상이 아니며, 레이트 리밋·테넌트 관리도 없습니다. 반드시 게이트웨이 뒤에 둡니다."],
+ ["프리픽스 캐시는 성능 기능일 뿐 보안과는 무관하다.","여러 테넌트가 캐시를 공유하면 응답 시간 차이로 다른 테넌트의 프롬프트 존재를 추정하는 부채널이 생길 수 있습니다. 테넌트별 cache_salt를 게이트웨이에서 주입합니다."],
+ ["툴 콜링은 모델만 지원하면 자동으로 된다.","서버에 자동 툴 선택과 모델 계열에 맞는 파서를 켜야 합니다. 파서가 맞지 않으면 툴 호출이 일반 텍스트로 새어 나옵니다."],
+ ["요청에 temperature를 안 넣으면 모든 모델이 같은 기본값을 쓴다.","vLLM은 기본적으로 모델 저장소의 generation_config에서 기본 샘플링 값을 가져옵니다. 모델마다 기본값이 다를 수 있습니다."],
+ ["최신 버전으로 올리면 무조건 빨라진다.","대부분 빨라지지만 기본값 변경·기능 제거·옵션 이름 변경이 매 릴리스 있습니다. 태그를 고정하고 스테이징에서 벤치마크와 회귀 테스트를 거친 뒤 올립니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["V1 아키텍처","vLLM V1","다시 설계된 현재 vLLM의 기본 구조. 다중 프로세스, 통합 스케줄러가 특징."],
+ ["API 서버 프로세스","API server","HTTP 처리·토큰화·멀티모달 로딩·스트리밍을 맡는 프로세스."],
+ ["엔진 코어","EngineCore","스케줄러와 KV 캐시 관리자를 돌리며 워커를 조율하는 프로세스. DP 랭크당 하나."],
+ ["GPU 워커","Worker","GPU 하나를 맡아 가중치를 올리고 순전파를 실행하는 프로세스."],
+ ["DP 코디네이터","DP coordinator","데이터 병렬일 때 랭크 간 부하 분산과 MoE 동기화를 맡는 프로세스."],
+ ["ZMQ","ZeroMQ","프로세스 간 메시지 통신 라이브러리. API 서버와 엔진 코어를 잇는다."],
+ ["GIL","Global Interpreter Lock","한 파이썬 프로세스에서 파이썬 코드가 동시에 하나만 실행되게 하는 잠금. 프로세스 분리의 이유."],
+ ["바쁜 루프","Busy loop","쉬지 않고 반복 실행되는 루프. 엔진 코어가 CPU 한 코어를 계속 쓰는 이유."],
+ ["실행기","Executor","엔진 코어가 워커들에게 일을 나눠 주는 계층(단일 프로세스, 다중 프로세스, Ray 등)."],
+ ["스케줄러 출력","Scheduler output","이번 스텝에 처리할 요청·요청별 토큰 수·블록 정보를 담은 묶음."],
+ ["토큰 예산","Token budget","한 스텝에 처리할 수 있는 최대 토큰 수(max-num-batched-tokens)."],
+ ["선점","Preemption","블록 부족 시 실행 중 요청의 KV를 회수하고 대기열로 돌려보내는 동작."],
+ ["블록 해시","Block hash","앞 블록 해시+토큰+추가 키로 만든 블록 식별자. 프리픽스 캐시의 열쇠."],
+ ["cache_salt","Cache salt","요청에 넣는 값. 같은 salt끼리만 프리픽스 캐시를 공유하게 해 테넌트를 격리."],
+ ["하이브리드 KV 캐시","Hybrid KV cache manager","층 종류(전체 어텐션·슬라이딩 윈도우·상태 공간)별로 KV를 다르게 관리하는 구조."],
+ ["KV 커넥터","KV connector","KV 블록을 외부(CPU·SSD·다른 노드)로 주고받는 확장 지점. 오프로딩·P/D 분리에 사용."],
+ ["모델 러너","Model runner","스케줄러 출력을 입력 텐서로 바꾸고 순전파·샘플링을 실행하는 컴포넌트."],
+ ["Model Runner V2","MRV2","새로 설계된 모델 러너. 기능을 넓혀 가는 중."],
+ ["슬롯 매핑","Slot mapping","새로 계산한 K·V를 KV 블록 풀의 어느 위치에 쓸지 알려주는 정보."],
+ ["CUDA 그래프","CUDA Graph","GPU 커널 실행 순서를 녹화해 재생하는 기능. CPU 실행 오버헤드 제거."],
+ ["PIECEWISE / FULL","CUDA graph mode","어텐션 사이 구간만 녹화(PIECEWISE)하거나 전체를 녹화(FULL)하는 방식."],
+ ["torch.compile","PyTorch 컴파일러","연산을 묶고 최적화된 커널을 생성. vLLM 최적화 레벨의 일부."],
+ ["최적화 레벨","-O0 ~ -O3","기동 시간과 실행 성능을 맞바꾸는 프리셋. 기본 -O2."],
+ ["어텐션 백엔드","Attention backend","어텐션 계산 구현(FlashAttention, FlashInfer, MLA 전용 등). 자동 선택."],
+ ["비동기 스케줄링","Async scheduling","GPU 실행 중 다음 스텝을 미리 계획해 스텝 사이 빈틈을 줄이는 방식."],
+ ["채팅 템플릿","Chat template","messages를 모델 입력 문자열로 바꾸는 규칙."],
+ ["디토큰화","Detokenization","토큰 ID를 글자로 바꾸는 과정. API 서버의 출력 처리기가 담당."],
+ ["툴 콜 파서","Tool call parser","모델 출력에서 함수 호출을 찾아 tool_calls 필드로 바꾸는 모듈. 모델 계열별."],
+ ["추론 파서","Reasoning parser","모델의 생각(추론) 부분을 본문과 분리해 별도 필드로 내보내는 모듈."],
+ ["구조화 출력","Structured outputs","JSON 스키마·선택지·정규식·문법에 맞는 토큰만 허용하는 기능."],
+ ["xgrammar","XGrammar","구조화 출력의 문법 엔진 중 하나. vLLM의 기본 선택지."],
+ ["Responses API","OpenAI Responses","OpenAI의 새 응답 API 형식. vLLM이 /v1/responses로 지원."],
+ ["Messages API","Anthropic Messages","Anthropic 형식. vLLM이 /v1/messages로 지원."],
+ ["generation_config","Generation config","모델 저장소의 기본 샘플링 설정 파일. vLLM 기본값의 출처."],
+ ["preload","vllm preload","양자화된 가중치를 GPU에 상주시켜 재기동을 빠르게 하는 데몬 (v0.31.0)."],
+ ["엔진 스냅샷","Initialized engine snapshot","CRIU로 초기화 완료 상태를 저장·복원하는 실험 기능."],
+ ["슬립 모드","Sleep mode","엔진을 재워 GPU 메모리를 일시적으로 비우는 기능."],
+ ["배치 불변","Batch invariance","배치 구성과 무관하게 같은 결과를 내는 모드."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["vllm serve -tp 2 -dp 2로 띄웠을 때 기본 설정의 프로세스 수는? (API 서버 수는 기본값)",["4개","6개","9개","5개"],2,"API 서버 2(DP 수만큼) + 엔진 코어 2 + GPU 워커 4 + DP 코디네이터 1 = 9개."],
+ ["API 서버와 엔진 코어를 별도 프로세스로 나눈 가장 큰 이유는?",["보안 격리","파이썬 GIL 경합을 없애 스케줄링 루프가 HTTP·토큰화 작업에 방해받지 않게","GPU 메모리 절약","라이선스"],1,"같은 프로세스면 HTTP·직렬화 작업과 스케줄 루프가 GIL을 두고 경쟁해 GPU가 놉니다."],
+ ["V1 스케줄러가 한 스텝을 배정하는 순서로 맞는 것은?",["대기 요청의 Prefill을 먼저, 남으면 Decode","실행 중 요청을 먼저, 남은 예산으로 대기 요청","무작위","요청 길이가 짧은 순"],1,"진행 중인 사용자의 흐름(TPOT)을 지키기 위해 실행 중 요청이 우선입니다."],
+ ["토큰 예산(max-num-batched-tokens)을 크게 키웠을 때 나타나기 쉬운 현상은?",["긴 입력의 TTFT가 늘어난다","긴 Prefill이 한 스텝에 몰려 다른 요청의 ITL이 튈 수 있다","KV 캐시가 줄어든다","CUDA 그래프가 꺼진다"],1,"큰 Prefill이 한 스텝을 무겁게 만들어 그 스텝에 함께 있던 Decode 요청들이 멈칫합니다."],
+ ["선점(preemption)이 늘어날 때 가장 먼저 의심할 것은?",["토크나이저 오류","KV 캐시 공간 부족(동시성·컨텍스트 대비)","네트워크 지연","API 키 오류"],1,"실행 중 요청에 줄 블록이 없을 때 선점이 일어납니다. KV 사용률 지표와 함께 봅니다."],
+ ["-O0으로 띄우면 기본값(-O2) 대비 어떻게 되나?",["기동도 빠르고 실행도 빠르다","기동은 빠르지만 컴파일·CUDA 그래프가 없어 실행 성능이 낮다","기동은 느리지만 실행이 빠르다","차이 없다"],1,"-O0은 컴파일·CUDA 그래프·자동 튜닝을 모두 끕니다."],
+ ["멀티테넌트 공용 엔진에서 프리픽스 캐시로 인한 정보 노출 위험을 줄이는 방법은?",["프리픽스 캐시를 항상 끈다","게이트웨이가 테넌트별 cache_salt를 주입한다","--api-key를 건다","max-num-seqs를 줄인다"],1,"같은 salt끼리만 캐시를 공유하므로 테넌트 간 타이밍 부채널을 막습니다. 캐시 이득은 테넌트 안에서 유지됩니다."],
+ ["vLLM에 --api-key를 설정했을 때 맞는 설명은?",["모든 경로가 보호된다","/v1 아래 경로만 보호되므로 게이트웨이 뒤에 두어야 한다","/metrics만 보호된다","TLS가 자동으로 켜진다"],1,"관리·도구 경로는 보호 대상이 아닙니다."],
+ ["툴 호출 결과가 tool_calls 필드가 아니라 일반 텍스트로 나온다. 가장 먼저 확인할 것은?",["GPU 드라이버","--enable-auto-tool-choice와 모델에 맞는 --tool-call-parser 설정","--max-model-len","CUDA 그래프"],1,"파서가 없거나 모델 계열과 맞지 않으면 모델의 툴 호출 텍스트가 그대로 본문으로 나옵니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 5편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 5편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

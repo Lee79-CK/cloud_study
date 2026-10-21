@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 14편 · vLLM 파라미터 튜닝 실전</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 14 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>14편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">튜닝 대상 지도</a></li>
+    <li><a href="#s3">튜닝 절차 7단계</a></li>
+    <li><a href="#s4">메모리: 비율·길이·KV 정밀도</a></li>
+    <li><a href="#s5">동시 실행 상한</a></li>
+    <li><a href="#s6">토큰 예산과 긴 Prefill</a></li>
+    <li><a href="#s7">실행 최적화</a></li>
+    <li><a href="#s8">튜닝 중 볼 지표</a></li>
+    <li><a href="#s9">워크로드별 출발점</a></li>
+    <li><a href="#s10">MSP 관점</a></li>
+    <li><a href="#s11">흔한 오해</a></li>
+    <li><a href="#s12">실습</a></li>
+    <li><a href="#s13">용어 사전</a></li>
+    <li><a href="#s14">확인 퀴즈</a></li>
+    <li><a href="#s15">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 3 · 튜닝 — 14편 (Level 3 시작)</div>
+    <h1>vLLM 파라미터<br>튜닝 실전</h1>
+    <p class="intro">Level 2에서 플랫폼을 세웠습니다. 이제 엔진 하나를 끝까지 짜냅니다. 튜닝의 목표는 “처리량 최대”가 아니라 <b>3편의 SLO를 지키면서 처리할 수 있는 양(Goodput)을 최대로</b> 만드는 것입니다. 메모리 비율·최대 길이·KV 정밀도로 KV 공간을 정하고, 동시 실행 상한으로 TPOT를, 토큰 예산으로 TTFT와 ITL의 균형을, 최적화 레벨로 스텝 오버헤드를 다룹니다. 한 번에 하나씩, 측정으로.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>2·3·4·7편</b></span>
+      <span class="chip">읽는 시간 <b>약 90분</b></span>
+      <span class="chip">실습 <b>약 3시간</b></span>
+      <span class="chip">기준 <b>vLLM v0.31.0</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="운영점 찾기 계산기">
+    <div class="stack-head"><strong>동시 실행 상한은 어디서 정해지나</strong></div>
+    <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <label>GPU <select id="hG"><option value="h100">H100 80GB</option><option value="gb10" selected>GB10 128GB (공유)</option><option value="l4">L4 24GB</option></select></label>
+      <label>모델 <select id="hP"><option value="fp8">Qwen3-8B FP8 (8.4GB)</option><option value="bf16">Qwen3-8B BF16 (16.4GB)</option></select></label>
+      <label>gpu-memory-utilization <span id="hUV">0.35</span><input type="range" id="hU" min="0.15" max="0.95" step="0.05" value="0.35"></label>
+      <label>KV 정밀도 <select id="hK"><option value="1">auto (BF16)</option><option value="0.5">fp8</option></select></label>
+      <label>요청당 평균 문맥 (입력+출력) <span id="hCV">3,000</span><input type="range" id="hC" min="500" max="32000" step="500" value="3000"></label>
+      <label>TPOT SLO (ms) <span id="hTV">60</span><input type="range" id="hT" min="10" max="200" step="5" value="60"></label>
+    </div>
+    <div class="wf" id="hBars"></div>
+    <div class="readout">
+      <div><span>권장 max-num-seqs</span><b id="hRec">—</b></div>
+      <div><span>그때 TPOT</span><b id="hTpot">—</b></div>
+      <div><span>출력 처리량</span><b id="hThr">—</b></div>
+    </div>
+    <div class="layer-detail" id="hNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">튜닝은 감이 아니라 실험입니다. 목표 함수, 고정할 것, 바꿀 것, 잴 것을 먼저 정합니다.</p>
+  <div class="prose">
+    <h3>튜닝의 네 가지 원칙</h3>
+    <ol>
+      <li><b>목표는 SLO 하의 Goodput</b>: 3편에서 정의한 “TTFT p95·TPOT p95 목표를 지킨 요청만 센 처리량”을 최대로 만듭니다. 처리량만 올리면 대개 지연이 무너지고, 지연만 낮추면 GPU가 놉니다.</li>
+      <li><b>워크로드를 고정</b>: 입력·출력 길이 분포, 도착 패턴, 공통 프롬프트 비율을 실제 서비스와 비슷하게 정하고 실험 내내 바꾸지 않습니다. 워크로드가 바뀌면 최적 설정도 바뀝니다.</li>
+      <li><b>한 번에 하나</b>: 두 개를 동시에 바꾸면 어느 쪽 효과인지 모릅니다. 바꾼 값과 결과를 7편 스냅샷처럼 모두 기록합니다.</li>
+      <li><b>기본값을 존중</b>: vLLM 기본값은 많은 경우 이미 좋은 출발점입니다. 기본값보다 나은지 측정으로 증명된 것만 바꿉니다.</li>
+    </ol>
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>주요 파라미터가 어떤 지표를 어떤 메커니즘으로 움직이는지 지도를 그릴 수 있다.</li>
+      <li>메모리 비율·최대 길이·KV 정밀도로 KV 공간과 최대 동시성을 계산하고 조정할 수 있다.</li>
+      <li>동시 실행 상한을 KV 공간과 TPOT SLO라는 두 한계로 정할 수 있다.</li>
+      <li>토큰 예산(Chunked Prefill)과 긴 Prefill 제어 옵션으로 TTFT와 ITL의 균형을 맞출 수 있다.</li>
+      <li>최적화 레벨·CUDA 그래프 크기·비동기 스케줄링의 효과를 측정할 수 있다.</li>
+      <li>스윕 스크립트로 설정을 체계적으로 바꿔 가며 SLO 하 최대 처리량을 찾고, 근거와 함께 기본 설정을 갱신할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 오디오 믹서</span>
+      <p>튜닝은 믹서의 여러 노브를 한 번에 하나씩 돌리며 소리(지표)를 듣는 일입니다. 볼륨(동시 실행 상한)을 올리면 소리는 커지지만(처리량) 어느 순간 찢어지고(TPOT 위반), 저음(토큰 예산)을 키우면 묵직해지지만(TTFT 단축) 다른 소리를 덮습니다(ITL 튐). 그리고 공연장(워크로드)이 바뀌면 같은 설정이 다르게 들립니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>튜닝 대상 지도</h2>
+  <p class="lede">파라미터 → 메커니즘 → 지표. 이 연결을 알면 증상에서 원인 파라미터를 거꾸로 찾을 수 있습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>파라미터</th><th>건드리는 곳 (4편)</th><th>올리면</th><th>내리면</th><th>주로 움직이는 지표</th></tr></thead>
+    <tbody>
+      <tr><td class="k">--gpu-memory-utilization</td><td>KV 블록 풀 크기</td><td>KV 공간↑ → 동시성·프리픽스 캐시↑</td><td>다른 프로세스와 공존 쉬움</td><td>최대 동시성, 선점, 캐시 적중</td></tr>
+      <tr><td class="k">--max-model-len</td><td>요청당 최대 문맥, 프로파일링 크기</td><td>긴 요청 허용</td><td>활성값 예약 감소, 긴 요청 거부</td><td>허용 범위, KV 여유</td></tr>
+      <tr><td class="k">--kv-cache-dtype fp8</td><td>KV 저장 정밀도</td><td>—</td><td>(fp8로 바꾸면) KV 공간 2배</td><td>동시성, 품질(확인 필요)</td></tr>
+      <tr><td class="k">--max-num-seqs</td><td>스케줄러 동시 실행 상한</td><td>배치↑ → 처리량↑, TPOT↑, 선점 위험</td><td>TPOT↓, 대기열↑ → TTFT↑</td><td>TPOT, 처리량, TTFT(대기)</td></tr>
+      <tr><td class="k">--max-num-batched-tokens</td><td>한 스텝 토큰 예산 (Chunked Prefill 조각 크기)</td><td>긴 입력 Prefill 빨라짐 → TTFT↓, 스텝이 무거워져 ITL 튐</td><td>ITL 안정, 긴 입력 TTFT↑</td><td>TTFT, ITL p99</td></tr>
+      <tr><td class="k">--long-prefill-token-threshold · 부분 Prefill 동시 수</td><td>긴 Prefill 한 요청의 조각 상한, 동시에 진행할 긴 Prefill 수</td><td>—</td><td>긴 요청이 짧은 요청을 막는 현상 완화</td><td>짧은 요청 TTFT, ITL</td></tr>
+      <tr><td class="k">--max-num-active-seqs (v0.31)</td><td>실행 상태 진입만 별도 제한</td><td>—</td><td>대기열에 둔 채 실행 수만 제한</td><td>TPOT 상한 관리</td></tr>
+      <tr><td class="k">프리픽스 캐시 (기본 켜짐)</td><td>KV 캐시 관리자</td><td>공통 프롬프트 재사용</td><td>(끄면) 캐시 오버헤드 제거</td><td>TTFT, Prefill 계산량</td></tr>
+      <tr><td class="k">-O 레벨 · CUDA 그래프 크기</td><td>모델 러너 (컴파일·그래프)</td><td>스텝 오버헤드↓ (작은 배치 TPOT↓), 기동·메모리↑</td><td>기동↓, TPOT↑</td><td>TPOT, 기동 시간(13편)</td></tr>
+      <tr><td class="k">비동기 스케줄링</td><td>엔진 코어 루프 (스케줄과 실행 겹치기)</td><td>스텝 사이 빈틈↓</td><td>—</td><td>TPOT (특히 작은 모델)</td></tr>
+      <tr><td class="k">--api-server-count</td><td>API 서버 프로세스 수 (토큰화·스트리밍)</td><td>고동시성·멀티모달에서 프런트엔드 병목 해소</td><td>CPU 절약</td><td>TTFT (프런트엔드 대기)</td></tr>
+      <tr><td class="k">양자화 (6편)·추측 디코딩 (16편)·병렬화 (17편)</td><td>모델·실행 구조</td><td colspan="2">별도 편에서</td><td>메모리·TPOT·처리량</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>기본값 메모: <code>--gpu-memory-utilization</code>은 0.9, 스케줄러 설정의 토큰 예산 클래스 기본값은 2,048이지만, <b>실제 적용되는 동시 실행 상한·토큰 예산은 하드웨어와 사용 맥락에 따라 엔진이 정하는 경우가 많습니다.</b> 그래서 튜닝 전에 기동 로그의 “기본값이 아닌 인자”와 스케줄러 설정 줄을 확인해 <b>지금 실제로 쓰이는 값</b>부터 기록합니다. V1에서 Chunked Prefill은 항상 켜져 있습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>튜닝 절차 7단계</h2>
+  <p class="lede">순서가 중요합니다. 앞 단계가 뒤 단계의 한계를 정하기 때문입니다.</p>
+  <ol class="pathlist">
+    <li style="--c:var(--l7)"><b>목표와 워크로드 정의</b><span>SLO(예: TTFT p95 ≤ 2초, TPOT p95 ≤ 60ms), 입력·출력 길이 분포, 공통 프롬프트 비율, 목표 도착률. 서비스 로그(12편 게이트웨이 사용량)에서 가져옵니다.</span></li>
+    <li style="--c:var(--l5)"><b>기준선</b><span>현재 설정으로 3편 방식의 열린 루프 스윕을 돌려 “SLO를 지키는 최대 도착률(SLO 용량)”을 잽니다. 이후 모든 변경은 이 숫자와 비교합니다.</span></li>
+    <li style="--c:var(--l4)"><b>메모리 (KV 공간)</b><span>정밀도(6편)·KV 정밀도·최대 길이·메모리 비율로 KV 토큰 수를 정합니다. 동시성의 천장이 여기서 정해집니다.</span></li>
+    <li style="--c:var(--l3)"><b>동시 실행 상한</b><span>KV 천장과 TPOT SLO 중 낮은 쪽에 맞춥니다(5장, 히어로 계산기).</span></li>
+    <li style="--c:var(--l6)"><b>토큰 예산과 긴 Prefill</b><span>입력이 긴 요청이 섞인 워크로드에서 TTFT와 ITL p99의 균형을 맞춥니다(6장).</span></li>
+    <li style="--c:var(--l2)"><b>실행 최적화</b><span>최적화 레벨, CUDA 그래프 캡처 크기, 비동기 스케줄링, API 서버 수(7장).</span></li>
+    <li style="--c:var(--l1)"><b>검증과 기록</b><span>긴 시간(30분 이상) 혼합 부하, 품질 회귀(6편 quick_eval), 기동 시간(13편) 확인 후 기본 오버레이를 갱신하고 근거를 남깁니다.</span></li>
+  </ol>
+</section>
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>메모리: 비율·길이·KV 정밀도</h2>
+  <p class="lede">KV 공간은 동시성의 천장입니다. 2편의 공식을 튜닝 노브와 연결합니다.</p>
+  <div class="prose">
+    <div class="formula">KV 공간(GB)   ≈ GPU 메모리 × gpu-memory-utilization − 가중치 − 활성값·런타임 여유
+KV 토큰 수    = KV 공간 ÷ 토큰당 KV 크기 (2편: 층 × KV 헤드 × 헤드 차원 × 2 × 바이트)
+최대 동시성   ≈ KV 토큰 수 ÷ 요청당 평균 문맥 (입력 + 출력)</div>
+    <ul>
+      <li><b>gpu-memory-utilization</b>: 전용 GPU라면 0.9 안팎이 기본입니다. GB10처럼 메모리를 CPU·다른 프로세스와 공유하면 8편 메모리 예산으로 정합니다(랩은 RAG 플랫폼과 공존을 위해 0.35). 올릴수록 KV가 늘지만 OS·다른 프로세스 몫이 줄어듭니다.</li>
+      <li><b>max-model-len</b>: 서비스가 실제로 쓰는 최대 문맥보다 크게 잡을 이유가 없습니다. 크게 잡으면 기동 시 프로파일링이 더 큰 활성값을 예약하고, 긴 요청 하나가 KV를 독식할 수 있습니다. 게이트웨이(12편)에서 입력 길이 상한을 함께 걸어 두세요.</li>
+      <li><b>KV 정밀도 fp8</b>: KV 공간이 두 배가 되어 동시성·프리픽스 캐시가 늘어납니다. 대부분의 모델에서 품질 손실이 작지만, 긴 문맥·추론 작업은 6편 방식으로 확인합니다.</li>
+      <li><b>가중치 정밀도</b>(6편): BF16 → FP8이면 가중치가 절반이 되어 같은 비율에서 KV 공간이 그만큼 늘어납니다. 8B 모델 기준 약 8GB가 KV로 돌아옵니다.</li>
+    </ul>
+    <div class="callout tip">
+      <span class="ttl">로그로 확인</span>
+      <p>vLLM은 기동 시 KV 캐시 토큰 수와 “최대 문맥 길이 기준 최대 동시성”을 로그에 찍습니다(4편 실습). 메모리 관련 설정을 바꿀 때마다 이 두 숫자를 기록하면, 계산과 실제가 맞는지 바로 확인할 수 있습니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>동시 실행 상한</h2>
+  <p class="lede"><code>--max-num-seqs</code>는 “동시에 몇 명의 토큰을 함께 구울지”입니다. 너무 낮아도, 너무 높아도 Goodput이 떨어집니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>설정</th><th>무슨 일이 생기나</th><th>증상</th></tr></thead>
+    <tbody>
+      <tr><td class="k">너무 낮음</td><td>GPU가 더 함께 처리할 수 있는데 대기열에서 기다림</td><td>TPOT는 좋은데 TTFT(대기 시간)가 길고 처리량이 낮음, GPU 대역폭 여유</td></tr>
+      <tr><td class="k">적정</td><td>KV 공간과 TPOT SLO 안에서 최대한 함께 처리</td><td>TPOT가 SLO 근처, 대기열 짧음, 선점 거의 없음</td></tr>
+      <tr><td class="k">너무 높음 (KV 쪽)</td><td>KV 블록이 모자라 실행 중 요청을 선점 → 다시 계산(4편)</td><td>선점 카운터 증가, 처리량 정체, 꼬리 지연 급증</td></tr>
+      <tr><td class="k">너무 높음 (TPOT 쪽)</td><td>배치가 커져 한 스텝이 길어짐 (2편 루프라인)</td><td>처리량은 늘지만 TPOT가 SLO 초과 → Goodput 하락</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>그래서 출발점은 <b>max-num-seqs ≈ min(KV 공간 한계, TPOT SLO 한계)</b>입니다. 히어로 계산기가 이 두 한계를 보여 줍니다. 그다음 실측(실습 14-4)으로 미세 조정합니다. TPOT 한계 쪽이 묶여 있다면 상한을 올려도 Goodput이 늘지 않으므로, 더 빠른 GPU·양자화·추측 디코딩(16편)·레플리카 추가(18편)를 검토합니다. KV 쪽이 묶여 있다면 4장의 메모리 노브가 답입니다.</p>
+    <div class="callout warnbox">
+      <span class="ttl">상한을 낮추는 것도 정책이다</span>
+      <p>max-num-seqs를 낮추면 넘치는 요청은 엔진 대기열에서 기다립니다. 대기열이 길어지면 TTFT SLO가 무너지므로, 대기열 길이를 지표로 보고 레플리카를 늘리거나(18편), 게이트웨이·흐름 제어(11·12편)에서 우선순위대로 받도록 합니다. “엔진이 받을 수 있는 만큼만 받고 나머지는 앞단에서 관리”가 원칙입니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>토큰 예산과 긴 Prefill</h2>
+  <p class="lede">긴 입력이 섞인 워크로드에서 가장 효과가 큰 노브. 긴 요청의 TTFT와 진행 중 요청의 ITL을 맞바꿉니다.</p>
+  <div class="tool wide" id="tbTool">
+    <h4>토큰 예산 맞교환 계산기</h4>
+    <div class="desc">Decode 중인 요청 b개가 있는 엔진에 긴 입력 요청 하나가 들어올 때, 토큰 예산(<code>--max-num-batched-tokens</code>)에 따라 그 요청의 Prefill 완료 시간(대략 TTFT)과 진행 중 요청이 겪는 가장 긴 토큰 간격(ITL 꼬리)이 어떻게 바뀌는지 봅니다. 2편의 단순 모델입니다.</div>
+    <div class="form">
+      <label>GPU·모델 <select id="tbG"><option value="h100">H100 · 8B FP8</option><option value="gb10" selected>GB10 · 8B FP8</option></select></label>
+      <label>진행 중 Decode 요청 <span id="tbBV">32</span><input type="range" id="tbB" min="1" max="256" step="1" value="32"></label>
+      <label>긴 입력 길이 (토큰) <span id="tbIV">16,000</span><input type="range" id="tbI" min="1000" max="64000" step="1000" value="16000"></label>
+      <label>토큰 예산 <span id="tbCV">2,048</span><input type="range" id="tbC" min="0" max="7" step="1" value="2"></label>
+    </div>
+    <div class="chartbox"><svg id="tbSvg" viewBox="0 0 720 280" role="img" aria-label="토큰 예산별 TTFT와 ITL"></svg></div>
+    <div class="legend"><span><i style="background:var(--l4)"></i>긴 요청 Prefill 완료 (초, 왼쪽 축)</span><span><i style="background:var(--l3)"></i>진행 중 요청 ITL 꼬리 (ms, 오른쪽 축)</span></div>
+    <div class="result">
+      <div class="r"><span>긴 요청 Prefill 완료</span><b id="tbT">—</b></div>
+      <div class="r"><span>진행 중 요청 ITL 꼬리</span><b id="tbS">—</b></div>
+      <div class="r"><span>평상시 TPOT</span><b id="tbD">—</b></div>
+    </div>
+    <div class="verdict" id="tbNote"></div>
+  </div>
+  <div class="prose">
+    <h3>긴 Prefill을 다루는 보조 노브</h3>
+    <ul>
+      <li><b>긴 Prefill 임계값</b>(<code>--long-prefill-token-threshold</code>): 한 요청이 한 스텝에 가져갈 Prefill 토큰 상한. v0.31.0에서는 대기 중인 Prefill 수에 따라 적응하도록 바뀌었습니다(4편).</li>
+      <li><b>부분 Prefill 동시 수</b>(<code>--max-num-partial-prefills</code>, <code>--max-long-partial-prefills</code>): 여러 요청의 Prefill을 동시에 조각내 진행할지, 긴 요청은 몇 개까지 동시에 진행할지. 긴 요청 하나가 짧은 요청들을 줄 세우는 현상을 줄입니다(옵션 이름·지원 범위는 버전 문서 확인).</li>
+      <li><b>근본 해결</b>: 긴 입력 비중이 크고 ITL SLO가 엄격하면 P/D 분리(10편)를 검토합니다. 토큰 예산은 같은 GPU 안에서의 타협이고, P/D는 GPU를 나눠 간섭 자체를 없앱니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>실행 최적화</h2>
+  <p class="lede">스텝 하나에 붙는 고정 오버헤드를 줄이는 노브들. 작은 모델·작은 배치에서 효과가 큽니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>노브</th><th>효과</th><th>대가</th><th>언제 만지나</th></tr></thead>
+    <tbody>
+      <tr><td class="k">-O 레벨 (기본 -O2)</td><td>컴파일·CUDA 그래프로 커널 실행 오버헤드 제거</td><td>기동 시간·약간의 메모리 (13편)</td><td>기본값 유지가 원칙. -O0은 디버깅용</td></tr>
+      <tr><td class="k">CUDA 그래프 캡처 크기</td><td>실제 트래픽의 배치 크기를 그래프로 덮어 패딩 낭비·그래프 미적용 구간 감소</td><td>캡처 크기가 많을수록 기동·메모리 증가</td><td>max-num-seqs를 크게 바꿨을 때(최대 캡처 크기와 맞추기)</td></tr>
+      <tr><td class="k">비동기 스케줄링</td><td>다음 스텝 계획을 GPU 실행과 겹쳐 스텝 사이 빈틈 제거</td><td>일부 기능 조합 제약</td><td>작은 모델·낮은 TPOT 목표</td></tr>
+      <tr><td class="k">API 서버 수</td><td>토큰화·스트리밍 CPU 병목 해소</td><td>CPU·메모리 사용</td><td>고동시성에서 엔진은 한가한데 TTFT가 늘 때, 멀티모달</td></tr>
+      <tr><td class="k">스트리밍 출력 간격 (stream interval)</td><td>토큰마다가 아니라 몇 토큰씩 묶어 보내 출력 처리 부담 감소</td><td>사용자 체감 끊김</td><td>매우 높은 동시성에서 API 서버 CPU가 병목일 때</td></tr>
+      <tr><td class="k">Pod CPU 자원</td><td>엔진 코어 바쁜 루프와 API 서버에 충분한 CPU (4편)</td><td>노드 CPU</td><td>CPU 스로틀링이 보이면 가장 먼저</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">CPU 스로틀링을 먼저 의심한다</span>
+      <p>GPU 사용률이 낮은데 TPOT가 나쁘면 Pod의 CPU 제한이 원인인 경우가 많습니다. 컨테이너의 CPU 스로틀링 지표(cAdvisor의 throttled 시간)를 보고, 엔진 Pod의 CPU limit을 넉넉히(또는 request만) 두세요. 7편 기준 배포의 CPU limit 12가 랩 노드에서 충분한지 실습 14-2에서 함께 확인합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>튜닝 중 볼 지표</h2>
+  <p class="lede">결과(지연·처리량)와 함께 원인(엔진 내부 상태)을 같이 봐야 다음에 무엇을 바꿀지 압니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>지표 (vLLM /metrics, 이름은 버전 확인)</th><th>의미</th><th>이렇게 나오면</th></tr></thead>
+    <tbody>
+      <tr><td class="k">실행 중·대기 요청 수</td><td>배치 크기와 대기열</td><td>대기가 늘고 실행은 상한에 붙어 있음 → max-num-seqs 또는 용량 부족</td></tr>
+      <tr><td class="k">KV 캐시 사용률</td><td>KV 블록 풀 점유</td><td>90% 이상 지속 → 메모리 노브(4장) 또는 상한 낮추기</td></tr>
+      <tr><td class="k">선점 횟수</td><td>KV 부족으로 다시 계산한 요청</td><td>0이 아니면 꼬리 지연의 주범. 즉시 조치</td></tr>
+      <tr><td class="k">스텝당 토큰 수 분포</td><td>한 스텝에 실제로 처리한 토큰</td><td>토큰 예산에 자주 닿으면 Prefill이 몰리는 중</td></tr>
+      <tr><td class="k">TTFT·ITL·요청 대기 시간 히스토그램</td><td>지연 분포 (3편)</td><td>TTFT 중 대기 시간 비중이 크면 용량·상한 문제, Prefill 시간 비중이 크면 토큰 예산·입력 길이 문제</td></tr>
+      <tr><td class="k">프리픽스 캐시 적중</td><td>공통 앞부분 재사용률</td><td>낮으면 라우팅(11편)·KV 공간 확인</td></tr>
+      <tr><td class="k">GPU 사용률·메모리 대역폭 (DCGM)</td><td>하드웨어가 얼마나 일하나</td><td>낮은데 지연이 나쁘면 CPU·프런트엔드 병목</td></tr>
+      <tr><td class="k">컨테이너 CPU 스로틀링</td><td>CPU 제한에 걸린 시간</td><td>있으면 CPU limit 상향이 1순위</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>워크로드별 출발점</h2>
+  <p class="lede">정답이 아니라 첫 실험의 출발점입니다. 반드시 우리 워크로드로 측정해 조정합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>워크로드</th><th>특징</th><th>우선 노브</th><th>출발점</th></tr></thead>
+    <tbody>
+      <tr><td class="k">짧은 대화형 챗</td><td>입력·출력 짧음, TPOT 체감 중요</td><td>max-num-seqs (TPOT 한계), 실행 최적화</td><td>토큰 예산 기본값, 상한은 TPOT 한계로</td></tr>
+      <tr><td class="k">RAG·문서 질의</td><td>입력 길고 출력 짧음, 공통 시스템 프롬프트</td><td>토큰 예산, KV 공간, 프리픽스 캐시</td><td>토큰 예산을 기본보다 크게 시작해 ITL p99와 맞교환 확인</td></tr>
+      <tr><td class="k">코딩 에이전트·멀티턴</td><td>문맥이 점점 길어짐, 같은 세션 반복</td><td>KV 공간(fp8 KV), max-model-len, 캐시 인지 라우팅(11편)</td><td>KV fp8 검토, 상한은 KV 한계로</td></tr>
+      <tr><td class="k">배치 요약·평가</td><td>지연 무관, 처리량 최우선</td><td>max-num-seqs 크게, 토큰 예산 크게</td><td>KV 공간이 허용하는 최대, 선점만 0으로</td></tr>
+      <tr><td class="k">음성·실시간</td><td>TTFT·TPOT 모두 매우 엄격</td><td>상한 낮게, 토큰 예산 작게, 레플리카 여유</td><td>Goodput보다 꼬리 지연 우선</td></tr>
+      <tr><td class="k">멀티테넌트 공용</td><td>위가 섞임</td><td>우선순위 흐름 제어(11편)와 함께</td><td>가장 엄격한 SLO 기준으로 상한, 배치성 트래픽은 별도 풀</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>MSP 관점</h2>
+  <p class="lede">튜닝은 한 번 하고 끝나는 작업이 아니라, 고객별로 관리하는 설정 자산입니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>튜닝 결과물 = 설정 + 근거</b>: 오버레이(설정)와 함께 워크로드 정의, 기준선, 변경별 측정값, 최종 SLO 용량을 문서로 남깁니다. 고객 보고서와 다음 튜닝의 출발점이 됩니다.</li>
+      <li><b>다시 튜닝할 때</b>: 모델·정밀도 변경, 엔진 업그레이드(4편), GPU 변경, 워크로드 변화(입력 길이 분포가 바뀌는 등). 게이트웨이 사용량(12편)으로 워크로드 변화를 감지해 재튜닝을 제안합니다.</li>
+      <li><b>고객 등급별 프로필</b>: “지연 우선”, “처리량 우선”, “혼합” 같은 표준 프로필 오버레이를 만들어 두면 신규 고객 적용이 빨라집니다.</li>
+      <li><b>SLO 용량 = 판매 단위</b>: “GPU 한 장으로 SLO를 지키며 초당 몇 요청”이 곧 용량 계획과 단가의 근거입니다(3편 비용 비교, 12편 과금).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>흔한 오해</h2>
+  <p class="lede">튜닝에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>실습</h2>
+  <p class="lede">7편 랩의 qwen3-8b-fp8로, 워크로드와 SLO를 고정한 채 노브를 하나씩 돌리며 “SLO 용량(SLO를 지키는 최대 도착률)”을 비교합니다. 마지막에 최적 설정을 기본 오버레이로 승격합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제와 해석 주의</span>
+      <ul>
+        <li>7편 랩(오버레이 구조·bench Pod·lab.sh), 13편 컴파일 캐시 구성 요소(기동 반복이 많으므로 권장).</li>
+        <li>GB10은 메모리 대역폭이 작아(0.273TB/s) 절대 처리량이 데이터센터 GPU보다 훨씬 낮습니다. 이 실습의 목적은 절대값이 아니라 <b>노브별 상대 효과와 절차</b>입니다. 같은 절차를 고객 환경의 H100 등에서 그대로 반복할 수 있습니다.</li>
+        <li>메모리 비율을 올리는 실험(14-3)은 8편의 GB10 메모리 예산 안에서만 합니다. RAG 플랫폼이 떠 있다면 그 몫을 빼고 정하세요.</li>
+        <li>한 설정당 기동 + 도착률 4~5단계 × 60초라 설정 하나에 10분 안팎이 걸립니다. 전체 실습은 3시간 정도를 잡으세요.</li>
+      </ul>
+    </div>
+
+    <h3>실습 14-1 · 워크로드와 SLO 정의</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>항목</th><th>랩 기본값 (바꿔도 됨)</th><th>우리 서비스 값</th></tr></thead>
+    <tbody>
+      <tr><td class="k">입력 길이 (짧은 요청)</td><td>약 300단어 (수백 토큰)</td><td></td></tr>
+      <tr><td class="k">긴 입력 요청 비율·길이</td><td>0% (14-5에서 20%, 약 6,000단어)</td><td></td></tr>
+      <tr><td class="k">출력 길이</td><td>128토큰 고정 (ignore_eos)</td><td></td></tr>
+      <tr><td class="k">도착 패턴</td><td>포아송 (열린 루프, 3편)</td><td></td></tr>
+      <tr><td class="k">SLO</td><td>TTFT p95 ≤ 3,000ms, TPOT p95 ≤ 100ms (GB10 기준 완화값)</td><td></td></tr>
+      <tr><td class="k">스윕할 도착률 (req/s)</td><td>0.5, 1, 2, 3, 4</td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>python · slo_probe.py (50-tools/scripts에 추가)</span><button class="copy">복사</button></div><pre><code>"""열린 루프 SLO 측정: 포아송 도착으로 duration초 동안 요청을 보내고 TTFT·TPOT·ITL 꼬리·Goodput을 기록한다.
+사용: python slo_probe.py --label CFG --rate 2 [--duration 60] [--long-ratio 0.2]"""
+import argparse, asyncio, json, random, time
+from openai import AsyncOpenAI
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--base", default="http://llm-engine:8000/v1"); ap.add_argument("--model", default="qwen3-8b")
+ap.add_argument("--label", required=True); ap.add_argument("--rate", type=float, required=True)
+ap.add_argument("--duration", type=float, default=60); ap.add_argument("--out", type=int, default=128)
+ap.add_argument("--in-words", type=int, default=300); ap.add_argument("--long-ratio", type=float, default=0.0)
+ap.add_argument("--long-words", type=int, default=6000)
+ap.add_argument("--ttft-slo", type=float, default=3000); ap.add_argument("--tpot-slo", type=float, default=100)
+ap.add_argument("--result", default="/results/sweep.jsonl")
+a = ap.parse_args()
+cli = AsyncOpenAI(base_url=a.base, api_key="EMPTY", timeout=600)
+W = "노드 파드 쿼터 지연 처리량 메모리 대역폭 캐시 배치 스케줄러 게이트웨이 장애 알림 예산 토큰 모델".split()
+rnd = random.Random(42)
+
+async def one(i):
+    n = a.long_words if rnd.random() &lt; a.long_ratio else a.in_words
+    text = " ".join(rnd.choice(W) for _ in range(n))
+    t0 = time.perf_counter(); first = last = None; gaps = []; cnt = 0
+    try:
+        s = await cli.chat.completions.create(model=a.model, max_tokens=a.out, stream=True,
+            messages=[{"role": "user", "content": f"[{i}] {text}\n위 메모를 요약해 줘. /no_think"}],
+            extra_body={"ignore_eos": True})
+        async for ev in s:
+            if ev.choices and ev.choices[0].delta and ev.choices[0].delta.content:
+                now = time.perf_counter()
+                if first is None: first = now
+                else: gaps.append(now - last)
+                last = now; cnt += 1
+    except Exception as e:
+        return {"err": type(e).__name__}
+    if first is None: return {"err": "no_tokens"}
+    return {"ttft": (first - t0) * 1000, "tpot": (last - first) / max(cnt - 1, 1) * 1000,
+            "itl_max": max(gaps) * 1000 if gaps else 0, "tok": cnt}
+
+def pct(xs, p):
+    xs = sorted(xs); return xs[min(len(xs) - 1, int(p * len(xs)))] if xs else float("nan")
+
+async def main():
+    tasks, t_end, i = [], time.perf_counter() + a.duration, 0
+    while time.perf_counter() &lt; t_end:
+        tasks.append(asyncio.create_task(one(i))); i += 1
+        await asyncio.sleep(rnd.expovariate(a.rate))
+    t_send = time.perf_counter()
+    rs = await asyncio.gather(*tasks); wall = time.perf_counter() - t_send + a.duration
+    ok = [r for r in rs if "err" not in r]
+    good = [r for r in ok if r["ttft"] &lt;= a.ttft_slo and r["tpot"] &lt;= a.tpot_slo]
+    row = {"label": a.label, "rate": a.rate, "sent": len(rs), "errors": len(rs) - len(ok),
+           "ttft_p50": pct([r["ttft"] for r in ok], .5), "ttft_p95": pct([r["ttft"] for r in ok], .95),
+           "tpot_p50": pct([r["tpot"] for r in ok], .5), "tpot_p95": pct([r["tpot"] for r in ok], .95),
+           "itl_p99": pct([r["itl_max"] for r in ok], .99), "out_tok_s": sum(r["tok"] for r in ok) / wall,
+           "goodput_frac": len(good) / max(len(rs), 1), "goodput_rps": len(good) / a.duration}
+    print(json.dumps(row, ensure_ascii=False))
+    with open(a.result, "a") as f: f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+asyncio.run(main())</code></pre></div>
+
+    <h3>실습 14-2 · 스윕 도우미와 기준선</h3>
+    <div class="codeblock"><div class="cap"><span>bash · tune.sh (llm-lab 저장소 루트에)</span><button class="copy">복사</button></div><pre><code>#!/usr/bin/env bash
+# 사용: ./tune.sh 이름 "키=값 키=값 ..." [도착률 목록] [추가 slo_probe 인자]
+#   예) ./tune.sh base ""                                  기준선
+#       ./tune.sh seqs32 "max-num-seqs=32"
+#       ./tune.sh budget8k "max-num-batched-tokens=8192" "0.5 1 2 3" "--long-ratio 0.2"
+set -euo pipefail
+NAME=${1:?이름}; SET=${2:-}; RATES=${3-"0.5 1 2 3 4"}; EXTRA=${4:-}   <span class="c-cm"># 도착률 목록을 ""로 주면 기동만</span>
+ROOT=$(cd "$(dirname "$0")" &amp;&amp; pwd); OV="$ROOT/30-serving/overlays/tune-$NAME"; NS=llmsvc-lab
+mkdir -p "$OV"
+<span class="c-cm"># 기준 설정 (실험 내내 고정할 값) + 이번에 바꿀 값</span>
+declare -A C=( [host]=0.0.0.0 [port]=8000 [gpu-memory-utilization]=0.35 [max-model-len]=16384 )
+for kv in $SET; do C[${kv%%=*}]=${kv#*=}; done
+: &gt; "$OV/vllm.yaml"; for k in "${!C[@]}"; do echo "$k: ${C[$k]}" &gt;&gt; "$OV/vllm.yaml"; done
+cat &gt; "$OV/kustomization.yaml" &lt;&lt;EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [../../base]
+components: [../../components/compile-cache]
+labels: [ { pairs: { llm-lab/variant: tune-$NAME } } ]
+configMapGenerator:
+- { name: llm-engine-env, behavior: replace, literals: [MODEL_PATH=/models/Qwen/Qwen3-8B-FP8, SERVED_NAME=qwen3-8b] }
+- { name: llm-engine-config, behavior: replace, files: [vllm.yaml] }
+EOF
+echo "== $NAME: $(tr '\n' ' ' &lt; "$OV/vllm.yaml")"
+"$ROOT/lab.sh" up "tune-$NAME" &gt;/dev/null
+kubectl -n $NS logs deploy/llm-engine | grep -iE "kv cache|concurrency|max_num_seqs|max_num_batched" | tail -4 | tee -a "$ROOT/results/tune-$NAME.log" || true
+for r in $RATES; do
+  kubectl -n $NS exec bench -- python /scripts/slo_probe.py --label "$NAME" --rate "$r" $EXTRA
+done</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>python · tune_report.py (작업 머신에서: results/sweep.jsonl 분석)</span><button class="copy">복사</button></div><pre><code>import json, sys, collections
+rows = [json.loads(l) for l in open(sys.argv[1] if len(sys.argv) &gt; 1 else "results/sweep.jsonl")]
+TTFT, TPOT = 3000, 100
+by = collections.defaultdict(list)
+for r in rows: by[r["label"]].append(r)
+print(f"{'설정':&lt;14}{'SLO 용량(req/s)':&gt;16}{'그때 TTFT95':&gt;12}{'TPOT95':&gt;9}{'ITL99':&gt;9}{'출력 tok/s':&gt;11}{'오류':&gt;6}")
+for label, rs in by.items():
+    rs.sort(key=lambda x: x["rate"])
+    ok = [r for r in rs if r["ttft_p95"] &lt;= TTFT and r["tpot_p95"] &lt;= TPOT and r["errors"] == 0]
+    best = ok[-1] if ok else None
+    if best:
+        print(f"{label:&lt;14}{best['rate']:&gt;16}{best['ttft_p95']:&gt;12.0f}{best['tpot_p95']:&gt;9.1f}{best['itl_p99']:&gt;9.0f}{best['out_tok_s']:&gt;11.0f}{best['errors']:&gt;6}")
+    else:
+        print(f"{label:&lt;14}{'SLO 미달':&gt;16}  (가장 낮은 도착률 {rs[0]['rate']}: TTFT95 {rs[0]['ttft_p95']:.0f}, TPOT95 {rs[0]['tpot_p95']:.1f})")</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 준비와 기준선</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># slo_probe.py를 50-tools/scripts/에 두고 kustomization의 files 목록에 추가한 뒤</span>
+kubectl apply -k 50-tools &amp;&amp; kubectl -n llmsvc-lab delete pod bench &amp;&amp; kubectl apply -k 50-tools
+kubectl -n llmsvc-lab wait --for=condition=Ready pod/bench --timeout=10m
+chmod +x tune.sh
+./tune.sh base ""
+<span class="c-cm"># 측정 중 CPU 스로틀링 확인 (7장): 엔진 Pod의 throttled 시간이 늘면 CPU limit부터 조정</span>
+kubectl get --raw "/api/v1/nodes/$(kubectl -n llmsvc-lab get pod -l app=llm-engine -o jsonpath='{.items[0].spec.nodeName}')/proxy/metrics/cadvisor" \
+  | grep container_cpu_cfs_throttled_seconds_total | grep llm-engine | head -3
+./lab.sh results &amp;&amp; python tune_report.py results/sweep.jsonl</code></pre></div>
+    <p>기준선의 “SLO 용량”이 이후 모든 비교의 기준입니다. 기동 로그에서 실제 적용된 동시 실행 상한·토큰 예산 값도 <code>results/tune-base.log</code>에 남깁니다.</p>
+
+    <h3>실습 14-3 · 메모리 노브</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>./tune.sh util25 "gpu-memory-utilization=0.25"
+./tune.sh util45 "gpu-memory-utilization=0.45"     <span class="c-cm"># 8편 메모리 예산 안일 때만</span>
+./tune.sh kvfp8  "kv-cache-dtype=fp8"
+./tune.sh len4k  "max-model-len=4096"
+./lab.sh results &amp;&amp; python tune_report.py results/sweep.jsonl</code></pre></div>
+    <p><b>관찰</b>: 각 설정의 로그에서 KV 토큰 수가 어떻게 변했는지, 그것이 SLO 용량에 반영되었는지. 이 짧은 입력 워크로드(문맥 수백 토큰)에서는 KV가 이미 넉넉해 메모리 노브의 효과가 작을 수 있습니다. 그렇다면 “이 워크로드에서 KV는 병목이 아니다”가 결론입니다. 긴 문맥 워크로드라면 결과가 달라집니다.</p>
+
+    <h3>실습 14-4 · 동시 실행 상한</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>./tune.sh seqs8   "max-num-seqs=8"
+./tune.sh seqs32  "max-num-seqs=32"
+./tune.sh seqs128 "max-num-seqs=128"
+./lab.sh results &amp;&amp; python tune_report.py results/sweep.jsonl</code></pre></div>
+    <p><b>관찰</b>: 상한이 너무 낮으면 높은 도착률에서 TTFT(대기)가, 너무 높으면 TPOT가 SLO를 넘습니다. 히어로 계산기에 GB10·FP8·0.35·문맥·TPOT SLO를 넣은 권장값과 실측 최적값을 비교해 보세요. 차이가 크다면 그 원인(스텝 오버헤드, CPU, 실제 문맥 길이)을 찾는 것이 다음 단계입니다.</p>
+
+    <h3>실습 14-5 · 토큰 예산 (긴 입력 20% 섞기)</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>./tune.sh mix-b512  "max-num-batched-tokens=512"  "0.25 0.5 1 1.5" "--long-ratio 0.2"
+./tune.sh mix-b2k   "max-num-batched-tokens=2048" "0.25 0.5 1 1.5" "--long-ratio 0.2"
+./tune.sh mix-b8k   "max-num-batched-tokens=8192" "0.25 0.5 1 1.5" "--long-ratio 0.2"
+./lab.sh results &amp;&amp; python tune_report.py results/sweep.jsonl</code></pre></div>
+    <p><b>관찰</b>: <code>ITL99</code> 열(진행 중 요청이 겪은 가장 긴 토큰 간격의 99백분위)과 <code>TTFT95</code> 열이 예산에 따라 반대로 움직이는지 6장 계산기와 비교합니다. 예산이 작을수록 ITL 꼬리는 안정되고 긴 요청의 TTFT는 길어집니다. 서비스의 SLO가 어느 쪽에 엄격한지가 선택 기준입니다.</p>
+
+    <h3>실습 14-6 · 실행 최적화</h3>
+    <ul>
+      <li><b>최적화 레벨</b>: 13편 실습처럼 오버레이 command에 <code>-O0</code>를 추가한 설정(<code>tune-o0</code>)을 만들어 같은 스윕을 돌리고, TPOT95와 SLO 용량 차이를 기록합니다. 기동 시간 단축과 실행 성능 손실의 맞교환이 숫자로 보입니다.</li>
+      <li><b>비동기 스케줄링</b>: 사용하는 버전에서 기본값이 무엇인지 기동 로그·<code>vllm serve --help=async</code>로 확인한 뒤, 반대 설정으로 한 번 비교합니다(<code>./tune.sh async "async-scheduling=true"</code> 형식, 키 이름은 버전 확인).</li>
+      <li><b>CUDA 그래프 크기</b>: 14-4에서 최적 상한이 기본 최대 캡처 크기보다 크다면, 컴파일 설정의 최대 캡처 크기를 그 값에 맞춘 설정을 비교합니다(4·13편).</li>
+    </ul>
+
+    <h3>실습 14-7 · 결과 종합과 승격</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>설정</th><th>SLO 용량 (req/s)</th><th>기준선 대비</th><th>채택 여부와 이유</th></tr></thead>
+    <tbody>
+      <tr><td class="k">base</td><td></td><td>—</td><td>기준</td></tr>
+      <tr><td class="k">메모리 (14-3)</td><td></td><td></td><td></td></tr>
+      <tr><td class="k">동시 실행 상한 (14-4)</td><td></td><td></td><td></td></tr>
+      <tr><td class="k">토큰 예산 (14-5)</td><td></td><td></td><td></td></tr>
+      <tr><td class="k">실행 최적화 (14-6)</td><td></td><td></td><td></td></tr>
+      <tr><td class="k">조합 최종안</td><td></td><td></td><td>조합은 따로 한 번 더 측정 (효과가 더해지지 않을 수 있음)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>bash · 최종안 검증과 승격</span><button class="copy">복사</button></div><pre><code>./tune.sh final "max-num-seqs=&lt;선택값&gt; max-num-batched-tokens=&lt;선택값&gt; kv-cache-dtype=&lt;선택값&gt;"
+<span class="c-cm"># 긴 시간 안정성: SLO 용량의 80% 도착률로 30분</span>
+kubectl -n llmsvc-lab exec bench -- python /scripts/slo_probe.py --label final-soak --rate &lt;용량×0.8&gt; --duration 1800
+<span class="c-cm"># 품질 회귀 (KV fp8 등을 바꿨다면): 6편 quick_eval</span>
+./lab.sh evalq final --ref /results/eval_fp8-baseline.json
+<span class="c-cm"># 통과하면 qwen3-8b-fp8 오버레이의 vllm.yaml에 반영하고, 근거(표·로그)를 함께 커밋</span></code></pre></div>
+    <p>vLLM 저장소에는 동시 실행 상한·토큰 예산 조합을 자동으로 탐색하는 벤치마크 스크립트와 <code>vllm bench serve</code>·sweep 도구도 있습니다. 이 편의 절차를 익힌 뒤 그 도구들로 탐색 범위를 넓히면, “왜 그 값이 나왔는지”를 해석할 수 있습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: SLO 용량, 토큰 예산, 선점, 스로틀링" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14" class="quiz">
+  <h2><span class="sec-num">14</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2><span class="sec-num">15</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>튜닝의 목표는 SLO 하의 Goodput</b>이고, 워크로드를 고정한 채 한 번에 하나씩 바꾼다.</li>
+      <li><b>순서: 메모리 → 동시 실행 상한 → 토큰 예산 → 실행 최적화 → 검증.</b> 앞 단계가 뒤 단계의 한계를 정한다.</li>
+      <li><b>KV 공간 = 메모리 비율·가중치 정밀도·KV 정밀도·최대 길이</b>로 정해지는 동시성의 천장이다.</li>
+      <li><b>max-num-seqs ≈ min(KV 한계, TPOT SLO 한계)</b>. TPOT 한계가 묶이면 더 많은 GPU·양자화·추측 디코딩이 답이다.</li>
+      <li><b>토큰 예산은 긴 요청 TTFT와 진행 중 요청 ITL의 맞교환</b>이다. 근본 해결은 P/D 분리.</li>
+      <li><b>원인 지표(대기·KV 사용률·선점·CPU 스로틀링)를 결과 지표와 함께 보고</b>, 최종안은 긴 시간·품질 회귀로 검증해 근거와 함께 승격한다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">주요 파라미터 열 가지가 어떤 지표를 움직이는지 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">우리 워크로드와 SLO를 표로 정의했다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">기준선 SLO 용량을 측정했다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">동시 실행 상한을 KV·TPOT 두 한계로 계산하고 실측과 비교했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">긴 입력 혼합 워크로드에서 토큰 예산의 TTFT·ITL 맞교환을 확인했다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">CPU 스로틀링 여부를 확인했다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">최종안을 30분 부하·품질 회귀로 검증하고 기본 오버레이에 근거와 함께 반영했다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 15편 KV 캐시 최적화: 프리픽스 캐싱·오프로딩·압축</span>
+      <p>이번 편에서 KV 공간이 동시성의 천장이라는 것을 확인했습니다. 15편은 그 천장을 높이고 재사용을 늘리는 방법입니다. 프리픽스 캐시 적중률을 높이는 프롬프트·라우팅 설계, KV를 CPU 메모리·SSD로 넓히는 오프로딩(LMCache 등), KV 양자화·압축, 그리고 멀티턴·에이전트 워크로드에서의 효과 측정까지.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 14편 vLLM 파라미터 튜닝 실전 · 2026년 10월 기준(vLLM v0.31.0). 옵션 이름·기본값은 버전과 하드웨어에 따라 달라지므로 기동 로그와 <code>--help</code>로 실제 적용 값을 확인하세요. 계산기는 2·3편의 단순 모델이며 실측을 대체하지 않습니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";tb();});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- shared model ---------- */
+const GPU={h100:{n:"H100",mem:80,bw:3350,tf8:1979,tf16:989},gb10:{n:"GB10",mem:128,bw:273,tf8:200,tf16:100},l4:{n:"L4",mem:24,bw:300,tf8:242,tf16:121}};
+const P=8.2e9,KVB=144*1024;
+function step(g,W,tf,b,ctx,kvf){const comp=2*P*b/(tf*1e12*0.5),mem=(W*1e9+b*ctx*0.6*KVB*kvf)/(g.bw*1e9*0.75);return Math.max(comp,mem)+0.0008;}
+
+/* ---------- hero: operating point ---------- */
+function hero(){const g=GPU[$("#hG").value],prec=$("#hP").value,u=+$("#hU").value,kvf=+$("#hK").value,ctx=+$("#hC").value,slo=+$("#hT").value/1000;
+ $("#hUV").textContent=u.toFixed(2);$("#hCV").textContent=fmt(ctx);$("#hTV").textContent=fmt(slo*1000);
+ const W=prec==="fp8"?8.4:16.4,tf=prec==="fp8"?g.tf8:g.tf16;
+ const kvGB=g.mem*u-W-3.5,ktok=kvGB>0?kvGB*1e9/(KVB*kvf):0,kvBound=Math.floor(ktok/ctx);
+ let lo=0,hi=4096;while(lo<hi){const m=Math.ceil((lo+hi)/2);if(step(g,W,tf,m,ctx,kvf)<=slo)lo=m;else hi=m-1}const tpBound=lo;
+ let sat=1;for(let b=1;b<=4096;b++){const comp=2*P*b/(tf*1e12*0.5),mem=(W*1e9+b*ctx*0.6*KVB*kvf)/(g.bw*1e9*0.75);if(comp>=mem){sat=b;break}sat=b}
+ const rec=Math.max(0,Math.min(kvBound,tpBound));const mx=Math.max(kvBound,tpBound,1);
+ const row=(n,v,c)=>`<div class="row"><span>${n}</span><div class="track"><div class="bar" style="left:0;width:${Math.max(0.5,Math.min(100,v/mx*100))}%;background:${c}"></div></div><b>${fmt(v)}</b></div>`;
+ $("#hBars").innerHTML=row("KV 공간 한계",Math.max(0,kvBound),"#9BD2FF")+row("TPOT SLO 한계",tpBound,"#FFD59B");
+ const v=$("#hNote");
+ if(kvGB<=0){$("#hRec").textContent="—";$("#hTpot").textContent="—";$("#hThr").textContent="—";v.innerHTML="<p>이 메모리 비율로는 가중치를 올리고 나면 KV 공간이 남지 않습니다. 비율을 올리거나 FP8 모델을 쓰세요.</p>";return}
+ if(rec<1){$("#hRec").textContent="0";$("#hTpot").textContent=fmt(step(g,W,tf,1,ctx,kvf)*1000,1)+" ms";$("#hThr").textContent="—";v.innerHTML=`<p>${tpBound<1?"요청 하나만 처리해도 TPOT SLO를 넘습니다. 이 GPU·모델로는 이 SLO가 불가능합니다(더 빠른 GPU, 양자화, 추측 디코딩).":"평균 문맥이 KV 공간보다 커 요청 하나도 온전히 담기 어렵습니다."}</p>`;return}
+ const t=step(g,W,tf,rec,ctx,kvf);$("#hRec").textContent=fmt(rec);$("#hTpot").textContent=fmt(t*1000,1)+" ms";$("#hThr").textContent=fmt(rec/t)+" tok/s";
+ const binding=kvBound<tpBound?"KV":"TPOT";
+ v.innerHTML=binding==="KV"?`<p><b>KV 공간이 묶여 있습니다</b>(KV 토큰 ${fmt(ktok)}개 ÷ 문맥 ${fmt(ctx)}). TPOT 여유가 있으므로 메모리 비율·KV fp8·FP8 가중치·짧은 최대 길이로 KV를 늘리면 처리량이 오릅니다.${g===GPU.gb10?" GB10은 메모리를 공유하므로 8편 예산 안에서만.":""}</p>`:`<p><b>TPOT SLO가 묶여 있습니다.</b> 배치를 더 키우면 TPOT가 ${fmt(slo*1000)}ms를 넘습니다. 상한을 ${fmt(rec)} 근처로 두고, 더 필요한 처리량은 레플리카(18편)·추측 디코딩(16편)·더 빠른 GPU로 얻습니다. 메모리를 늘려도 이 운영점의 처리량은 늘지 않습니다.</p>`;}
+$$("#hG,#hP,#hU,#hK,#hC,#hT").forEach(e=>e.addEventListener("input",hero));hero();
+
+/* ---------- token budget ---------- */
+const BUD=[256,512,2048,4096,8192,16384,32768,65536];
+$("#tbC").max=String(BUD.length-1);
+function tbCalc(g,b,I,C){const W=8.4,tf=g.tf8,k=2*P/(tf*1e12*0.6),td=step(g,W,tf,b,3000,1),chunk=Math.max(16,C-b),steps=Math.ceil(I/chunk);return{td,spike:td+chunk*k,ttft:steps*(td+Math.min(chunk,I)*k)}}
+function tb(){const g=GPU[$("#tbG").value],b=+$("#tbB").value,I=+$("#tbI").value,ci=+$("#tbC").value,C=BUD[ci];
+ $("#tbBV").textContent=b;$("#tbIV").textContent=fmt(I);$("#tbCV").textContent=fmt(C);
+ const pts=BUD.map(c=>({c,...tbCalc(g,b,I,c)}));const cur=tbCalc(g,b,I,C);
+ const svg=$("#tbSvg"),Wd=720,H=280,L=56,R=60,T=16,B=40,pw=Wd-L-R,ph=H-T-B;
+ const maxT=Math.max(...pts.map(p=>p.ttft))*1.1,maxS=Math.max(...pts.map(p=>p.spike))*1.1;
+ const x=i=>L+i/(BUD.length-1)*pw,yT=v=>T+ph-v/maxT*ph,yS=v=>T+ph-v/maxS*ph;
+ const cl=css("--line"),cT=css("--l4"),cS=css("--l3"),mut=css("--muted");
+ let s=`<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="none" stroke="${cl}"/>`;
+ s+=`<polyline fill="none" stroke="${cT}" stroke-width="2.5" points="${pts.map((p,i)=>x(i)+","+yT(p.ttft)).join(" ")}"/>`;
+ s+=`<polyline fill="none" stroke="${cS}" stroke-width="2.5" points="${pts.map((p,i)=>x(i)+","+yS(p.spike)).join(" ")}"/>`;
+ s+=`<line x1="${x(ci)}" x2="${x(ci)}" y1="${T}" y2="${T+ph}" stroke="${mut}" stroke-dasharray="4 4"/>`;
+ s+=`<circle cx="${x(ci)}" cy="${yT(cur.ttft)}" r="5" fill="${cT}"/><circle cx="${x(ci)}" cy="${yS(cur.spike)}" r="5" fill="${cS}"/>`;
+ BUD.forEach((c,i)=>{s+=`<text x="${x(i)}" y="${H-22}" text-anchor="middle" font-size="11" fill="${mut}">${c>=1024?c/1024+"K":c}</text>`});
+ for(let k=0;k<=4;k++){s+=`<text x="${L-6}" y="${T+ph-k/4*ph+4}" text-anchor="end" font-size="11" fill="${mut}">${fmt(maxT*k/4,1)}s</text>`;s+=`<text x="${L+pw+6}" y="${T+ph-k/4*ph+4}" font-size="11" fill="${mut}">${fmt(maxS*k/4*1000)}ms</text>`}
+ s+=`<text x="${L+pw/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="${mut}">max-num-batched-tokens</text>`;
+ svg.innerHTML=s;
+ $("#tbT").textContent=fmt(cur.ttft,2)+" s";$("#tbS").textContent=fmt(cur.spike*1000)+" ms";$("#tbD").textContent=fmt(cur.td*1000,1)+" ms";
+ const v=$("#tbNote");const ratio=cur.spike/cur.td;
+ v.className="verdict "+(ratio>5?"mid":"good");
+ v.innerHTML=`예산 ${fmt(C)}에서 긴 요청(${fmt(I)}토큰)은 약 ${fmt(Math.ceil(I/Math.max(16,C-b)))}개 조각으로 나뉘어 ${fmt(cur.ttft,2)}초 만에 Prefill을 마치고, 그동안 진행 중인 ${b}개 요청은 평소 ${fmt(cur.td*1000,1)}ms 간격이 최대 ${fmt(cur.spike*1000)}ms(약 ${fmt(ratio,1)}배)로 늘어납니다. ${ratio>5?"ITL SLO가 엄격하다면 예산을 줄이거나, 긴 입력이 많다면 P/D 분리(10편)를 검토하세요.":"이 정도면 대부분의 대화형 SLO에서 무난합니다. 긴 요청의 TTFT가 더 중요하다면 예산을 키워 보세요."} ${C<=b?"<b>예산이 진행 중 요청 수보다 작거나 같아 Prefill이 거의 진행되지 않습니다.</b> 예산은 동시 실행 상한보다 충분히 커야 합니다.":""}`;}
+$$("#tbG,#tbB,#tbI,#tbC").forEach(e=>e.addEventListener("input",tb));tb();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["max-num-seqs는 클수록 좋다.","배치가 커지면 처리량은 늘지만 TPOT가 늘고, KV가 모자라면 선점으로 오히려 처리량이 정체됩니다. KV 한계와 TPOT SLO 한계 중 낮은 쪽이 출발점입니다."],
+ ["gpu-memory-utilization은 항상 0.95로 올린다.","전용 GPU라도 여유 없이 올리면 메모리 단편화·다른 프로세스와 충돌합니다. GB10처럼 메모리를 공유하는 장비에서는 메모리 예산(8편)으로 정해야 합니다."],
+ ["토큰 예산을 크게 하면 모든 지연이 줄어든다.","긴 요청의 TTFT는 줄지만, 그 스텝이 무거워져 진행 중 요청의 ITL 꼬리가 늘어납니다. 맞교환입니다."],
+ ["벤치마크 최대 처리량이 높은 설정이 최고다.","SLO를 넘는 처리량은 의미가 없습니다. SLO 하 Goodput(SLO 용량)으로 비교해야 합니다."],
+ ["여러 파라미터를 한꺼번에 바꾸면 빨리 끝난다.","무엇이 효과였는지 알 수 없고, 효과가 서로 상쇄될 수도 있습니다. 하나씩 바꾸고, 최종 조합은 따로 한 번 더 측정합니다."],
+ ["GPU 사용률이 낮으니 GPU를 더 압박하는 설정이 필요하다.","GPU가 노는 원인이 CPU 스로틀링·프런트엔드(토큰화) 병목일 수 있습니다. 원인 지표를 먼저 봅니다."],
+ ["한 번 튜닝한 값은 계속 쓴다.","모델·엔진 버전·GPU·워크로드가 바뀌면 최적점도 바뀝니다. 재튜닝 조건을 정해 둡니다."],
+ ["-O0로 기동을 줄이고 튜닝은 그 상태로 한다.","실행 성능이 다른 상태에서 찾은 최적점은 -O2에서 맞지 않습니다. 튜닝은 운영 설정 그대로 합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["Goodput","Goodput","SLO를 지킨 요청만 센 처리량 (3편)."],
+ ["SLO 용량","SLO capacity","SLO를 지키며 받을 수 있는 최대 도착률. 튜닝 비교의 기준."],
+ ["운영점","Operating point","실제 운영할 부하와 설정의 조합."],
+ ["워크로드 정의","Workload definition","입력·출력 길이 분포, 도착 패턴, 공통 프롬프트 비율 등."],
+ ["기준선","Baseline","변경 전 설정의 측정값. 모든 비교의 기준."],
+ ["열린 루프","Open-loop load","응답을 기다리지 않고 정해진 도착률로 요청을 보내는 부하 방식 (3편)."],
+ ["max-num-seqs","--max-num-seqs","동시에 배치에 들어가는 요청 수 상한."],
+ ["max-num-active-seqs","--max-num-active-seqs","실행 상태 진입만 따로 제한하는 상한 (v0.31)."],
+ ["토큰 예산","--max-num-batched-tokens","한 스텝에 처리할 최대 토큰 수. Chunked Prefill 조각 크기."],
+ ["긴 Prefill 임계값","--long-prefill-token-threshold","한 요청이 한 스텝에 가져갈 Prefill 토큰 상한."],
+ ["부분 Prefill 동시 수","max-num-partial-prefills","여러 요청의 Prefill을 동시에 조각내 진행하는 수."],
+ ["선점","Preemption","KV 부족으로 실행 중 요청을 내보내고 나중에 다시 계산 (4편)."],
+ ["KV 공간 한계","KV-bound concurrency","KV 토큰 수 ÷ 요청당 평균 문맥으로 정해지는 동시성 상한."],
+ ["TPOT 한계","TPOT-bound batch","TPOT SLO를 넘지 않는 최대 배치 크기."],
+ ["ITL 꼬리","ITL tail","진행 중 요청이 겪는 가장 긴 토큰 간격의 상위 백분위."],
+ ["CUDA 그래프 캡처 크기","cudagraph capture sizes","그래프로 녹화할 배치 크기 목록. 상한과 맞춤."],
+ ["비동기 스케줄링","Async scheduling","다음 스텝 계획을 GPU 실행과 겹치는 기능."],
+ ["CPU 스로틀링","CPU throttling","컨테이너 CPU limit에 걸려 실행이 멈추는 시간. 엔진 TPOT 악화 원인."],
+ ["스트리밍 출력 간격","Stream interval","토큰을 몇 개씩 묶어 응답으로 보낼지."],
+ ["소크 테스트","Soak test","긴 시간 일정 부하로 안정성을 확인하는 시험."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["튜닝 결과를 비교하는 기준으로 가장 적절한 것은?",["최대 처리량","SLO를 지키는 최대 도착률(SLO 용량)","GPU 사용률","기동 시간"],1,"SLO 하 Goodput이 목표입니다."],
+ ["max-num-seqs의 출발점으로 맞는 것은?",["항상 1024","min(KV 공간 한계, TPOT SLO 한계)","GPU 메모리 GB 수","무제한"],1,"두 한계 중 낮은 쪽이 묶입니다."],
+ ["TPOT SLO 한계가 묶여 있을 때 처리량을 늘리는 방법으로 효과가 없는 것은?",["레플리카 추가","추측 디코딩","gpu-memory-utilization 상향","더 빠른 GPU"],2,"KV를 늘려도 TPOT 한계 운영점의 처리량은 늘지 않습니다."],
+ ["긴 입력이 섞인 워크로드에서 토큰 예산을 크게 하면?",["모든 지연 감소","긴 요청 TTFT는 줄고 진행 중 요청 ITL 꼬리는 늘어남","KV 공간 증가","선점 감소"],1,"맞교환입니다."],
+ ["KV fp8로 바꿨을 때 반드시 함께 할 일은?",["아무것도","품질 회귀 확인(특히 긴 문맥·추론)","GPU 교체","토큰 예산 축소"],1,"대개 손실이 작지만 확인이 필요합니다."],
+ ["GPU 사용률은 낮은데 TPOT가 나쁘다. 먼저 볼 것은?",["모델 크기","컨테이너 CPU 스로틀링·프런트엔드 병목","KV 정밀도","라이선스"],1,"엔진 코어·API 서버가 CPU를 기다리고 있을 수 있습니다."],
+ ["선점 횟수가 0이 아니다. 의미와 조치는?",["정상","KV 부족으로 다시 계산 중 — 메모리 노브 또는 상한 낮추기","GPU 고장","네트워크 문제"],1,"꼬리 지연의 주범입니다."],
+ ["max-model-len을 실제 필요보다 크게 잡으면?",["항상 이득","프로파일링 예약이 커지고 긴 요청 하나가 KV를 독식할 수 있음","KV가 늘어남","TPOT가 줄어듦"],1,"필요한 만큼만, 게이트웨이 입력 상한과 함께."],
+ ["여러 노브를 각각 개선한 뒤 조합안에 대해 할 일은?",["바로 운영 반영","조합을 따로 한 번 더 측정(효과가 더해지지 않을 수 있음)","하나만 남김","기준선 삭제"],1,"상호작용을 확인해야 합니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 15편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 15편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

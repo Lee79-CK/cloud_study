@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 26편 · MSP 서비스 설계: 상품·과금·SLA·운영 조직</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+/* ---------- episode 15 additions ---------- */
+.tiers{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tiers div{display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+.pseg{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0}
+.pseg span{font-size:.72rem;padding:3px 7px;border-radius:5px;color:#0B1220;white-space:nowrap}
+.form label input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+.form label > span{display:inline-flex;align-items:center}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 · 운영 — 26 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>26편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">상품 포트폴리오</a></li>
+    <li><a href="#s3">원가 모델</a></li>
+    <li><a href="#s4">과금 모델</a></li>
+    <li><a href="#s5">SLA 설계</a></li>
+    <li><a href="#s6">온보딩 절차</a></li>
+    <li><a href="#s7">월간 보고서</a></li>
+    <li><a href="#s8">운영 조직과 당직</a></li>
+    <li><a href="#s9">사업 지표</a></li>
+    <li><a href="#s10">위험과 대응</a></li>
+    <li><a href="#s11">시리즈 로드맵 한 장</a></li>
+    <li><a href="#s12">흔한 오해</a></li>
+    <li><a href="#s13">실습</a></li>
+    <li><a href="#s14">용어 사전</a></li>
+    <li><a href="#s15">확인 퀴즈</a></li>
+    <li><a href="#s16">정리와 마무리</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 5 · 운영·MSP 전략 — 26편 (시리즈 마지막)</div>
+    <h1>MSP 서비스 설계<br>상품·과금·SLA·운영 조직</h1>
+    <p class="intro">25편까지 우리는 GPU 위에 엔진을 세우고, 라우팅·게이트웨이로 묶고, 튜닝하고, 관측하고, 안전하게 바꾸는 방법을 만들었습니다. 마지막 편은 이 기술을 <b>고객이 살 수 있는 서비스</b>로 바꿉니다. 어떤 상품을 몇 가지 등급으로 팔지, 원가는 얼마이고 가격은 어떻게 매길지, SLA에 무엇을 약속하고 무엇을 빼야 하는지, 고객을 어떻게 받아들이고(온보딩) 매달 무엇을 보고할지, 그리고 이 모든 것을 운영할 조직과 당직 체계까지. 마지막에는 시리즈 전체를 한 장의 로드맵으로 정리합니다.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>1~25편 전체</b></span>
+      <span class="chip">읽는 시간 <b>약 100분</b></span>
+      <span class="chip">실습 <b>약 150분</b></span>
+      <span class="chip">기준 <b>2026년 10월</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="단가 설계기">
+    <div class="stack-head"><strong>셀프호스팅 토큰 단가는 얼마여야 하나</strong></div>
+    <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <label>GPU 1장 월 원가 ($, 예시) <input type="number" id="pG" value="2200" min="0" step="50"></label>
+      <label>레플리카당 GPU (17편) <select id="pR"><option>1</option><option selected>2</option><option>4</option><option>8</option></select></label>
+      <label>레플리카당 SLO 용량 (출력 tok/s, 14·19편) <input type="number" id="pC" value="1800" min="1" step="50"></label>
+      <label>실제 평균 사용률 <span id="pUV">35%</span><input type="range" id="pU" min="5" max="90" step="1" value="35"></label>
+      <label>운영·관측·인력 간접비 <span id="pOV">40%</span><input type="range" id="pO" min="0" max="150" step="5" value="40"></label>
+      <label>목표 마진 <span id="pMV">25%</span><input type="range" id="pM" min="0" max="80" step="5" value="25"></label>
+      <label>비교: 외부 API 출력 단가 ($/1M, 예시) <input type="number" id="pX" value="10" min="0" step="0.5"></label>
+    </div>
+    <div class="readout">
+      <div><span>원가 ($/1M 출력 토큰)</span><b id="pCost">—</b></div>
+      <div><span>판매가 ($/1M 출력 토큰)</span><b id="pPrice">—</b></div>
+      <div><span>손익분기 사용률 (외부 단가와 같아지는)</span><b id="pBE">—</b></div>
+    </div>
+    <div class="layer-detail" id="pNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">기술이 좋아도 상품·가격·약속·조직이 맞지 않으면 서비스는 지속되지 않습니다.</p>
+  <div class="prose">
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>격리 수준(24편)과 운영 범위를 기준으로 LLM 서빙 상품 포트폴리오를 설계할 수 있다.</li>
+      <li>GPU·간접비·사용률로 토큰당 원가를 계산하고, 가격과 손익분기를 정할 수 있다.</li>
+      <li>토큰 종량·전용 월정액·약정+초과 과금의 장단점과 계량 요구를 설명할 수 있다.</li>
+      <li>측정 가능한 SLI 기반의 SLA 문구·제외 조건·보상 표를 작성할 수 있다.</li>
+      <li>온보딩 절차와 월간 보고서를 이 시리즈의 산출물로 구성할 수 있다.</li>
+      <li>운영 조직·당직·책임 분담과 사업 지표를 설계하고, 주요 사업 위험에 대비할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 렌터카 회사</span>
+      <p>렌터카 회사는 차(GPU)를 사서 여러 상품으로 팝니다. 시간 단위 공유차(토큰 종량), 월 단위 전용 장기 렌트(전용 레플리카), 기업 차량 관리 대행(고객 클러스터 운영), 고객 차고지 상주 관리(온프레미스). 차 한 대의 원가는 구입비·보험·정비·주차비이고, 실제로 빌려 나간 시간 비율(사용률)이 낮으면 대당 원가가 올라갑니다. 고장 시 대차 약속(SLA)과 보상, 계약 시 면허·사용 목적 확인(온보딩), 월말 운행 내역 보고(월간 보고서), 24시간 긴급 출동 팀(당직)이 있어야 사업이 됩니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>상품 포트폴리오</h2>
+  <p class="lede">격리 수준(24편)과 MSP가 맡는 운영 범위로 상품을 나눕니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>상품</th><th>대상 고객</th><th>격리 (24편)</th><th>과금 기준</th><th>SLA</th><th>MSP 운영 범위</th></tr></thead>
+    <tbody>
+      <tr><td class="k">A. 공유 추론 API</td><td>PoC·중소 규모·사내 다부서</td><td>L1~L2</td><td>토큰 종량 (입력·출력·캐시 적중 차등)</td><td>표준 (가용성·TTFT)</td><td>전부</td></tr>
+      <tr><td class="k">B. 전용 모델 서빙</td><td>지연 SLA·전용 모델·맞춤 어댑터</td><td>L3~L4</td><td>전용 GPU 월정액 + 초과 토큰 또는 약정</td><td>강화 (지연·용량 보장)</td><td>전부</td></tr>
+      <tr><td class="k">C. 고객 클러스터 매니지드</td><td>자체 클라우드 계정·클러스터 보유 기업</td><td>L5</td><td>운영 관리비 (노드·GPU 수 기준) + 인프라는 고객 부담</td><td>운영 대응 시간 중심</td><td>엔진·관측·변경·장애 대응</td></tr>
+      <tr><td class="k">D. 온프레미스 구축·운영</td><td>금융·공공·망분리 기관</td><td>L6</td><td>구축 프로젝트 + 연간 유지보수</td><td>계약별</td><td>구축·원격(또는 상주) 운영</td></tr>
+      <tr><td class="k">E. 하이브리드 AI 게이트웨이</td><td>여러 외부 API와 셀프호스팅 혼용 기업</td><td>게이트웨이 테넌트</td><td>관리비 + 외부 API 원가 대행 수수료</td><td>게이트웨이 가용성</td><td>키·한도·비용·폴백·감사 (12편)</td></tr>
+      <tr><td class="k">F. 부가 서비스</td><td>모든 고객</td><td>—</td><td>프로젝트·건별</td><td>—</td><td>벤치마크·용량 계획(19), 튜닝(14~16), 품질 평가(22), 보안 점검(24), 어댑터 서빙(16)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>처음부터 모든 상품을 열 필요는 없습니다. <b>A(공유 API) + F(벤치마크·용량 계획)</b>로 시작해 고객의 실제 워크로드 카드(19편)를 확보하고, 지연·규제 요구가 확인되는 고객부터 B·C·D로 확장하는 순서가 위험이 작습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>원가 모델</h2>
+  <p class="lede">토큰당 원가를 결정하는 가장 큰 변수는 GPU 가격이 아니라 <b>사용률</b>입니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>원가 항목</th><th>내용</th><th>배분 기준</th></tr></thead>
+    <tbody>
+      <tr><td class="k">GPU</td><td>구매 감가상각 또는 임대료, 예비(N+1)</td><td>GPU·시간</td></tr>
+      <tr><td class="k">서버·전력·상면·냉각</td><td>GPU 서버는 전력 밀도가 높음</td><td>GPU·시간 또는 kW</td></tr>
+      <tr><td class="k">네트워크·스토리지</td><td>고속 네트워크(17편), 모델 저장소·캐시(13편), 관측 저장소(20~22편)</td><td>사용량</td></tr>
+      <tr><td class="k">소프트웨어</td><td>상용 지원 계약·라이선스(해당 시), 외부 SaaS 도구</td><td>노드·사용자</td></tr>
+      <tr><td class="k">운영 인력</td><td>플랫폼·당직·고객 지원·보안</td><td>고객 수·노드 수</td></tr>
+      <tr><td class="k">여유 용량</td><td>목표 사용률(18편)만큼의 상시 여유, 카나리(25편)</td><td>GPU 원가에 비율로</td></tr>
+      <tr><td class="k">외부 API</td><td>하이브리드·폴백 사용분 (12편)</td><td>실사용 토큰</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="formula">토큰당 원가 = (GPU 월 원가 × GPU 수 × (1 + 간접비 비율)) ÷ (레플리카 SLO 용량 × 레플리카 수 × 월 초 × 실제 사용률)
+판매가     = 토큰당 원가 × (1 + 마진)
+손익분기 사용률 = 외부 API 단가와 우리 원가가 같아지는 사용률</div>
+    <p>히어로 설계기에서 사용률을 바꿔 보면, 사용률이 절반이 되면 원가가 두 배가 되는 것을 볼 수 있습니다. 그래서 공유 상품(A)은 여러 고객의 부하를 모아 사용률을 높이고, 전용 상품(B)은 낮은 사용률의 위험을 고객이 부담하는 월정액으로 설계합니다. 용량은 반드시 측정값(14·19편)을 쓰고, 캐시 적중(15편)·추측 디코딩(16편) 같은 최적화는 원가를 낮추는 지렛대로 따로 계산합니다.</p>
+  </div>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>과금 모델</h2>
+  <p class="lede">누가 사용률 위험을 지느냐가 과금 모델을 가릅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>과금 모델</th><th>고객이 보는 것</th><th>사용률 위험</th><th>필요한 계량</th><th>맞는 상품</th></tr></thead>
+    <tbody>
+      <tr><td class="k">토큰 종량</td><td>입력·출력·캐시 적중 토큰 단가</td><td>MSP</td><td>테넌트·모델별 토큰 정확 집계 (12·20편)</td><td>A, E</td></tr>
+      <tr><td class="k">전용 월정액</td><td>GPU·레플리카 수 × 월 단가</td><td>고객</td><td>할당 기록, 사용량은 보고용</td><td>B</td></tr>
+      <tr><td class="k">약정 + 초과</td><td>월 기본 토큰(또는 용량) + 초과분 종량</td><td>나눔</td><td>약정 대비 사용량, 초과 경보 (23편)</td><td>A·B 혼합</td></tr>
+      <tr><td class="k">운영 관리비</td><td>관리 노드·GPU·모델 수 기준 정액</td><td>고객 (인프라 원가)</td><td>관리 대상 목록</td><td>C, D</td></tr>
+      <tr><td class="k">대행 수수료</td><td>외부 API 원가 + 관리 수수료</td><td>공급자 가격 변동</td><td>공급자별 비용 대사 (12편)</td><td>E</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>캐시 적중 할인</b>: 외부 공급자처럼 캐시 적중 입력 토큰을 싸게 매기면, 고객이 프롬프트를 캐시 친화적으로 고칠 동기가 생기고(15편) 우리 원가도 내려갑니다.</li>
+      <li><b>추론 토큰</b>: 생각(추론) 토큰은 출력으로 과금되며 양이 크게 변합니다. 고객이 예상할 수 있도록 별도 집계해 보여 줍니다.</li>
+      <li><b>계량 정확성</b>: 청구의 근거가 되는 집계는 게이트웨이(12편)를 기준으로 하고, 엔진 지표(20편)로 대사해 차이를 설명할 수 있어야 합니다.</li>
+      <li><b>가격 변동 대비</b>: 외부 API 가격은 자주 내려갑니다. 셀프호스팅 단가를 정기 재검토하고(19편 용량 계획과 함께), 약정 기간을 너무 길게 묶지 않습니다.</li>
+    </ul>
+  </div>
+</section>
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>SLA 설계</h2>
+  <p class="lede">SLA는 측정할 수 있는 것만, 측정 방법과 제외 조건까지 적어야 분쟁이 없습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>SLA 항목</th><th>정의 (예)</th><th>측정 (편)</th><th>내부 SLO (예)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">월간 가용성</td><td>게이트웨이에서 측정한 서버 오류·타임아웃이 아닌 응답의 비율 ≥ 99.5%</td><td>게이트웨이 지표 (12·21)</td><td>99.9%</td></tr>
+      <tr><td class="k">응답 시작 지연</td><td>입력 4,000토큰 이하 요청의 95%가 첫 토큰 2.5초 이내</td><td>TTFT 히스토그램 버킷 (20·21)</td><td>97%</td></tr>
+      <tr><td class="k">지원 응답 시간</td><td>SEV1 30분·SEV2 2시간 내 대응 시작</td><td>장애 기록 (23)</td><td>15분·1시간</td></tr>
+      <tr><td class="k">용량 보장 (전용 상품)</td><td>워크로드 카드 조건에서 X req/s를 SLO 안에서 처리</td><td>정기 측정 (19)</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>제외 조건 (명시)</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td class="k">사전 공지된 유지보수 창</td><td>업그레이드·드라이버 교체 (25편)</td></tr>
+      <tr><td class="k">고객 한도 초과로 인한 거절(429)</td><td>약속한 사용량 밖</td></tr>
+      <tr><td class="k">외부 API 공급자 장애</td><td>MSP 통제 밖 (하이브리드 상품은 별도 SLI)</td></tr>
+      <tr><td class="k">고객 요청의 형식 오류·과도한 입력</td><td>워크로드 카드 밖 요청</td></tr>
+      <tr><td class="k">응답 품질 (정확성)</td><td>확률적 모델 특성 — 품질 지표는 보고 대상(22편)이지만 보상 대상에서는 보통 제외</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="tool wide" id="slaTool">
+    <h4>SLA 보상 계산기</h4>
+    <div class="desc">월간 측정값을 넣으면 보상 표(예시)에 따라 크레딧 비율을 계산합니다. 보상 표 자체는 계약마다 다릅니다.</div>
+    <div class="form">
+      <label>측정 가용성 (%) <input type="number" id="sA" value="99.42" step="0.01" min="90" max="100"></label>
+      <label>TTFT 기준 달성률 (%) <input type="number" id="sT" value="96.1" step="0.1" min="50" max="100"></label>
+      <label>월 청구액 ($) <input type="number" id="sB" value="18000" step="100" min="0"></label>
+    </div>
+    <div class="result">
+      <div class="r"><span>가용성 크레딧</span><b id="sCA">—</b></div>
+      <div class="r"><span>지연 크레딧</span><b id="sCT">—</b></div>
+      <div class="r"><span>보상액 (상한 30%)</span><b id="sCR">—</b></div>
+    </div>
+    <div class="verdict" id="sNote"></div>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>온보딩 절차</h2>
+  <p class="lede">이 시리즈의 각 편 산출물이 온보딩의 단계가 됩니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>단계</th><th>하는 일</th><th>산출물</th><th>편</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1. 요구 파악</td><td>업무·사용자·데이터 등급·규제·지연 요구</td><td>워크로드 카드, 데이터 정책, 격리 수준 결정</td><td>12·19·24</td></tr>
+      <tr><td class="k">2. 모델 후보·평가</td><td>후보 모델·정밀도로 고객 평가 세트 측정</td><td>평가 결과, 승인 모델 목록</td><td>5·6·22</td></tr>
+      <tr><td class="k">3. 벤치마크·용량 계획</td><td>워크로드 카드로 SLO 용량 측정, 분기별 GPU 수</td><td>용량 계획서, 견적</td><td>14·17·19</td></tr>
+      <tr><td class="k">4. 계약</td><td>상품·과금·SLA·제외 조건·공동 책임표</td><td>계약서·SLA 부속서</td><td>24·26</td></tr>
+      <tr><td class="k">5. 프로비저닝</td><td>테넌트 템플릿, 게이트웨이 키·한도·솔트, 오버레이, 경보 경로</td><td>Git 저장소의 고객 디렉터리</td><td>7·12·23·24·25</td></tr>
+      <tr><td class="k">6. 관측 준비</td><td>고객별 대시보드·SLO·품질 SLI·보고서 자동화</td><td>대시보드·기록 규칙</td><td>20~22</td></tr>
+      <tr><td class="k">7. 운영 시작 점검</td><td>스모크·부하·장애 훈련·보안 시험(카나리 문자열·인젝션)</td><td>점검표 서명</td><td>7·21·23·24</td></tr>
+      <tr><td class="k">8. 집중 관찰 (2주)</td><td>매일 SLI·사용량 확인, 튜닝·한도 조정</td><td>초기 운영 보고서</td><td>14·18</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>월간 보고서</h2>
+  <p class="lede">고객이 매달 받는 보고서가 곧 서비스의 얼굴입니다. 숫자는 모두 재현 가능해야 합니다.</p>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>markdown · 월간 서비스 보고서 양식</span><button class="copy">복사</button></div><pre><code># &lt;고객&gt; LLM 서비스 월간 보고 (&lt;YYYY-MM&gt;)
+## 1. 요약           — 이번 달 핵심 3줄 (SLA 달성 여부, 주요 사건, 권고)
+## 2. 사용량         — 모델·팀별 요청·입력·출력·캐시 적중 토큰, 전월 대비 (12·20편)
+## 3. 비용           — 과금 내역, 외부 API 대행분, 토큰당 실효 단가
+## 4. SLA·SLO        — 가용성·TTFT 달성률, 오류 예산 사용, 제외 시간과 사유 (21편)
+## 5. 품질·안전       — 형식 준수·잘림·안전 판정률 추세, 평가 결과 (22편)
+## 6. 사건           — 장애 목록·영향·사후 검토 요약·조치 진행 (23편)
+## 7. 변경           — 모델·엔진·설정 변경과 결과 (25편)
+## 8. 용량·예측       — 피크 사용률, 다음 분기 예측과 증설 필요 여부 (19편)
+## 9. 권고           — 비용 절감(캐시 친화 프롬프트, 양자화), 품질 개선, 보안 점검 결과</code></pre></div>
+    <p>숫자의 출처는 기록 규칙의 장기 보관값(20편), 게이트웨이 사용량(12편), 경보·장애 기록(23편), Git 이력(25편)입니다. 실습 26-2가 이 양식의 2·4·6·7장을 자동으로 채웁니다.</p>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>운영 조직과 당직</h2>
+  <p class="lede">작은 팀이라도 역할과 책임을 나눠 두면 한 사람에게 모든 것이 몰리지 않습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>역할</th><th>주요 책임</th><th>이 시리즈의 주 영역</th></tr></thead>
+    <tbody>
+      <tr><td class="k">플랫폼 엔지니어</td><td>클러스터·GPU·엔진·게이트웨이 구축과 변경</td><td>4~13, 17, 25</td></tr>
+      <tr><td class="k">SRE·당직</td><td>관측·경보·장애 대응·용량</td><td>18~23</td></tr>
+      <tr><td class="k">ML 엔지니어</td><td>모델 선택·양자화·튜닝·품질 평가</td><td>5·6, 14~16, 22</td></tr>
+      <tr><td class="k">보안·컴플라이언스</td><td>격리·권한·감사·규제 대응</td><td>12, 24</td></tr>
+      <tr><td class="k">고객 성공 (TAM)</td><td>온보딩·보고·요구 수집·권고</td><td>19, 26</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>활동 (RACI)</th><th>플랫폼</th><th>SRE</th><th>ML</th><th>보안</th><th>TAM</th></tr></thead>
+    <tbody>
+      <tr><td class="k">엔진 업그레이드</td><td>R</td><td>C</td><td>C</td><td>I</td><td>I</td></tr>
+      <tr><td class="k">모델 교체</td><td>C</td><td>C</td><td>R</td><td>C</td><td>A</td></tr>
+      <tr><td class="k">장애 대응 (SEV1)</td><td>R</td><td>A</td><td>C</td><td>C</td><td>R (소통)</td></tr>
+      <tr><td class="k">용량 계획</td><td>C</td><td>R</td><td>C</td><td>—</td><td>A</td></tr>
+      <tr><td class="k">보안 점검·감사 대응</td><td>C</td><td>C</td><td>—</td><td>R</td><td>I</td></tr>
+      <tr><td class="k">월간 보고</td><td>C</td><td>C</td><td>C</td><td>C</td><td>R</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>당직 구성</b>: 1차·2차 당직과 에스컬레이션 경로, 고객 연락 담당을 분리합니다. 한 교대에 받는 호출 수(23편 경보 품질 지표)를 주기적으로 보고, 과하면 경보부터 정리합니다.</li>
+      <li><b>교육</b>: 신규 인원은 7편 랩 구축 → 23편 장애 훈련을 거쳐 당직에 합류. 분기마다 게임 데이.</li>
+      <li><b>문서</b>: 런북(23편)·업그레이드 점검표(25편)·온보딩 점검표(6장)의 소유자를 정하고 분기마다 검토합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>사업 지표</h2>
+  <p class="lede">기술 지표를 사업의 언어로 바꿔 매달 봅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>지표</th><th>의미</th><th>출처</th></tr></thead>
+    <tbody>
+      <tr><td class="k">GPU 실사용률 (상품별)</td><td>원가의 핵심. 공유 상품은 높을수록, 전용은 고객 만족과 함께</td><td>엔진 처리량 ÷ SLO 용량 (14·20)</td></tr>
+      <tr><td class="k">상품별 매출 총이익률</td><td>단가·원가·사용률의 결과</td><td>청구 ÷ 원가 배분</td></tr>
+      <tr><td class="k">토큰당 실효 원가 추세</td><td>최적화(캐시·양자화·추측 디코딩)의 성과</td><td>원가 ÷ 처리 토큰</td></tr>
+      <tr><td class="k">SLA 달성률·보상액</td><td>약속 이행</td><td>21편 SLO, 계약</td></tr>
+      <tr><td class="k">온보딩 소요 기간</td><td>계약부터 운영 시작까지</td><td>프로젝트 기록</td></tr>
+      <tr><td class="k">변경 실패율·복구 시간</td><td>운영 성숙도 (25편)</td><td>변경·장애 기록</td></tr>
+      <tr><td class="k">고객 유지·확장</td><td>상품 이동(A → B), 사용량 증가</td><td>계약·사용량</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>위험과 대응</h2>
+  <p class="lede">LLM 서빙 사업은 기술·시장 변화가 매우 빠릅니다. 위험을 목록으로 관리합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>위험</th><th>영향</th><th>대응</th></tr></thead>
+    <tbody>
+      <tr><td class="k">GPU 공급·가격·수출 통제 변화</td><td>증설 지연, 원가 변동</td><td>다양한 GPU 지원(5·6편 엔진·양자화), 예약 용량, 용량 계획 리드 타임(19편)</td></tr>
+      <tr><td class="k">외부 API 가격 하락</td><td>셀프호스팅 가격 경쟁력 약화</td><td>셀프호스팅의 가치(데이터 주권·지연·맞춤)를 상품 중심에, 하이브리드 상품(E)</td></tr>
+      <tr><td class="k">모델 라이선스·정책 변경</td><td>사용 중인 모델의 상업 이용 제한</td><td>라이선스 대장(24편), 대체 모델 평가 세트 상시 유지</td></tr>
+      <tr><td class="k">엔진·프레임워크의 빠른 변화</td><td>지표·API·CRD 변경, 지원 중단(예: WVA 18편)</td><td>버전 고정·업그레이드 절차(25편), 기록 규칙 추상화(20편)</td></tr>
+      <tr><td class="k">고객 데이터 사고</td><td>신뢰·법적 책임</td><td>24편 통제와 증적, 공동 책임표, 보험·계약</td></tr>
+      <tr><td class="k">전용 상품의 낮은 사용률</td><td>고객 불만(비싸다), 이탈</td><td>사용률 보고와 축소·공유 상품 전환 권고</td></tr>
+      <tr><td class="k">운영 인력 의존</td><td>핵심 인력 이탈 시 운영 공백</td><td>런북·GitOps·교육 체계, 당직 순환</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>시리즈 로드맵 한 장</h2>
+  <p class="lede">26편을 레벨별로 다시 묶고, 각 편이 남긴 산출물과 MSP 성숙 단계를 연결합니다.</p>
+  <div class="tool wide" id="rmTool">
+    <h4>레벨별 산출물 지도</h4>
+    <div class="seg-tabs" id="rmTabs">
+      <button class="btn on" data-l="0">Level 0 개념</button>
+      <button class="btn" data-l="1">Level 1 서빙 엔진</button>
+      <button class="btn" data-l="2">Level 2 설계·구축</button>
+      <button class="btn" data-l="3">Level 3 튜닝</button>
+      <button class="btn" data-l="4">Level 4 모니터링</button>
+      <button class="btn" data-l="5">Level 5 운영·MSP</button>
+    </div>
+    <div id="rmList" style="margin-top:12px"></div>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>MSP 성숙 단계</th><th>상태</th><th>핵심 편</th><th>다음 단계로 가는 조건</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1. 실험</td><td>엔진 하나를 손으로 띄움</td><td>1~5</td><td>버전·설정 고정, 재현 가능한 배포</td></tr>
+      <tr><td class="k">2. 표준 플랫폼</td><td>랩 구조·GPU 플랫폼·게이트웨이로 여러 모델 서빙</td><td>6~13</td><td>측정 기반 설정, 용량 근거</td></tr>
+      <tr><td class="k">3. 측정 기반 운영</td><td>튜닝·확장·용량 계획이 숫자로 결정됨</td><td>14~19</td><td>상시 관측과 SLO</td></tr>
+      <tr><td class="k">4. SLO 운영</td><td>지표·트레이스·품질·경보·장애 대응이 체계화</td><td>20~23</td><td>멀티테넌트 통제와 변경 자동화</td></tr>
+      <tr><td class="k">5. 서비스 사업</td><td>격리·보안·안전한 변경 위에 상품·과금·SLA·보고</td><td>24~26</td><td>고객 확장과 지속 개선</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>흔한 오해</h2>
+  <p class="lede">LLM 서빙 사업화에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>실습</h2>
+  <p class="lede">원가·단가 모델을 코드로 만들고, 관측 데이터에서 월간 보고서를 자동 생성하고, SLA 초안과 온보딩 골격을 만든 뒤, 시리즈 전체 구성 요소를 점검하는 졸업 과제로 마무리합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>20~25편의 구성(관측 스택·경보·Argo CD 등). 없는 구성 요소는 점검 스크립트에서 “없음”으로 표시되고, 보고서의 해당 장은 비워집니다.</li>
+        <li>단가·원가 숫자는 모두 예시입니다. 실제 견적은 회사의 GPU 원가·인건비·계약 조건으로 바꿔 넣습니다.</li>
+        <li>랩은 운영 기간이 짧으므로 보고서는 30일 대신 7일 창으로 시험합니다.</li>
+      </ul>
+    </div>
+
+    <h3>실습 26-1 · 원가·단가 모델</h3>
+    <div class="codeblock"><div class="cap"><span>python · pricing_model.py</span><button class="copy">복사</button></div><pre><code>"""상품별 토큰당 원가·판매가·손익분기 사용률을 계산한다. 가정은 ASSUMPTIONS를 고쳐서 쓴다(모두 예시 값)."""
+SECONDS = 30 * 24 * 3600
+ASSUMPTIONS = {
+    "gpu_month_cost": 2200,          # GPU 1장 월 원가 ($): 감가상각·전력·상면 포함
+    "overhead": 0.40,                # 운영·관측·인력 간접비 비율
+    "margin": 0.25,                  # 목표 마진
+    "external_out_price": 10.0,      # 비교용 외부 API 출력 단가 ($/1M)
+    "tiers": {
+        # 이름: (레플리카당 GPU, 레플리카 수, 레플리카당 SLO 용량 출력 tok/s [14·19편 측정], 예상 사용률)
+        "A 공유 API":      (2, 3, 1800, 0.45),
+        "B 전용 (고객 X)": (2, 1, 1800, 0.20),
+    },
+}
+a = ASSUMPTIONS
+print(f"{'상품':&lt;16}{'월 원가($)':&gt;12}{'처리 토큰(M/월)':&gt;16}{'원가($/1M)':&gt;12}{'판매가($/1M)':&gt;14}{'손익분기 사용률':&gt;16}")
+for name, (gpr, reps, cap, util) in a["tiers"].items():
+    month = a["gpu_month_cost"] * gpr * reps * (1 + a["overhead"])
+    tokens_m = cap * reps * SECONDS * util / 1e6
+    cost = month / tokens_m
+    price = cost * (1 + a["margin"])
+    be = month / (cap * reps * SECONDS / 1e6) / a["external_out_price"]     # 외부 단가와 원가가 같아지는 사용률
+    print(f"{name:&lt;16}{month:&gt;12,.0f}{tokens_m:&gt;16,.0f}{cost:&gt;12.2f}{price:&gt;14.2f}{be:&gt;15.0%}")
+print("\n전용 상품은 사용률 위험을 고객이 지도록 월정액으로: 고객 X 월 청구 =",
+      f"${a['gpu_month_cost'] * 2 * (1 + a['overhead']) * (1 + a['margin']):,.0f} (레플리카 1개 기준)")</code></pre></div>
+    <p>레플리카당 용량은 14편 <code>tune_report.py</code>의 SLO 용량(req/s) × 평균 출력 토큰으로 환산해 넣습니다. GB10 랩 숫자는 데이터센터 GPU와 크게 다르므로, 고객 견적에는 고객 하드웨어에서의 측정값을 씁니다.</p>
+
+    <h3>실습 26-2 · 월간 보고서 자동 생성</h3>
+    <div class="codeblock"><div class="cap"><span>python · monthly_report.py (작업 머신에서, Prometheus 포트 포워딩 상태)</span><button class="copy">복사</button></div><pre><code>"""관측 데이터·Git 이력·사후 검토 파일로 월간 보고서(마크다운) 초안을 만든다.
+사용: python monthly_report.py [창=30d] [Prometheus=http://localhost:9090] [저장소 경로=.]"""
+import glob, json, os, subprocess, sys, urllib.parse, urllib.request
+from datetime import date
+win = sys.argv[1] if len(sys.argv) &gt; 1 else "30d"
+prom = sys.argv[2] if len(sys.argv) &gt; 2 else "http://localhost:9090"
+repo = sys.argv[3] if len(sys.argv) &gt; 3 else "."
+PRICE = {"input": 0.5, "output": 2.0}      # $/1M 토큰 (예시 단가표)
+def q(expr):
+    try: return json.load(urllib.request.urlopen(f"{prom}/api/v1/query?query={urllib.parse.quote(expr)}", timeout=20))["data"]["result"]
+    except Exception as e: return []
+def val(r): return float(r["value"][1])
+L = [f"# LLM 서비스 월간 보고 ({date.today():%Y-%m}, 창 {win})", "", "## 2. 사용량", "", "| 모델 | 입력 토큰(M) | 출력 토큰(M) | 요청 수 | 예상 청구($) |", "|---|---:|---:|---:|---:|"]
+ins = {r["metric"].get("model_name"): val(r) for r in q(f"sum by (model_name) (increase(vllm:prompt_tokens_total[{win}]))")}
+outs = {r["metric"].get("model_name"): val(r) for r in q(f"sum by (model_name) (increase(vllm:generation_tokens_total[{win}]))")}
+reqs = {r["metric"].get("model_name"): val(r) for r in q(f"sum by (model_name) (increase(vllm:request_success_total[{win}]))")}
+for m in sorted(set(ins) | set(outs)):
+    i, o = ins.get(m, 0) / 1e6, outs.get(m, 0) / 1e6
+    L.append(f"| {m} | {i:,.2f} | {o:,.2f} | {reqs.get(m, 0):,.0f} | {i*PRICE['input'] + o*PRICE['output']:,.2f} |")
+L += ["", "## 4. SLA·SLO", ""]
+for r in q(f"avg_over_time(llm:ttft_slo_ratio[{win}])"):
+    L.append(f"- TTFT 기준 달성률 ({r['metric'].get('model_name')}): {val(r)*100:.2f}%  (20·21편 기록 규칙)")
+for r in q(f'avg_over_time((sum(up{{job="monitoring/vllm-engines"}}) &gt; bool 0)[{win}:5m])'):
+    L.append(f"- 엔진 가용 시간 비율(근사): {val(r)*100:.2f}%  — 계약 SLA는 게이트웨이 기준으로 산정")
+L += ["", "## 6. 사건 (경보)", "", "| 경보 | 등급 | 울린 표본 수 |", "|---|---|---:|"]
+for r in sorted(q(f'sum by (alertname, severity) (count_over_time(ALERTS{{alertstate="firing"}}[{win}]))'), key=val, reverse=True)[:10]:
+    L.append(f"| {r['metric'].get('alertname')} | {r['metric'].get('severity','')} | {val(r):,.0f} |")
+pms = sorted(glob.glob(os.path.join(repo, "postmortems", "*.md")))
+L += ["", "사후 검토: " + (", ".join(os.path.basename(p) for p in pms) if pms else "없음")]
+L += ["", "## 7. 변경", ""]
+try:
+    log = subprocess.run(["git", "-C", repo, "log", f"--since={win.rstrip('d')}.days", "--pretty=- %ad %s", "--date=short"],
+                         capture_output=True, text=True).stdout.strip()
+    L.append(log or "- 변경 없음")
+except Exception: L.append("- Git 이력을 읽지 못함")
+L += ["", "## 1·3·5·8·9장은 담당자가 작성 (요약·비용 상세·품질·용량 예측·권고)"]
+out = f"report-{date.today():%Y-%m}.md"; open(out, "w").write("\n".join(L) + "\n"); print(open(out).read())</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090 &amp;
+python monthly_report.py 7d http://localhost:9090 ~/llm-lab</code></pre></div>
+    <p>보고서의 숫자가 대시보드(20편)와 같은지 확인하고, 운영에서는 매월 1일 CronJob으로 생성해 TAM이 1·9장을 채우도록 합니다. 청구용 숫자는 게이트웨이 사용량(12편)을 기준으로 하고, 엔진 지표는 대사용으로 씁니다.</p>
+
+    <h3>실습 26-3 · SLA 부속서 초안</h3>
+    <div class="codeblock"><div class="cap"><span>markdown · SLA 부속서 양식 (예시 — 법무 검토 필요)</span><button class="copy">복사</button></div><pre><code># 서비스 수준 부속서 (&lt;상품&gt;, &lt;고객&gt;)
+1. 측정 기간: 매월 1일 00:00 ~ 말일 24:00 (KST)
+2. 서비스 지표
+   2.1 월간 가용성 = 성공 응답 ÷ (전체 요청 − 제외 요청), 게이트웨이 기준. 목표 99.5%
+   2.2 응답 시작 지연 = 입력 4,000토큰 이하 요청 중 첫 토큰 2.5초 이내 비율. 목표 95%
+3. 제외: 사전 공지된 유지보수(월 4시간 이내), 고객 한도 초과, 외부 공급자 장애, 고객 측 원인, 불가항력
+4. 보상 (해당 월 서비스 요금 대비, 합계 상한 30%)
+   - 가용성 99.0% 이상 99.5% 미만: 10% / 98.0% 이상 99.0% 미만: 20% / 98.0% 미만: 30%
+   - 지연 달성률 90% 이상 95% 미만: 5% / 90% 미만: 10%
+5. 청구 절차: 고객은 다음 달 15일까지 서면 청구, 서비스 제공자는 측정 자료로 확인
+6. 장애 대응: SEV1 30분, SEV2 2시간 내 대응 시작 (등급 정의는 부록)
+7. 보고: 매월 10일까지 월간 보고서 제공
+8. 공동 책임: 부록 공동 책임표 (24편)</code></pre></div>
+    <p>5장의 보상 계산기에 지난 달 측정값을 넣어 보상액을 시험하고, 내부 SLO(5장 표)가 SLA보다 충분히 엄격한지 확인합니다.</p>
+
+    <h3>실습 26-4 · 신규 고객 온보딩 골격</h3>
+    <div class="codeblock"><div class="cap"><span>bash · onboard.sh (Git 저장소에 고객 디렉터리와 점검표 생성)</span><button class="copy">복사</button></div><pre><code>#!/usr/bin/env bash
+# 사용: ./onboard.sh &lt;고객-id&gt; &lt;상품: A|B|C|D|E&gt;
+set -euo pipefail
+C=${1:?고객 id}; P=${2:?상품}; D=customers/$C
+mkdir -p $D/{tenant,serving,observability,docs}
+TENANT=$C envsubst &lt; tenant-template.yaml &gt; $D/tenant/tenant.yaml            <span class="c-cm"># 24편 템플릿</span>
+cat &gt; $D/docs/onboarding-checklist.md &lt;&lt;EOF
+# $C 온보딩 점검표 (상품 $P)
+- [ ] 1. 워크로드 카드 (19편) · 데이터 정책 (12편) · 격리 수준 결정 (24편)
+- [ ] 2. 후보 모델 평가 결과 (6·22편)
+- [ ] 3. 용량 계획서·견적 (19편, 26-1)
+- [ ] 4. 계약·SLA 부속서·공동 책임표 (26-3, 24편)
+- [ ] 5. 테넌트 리소스 적용 (tenant/), 게이트웨이 키·한도·솔트 (12편)
+- [ ] 6. 경보 경로에 tenant=$C 라벨 경로 추가 (23편), 대시보드 변수 (20편)
+- [ ] 7. 운영 시작 점검: 스모크(7) · 부하(14) · 장애 훈련(23) · 카나리 문자열·인젝션(21·24)
+- [ ] 8. 2주 집중 관찰 후 초기 운영 보고서
+EOF
+echo "생성: $D"; find $D -type f</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>chmod +x onboard.sh &amp;&amp; ./onboard.sh cust-c A
+kubectl apply --dry-run=server -f customers/cust-c/tenant/tenant.yaml       <span class="c-cm"># 적용 전 검증</span>
+git add customers/cust-c &amp;&amp; git commit -m "onboard: cust-c (상품 A) 골격"     <span class="c-cm"># 25편: PR로 검토 후 Argo CD가 반영</span></code></pre></div>
+
+    <h3>실습 26-5 · 졸업 과제: 플랫폼 상태 점검</h3>
+    <div class="codeblock"><div class="cap"><span>bash · platform_check.sh (시리즈 전체 구성 요소를 한 번에 점검)</span><button class="copy">복사</button></div><pre><code>#!/usr/bin/env bash
+# 사용: ./platform_check.sh   — 각 편에서 만든 구성 요소가 살아 있는지 표로 출력
+NS=llmsvc-lab; PASS=0; WARN=0
+chk(){ local name=$1; shift; if eval "$@" &gt;/dev/null 2&gt;&amp;1; then printf "  [통과] %s\n" "$name"; PASS=$((PASS+1)); else printf "  [확인] %s\n" "$name"; WARN=$((WARN+1)); fi; }
+echo "== Level 1·2: GPU와 엔진"
+chk "GPU 할당 가능 노드 (7·8편)"        "kubectl get nodes -o jsonpath='{.items[*].status.allocatable.nvidia\.com/gpu}' | grep -q '[1-9]'"
+chk "GPU Operator 정상 (7편)"           "kubectl -n gpu-operator get pods --no-headers | grep -q . &amp;&amp; ! kubectl -n gpu-operator get pods --no-headers | grep -vE 'Running|Completed'"
+chk "엔진 준비 (7편)"                   "kubectl -n $NS rollout status deploy/llm-engine --timeout=5s"
+chk "엔진 /health (4편)"                "kubectl -n $NS exec bench -- python -c \"import urllib.request;urllib.request.urlopen('http://llm-engine:8000/health',timeout=5)\""
+chk "네임스페이스 쿼터·네트워크 정책 (7·24편)" "kubectl -n $NS get resourcequota,networkpolicy --no-headers | grep -q ."
+chk "게이트웨이 (7·11편)"               "kubectl -n $NS get httproute --no-headers | grep -q ."
+echo "== Level 3: 확장"
+chk "KEDA (18편)"                       "kubectl get crd scaledobjects.keda.sh"
+chk "LeaderWorkerSet (17편)"            "kubectl get crd leaderworkersets.leaderworkerset.x-k8s.io"
+echo "== Level 4: 관측·경보"
+chk "Prometheus (20편)"                 "kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus --no-headers | grep -q Running"
+chk "기록 규칙 llm:* (20편)"            "kubectl -n monitoring get prometheusrule llm-recording-rules"
+chk "SLO 규칙 (21편)"                   "kubectl -n monitoring get prometheusrule slo-ttft"
+chk "트레이스 수집기 (21편)"            "kubectl -n monitoring get svc --no-headers | grep -q otel"
+chk "품질 규칙 (22편)"                  "kubectl -n monitoring get prometheusrule quality-cheap"
+chk "경보 규칙·Alertmanager (23편)"     "kubectl -n monitoring get prometheusrule llm-alerts &amp;&amp; kubectl -n monitoring get pods --no-headers | grep -q alertmanager"
+echo "== Level 5: 운영"
+chk "Argo CD 애플리케이션 (25편)"       "kubectl -n argocd get application llm-engine"
+chk "Argo Rollouts (25편)"              "kubectl get crd rollouts.argoproj.io"
+chk "모델 검증 구성 요소 (24편)"        "kubectl -n $NS get deploy llm-engine -o jsonpath='{.spec.template.spec.initContainers[*].name}' | grep -q verify"
+echo; echo "통과 $PASS · 확인 필요 $WARN  (확인 항목은 해당 편 실습으로 복구하거나, 쓰지 않는 구성이라면 목록에서 제외)"</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>chmod +x platform_check.sh &amp;&amp; ./platform_check.sh | tee results/platform-check-$(date +%F).txt</code></pre></div>
+    <p>결과를 시리즈 수료 기록으로 남기고, “확인” 항목 중 운영에 필요한 것은 해당 편으로 돌아가 복구합니다. 이 스크립트를 23편 경보의 보조 점검(매일 아침 실행)으로 쓰면, 관측 자체가 조용히 깨진 상황도 잡을 수 있습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2><span class="sec-num">14</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: 원가, 약정, SLA 크레딧, RACI" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15" class="quiz">
+  <h2><span class="sec-num">15</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S16 ================= -->
+<section id="s16">
+  <h2><span class="sec-num">16</span>정리와 마무리</h2>
+  <p class="lede">이번 편의 핵심 여섯 문장과 시리즈 전체의 마무리.</p>
+  <div class="prose">
+    <ol>
+      <li><b>상품은 격리 수준과 운영 범위로</b> 나눈다: 공유 API · 전용 서빙 · 고객 클러스터 운영 · 온프레미스 · 하이브리드 게이트웨이 · 부가 서비스.</li>
+      <li><b>토큰당 원가의 핵심은 사용률</b>이다. 용량은 측정값으로, 최적화는 원가를 낮추는 지렛대로 계산한다.</li>
+      <li><b>과금 모델은 사용률 위험을 누가 지느냐</b>로 고른다. 계량은 게이트웨이 기준, 엔진 지표로 대사한다.</li>
+      <li><b>SLA는 측정 가능한 SLI·측정 위치·제외 조건·보상표</b>까지 적고, 내부 SLO는 더 엄격하게 둔다.</li>
+      <li><b>온보딩·월간 보고서는 이 시리즈의 산출물로 구성</b>하고, 숫자는 모두 재현 가능하게.</li>
+      <li><b>역할·RACI·당직·교육 체계와 사업 지표·위험 목록</b>으로 서비스를 지속 가능하게 만든다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">우리 회사의 상품 포트폴리오 초안을 만들었다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">원가·단가 모델로 상품별 원가·판매가·손익분기를 계산했다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">SLA 부속서 초안과 보상 계산을 시험했다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">월간 보고서를 관측 데이터에서 자동 생성했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">온보딩 골격과 점검표를 Git에 만들었다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">운영 역할·RACI·당직 구성을 정했다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">졸업 과제(플랫폼 상태 점검)를 통과했다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">시리즈를 마치며</span>
+      <p>26편 동안 GPU 한 장에서 엔진 하나를 띄우는 것으로 시작해, 라우팅·게이트웨이·튜닝·확장·관측·보안·변경 관리를 거쳐 서비스 사업까지 왔습니다. 이 분야의 도구와 버전은 매달 바뀌지만, 이 시리즈가 반복한 원칙은 오래갑니다. <b>측정하고 결정한다</b>, <b>한 번에 하나씩 바꾸고 기록한다</b>, <b>정책은 한 곳에, 증거는 남게</b>, <b>사용자가 겪는 것으로 판단한다</b>. 새 엔진이나 새 모델이 나오면 7편 랩에서 같은 절차로 측정하고, 25편 절차로 들여오면 됩니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 26편 MSP 서비스 설계 (시리즈 마지막) · 2026년 10월 기준. 모든 단가·원가·보상 비율은 예시이며, 실제 계약은 회사의 원가 구조와 법무 검토를 따르세요.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero: pricing ---------- */
+const SEC=30*24*3600;
+function price(){const G=+$("#pG").value||0,R=+$("#pR").value,C=Math.max(1,+$("#pC").value||1),U=+$("#pU").value/100,O=+$("#pO").value/100,M=+$("#pM").value/100,X=Math.max(0.01,+$("#pX").value||0.01);
+ $("#pUV").textContent=fmt(U*100)+"%";$("#pOV").textContent=fmt(O*100)+"%";$("#pMV").textContent=fmt(M*100)+"%";
+ const month=G*R*(1+O),tokM=C*SEC*U/1e6,cost=month/tokM,pr=cost*(1+M),be=month/(C*SEC/1e6*X);
+ $("#pCost").textContent="$"+fmt(cost,2);$("#pPrice").textContent="$"+fmt(pr,2);$("#pBE").textContent=be>1?"100% 넘음 (불가)":fmt(be*100,1)+"%";
+ let n=`<p>레플리카 하나(GPU ${R}장)의 월 원가는 간접비 포함 $${fmt(month)}이고, 사용률 ${fmt(U*100)}%에서 월 ${fmt(tokM)}M 출력 토큰을 처리합니다. `;
+ if(pr<X)n+=`판매가 $${fmt(pr,2)}는 비교 외부 단가 $${fmt(X,2)}보다 낮아 가격 경쟁력이 있습니다. 사용률이 ${be>1?"아무리 높아도":fmt(be*100,1)+"% 아래로"} 떨어지면 원가가 외부 단가를 넘습니다.</p>`;
+ else n+=`판매가 $${fmt(pr,2)}가 비교 외부 단가 $${fmt(X,2)}보다 높습니다. 사용률을 높이거나(공유 상품으로 부하 모으기), 용량을 늘리는 최적화(14~16편)를 하거나, 데이터 주권·지연·맞춤 모델 같은 가격 외 가치로 상품을 설계해야 합니다.</p>`;
+ n+=`<p>사용률을 바꿔 보세요. 사용률이 절반이 되면 원가는 두 배가 됩니다. 단가는 예시이며, 용량은 반드시 고객 하드웨어 측정값(14·19편)으로 넣습니다.</p>`;
+ $("#pNote").innerHTML=n;}
+$$("#pG,#pR,#pC,#pU,#pO,#pM,#pX").forEach(e=>e.addEventListener("input",price));price();
+
+/* ---------- SLA credit ---------- */
+function sla(){const a=+$("#sA").value,t=+$("#sT").value,b=+$("#sB").value||0;
+ const ca=a>=99.5?0:a>=99?10:a>=98?20:30,ct=t>=95?0:t>=90?5:10,tot=Math.min(30,ca+ct);
+ $("#sCA").textContent=ca+"%";$("#sCT").textContent=ct+"%";$("#sCR").textContent=`${tot}% = $${fmt(b*tot/100)}`;
+ const v=$("#sNote");v.className="verdict "+(tot===0?"good":tot<=10?"mid":"badv");
+ v.innerHTML=tot===0?"이번 달은 SLA를 지켰습니다. 그래도 내부 SLO(더 엄격한 목표) 대비 오류 예산 사용은 보고서에 함께 적습니다.":`SLA 미달로 보상 ${tot}%가 발생합니다. 측정 근거(게이트웨이 기준 집계, 제외 시간 목록)를 보고서에 첨부하고, 사후 검토의 조치 항목을 함께 제시합니다. 내부 SLO 경보(21편)가 이보다 먼저 울렸는지 확인해 보세요.`;}
+$$("#sA,#sT,#sB").forEach(e=>e.addEventListener("input",sla));sla();
+
+/* ---------- roadmap ---------- */
+const RM=[
+ [[1,"LLM 서빙 플랫폼 전체 지도","7계층 지도, 용어"],[2,"LLM 추론의 원리","Prefill·Decode, KV 메모리 계산, 루프라인"],[3,"서빙 지표·SLO와 하드웨어 지형","TTFT·TPOT·Goodput, 토큰당 비용"]],
+ [[4,"vLLM 해부","엔진 구조, 설정·지표 읽기"],[5,"엔진 비교","공정한 비교 체크리스트, 지표 대응표"],[6,"모델 포맷·양자화·레지스트리","quick_eval, 모델 카탈로그"],[7,"실습 랩 구축","kustomize 랩, lab.sh, 스모크 테스트"]],
+ [[8,"Kubernetes 위의 GPU 플랫폼","DRA·MIG·Kueue, 메모리 예산"],[9,"서빙 프레임워크 선택","결정 트리, 표준 스택 등급"],[10,"llm-d 해부","P/D·캐시 인지 라우팅 계산"],[11,"Inference Gateway","InferencePool·EPP, 흐름 제어"],[12,"AI 게이트웨이","가상 키·토큰 한도·폴백·과금 기반"],[13,"모델 로딩·콜드 스타트","기동 타임라인, 컴파일 캐시"]],
+ [[14,"vLLM 파라미터 튜닝","slo_probe·tune.sh, SLO 용량"],[15,"KV 캐시 최적화","프롬프트 설계, 오프로딩 비교"],[16,"추측 디코딩과 고급 기능","수락률·LoRA·구조화 출력 측정"],[17,"분산 서빙","병렬화 설계, LWS 매니페스트"],[18,"오토스케일링","KEDA 추론 지표 확장"],[19,"벤치마크·용량 계획","워크로드 카드, 용량 계획서"]],
+ [[20,"서빙 지표 체계","운영 Prometheus, 표준 기록 규칙, 대시보드"],[21,"트레이스·로그와 SLO","OTel 트레이스, 소진율 경보"],[22,"응답 품질 관측","규칙·가드·판정, 품질 SLI"],[23,"경보·장애 대응","Alertmanager 경로, 런북, 사후 검토"]],
+ [[24,"멀티테넌시·보안·거버넌스","격리 수준, 테넌트 템플릿, 모델 서명"],[25,"안전한 변경","GitOps, PR 게이트, 자동 판정 카나리"],[26,"MSP 서비스 설계","상품·단가·SLA·보고서·점검 스크립트"]]
+];
+function rm(l){$("#rmList").innerHTML=RM[l].map(([n,t,a])=>`<div style="display:grid;grid-template-columns:52px 1fr;gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;background:var(--surface)"><b style="font-family:var(--mono);color:var(--l4)">${n}편</b><span><b>${t}</b><br><span style="color:var(--muted);font-size:.85rem">산출물: ${a}</span></span></div>`).join("")}
+$$("#rmTabs .btn").forEach(b=>b.addEventListener("click",()=>{$$("#rmTabs .btn").forEach(x=>x.classList.toggle("on",x===b));rm(+b.dataset.l)}));rm(0);
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["GPU를 싸게 사면 토큰 단가도 싸진다.","원가에 가장 큰 영향을 주는 것은 사용률입니다. 사용률이 절반이면 원가는 두 배입니다."],
+ ["셀프호스팅은 항상 외부 API보다 싸다.","사용률이 낮거나 모델이 크면 외부 API가 더 쌀 수 있습니다. 손익분기 사용률을 계산하고, 데이터 주권·지연·맞춤 같은 가격 외 가치를 함께 봅니다."],
+ ["SLA에 응답 품질도 넣어야 고객이 믿는다.","확률적 모델의 정확성은 측정·합의가 어려워 보상 대상으로는 부적합합니다. 품질은 보고 대상으로 두고, 형식 준수 같은 측정 가능한 항목만 검토합니다."],
+ ["SLA 목표와 내부 목표는 같게 두면 된다.","같으면 위반 직전까지 아무도 움직이지 않습니다. 내부 SLO를 더 엄격하게 두어 대응 여유를 만듭니다."],
+ ["월간 보고서는 대시보드 캡처면 충분하다.","청구·SLA의 근거가 되므로 재현 가능한 집계(기록 규칙·게이트웨이 사용량)와 제외 조건이 필요합니다."],
+ ["모든 상품을 처음부터 갖춰야 한다.","공유 API와 벤치마크·용량 계획으로 시작해 실제 요구가 확인될 때 전용·온프레미스로 확장하는 편이 위험이 작습니다."],
+ ["작은 팀은 역할 분담이 필요 없다.","한 사람이 겸하더라도 책임(RACI)을 적어 두어야 누락이 없고, 사람이 바뀌어도 운영이 이어집니다."],
+ ["시리즈를 다 따라 했으니 플랫폼은 완성이다.","도구·모델·버전은 계속 바뀝니다. 측정 → 결정 → 기록의 절차와 점검 스크립트로 지속적으로 유지합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["상품 포트폴리오","Product portfolio","격리 수준·운영 범위·과금으로 나눈 서비스 묶음."],
+ ["토큰당 원가","Cost per token","월 원가 ÷ 처리 토큰. 사용률에 크게 좌우."],
+ ["실사용률","Utilization","SLO 용량 대비 실제 처리량의 비율."],
+ ["손익분기 사용률","Break-even utilization","우리 원가가 비교 단가와 같아지는 사용률."],
+ ["간접비","Overhead","운영 인력·관측·소프트웨어 등 GPU 외 원가."],
+ ["토큰 종량제","Pay-per-token","사용한 토큰 수로 과금."],
+ ["약정 + 초과","Commitment + overage","기본 약정 사용량에 초과분을 종량으로 더하는 과금."],
+ ["전용 월정액","Dedicated monthly","전용 GPU·레플리카에 대한 정액 과금."],
+ ["대행 수수료","Pass-through fee","외부 API 원가에 관리 수수료를 붙인 과금."],
+ ["SLA 크레딧","Service credit","SLA 미달 시 요금에서 빼 주는 보상."],
+ ["제외 조건","Exclusions","SLA 산정에서 빼는 시간·요청(유지보수·한도 초과 등)."],
+ ["온보딩","Onboarding","요구 파악부터 운영 시작·집중 관찰까지의 고객 수용 절차."],
+ ["집중 관찰","Hypercare","운영 시작 직후 일정 기간 강화된 모니터링·지원."],
+ ["TAM","Technical Account Manager","고객 기술 담당. 보고·권고·요구 수집."],
+ ["RACI","Responsible·Accountable·Consulted·Informed","활동별 책임 분담 표."],
+ ["매출 총이익률","Gross margin","(매출 − 직접 원가) ÷ 매출."],
+ ["MSP 성숙 단계","MSP maturity","실험 → 표준 플랫폼 → 측정 운영 → SLO 운영 → 서비스 사업."],
+ ["대사","Reconciliation","두 출처(게이트웨이·엔진)의 집계를 맞춰 보는 일."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["토큰당 원가에 가장 큰 영향을 주는 변수는?",["모델 이름","GPU 실사용률","API 경로","로그 수준"],1,"사용률이 절반이면 원가는 두 배입니다."],
+ ["전용 서빙 상품에 월정액이 맞는 이유는?",["계산이 쉬워서","낮은 사용률의 위험을 고객이 지기 때문","토큰을 못 세서","SLA가 없어서"],1,"사용률 위험의 부담 주체로 과금 모델을 고릅니다."],
+ ["SLA 문구에 반드시 들어가야 하는 것은?",["모델 아키텍처","측정 방법·측정 위치·제외 조건·보상표","GPU 모델명","엔진 버전"],1,"측정 가능해야 분쟁이 없습니다."],
+ ["응답 정확성을 SLA 보상 대상으로 넣지 않는 이유는?",["중요하지 않아서","확률적 특성상 측정·합의가 어려움 — 보고 대상으로 둠","측정 도구가 없어서","고객이 원치 않아서"],1,"품질은 22편 지표로 보고합니다."],
+ ["청구의 기준 집계로 적절한 것은?",["엔진 지표만","게이트웨이 사용량 (엔진 지표로 대사)","GPU 사용률","로그 줄 수"],1,"테넌트·키 단위로 정확히 셉니다."],
+ ["캐시 적중 입력 토큰을 할인하면 생기는 효과는?",["원가 상승","고객이 캐시 친화적으로 프롬프트를 고칠 동기 → 원가 하락","효과 없음","SLA 위반"],1,"15편 원리를 가격으로 연결합니다."],
+ ["새 MSP LLM 서비스를 시작할 때 위험이 작은 순서는?",["온프레미스부터","공유 API + 벤치마크·용량 계획으로 시작해 요구에 따라 확장","전 상품 동시 출시","전용 상품만"],1,"실제 워크로드 카드를 먼저 확보합니다."],
+ ["SLA 99.5%일 때 내부 SLO를 정하는 합리적 방법은?",["99%","99.5%","99.9%처럼 더 엄격하게","정하지 않음"],2,"위반 전에 대응할 여유를 만듭니다."],
+ ["외부 API 가격이 계속 내려갈 때의 대응으로 맞는 것은?",["셀프호스팅 즉시 중단","데이터 주권·지연·맞춤 모델 같은 가치 중심 상품과 하이브리드 상품, 정기 단가 재검토","가격 동결","약정 기간 장기화"],1,"가격 외 가치와 유연성으로 대응합니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((x,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${x[0]}</p>${x[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${x[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const x=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[x[2]].classList.add("right");if(j!==x[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 시리즈 완주를 축하합니다.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 시리즈 수료!":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

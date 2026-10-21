@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 18편 · 오토스케일링: KEDA·HPA·추론 지표 기반 확장</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+/* ---------- episode 15 additions ---------- */
+.tiers{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tiers div{display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+.pseg{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0}
+.pseg span{font-size:.72rem;padding:3px 7px;border-radius:5px;color:#0B1220;white-space:nowrap}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 18 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>18편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">CPU·GPU 사용률로는 안 되는 이유</a></li>
+    <li><a href="#s3">확장 신호 지도</a></li>
+    <li><a href="#s4">확장 루프의 시간 계산</a></li>
+    <li><a href="#s5">HPA와 KEDA 구조</a></li>
+    <li><a href="#s6">0으로 축소</a></li>
+    <li><a href="#s7">llm-d·KServe의 확장 경로</a></li>
+    <li><a href="#s8">노드 확장과 고정 용량</a></li>
+    <li><a href="#s9">임계값과 동작 튜닝</a></li>
+    <li><a href="#s10">MSP 관점</a></li>
+    <li><a href="#s11">흔한 오해</a></li>
+    <li><a href="#s12">실습</a></li>
+    <li><a href="#s13">용어 사전</a></li>
+    <li><a href="#s14">확인 퀴즈</a></li>
+    <li><a href="#s15">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 3 · 튜닝 — 18편</div>
+    <h1>오토스케일링<br>KEDA·HPA·추론 지표 기반 확장</h1>
+    <p class="intro">지금까지 레플리카 하나의 크기(17편), 하나가 SLO를 지키며 감당하는 양(14편), 하나가 뜨는 데 걸리는 시간(13편)을 정했습니다. 이번 편은 이 세 숫자로 <b>트래픽을 따라 레플리카를 늘리고 줄이는 루프</b>를 설계합니다. 핵심은 무엇을 보고 늘리느냐입니다. CPU나 GPU 사용률은 LLM에서 거의 쓸모가 없고, 대기열·처리 중 요청·KV 사용률·토큰 적체·예상 지연 같은 <b>추론 지표</b>를 봐야 합니다.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>13·14·17편</b></span>
+      <span class="chip">읽는 시간 <b>약 90분</b></span>
+      <span class="chip">실습 <b>약 150분</b></span>
+      <span class="chip">기준 <b>KEDA 2.20 · llm-d 0.10</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="확장 시뮬레이터">
+    <div class="stack-head"><strong>60분 동안의 확장 루프</strong><span class="spacer"></span><button class="btn primary" id="sRun">다시 계산</button></div>
+    <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <label>트래픽 <select id="sT"><option value="ramp" selected>출근 시간 램프</option><option value="spike">갑작스러운 스파이크</option><option value="calm">잔잔한 부하</option></select></label>
+      <label>확장 신호 <select id="sS"><option value="queue" selected>대기열·처리 중 요청 (선행)</option><option value="ttft">TTFT p95 위반 (후행)</option><option value="gpu">GPU 사용률 80% 목표</option></select></label>
+      <label>레플리카당 SLO 용량 (req/s) <span id="sCV">2.0</span><input type="range" id="sC" min="0.5" max="10" step="0.5" value="2"></label>
+      <label>기동 시간 (분, 13편) <span id="sKV">4</span><input type="range" id="sK" min="0" max="15" step="1" value="4"></label>
+      <label>목표 사용률 <span id="sUV">0.7</span><input type="range" id="sU" min="0.4" max="0.95" step="0.05" value="0.7"></label>
+      <label>축소 안정화 (분) <span id="sDV">10</span><input type="range" id="sD" min="1" max="20" step="1" value="10"></label>
+    </div>
+    <div class="chartbox"><svg id="sSvg" viewBox="0 0 520 200" role="img" aria-label="수요와 용량"></svg></div>
+    <div class="legend"><span><i style="background:var(--l3)"></i>수요 (req/s)</span><span><i style="background:var(--l6)"></i>준비된 용량</span><span><i style="background:var(--bad)"></i>SLO 위반 구간</span></div>
+    <div class="readout">
+      <div><span>SLO 위반</span><b id="sV">—</b></div>
+      <div><span>평균 레플리카</span><b id="sR">—</b></div>
+      <div><span>최대 대기 요청</span><b id="sQ">—</b></div>
+    </div>
+    <div class="layer-detail" id="sNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">오토스케일링은 “늘리는 기술”이 아니라 “늘어나기 전 몇 분을 버티는 설계”입니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">2026년에 바뀐 것</span>
+      <ul>
+        <li><b>llm-d 0.10</b>이 나왔고, 자동 확장 문서가 <b>KEDA + EPP 지표</b>를 권장 경로로 정리했습니다. 처리 중 요청 수(기본), 흐름 제어 대기열, 풀 포화도, 토큰 적체, 예상 지연(SLO) 신호를 고를 수 있습니다.</li>
+        <li><b>워크로드 변형 오토스케일러(WVA)는 사용 중단</b>되었습니다(v0.9.0이 마지막). 10편에서 소개한 WVA 대신 KEDA + EPP 경로를 씁니다.</li>
+        <li>HPA에 사용자 지표를 공급하던 <b>Prometheus Adapter는 사용 중단이 예정</b>되어, KEDA를 쓰는 것이 권장됩니다.</li>
+      </ul>
+    </div>
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>CPU·GPU 사용률이 LLM 확장 신호로 부적합한 이유를 설명할 수 있다.</li>
+      <li>대기열·처리 중 요청·KV 사용률·토큰 적체·예상 지연 신호의 장단점을 비교해 고를 수 있다.</li>
+      <li>기동 시간과 트래픽 증가 속도로 필요한 여유 용량과 목표 사용률을 계산할 수 있다.</li>
+      <li>HPA 알고리즘과 동작(behavior), KEDA의 ScaledObject·활성화·쿨다운 구조를 설명할 수 있다.</li>
+      <li>0으로 축소의 조건·대가·구현 방법을 설명할 수 있다.</li>
+      <li>KEDA + Prometheus로 추론 지표 기반 확장을 구성하고, 늘어나고 줄어드는 과정을 관찰할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 콜센터 상담원 배치</span>
+      <p>상담원(레플리카)을 더 부르는 기준은 “상담원들이 얼마나 바빠 보이는가(GPU 사용률)”가 아니라 “대기 중인 고객 수(대기열)”여야 합니다. 상담원은 통화 중이면 항상 바빠 보이니까요. 그리고 새 상담원이 출근해 자리에 앉기까지 20분(기동 시간)이 걸리면, 대기 고객이 생긴 뒤에 부르면 이미 늦습니다. 대기 고객이 생기기 전에, 예상 증가 속도만큼 미리 불러 두는 것이 오토스케일링 설계입니다. 퇴근시키는 것(축소)은 천천히 합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>CPU·GPU 사용률로는 안 되는 이유</h2>
+  <p class="lede">일반 웹 서비스의 오토스케일링 습관이 LLM에서는 거꾸로 작동합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>지표</th><th>LLM 엔진에서 실제로 보이는 모습</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr><td class="k">CPU 사용률</td><td>엔진 코어의 바쁜 루프가 부하와 무관하게 CPU 한 코어를 씀 (4편)</td><td>항상 비슷 → 신호 없음</td></tr>
+      <tr><td class="k">GPU 사용률 (DCGM GPU_UTIL)</td><td>배치에 요청이 하나라도 있으면 거의 100% 가까이 보임 (커널이 실행 중인 시간 비율이라)</td><td>조금만 부하가 있어도 “포화”로 보여 최대까지 늘리거나, 임계값을 높이면 반응하지 않음</td></tr>
+      <tr><td class="k">GPU 메모리 사용률</td><td>vLLM이 기동 시 KV 풀을 미리 잡아 항상 높음 (2·4편)</td><td>부하와 무관</td></tr>
+      <tr><td class="k">요청 수 (RPS)</td><td>요청 하나의 비용이 수백 배 차이 (12편)</td><td>긴 요청이 몰리면 늦게 반응</td></tr>
+      <tr><td class="k">지연 (TTFT·TPOT)</td><td>이미 사용자가 느끼고 난 뒤에야 오름</td><td>후행 지표. 단독으로는 늦음 (예측값이면 다름, 7장)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>필요한 것은 <b>“포화 직전”을 알려 주는 선행 지표</b>입니다. 대기열이 쌓이기 시작하거나, 처리 중 요청이 레플리카 용량에 다가가거나, KV 사용률이 선점 근처로 오르는 것은 지연이 나빠지기 전에 나타납니다.</p>
+  </div>
+</section>
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>확장 신호 지도</h2>
+  <p class="lede">무엇을 보고 늘릴지에 따라 반응 속도, 설정 난이도, 낭비 정도가 달라집니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>신호</th><th>어디서</th><th>선행·후행</th><th>장점</th><th>주의</th></tr></thead>
+    <tbody>
+      <tr><td class="k">처리 중 요청 수 (in-flight)</td><td>엔진 실행 중 요청, EPP의 처리 중 요청</td><td>선행</td><td>단순, 레플리카당 용량과 바로 비교 (llm-d 기본 권장 신호)</td><td>요청 크기 차이를 반영 못 함</td></tr>
+      <tr><td class="k">대기열 길이</td><td>엔진 대기 요청, EPP 흐름 제어 대기열</td><td>선행~동시</td><td>“충족 못 한 수요”를 직접 보여 줌</td><td>엔진 상한(14편)이 높으면 대기열 대신 TPOT가 먼저 나빠짐</td></tr>
+      <tr><td class="k">KV 캐시 사용률</td><td>엔진</td><td>선행</td><td>메모리 쪽 포화를 미리 감지, 긴 문맥 워크로드에 유효</td><td>프리픽스 캐시가 남겨 둔 블록 때문에 높게 보일 수 있음</td></tr>
+      <tr><td class="k">풀 포화도</td><td>EPP (흐름 제어)</td><td>선행</td><td>0~1로 정규화되어 임계값을 옮기기 쉬움</td><td>흐름 제어 필요, 실험 단계</td></tr>
+      <tr><td class="k">토큰 적체 (초 단위)</td><td>EPP 처리 중 토큰 ÷ 측정한 Prefill 처리량</td><td>선행</td><td>요청 크기 차이를 반영, TTFT SLO에서 임계값을 바로 유도</td><td>하드웨어·모델마다 보정 측정 1회 필요</td></tr>
+      <tr><td class="k">예상 지연 ÷ SLO</td><td>EPP의 예측(또는 실측) TTFT·TPOT</td><td>예측이면 선행</td><td>목표(SLO) 자체로 확장</td><td>예측 모델·기록 규칙 필요</td></tr>
+      <tr><td class="k">일정 (시간대)</td><td>KEDA cron</td><td>예측</td><td>출근·업무시간처럼 예측 가능한 부하에 가장 확실</td><td>예외 트래픽엔 다른 신호와 함께</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>실무 출발점은 <b>“처리 중 요청(또는 대기열) + 일정”</b>입니다. 요청 크기 편차가 크면 토큰 적체, 지연 SLO 계약이 있으면 예상 지연 신호로 발전시킵니다. 여러 신호를 함께 걸면 KEDA·HPA는 그중 <b>가장 많은 레플리카를 요구하는 값</b>을 따릅니다.</p>
+  </div>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>확장 루프의 시간 계산</h2>
+  <p class="lede">늘리기로 결정한 순간부터 새 레플리카가 요청을 받기까지의 시간 동안, 기존 레플리카가 버텨야 합니다.</p>
+  <div class="prose">
+    <div class="formula">반응 시간 ≈ 지표 수집 주기 + 확장 판단 주기 + (노드 확보) + 기동 시간(13편)
+버텨야 할 증가분 ≈ 트래픽 증가 속도 × 반응 시간
+목표 사용률 ≤ 1 − (버텨야 할 증가분 ÷ 현재 용량)
+예) 레플리카당 2 req/s, 레플리카 5개(용량 10), 분당 0.5 req/s씩 증가, 반응 시간 5분
+    → 버텨야 할 증가분 2.5 req/s → 목표 사용률 ≤ 1 − 2.5/10 = 0.75</div>
+    <ul>
+      <li><b>기동이 길수록</b> 목표 사용률을 낮춰(여유를 크게) 잡아야 하고, 그만큼 평소 GPU를 더 씁니다. 13편의 기동 단축이 곧 비용 절감인 이유입니다.</li>
+      <li><b>레플리카 단위가 클수록</b>(17편 멀티 GPU) 확장의 계단이 커져 세밀한 조절이 어렵습니다.</li>
+      <li>히어로 시뮬레이터에서 기동 시간과 목표 사용률을 바꿔, “위반 시간”과 “평균 레플리카(비용)”의 맞교환을 확인해 보세요.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>HPA와 KEDA 구조</h2>
+  <p class="lede">KEDA는 HPA를 대체하지 않습니다. 외부 지표를 읽어 HPA를 만들고 먹여 주는 역할입니다.</p>
+  <div class="prose">
+    <div class="formula">HPA 기본식: 원하는 레플리카 = ⌈ 현재 레플리카 × (현재 지표 ÷ 목표 지표) ⌉
+KEDA Prometheus 트리거 (AverageValue): 원하는 레플리카 = ⌈ 쿼리 결과(합계) ÷ threshold ⌉
+→ 쿼리는 풀 전체 합계로, threshold는 “레플리카 하나가 맡을 양”으로</div>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>구성 요소</th><th>역할</th><th>LLM에서의 설정 포인트</th></tr></thead>
+    <tbody>
+      <tr><td class="k">HPA behavior · scaleUp</td><td>늘릴 때의 안정화 창·속도 정책</td><td>빠르게 (안정화 0~60초), 한 번에 여러 개 허용</td></tr>
+      <tr><td class="k">HPA behavior · scaleDown</td><td>줄일 때의 안정화 창·속도 정책</td><td>천천히 (5~10분 이상), 한 번에 하나씩. 다시 늘리면 기동 비용을 또 냄</td></tr>
+      <tr><td class="k">KEDA ScaledObject</td><td>대상(Deployment·LWS 등)·최소·최대·트리거 선언 → HPA 생성</td><td>최소 = 가용성(보통 2), 최대 = GPU 예산</td></tr>
+      <tr><td class="k">트리거 (scaler)</td><td>Prometheus, cron, metrics-api 등</td><td>Prometheus 쿼리로 추론 지표, cron으로 일정</td></tr>
+      <tr><td class="k">활성화 (activation)</td><td>0 ↔ 1 전환 기준 (HPA는 1 이상만 다룸)</td><td>0으로 축소할 때 “깨울 신호”가 앞단에 있어야 함 (6장)</td></tr>
+      <tr><td class="k">pollingInterval · cooldownPeriod</td><td>지표 확인 주기, 마지막 활성 후 0으로 내리기까지 대기</td><td>짧은 주기는 반응↑ 부하↑. 쿨다운은 기동 비용보다 길게</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>yaml · ScaledObject 예 (엔진 대기·실행 요청 합계 기준)</span><button class="copy">복사</button></div><pre><code>apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: llm-engine, namespace: llmsvc-lab }
+spec:
+  scaleTargetRef: { name: llm-engine }          <span class="c-cm"># Deployment (LWS·KServe 대상도 가능)</span>
+  minReplicaCount: 1
+  maxReplicaCount: 4                            <span class="c-cm"># GPU 예산</span>
+  pollingInterval: 15
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:   { stabilizationWindowSeconds: 0,   policies: [ { type: Pods, value: 2, periodSeconds: 60 } ] }
+        scaleDown: { stabilizationWindowSeconds: 600, policies: [ { type: Pods, value: 1, periodSeconds: 300 } ] }
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus.llmsvc-lab.svc:9090
+      query: sum(vllm:num_requests_running{namespace="llmsvc-lab"}) + sum(vllm:num_requests_waiting{namespace="llmsvc-lab"})
+      threshold: "12"                           <span class="c-cm"># 레플리카 하나가 SLO 안에서 동시에 처리할 요청 수 × 목표 사용률</span></code></pre></div>
+    <p>threshold는 14편 실측에서 나옵니다. 예를 들어 SLO 용량에서의 평균 처리 중 요청이 16이고 목표 사용률이 0.75라면 12입니다. 지표 이름은 엔진 버전에 따라 다를 수 있으니 /metrics에서 확인합니다.</p>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>0으로 축소</h2>
+  <p class="lede">GPU를 아끼는 가장 큰 수단이지만, 첫 요청이 기동 시간을 그대로 기다립니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>질문</th><th>답</th></tr></thead>
+    <tbody>
+      <tr><td class="k">언제 쓰나</td><td>사용 빈도가 낮은 모델(부서 전용·야간 미사용), 개발·검증 환경, 고객별 맞춤 모델의 비활성 시간</td></tr>
+      <tr><td class="k">깨울 신호</td><td>Pod가 0개면 엔진 지표가 없음. 앞단(게이트웨이 대기 요청, EPP 흐름 제어 대기열, KEDA HTTP 애드온처럼 요청을 잡아 두는 프록시)의 지표로 활성화</td></tr>
+      <tr><td class="k">첫 요청</td><td>기동 시간(13편)만큼 대기 → 게이트웨이 타임아웃(7·11편)·클라이언트 재시도 정책을 그에 맞춤. 또는 “준비 중” 응답 후 재시도</td></tr>
+      <tr><td class="k">빠르게 깨우기</td><td>재우기·깨우기, FMA 핫·웜 스타트(13편)와 결합하면 수 초~수십 초</td></tr>
+      <tr><td class="k">현실적인 절충</td><td>업무 시간엔 최소 1(일정 트리거), 야간엔 0. 예측 가능한 부하에 가장 단순하고 확실</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>llm-d·KServe의 확장 경로</h2>
+  <p class="lede">프레임워크들이 같은 원리를 어떻게 포장했는지.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>경로</th><th>신호</th><th>추가 구성 요소</th><th>상태</th></tr></thead>
+    <tbody>
+      <tr><td class="k">llm-d KEDA + EPP · 처리 중 요청</td><td>EPP 처리 중 요청 수</td><td>KEDA, Prometheus</td><td>권장 기본</td></tr>
+      <tr><td class="k">llm-d KEDA + EPP · 대기열</td><td>흐름 제어 대기 + 실행 중 요청</td><td>+ 흐름 제어 (11편)</td><td>권장</td></tr>
+      <tr><td class="k">llm-d KEDA + EPP · 포화도</td><td>풀 포화도 (0~1)</td><td>+ 흐름 제어</td><td>실험</td></tr>
+      <tr><td class="k">llm-d 토큰 인지</td><td>처리 중 토큰 ÷ 측정한 Prefill 처리량, KV 점유</td><td>보정 측정 1회</td><td>실험</td></tr>
+      <tr><td class="k">llm-d SLO 인지</td><td>EPP 예상 TTFT·TPOT ÷ SLO</td><td>Prometheus 기록 규칙</td><td>—</td></tr>
+      <tr><td class="k">llm-d WVA</td><td>모델 변형·GPU 종류별 비용 최적화</td><td>WVA 컨트롤러</td><td>사용 중단 (v0.9.0 마지막)</td></tr>
+      <tr><td class="k">KServe</td><td>HPA·KEDA 연동, LLMInferenceService 멀티노드는 LWS 기반 확장</td><td>KServe (9편)</td><td>버전별 확인</td></tr>
+      <tr><td class="k">여러 모델이 GPU 예산 공유</td><td>Kueue로 모델별 최소 보장 + 빌려 쓰기, 초과는 Pending</td><td>Kueue (8편)</td><td>실험 (llm-d 가이드)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>노드 확장과 고정 용량</h2>
+  <p class="lede">Pod를 늘리라고 해도 GPU가 없으면 Pending입니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>클라우드</b>: Cluster Autoscaler·Karpenter가 GPU 노드를 추가합니다. 노드 확보·드라이버 준비·이미지 받기가 수 분 더해지므로 반응 시간(4장)에 넣습니다. GPU 인스턴스 재고 부족도 고려해 예약 용량·여러 인스턴스 유형을 준비합니다.</li>
+      <li><b>온프레미스·고정 용량</b>: 늘릴 노드가 없으므로 “누가 GPU를 쓰는가”의 문제가 됩니다. Kueue 우선순위·선점(8편)으로 서빙이 늘 때 배치 작업을 밀어내고, 줄면 돌려줍니다. 최대 레플리카는 실제 GPU 수로 제한합니다.</li>
+      <li><b>노드에 캐시가 있는 곳으로</b>: 새 레플리카가 이미지·모델 캐시가 있는 노드로 가면 기동이 짧습니다(13편 노드 친화성).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>임계값과 동작 튜닝</h2>
+  <p class="lede">확장 루프도 튜닝 대상입니다. 측정값에서 출발합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>설정</th><th>정하는 법</th><th>잘못되면</th></tr></thead>
+    <tbody>
+      <tr><td class="k">threshold (레플리카당 목표)</td><td>14편 SLO 용량에서의 처리 중 요청 × 목표 사용률(4장 계산)</td><td>높으면 위반, 낮으면 낭비</td></tr>
+      <tr><td class="k">최소 레플리카</td><td>가용성(장애 1개를 버틸 수) + 업무시간 기본 부하</td><td>1이면 장애·롤링 업데이트 때 전면 중단</td></tr>
+      <tr><td class="k">최대 레플리카</td><td>GPU 예산·실제 GPU 수</td><td>없으면 비용 폭주, 너무 낮으면 위반</td></tr>
+      <tr><td class="k">늘리기 안정화</td><td>짧게 (0~60초)</td><td>길면 늦게 반응</td></tr>
+      <tr><td class="k">줄이기 안정화</td><td>기동 비용보다 길게 (보통 5~10분 이상)</td><td>짧으면 출렁임(늘렸다 줄였다 반복)</td></tr>
+      <tr><td class="k">지표 쿼리 창</td><td>순간값보다 1~2분 평균(rate·avg_over_time)</td><td>순간값은 출렁임 유발</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">확장 루프를 끝까지 지켜본다</span>
+      <p>수요 신호가 오름 → 원하는 레플리카가 오름 → 새 Pod가 준비됨 → 수요 신호가 내려옴. 문제가 생기면 이 고리의 이음매 중 하나가 끊긴 것입니다(지표가 안 읽힘, 원하는 수는 올랐는데 Pod가 Pending, Pod는 떴는데 준비가 안 됨, 늘었는데 신호가 안 내려옴 = 잘못된 신호). 실습 18-3의 관찰 대시보드가 이 고리를 한 화면에 보여 주도록 구성합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>MSP 관점</h2>
+  <p class="lede">확장 정책은 성능 설정이자 비용 계약입니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>예산 상한을 계약에</b>: 최대 레플리카(= 최대 GPU 비용)를 고객과 합의하고, 상한에 닿으면 알림을 보냅니다. 상한 때문에 SLO를 못 지킨 시간은 리포트에 따로 표시합니다.</li>
+      <li><b>예측 가능한 부하는 일정으로</b>: 대부분의 사내 서비스는 업무 시간 패턴이 뚜렷합니다. 일정 트리거로 기본 용량을 잡고 추론 지표로 예외를 흡수하는 조합이 가장 안정적입니다.</li>
+      <li><b>등급별 정책</b>: 프리미엄 고객은 최소 레플리카·여유 용량을 크게, 표준 고객은 공유 풀·0으로 축소. 12편 게이트웨이의 등급과 맞춥니다.</li>
+      <li><b>사용량 리포트</b>: 시간대별 레플리카 수(GPU·시간)와 SLO 달성률을 함께 보여 주면 “왜 이 비용인가”를 설명할 수 있습니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>흔한 오해</h2>
+  <p class="lede">LLM 오토스케일링에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>실습</h2>
+  <p class="lede">랩용 Prometheus와 KEDA를 세우고, GPU 없는 vLLM 시뮬레이터로 추론 지표 기반 확장·축소를 끝까지 관찰한 뒤, 실제 vLLM에는 일정 기반 확장과 0으로 축소의 한계를 확인합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>7편 랩, 10편의 vLLM 시뮬레이터 이미지, 14편 <code>slo_probe.py</code>. GPU가 한 장이라 여러 레플리카 확장은 시뮬레이터(CPU)로 관찰합니다.</li>
+        <li>여기서 설치하는 Prometheus는 <b>랩 전용 최소 구성</b>입니다. 20편에서 운영용 관측 스택으로 바꿉니다.</li>
+        <li>KEDA는 클러스터 공용 구성 요소입니다. 이미 있으면 버전만 확인합니다.</li>
+        <li>KEDA가 Deployment의 레플리카를 관리하는 동안에는 <code>lab.sh up/down</code>이나 수동 scale과 충돌합니다. 수동 작업 전에는 ScaledObject를 지웁니다.</li>
+      </ul>
+    </div>
+
+    <h3>실습 18-1 · 랩용 최소 Prometheus</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · prometheus-lab.yaml</span><button class="copy">복사</button></div><pre><code>apiVersion: v1
+kind: ServiceAccount
+metadata: { name: prometheus, namespace: llmsvc-lab }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: prometheus, namespace: llmsvc-lab }
+rules: [ { apiGroups: [""], resources: [pods, endpoints, services], verbs: [get, list, watch] } ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: prometheus, namespace: llmsvc-lab }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: prometheus }
+subjects: [ { kind: ServiceAccount, name: prometheus, namespace: llmsvc-lab } ]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: prometheus-lab, namespace: llmsvc-lab }
+data:
+  prometheus.yml: |
+    global: { scrape_interval: 10s, evaluation_interval: 10s }
+    scrape_configs:
+    - job_name: llm-pods
+      kubernetes_sd_configs: [ { role: pod, namespaces: { names: [llmsvc-lab] } } ]
+      relabel_configs:
+      - { source_labels: [__meta_kubernetes_pod_label_app], regex: "llm-engine|sim-scale", action: keep }
+      - { source_labels: [__meta_kubernetes_pod_container_port_name], regex: http, action: keep }
+      - { source_labels: [__meta_kubernetes_namespace], target_label: namespace }
+      - { source_labels: [__meta_kubernetes_pod_name], target_label: pod }
+      - { source_labels: [__meta_kubernetes_pod_label_app], target_label: app }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: prometheus, namespace: llmsvc-lab, labels: { app: prometheus } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: prometheus } }
+  template:
+    metadata: { labels: { app: prometheus } }
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:&lt;안정 버전, 예: v3.x.y&gt;
+        args: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=2d"]
+        ports: [ { containerPort: 9090, name: web } ]
+        resources: { requests: { cpu: 200m, memory: 512Mi }, limits: { cpu: "1", memory: 1Gi } }
+        volumeMounts: [ { name: cfg, mountPath: /etc/prometheus } ]
+      volumes: [ { name: cfg, configMap: { name: prometheus-lab } } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: prometheus, namespace: llmsvc-lab }
+spec: { selector: { app: prometheus }, ports: [ { port: 9090, targetPort: web } ] }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 설치와 확인</span><button class="copy">복사</button></div><pre><code>kubectl apply -f prometheus-lab.yaml
+kubectl -n llmsvc-lab rollout status deploy/prometheus
+promq(){ kubectl -n llmsvc-lab exec bench -- python -c "import json,sys,urllib.parse,urllib.request;q=sys.argv[1];r=json.load(urllib.request.urlopen('http://prometheus:9090/api/v1/query?query='+urllib.parse.quote(q)));print([(x['metric'].get('pod',''),x['value'][1]) for x in r['data']['result']])" "$1"; }
+promq 'up'
+promq 'vllm:num_requests_running'</code></pre></div>
+
+    <h3>실습 18-2 · KEDA 설치</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl get crd scaledobjects.keda.sh 2&gt;/dev/null || {
+  helm repo add kedacore https://kedacore.github.io/charts &amp;&amp; helm repo update
+  helm install keda kedacore/keda --version &lt;2.20.x 등 최신 안정&gt; -n keda --create-namespace
+}
+kubectl -n keda get pods
+kubectl get apiservice | grep external.metrics       <span class="c-cm"># KEDA 지표 서버 등록 확인</span></code></pre></div>
+
+    <h3>실습 18-3 · 시뮬레이터로 확장 루프 관찰</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · sim-scale.yaml (용량을 작게 만든 시뮬레이터 + ScaledObject)</span><button class="copy">복사</button></div><pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata: { name: sim-scale, namespace: llmsvc-lab, labels: { app: sim-scale } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sim-scale } }
+  template:
+    metadata: { labels: { app: sim-scale } }
+    spec:
+      nodeSelector: { kubernetes.io/arch: amd64 }
+      containers:
+      - name: sim
+        image: ghcr.io/llm-d/llm-d-inference-sim:v0.8.2          <span class="c-cm"># 최신 태그 확인</span>
+        <span class="c-cm"># 동시 처리 4개, 첫 토큰 300ms, 토큰 간 50ms로 “작은 레플리카”를 흉내 (옵션 이름은 --help로 확인)</span>
+        args: ["--model", "qwen3-8b", "--port", "8000", "--max-num-seqs", "4",
+               "--time-to-first-token", "300", "--inter-token-latency", "50"]
+        ports: [ { containerPort: 8000, name: http } ]
+        readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 5 }
+        resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: 500m, memory: 256Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: sim-scale, namespace: llmsvc-lab }
+spec: { selector: { app: sim-scale }, ports: [ { name: http, port: 8000, targetPort: http } ] }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: sim-scale, namespace: llmsvc-lab }
+spec:
+  scaleTargetRef: { name: sim-scale }
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  pollingInterval: 10
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:   { stabilizationWindowSeconds: 0,   policies: [ { type: Pods, value: 2, periodSeconds: 30 } ] }
+        scaleDown: { stabilizationWindowSeconds: 120, policies: [ { type: Pods, value: 1, periodSeconds: 60 } ] }   <span class="c-cm"># 랩이라 짧게</span>
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus.llmsvc-lab.svc:9090
+      query: sum(vllm:num_requests_running{app="sim-scale"}) + sum(vllm:num_requests_waiting{app="sim-scale"})
+      threshold: "3"                                                <span class="c-cm"># 동시 처리 4 × 목표 사용률 0.75</span></code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 지표 확인, 부하, 관찰</span><button class="copy">복사</button></div><pre><code>kubectl apply -f sim-scale.yaml
+kubectl -n llmsvc-lab exec deploy/sim-scale -- sh -c 'wget -qO- localhost:8000/metrics 2&gt;/dev/null | grep -E "^vllm:num_requests|^vllm:kv_cache" | head' || true
+kubectl -n llmsvc-lab get scaledobject sim-scale                      <span class="c-cm"># READY True, ACTIVE 확인</span>
+
+<span class="c-cm"># 관찰 루프 (다른 터미널): 원하는 레플리카 · 준비된 레플리카 · 수요 지표</span>
+while true; do
+  echo "$(date +%T) HPA=$(kubectl -n llmsvc-lab get hpa -o jsonpath='{.items[?(@.spec.scaleTargetRef.name=="sim-scale")].status.desiredReplicas}') ready=$(kubectl -n llmsvc-lab get deploy sim-scale -o jsonpath='{.status.readyReplicas}') demand=$(promq 'sum(vllm:num_requests_running{app="sim-scale"})+sum(vllm:num_requests_waiting{app="sim-scale"})' | tr -d '\n')"
+  sleep 10; done
+
+<span class="c-cm"># 부하: 도착률을 단계적으로 올렸다가 멈춤</span>
+for r in 1 3 6 9; do
+  kubectl -n llmsvc-lab exec bench -- python /scripts/slo_probe.py --base http://sim-scale:8000/v1 --label sim-r$r --rate $r --duration 90 --out 64
+done
+<span class="c-cm"># 부하를 멈추고 축소 안정화(120초) 뒤에 줄어드는지 관찰</span></code></pre></div>
+    <p><b>관찰 포인트</b>: (1) 수요 지표가 threshold × 레플리카를 넘으면 원하는 레플리카가 즉시 오르는가, (2) 새 Pod가 준비되기까지의 시간(시뮬레이터는 수 초, 실제 엔진은 13편의 수 분), (3) <code>slo_probe</code> 결과에서 확장이 따라잡기 전 구간의 TTFT p95가 튀는가, (4) 부하가 멈춘 뒤 2분 안정화 후 한 개씩 줄어드는가. 이 네 가지가 9장 “확장 루프의 이음매”입니다.</p>
+
+    <h3>실습 18-4 · 신호 바꿔 보기: 후행 지표의 늦음</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · TTFT p95를 신호로 쓰는 트리거 (비교용, 기존 트리거와 교체)</span><button class="copy">복사</button></div><pre><code>  triggers:
+  - type: prometheus
+    metricType: Value                    <span class="c-cm"># 합계를 레플리카로 나누지 않고 값 자체를 목표와 비교</span>
+    metadata:
+      serverAddress: http://prometheus.llmsvc-lab.svc:9090
+      query: histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{app="sim-scale"}[1m])))
+      threshold: "1.0"                   <span class="c-cm"># TTFT p95 SLO 1초</span></code></pre></div>
+    <p>같은 부하를 다시 보내 18-3과 비교합니다. TTFT 신호는 이미 사용자가 느린 응답을 겪은 뒤에야 오르고, 1분 창의 평균이라 더 늦습니다. 시뮬레이터에서도 확장 시작이 늦어지고 위반 구간이 길어지는지 확인하세요. 히어로 시뮬레이터의 “TTFT p95 위반(후행)” 결과와 같은 모양이어야 합니다.</p>
+
+    <h3>실습 18-5 · 실제 vLLM: 일정 기반과 0으로 축소의 한계</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · llm-engine-schedule.yaml (평일 업무시간 1, 그 외 0)</span><button class="copy">복사</button></div><pre><code>apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: llm-engine, namespace: llmsvc-lab }
+spec:
+  scaleTargetRef: { name: llm-engine }
+  minReplicaCount: 0
+  maxReplicaCount: 1                       <span class="c-cm"># GPU 1장</span>
+  cooldownPeriod: 900                      <span class="c-cm"># 마지막 활성 후 15분 뒤 0으로</span>
+  triggers:
+  - type: cron
+    metadata: { timezone: Asia/Seoul, start: "0 9 * * 1-5", end: "0 19 * * 1-5", desiredReplicas: "1" }
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus.llmsvc-lab.svc:9090
+      query: sum(vllm:num_requests_running{app="llm-engine"}) + sum(vllm:num_requests_waiting{app="llm-engine"})
+      threshold: "12"
+      activationThreshold: "0"</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl apply -f llm-engine-schedule.yaml
+kubectl -n llmsvc-lab get scaledobject llm-engine -o wide
+<span class="c-cm"># 실습 시간대가 업무시간 밖이라면 cron 창을 지금 시각 기준으로 바꿔 0 ↔ 1 전환을 관찰</span>
+<span class="c-cm"># 0개인 상태에서 게이트웨이로 요청을 보내 보기: 엔진이 없으니 실패하고, 엔진 지표도 없으므로 KEDA가 깨우지 못함</span>
+kubectl -n llmsvc-lab exec bench -- python /scripts/smoke.py --gateway "$(./lab.sh gwurl)" || true</code></pre></div>
+    <p><b>해석</b>: 일정 트리거는 예측 가능한 부하에 확실하게 동작하고, 업무시간 밖에 GPU를 비워 다른 워크로드(예: RAG 플랫폼·배치 작업, 8편)에 돌려줄 수 있습니다. 반면 0개 상태에서 들어온 요청은 엔진 지표가 없어 <b>깨울 수 없습니다</b>. 0으로 축소를 진짜로 쓰려면 앞단에서 요청을 잡아 두고 지표를 내보내는 구성(게이트웨이·EPP 흐름 제어 대기열, KEDA HTTP 애드온 등)과 13편의 빠른 기동이 함께 필요합니다.</p>
+
+    <h3>실습 18-6 · (읽기) llm-d의 KEDA + EPP 경로</h3>
+    <ul>
+      <li>llm-d 자동 확장 가이드에서 처리 중 요청·대기열·포화도 오버레이의 ScaledObject와 Prometheus 쿼리를 찾아, 18-3의 쿼리와 무엇이 다른지(엔진 지표 대신 EPP 지표, 풀 단위) 정리합니다.</li>
+      <li>토큰 인지 경로의 “Prefill 처리량 보정 측정”을 14편 측정과 연결해, 우리 GB10·Qwen3-8B FP8의 보정값을 어떻게 얻을지 적어 봅니다.</li>
+      <li>여러 모델이 GPU 예산을 공유하는 Kueue 경로가 8편 Kueue 실습과 어떻게 이어지는지 확인합니다.</li>
+    </ul>
+
+    <h3>정리하기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab delete scaledobject llm-engine sim-scale --ignore-not-found
+kubectl -n llmsvc-lab delete -f sim-scale.yaml --ignore-not-found
+./lab.sh up qwen3-8b-fp8
+<span class="c-cm"># 랩 Prometheus는 20편 전까지 유지해도 됨. KEDA는 이후 편에서도 사용</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: ScaledObject, 안정화, 0으로 축소, 선행 지표" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14" class="quiz">
+  <h2><span class="sec-num">14</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2><span class="sec-num">15</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>CPU·GPU 사용률은 LLM 확장 신호가 아니다.</b> GPU 사용률은 조금만 부하가 있어도 높게 보인다.</li>
+      <li><b>선행 지표(처리 중 요청·대기열·KV·토큰 적체·예상 지연)로 늘린다.</b> 출발점은 처리 중 요청 + 일정.</li>
+      <li><b>목표 사용률은 기동 시간과 트래픽 증가 속도로 계산</b>한다. 기동이 짧을수록 여유를 줄여 GPU를 아낀다.</li>
+      <li><b>KEDA는 외부 지표로 HPA를 만든다.</b> 쿼리는 풀 합계, threshold는 레플리카 하나의 몫. 늘리기는 빠르게, 줄이기는 천천히.</li>
+      <li><b>0으로 축소는 깨울 신호가 앞단에 있어야</b> 하고, 첫 요청은 기동 시간을 기다린다. 예측 가능한 부하는 일정이 가장 확실하다.</li>
+      <li><b>llm-d는 KEDA + EPP 지표가 권장 경로</b>이고 WVA는 사용 중단되었다. 노드 확장·고정 용량(Kueue)과 함께 설계한다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">GPU 사용률이 확장 신호로 부적합한 이유를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">우리 서비스의 목표 사용률을 기동 시간과 증가 속도로 계산했다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">ScaledObject의 threshold를 14편 측정값에서 유도할 수 있다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">시뮬레이터로 확장·축소 루프의 네 이음매를 관찰했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">선행 지표와 후행 지표(TTFT)의 반응 차이를 확인했다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">0으로 축소에 필요한 “깨울 신호”의 위치를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">고객 등급별 확장 정책(최소·최대·일정·0으로 축소)을 제안할 수 있다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 19편 벤치마크 방법론과 용량 계획 (Level 3 마지막)</span>
+      <p>14~18편에서 여러 측정을 해 왔습니다. 19편은 이를 하나의 방법론으로 정리합니다. 벤치마크 도구(vLLM bench·GuideLLM·llm-d 벤치마크 도구 등), 실제 트래픽을 닮은 워크로드 만들기, 결과의 통계적 신뢰성, 그리고 “다음 분기 트래픽이 두 배가 되면 GPU가 몇 장 필요한가”에 답하는 용량 계획까지.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 18편 오토스케일링 · 2026년 10월 기준(KEDA 2.20 계열, llm-d 0.10 자동 확장 가이드, WVA 사용 중단). 지표 이름·시뮬레이터 옵션·차트 버전은 설치 시점의 문서로 확인하세요. 히어로 시뮬레이터는 확장 루프를 설명하기 위한 단순 모델입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";sim();});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero: autoscaling loop simulator ---------- */
+function demand(kind,t){if(kind==="ramp"){if(t<10)return 1;if(t<30)return 1+(t-10)*0.4;if(t<50)return 9;return 9-(t-50)*0.6}
+ if(kind==="spike"){return t>=20&&t<32?10:2}return 2+0.6*Math.sin(t/5)}
+function sim(){const kind=$("#sT").value,sig=$("#sS").value,C=+$("#sC").value,T=+$("#sK").value,u=+$("#sU").value,S=+$("#sD").value;
+ $("#sCV").textContent=C.toFixed(1);$("#sKV").textContent=T;$("#sUV").textContent=u.toFixed(2);$("#sDV").textContent=S;
+ const MAXR=12;let R=Math.max(1,Math.ceil(demand(kind,0)/(u*C))),pend=[],Q=0,down=0,viol=0,maxQ=0,costSum=0;const hist=[];
+ for(let t=0;t<60;t++){pend=pend.filter(p=>{if(p<=t){R++;return false}return true});
+  const lam=demand(kind,t),cap=R*C;Q=Math.max(0,Q+(lam-cap)*60);const v=lam>cap*0.95||Q>0;if(v)viol++;maxQ=Math.max(maxQ,Q);
+  hist.push({lam,cap,R,v,Q});const total=R+pend.length;costSum+=total;
+  const prev=hist[Math.max(0,t-1)],lag2=hist[Math.max(0,t-2)];let d=total;
+  if(sig==="queue"){d=Math.ceil((prev.lam+prev.Q/60)/(u*C))}
+  else if(sig==="ttft"){if(lag2.v)d=total+1+Math.ceil(lag2.Q/60/C);else if(lag2.lam<0.5*lag2.R*C)d=R-1;else d=total}
+  else{const util=prev.lam>0?Math.min(1,0.85+0.15*prev.lam/(prev.R*C)):0;d=Math.ceil(total*util/0.8)}
+  d=Math.max(1,Math.min(MAXR,d));
+  if(d>total){for(let k=0;k<d-total;k++)pend.push(t+Math.max(1,T));down=0}
+  else if(d<R){down++;if(down>=S){R=Math.max(d,1);down=0}}else down=0;}
+ const svg=$("#sSvg"),W=520,H=200,L=34,Rm=10,Tm=10,B=24,pw=W-L-Rm,ph=H-Tm-B;const mx=Math.max(...hist.map(h=>Math.max(h.lam,h.cap)))*1.1;
+ const x=i=>L+i/59*pw,y=v=>Tm+ph-v/mx*ph,mut=css("--muted");
+ let s=`<rect x="${L}" y="${Tm}" width="${pw}" height="${ph}" fill="none" stroke="${css("--line")}"/>`;
+ hist.forEach((h,i)=>{if(h.v)s+=`<rect x="${x(i)-pw/118}" y="${Tm}" width="${pw/59}" height="${ph}" fill="${css("--bad")}" opacity="0.18"/>`});
+ s+=`<polyline fill="none" stroke="${css("--l6")}" stroke-width="2.5" points="${hist.map((h,i)=>x(i)+","+y(h.cap)).join(" ")}"/>`;
+ s+=`<polyline fill="none" stroke="${css("--l3")}" stroke-width="2.5" points="${hist.map((h,i)=>x(i)+","+y(h.lam)).join(" ")}"/>`;
+ [0,15,30,45,59].forEach(t=>s+=`<text x="${x(t)}" y="${H-8}" font-size="10" text-anchor="middle" fill="${mut}">${t}분</text>`);
+ for(let k=0;k<=4;k++){const v=mx*k/4;s+=`<text x="${L-4}" y="${y(v)+3}" font-size="10" text-anchor="end" fill="${mut}">${fmt(v,0)}</text>`}
+ svg.innerHTML=s;
+ $("#sV").textContent=`${viol}분 / 60분`;$("#sR").textContent=fmt(costSum/60,1)+"개";$("#sQ").textContent=fmt(maxQ)+"건";
+ let note="";if(sig==="gpu")note="GPU 사용률은 요청이 조금만 있어도 85% 이상으로 보여 목표 80%를 늘 넘습니다. 그래서 수요와 무관하게 최대까지 늘어나 GPU를 낭비합니다. ";
+ else if(sig==="ttft")note="TTFT 위반을 보고 나서야 늘리므로, 새 레플리카가 준비될 때까지(지표 지연 + 기동 시간) 위반이 이어집니다. ";
+ else note="처리 중 요청·대기열은 포화 직전에 오르므로 가장 먼저 반응합니다. ";
+ if(T>=6)note+=`기동이 ${T}분이라 램프·스파이크 초기의 위반을 피하려면 목표 사용률을 더 낮춰(여유를 크게) 잡아야 합니다. `;
+ if(S<=2)note+="축소 안정화가 짧아 출렁임이 생길 수 있습니다. ";
+ if(kind==="spike"&&viol>0&&sig!=="gpu")note+="스파이크는 기동 시간 안에 수요가 몇 배가 되므로 목표 사용률만으로는 다 막지 못합니다. 최소 레플리카 상향, 흐름 제어로 우선순위 보호(11편), 기동 단축(13편)을 함께 씁니다. ";note+="목표 사용률·기동 시간을 바꿔 위반 시간과 평균 레플리카(비용)의 맞교환을 보세요.";$("#sNote").innerHTML=`<p>${note}</p>`;}
+$$("#sT,#sS,#sC,#sK,#sU,#sD").forEach(e=>e.addEventListener("input",sim));$("#sRun").addEventListener("click",sim);sim();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["GPU 사용률 70%를 목표로 HPA를 걸면 된다.","LLM 엔진은 요청이 조금만 있어도 GPU 사용률이 거의 100%로 보입니다. 수요와 무관하게 최대까지 늘리거나 전혀 반응하지 않게 됩니다."],
+ ["TTFT가 나빠지면 늘리는 게 가장 정확하다.","목표 자체이긴 하지만 실측 TTFT는 사용자가 이미 느낀 뒤에 오르는 후행 지표입니다. 예측된 지연이거나, 선행 지표와 함께여야 합니다."],
+ ["오토스케일링이 있으니 최소 레플리카는 1이면 충분하다.","1이면 장애·업데이트 순간 전면 중단이고, 기동 시간 동안 아무도 받지 못합니다. 가용성을 위해 보통 2 이상입니다."],
+ ["0으로 축소하면 비용이 0이고 단점은 없다.","첫 요청이 기동 시간을 그대로 기다리고, 깨울 신호가 앞단에 없으면 아예 깨어나지 않습니다. 사용 빈도·SLO를 보고 고릅니다."],
+ ["빨리 늘리고 빨리 줄이는 것이 효율적이다.","줄였다가 곧 다시 늘리면 기동 비용을 또 냅니다. 늘리기는 빠르게, 줄이기는 천천히가 원칙입니다."],
+ ["threshold는 감으로 정하고 운영하며 맞춘다.","14편에서 측정한 SLO 용량과 목표 사용률로 유도합니다. 근거 없는 값은 위반 또는 낭비로 이어집니다."],
+ ["Pod만 늘리면 용량이 늘어난다.","GPU 노드가 없으면 Pending입니다. 클라우드는 노드 확장 시간을, 온프레미스는 Kueue 우선순위·선점을 함께 설계해야 합니다."],
+ ["WVA가 llm-d의 최신 오토스케일러다.","WVA는 사용 중단되었고(v0.9.0이 마지막), llm-d는 KEDA + EPP 지표 경로를 권장합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["HPA","HorizontalPodAutoscaler","지표에 따라 레플리카 수를 조정하는 쿠버네티스 기본 오토스케일러."],
+ ["KEDA","Kubernetes Event-driven Autoscaling","외부 지표(Prometheus·cron 등)로 HPA를 만들고 0으로 축소를 지원하는 프로젝트."],
+ ["ScaledObject","ScaledObject","KEDA의 확장 선언 리소스. 대상·최소·최대·트리거."],
+ ["트리거·스케일러","Trigger / Scaler","KEDA가 지표를 읽는 방식(prometheus, cron 등)."],
+ ["threshold","threshold","레플리카 하나가 맡을 지표 값. AverageValue에서 합계 ÷ threshold = 원하는 레플리카."],
+ ["metricType","AverageValue / Value","지표를 레플리카 수로 나눠 비교할지, 값 자체를 목표와 비교할지."],
+ ["활성화","Activation","0 ↔ 1 전환 기준. HPA는 1 이상만 다룸."],
+ ["쿨다운","cooldownPeriod","마지막 활성 후 0으로 내리기까지의 대기 시간."],
+ ["안정화 창","Stabilization window","급격한 변경을 막기 위해 일정 시간의 지표를 보고 결정하는 창."],
+ ["behavior","HPA behavior","늘리기·줄이기 속도와 안정화 정책."],
+ ["선행 지표","Leading indicator","포화·지연 악화 전에 오르는 지표(대기열·처리 중 요청 등)."],
+ ["후행 지표","Lagging indicator","사용자가 이미 영향을 받은 뒤 오르는 지표(실측 지연)."],
+ ["처리 중 요청","In-flight requests","엔진·EPP가 처리 중인 요청 수. llm-d 기본 확장 신호."],
+ ["풀 포화도","Pool saturation","InferencePool이 얼마나 찼는지 0~1로 정규화한 값."],
+ ["토큰 적체","Token backlog","처리 중 토큰을 Prefill 처리량으로 나눈 대기 시간(초)."],
+ ["목표 사용률","Target utilization","레플리카 용량 중 평소 쓰도록 허용하는 비율. 기동 시간 동안의 여유."],
+ ["0으로 축소","Scale to zero","유휴 시 레플리카를 0으로 줄여 GPU를 반환."],
+ ["KEDA HTTP 애드온","KEDA HTTP Add-on","요청을 잡아 두고 그 수로 0 → 1 활성화를 하는 KEDA 구성 요소."],
+ ["WVA","Workload Variant Autoscaler","llm-d의 변형별 비용 최적화 오토스케일러. 사용 중단."],
+ ["Prometheus Adapter","Prometheus Adapter","HPA에 사용자 지표를 공급하던 구성 요소. 사용 중단 예정, KEDA 권장."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["LLM 엔진에서 GPU 사용률이 확장 신호로 부적합한 이유는?",["측정이 안 돼서","요청이 조금만 있어도 거의 100%로 보여 부하를 구분 못 함","너무 느려서","GPU마다 달라서"],1,"커널 실행 시간 비율이라 부하 크기를 반영하지 못합니다."],
+ ["KEDA Prometheus 트리거(AverageValue)에서 쿼리 결과가 30, threshold가 6이면 원하는 레플리카는?",["3","5","6","30"],1,"30 ÷ 6 = 5."],
+ ["기동 시간이 길수록 목표 사용률을 어떻게 잡아야 하나?",["높게","낮게 (여유를 크게)","무관","0"],1,"새 레플리카가 준비될 때까지 기존 레플리카가 버텨야 합니다."],
+ ["HPA 동작 설정의 일반 원칙은?",["늘리기 천천히, 줄이기 빠르게","늘리기 빠르게, 줄이기 천천히","둘 다 빠르게","둘 다 천천히"],1,"다시 늘리면 기동 비용을 또 냅니다."],
+ ["0개로 축소된 엔진을 엔진 지표만으로 깨울 수 없는 이유는?",["KEDA 버그","Pod가 없으면 엔진 지표도 없음 — 앞단의 요청 지표가 필요","GPU가 없음","쿨다운"],1,"게이트웨이·EPP 대기열·HTTP 애드온 같은 앞단 신호가 필요합니다."],
+ ["실측 TTFT p95를 확장 신호로만 쓰면 생기는 문제는?",["너무 빨리 늘어남","사용자가 이미 느린 응답을 겪은 뒤에야 늘어나 위반이 길어짐","지표가 없음","비용이 0"],1,"후행 지표이기 때문입니다."],
+ ["llm-d 0.10 기준 권장 자동 확장 경로는?",["WVA","KEDA + EPP 지표","Prometheus Adapter + GPU 사용률","수동"],1,"WVA는 사용 중단되었습니다."],
+ ["온프레미스 고정 GPU 클러스터에서 서빙 확장을 위한 보완책은?",["Cluster Autoscaler","Kueue 우선순위·선점으로 배치 작업에서 GPU 회수","GPU 사용률 목표 상향","최소 레플리카 0"],1,"늘릴 노드가 없으므로 사용 주체를 조정합니다."],
+ ["업무시간 패턴이 뚜렷한 사내 서비스에 가장 단순하고 확실한 방법은?",["GPU 사용률","일정(cron) 트리거 + 추론 지표 보조","무조건 최대","0으로 축소만"],1,"예측 가능한 부하는 일정으로 잡습니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 19편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 19편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

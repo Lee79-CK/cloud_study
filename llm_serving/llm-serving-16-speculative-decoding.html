@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 16편 · 추측 디코딩과 고급 기능</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+/* ---------- episode 7 additions ---------- */
+.tree{font-family:var(--mono);font-size:.82rem;line-height:1.65;background:var(--code-bg);color:var(--code-text);border-radius:10px;padding:14px 16px;overflow-x:auto;white-space:pre}
+.tree b{color:#9BD2FF;font-weight:600}
+.tree i{color:#7F92B2;font-style:normal}
+.pf{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);margin:6px 0;font-size:.9rem}
+.pf select{font:inherit;font-size:.86rem;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.pf small{display:block;color:var(--muted);font-size:.8rem}
+.gen{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;white-space:pre;overflow-x:auto;margin-top:10px}
+/* ---------- episode 8 additions ---------- */
+.migbar{display:flex;gap:3px;height:34px;margin-top:8px}
+.migbar div{border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;overflow:hidden;white-space:nowrap}
+.kq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.kq .col{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:110px}
+.kq .col h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.kq .wl{font-size:.82rem;padding:5px 8px;border-radius:6px;margin:4px 0;border-left:4px solid var(--c);background:var(--surface2)}
+@media (max-width:760px){.kq{grid-template-columns:1fr}}
+/* ---------- episode 9 additions ---------- */
+.resp{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}
+.resp div{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:.82rem}
+.resp b{font-size:.74rem;padding:2px 8px;border-radius:999px;color:#0B1220;white-space:nowrap}
+.r-self{background:#FFB3B3}.r-fw{background:#9BE2B6}.r-cloud{background:#9BD2FF}.r-part{background:#FFD59B}
+.dtree-path{font-size:.84rem;color:var(--muted);margin:8px 0}
+/* ---------- episode 10 additions ---------- */
+.pdlane{position:relative;height:30px;margin:6px 0;border-radius:7px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.pdlane .lab{position:absolute;left:8px;top:6px;font-size:.74rem;color:var(--faint);z-index:2}
+.pdlane .blk{position:absolute;top:3px;bottom:3px;border-radius:4px;transition:left .2s}
+.pods{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.pods .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.8rem;min-height:110px}
+.pods .pod h5{margin:0 0 6px;font-size:.84rem}
+.pods .chip2{display:inline-block;font-size:.7rem;padding:1px 6px;border-radius:5px;margin:2px;color:#0B1220}
+@media (max-width:760px){.pods{grid-template-columns:1fr 1fr}}
+/* ---------- episode 11 additions ---------- */
+.epp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.epp .pod{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+.epp .pod.win{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 35%,transparent)}
+.epp .pod.out{opacity:.45}
+.epp .pod h5{margin:0 0 6px;font-size:.9rem}
+.epp .pod .row{display:flex;justify-content:space-between;gap:6px;margin:2px 0}
+.epp .pod input[type=range]{width:100%}
+.epp .pod input[type=checkbox],#epTool .form input[type=checkbox]{width:auto;display:inline-block;margin:0 6px 0 0;vertical-align:middle}
+#epTool .form label span{display:inline-flex;align-items:center}
+.fcbar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.fcbar div{display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+@media (max-width:760px){.epp{grid-template-columns:1fr}}
+/* ---------- episode 12 additions ---------- */
+.pipe{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pipe .stp{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.86rem;transition:background .2s,border-color .2s}
+.pipe .stp i{font-style:normal;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:.74rem;font-weight:700;background:var(--surface2);color:var(--muted)}
+.pipe .stp.on{border-color:var(--l4);background:color-mix(in srgb,var(--l4) 12%,var(--surface))}
+.pipe .stp.on i{background:var(--l4);color:#0B1220}
+.pipe .stp.done i{background:var(--ok);color:#0B1220}
+.pipe .stp small{color:var(--muted)}
+.pipe .stp b.tag{font-size:.72rem;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--muted)}
+.tenants{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.tenants .tn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem}
+@media (max-width:760px){.tenants{grid-template-columns:1fr}}
+/* ---------- episode 13 additions ---------- */
+.wf{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.wf .row{display:grid;grid-template-columns:150px 1fr 70px;gap:8px;align-items:center;font-size:.8rem}
+.wf .track{position:relative;height:16px;background:var(--surface2);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.wf .bar{position:absolute;top:0;bottom:0;border-radius:4px;transition:left .25s,width .25s}
+.wf .row b{text-align:right;font-family:var(--mono);font-size:.78rem}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts label{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:pointer}
+.opts input{margin:0}
+@media (max-width:760px){.wf .row{grid-template-columns:96px 1fr 56px}}
+/* ---------- episode 15 additions ---------- */
+.tiers{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tiers div{display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;overflow:hidden}
+.pseg{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0}
+.pseg span{font-size:.72rem;padding:3px 7px;border-radius:5px;color:#0B1220;white-space:nowrap}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 16 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>16편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">추측 디코딩의 원리</a></li>
+    <li><a href="#s3">언제 빨라지고 언제 느려지나</a></li>
+    <li><a href="#s4">방법 지도</a></li>
+    <li><a href="#s5">추측 디코딩 운영</a></li>
+    <li><a href="#s6">LoRA 멀티 어댑터 서빙</a></li>
+    <li><a href="#s7">구조화 출력·툴 콜링의 비용</a></li>
+    <li><a href="#s8">그 밖의 고급 기능</a></li>
+    <li><a href="#s9">MSP 관점</a></li>
+    <li><a href="#s10">흔한 오해</a></li>
+    <li><a href="#s11">실습</a></li>
+    <li><a href="#s12">용어 사전</a></li>
+    <li><a href="#s13">확인 퀴즈</a></li>
+    <li><a href="#s14">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 3 · 튜닝 — 16편</div>
+    <h1>추측 디코딩과<br>고급 기능</h1>
+    <p class="intro">2편의 결론은 “Decode는 메모리 대역폭에 묶여 있다”였습니다. 한 토큰을 만들 때마다 가중치 전체를 읽어야 하니, GPU 연산은 대부분 놉니다. <b>추측 디코딩</b>은 그 남는 연산으로 여러 토큰을 한 번에 검증해, 같은 가중치 읽기로 토큰을 여러 개 얻는 기법입니다. 출력 품질은 그대로이면서 TPOT를 줄입니다. 이번 편은 그 원리와 “언제 이기고 언제 지는지”, 방법별 선택을 다루고, 같은 엔진의 다른 고급 기능 — <b>LoRA 멀티 어댑터</b>, <b>구조화 출력·툴 콜링</b> — 이 성능에 주는 영향을 측정합니다.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>2·4·14편</b></span>
+      <span class="chip">읽는 시간 <b>약 90분</b></span>
+      <span class="chip">실습 <b>약 150분</b></span>
+      <span class="chip">기준 <b>vLLM v0.31.0</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="추측 디코딩 이득 계산기">
+    <div class="stack-head"><strong>추측 디코딩은 이득일까?</strong></div>
+    <div class="form" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+      <label>GPU <select id="hG"><option value="gb10" selected>GB10</option><option value="h100">H100</option></select></label>
+      <label>방법 <select id="hM"><option value="eagle">EAGLE-3 헤드 (초안 비용 작음)</option><option value="ngram">n-gram (초안 비용 거의 0)</option><option value="draft">별도 작은 드래프트 모델</option></select></label>
+      <label>토큰 수락률 α <span id="hAV">0.70</span><input type="range" id="hA" min="0.1" max="0.95" step="0.05" value="0.7"></label>
+      <label>추측 토큰 수 k <span id="hKV">3</span><input type="range" id="hK" min="1" max="8" step="1" value="3"></label>
+      <label>동시 Decode 요청 <span id="hBV">1</span><input type="range" id="hB" min="0" max="8" step="1" value="0"></label>
+      <label>요청당 문맥 길이 <select id="hC"><option value="500">500토큰 (짧은 챗)</option><option value="2000" selected>2,000토큰</option><option value="16000">16,000토큰 (긴 문맥)</option></select></label>
+    </div>
+    <div class="readout">
+      <div><span>스텝당 기대 토큰</span><b id="hE">—</b></div>
+      <div><span>TPOT 변화</span><b id="hS">—</b></div>
+      <div><span>병목</span><b id="hBn">—</b></div>
+    </div>
+    <div class="chartbox"><svg id="hSvg" viewBox="0 0 520 200" role="img" aria-label="배치 크기별 속도 향상"></svg></div>
+    <div class="layer-detail" id="hNote"></div>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">추측 디코딩은 “작은 모델이 빠르게 답안을 쓰고, 큰 모델이 한 번에 채점하는” 방식입니다.</p>
+  <div class="prose">
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>초안 제안과 병렬 검증, 거절 샘플링으로 품질이 유지되는 이유를 설명할 수 있다.</li>
+      <li>수락률·추측 토큰 수·초안 비용·배치 크기로 이득을 계산하고, 손해가 나는 조건을 말할 수 있다.</li>
+      <li>n-gram·접미사·드래프트 모델·EAGLE·MTP 등 방법을 비교해 워크로드에 맞게 고를 수 있다.</li>
+      <li>vLLM에서 추측 디코딩을 켜고 수락률 지표로 효과를 측정·조정할 수 있다.</li>
+      <li>LoRA 멀티 어댑터 서빙의 구조·설정·오버헤드를 설명하고 측정할 수 있다.</li>
+      <li>구조화 출력·툴 콜링이 지연에 주는 영향을 측정하고 줄이는 방법을 제시할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 신입이 초안을 쓰고 팀장이 결재</span>
+      <p>팀장(큰 모델)이 한 문장씩 직접 쓰면 문장마다 서류 전체(가중치)를 다시 펼쳐야 합니다. 신입(초안 모델)이 다음 몇 문장을 빠르게 써 오면, 팀장은 서류를 한 번만 펼쳐 여러 문장을 한꺼번에 검토합니다. 맞는 데까지는 그대로 통과, 틀린 곳부터는 팀장이 고쳐 씁니다. 최종 문서는 팀장이 혼자 쓴 것과 같습니다. 신입이 팀장 스타일을 잘 알수록(수락률) 빨라지고, 팀장이 이미 결재 서류에 파묻혀 있으면(큰 배치) 검토할 여유가 없어 오히려 느려집니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>추측 디코딩의 원리</h2>
+  <p class="lede">한 번의 가중치 읽기로 여러 토큰을 “검증”하는 것이 핵심입니다.</p>
+  <ol class="pathlist">
+    <li style="--c:var(--l5)"><b>초안 제안</b><span>가벼운 제안자(작은 모델·예측 헤드·입력 문자열 매칭)가 다음 토큰 k개를 빠르게 제안합니다.</span></li>
+    <li style="--c:var(--l4)"><b>병렬 검증</b><span>큰 모델이 [현재 토큰 + 초안 k개]를 한 번의 순전파로 처리해, 각 위치에서 자기라면 어떤 토큰을 냈을지 확률을 얻습니다. Prefill처럼 여러 토큰을 한 번에 처리하므로 가중치 읽기는 한 번입니다.</span></li>
+    <li style="--c:var(--l3)"><b>수락·거절</b><span>앞에서부터 초안을 큰 모델의 분포와 비교해 수락하고, 처음 거절된 위치에서 큰 모델의 분포로 토큰 하나를 새로 뽑습니다(거절 샘플링). 그래서 매 스텝 최소 1개, 최대 k+1개의 토큰을 얻습니다.</span></li>
+    <li style="--c:var(--l6)"><b>품질 보존</b><span>이 수락 규칙은 출력 분포가 큰 모델 단독과 같도록 설계되어 있어 “손실 없는” 가속입니다. 다만 수치 연산 순서가 달라 같은 시드에서도 아주 드물게 다른 문장이 나올 수 있다는 점(2편 배치 불변성)은 같습니다.</span></li>
+  </ol>
+  <div class="prose">
+    <div class="formula">토큰 하나의 수락 확률 α, 추측 토큰 수 k 일 때
+스텝당 기대 토큰 수  E = (1 − α^(k+1)) ÷ (1 − α)
+예) α = 0.7, k = 3  →  E ≈ 2.53 토큰 / 스텝
+속도 향상 ≈ E ÷ (검증 스텝 시간 ÷ 일반 스텝 시간 + 초안 비용)</div>
+    <p>메모리 병목일 때 검증 스텝 시간은 일반 스텝과 거의 같으므로(가중치 읽기 한 번), 초안 비용이 작으면 속도 향상은 E에 가까워집니다. 반대로 연산 병목일 때는 k+1개 토큰을 계산하는 비용이 그대로 드러나 이득이 사라집니다. 이것이 3장의 주제입니다.</p>
+  </div>
+</section>
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>언제 빨라지고 언제 느려지나</h2>
+  <p class="lede">추측 디코딩은 “남는 연산”을 쓰는 기법입니다. 연산이 남지 않으면 이득도 없습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>조건</th><th>이득 방향</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td class="k">작은 배치 (낮은 동시성)</td><td>크게 이득</td><td>메모리 병목이라 검증 비용이 거의 공짜</td></tr>
+      <tr><td class="k">큰 배치 + 짧은 문맥 (높은 동시성)</td><td>이득 감소 → 손해 가능</td><td>검증하는 k+1개 토큰의 연산 때문에 연산 병목으로 넘어가면 그 연산이 그대로 비용. 수락률이 낮거나 초안 비용이 크면 처리량이 오히려 떨어질 수 있음</td></tr>
+      <tr><td class="k">큰 배치 + 긴 문맥</td><td>이득 유지되는 경우 많음</td><td>요청마다 읽어야 할 KV가 커서 큰 배치에서도 메모리 병목이 유지됨. 같은 KV 읽기로 여러 토큰을 검증하므로 이득이 남음 (긴 문맥에서 추측 디코딩이 유리하다는 연구 결과와 같은 방향)</td></tr>
+      <tr><td class="k">출력이 입력을 많이 반복 (편집·요약·코드 수정·RAG 인용)</td><td>n-gram·접미사 방식이 크게 이득</td><td>입력에서 그대로 베끼는 구간의 수락률이 매우 높음</td></tr>
+      <tr><td class="k">자유 작문·창작·높은 temperature</td><td>수락률 낮음 → 이득 작음</td><td>다음 토큰 예측이 어려움</td></tr>
+      <tr><td class="k">대역폭이 작은 GPU (GB10 등)</td><td>상대적으로 이득 큼</td><td>더 큰 배치까지 메모리 병목이 유지되어 연산 여유가 큼</td></tr>
+      <tr><td class="k">초안 모델이 큼</td><td>이득 감소</td><td>초안 생성 자체의 시간·메모리·KV가 듦</td></tr>
+      <tr><td class="k">TTFT</td><td>약간 손해</td><td>드래프트 모델이 있으면 그 모델의 Prefill도 필요</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">GB10이 추측 디코딩에 유리한 이유</span>
+      <p>2편의 루프라인으로 보면, 연산 성능 대비 메모리 대역폭이 작은 장비일수록 “연산이 남는 구간”이 넓습니다. GB10은 대역폭이 0.273TB/s로 작아 단일 사용자 TPOT가 느린 대신, 같은 가중치 읽기로 여러 토큰을 검증하는 추측 디코딩의 효과가 데이터센터 GPU보다 더 큰 배치까지 이어질 수 있습니다. 히어로 계산기에서 GPU를 바꿔 같은 배치의 결과를 비교해 보고, 실습 16-3에서 실측합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>방법 지도</h2>
+  <p class="lede">초안을 “누가, 무엇으로” 만드느냐에 따라 나뉩니다. vLLM은 <code>--speculative-config</code>의 <code>method</code>로 고릅니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>방법 (method)</th><th>초안을 만드는 것</th><th>추가 모델</th><th>강한 곳</th><th>약한 곳</th></tr></thead>
+    <tbody>
+      <tr><td class="k">n-gram (ngram)</td><td>입력(프롬프트)에서 최근 토큰열과 같은 부분을 찾아 그 뒤를 제안</td><td>없음</td><td>편집·요약·RAG 인용·코드 수정 등 입력 반복</td><td>자유 작문</td></tr>
+      <tr><td class="k">접미사 디코딩 (suffix)</td><td>입력과 이전 출력들의 접미사 트리로 패턴 매칭</td><td>없음 (Arctic Inference 필요)</td><td>에이전트처럼 비슷한 출력이 반복되는 워크로드</td><td>별도 패키지 의존</td></tr>
+      <tr><td class="k">드래프트 모델 (draft_model)</td><td>같은 토크나이저의 작은 모델</td><td>작은 모델 (메모리·KV 추가)</td><td>범용</td><td>초안 비용이 커서 이득이 제한적</td></tr>
+      <tr><td class="k">EAGLE·EAGLE-3 (eagle, eagle3)</td><td>대상 모델의 은닉 상태를 입력으로 받는 1층짜리 가벼운 헤드</td><td>대상 모델 전용 헤드 (작음)</td><td>범용 대화·코드에서 가장 널리 쓰이는 선택</td><td>모델별 학습된 헤드가 필요</td></tr>
+      <tr><td class="k">MTP (mtp 계열)</td><td>모델 자체에 내장된 다중 토큰 예측 층</td><td>없음 (모델에 포함)</td><td>MTP를 갖춘 모델(DeepSeek 계열 등)</td><td>지원 모델 한정</td></tr>
+      <tr><td class="k">Medusa</td><td>대상 모델에 붙인 여러 예측 헤드</td><td>헤드</td><td>—</td><td>EAGLE 계열에 밀리는 추세</td></tr>
+      <tr><td class="k">최신 블록 단위 드래프터 (dflash, dspark 등)</td><td>여러 토큰을 블록으로 한꺼번에 제안하는 새 드래프터</td><td>대상 모델 전용</td><td>긴 추측 길이</td><td>새로 나온 방법, 버전별 지원 확인</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>고르는 순서</h3>
+    <ol>
+      <li><b>모델에 MTP가 있으면</b> MTP부터. 추가 모델 없이 높은 수락률을 기대할 수 있습니다.</li>
+      <li><b>대상 모델용 EAGLE-3 헤드가 공개되어 있으면</b> EAGLE-3. vLLM 프로젝트의 Speculators 라이브러리가 학습 도구와 사전 학습된 헤드를 제공하고, Qwen3-8B용 EAGLE-3 헤드도 공개되어 있습니다(실습에 사용).</li>
+      <li><b>워크로드가 입력을 많이 반복하면</b> n-gram(또는 접미사)을 함께 검토. 모델 없이 거의 공짜로 이득을 얻습니다.</li>
+      <li><b>우리 도메인(한국어 상담 등)에서 수락률이 낮으면</b> 우리 데이터로 EAGLE-3 헤드를 직접 학습하는 것을 검토합니다(Speculators). 6편의 “보정 데이터는 우리 데이터로”와 같은 원리입니다.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>추측 디코딩 운영</h2>
+  <p class="lede">켜는 것은 설정 한 줄, 유지하는 것은 지표와 버전 관리입니다.</p>
+  <div class="prose">
+    <div class="codeblock"><div class="cap"><span>yaml · vllm.yaml 예시 (설정 파일에서는 JSON 문자열로)</span><button class="copy">복사</button></div><pre><code><span class="c-cm"># EAGLE-3 (헤드는 모델 캐시에 미리 받아 둔 경로)</span>
+speculative-config: '{"method":"eagle3","model":"/models/RedHatAI/Qwen3-8B-speculator.eagle3","num_speculative_tokens":3}'
+
+<span class="c-cm"># n-gram (추가 모델 없음)</span>
+<span class="c-cm"># speculative-config: '{"method":"ngram","num_speculative_tokens":4,"prompt_lookup_max":4,"prompt_lookup_min":2}'</span></code></pre></div>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>운영 항목</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">수락률 지표</td><td>엔진 /metrics의 추측 디코딩 지표(제안 토큰 수·수락 토큰 수·위치별 수락)로 “수락률”과 “스텝당 평균 수락 길이”를 계산. 워크로드가 바뀌면 함께 바뀜</td></tr>
+      <tr><td class="k">추측 토큰 수 k</td><td>수락률이 높으면 k를 늘리고, 낮으면 줄임. 너무 크면 거절될 토큰의 검증 연산만 늘어남. 보통 2~5에서 실측으로 선택</td></tr>
+      <tr><td class="k">부하에 따른 정책</td><td>높은 동시성에서는 이득이 줄거나 손해. 레플리카를 “저지연용(추측 켬)”과 “처리량용(추측 끔)”으로 나누거나, 부하에 따라 끄는 기능이 있는지 버전 문서를 확인</td></tr>
+      <tr><td class="k">메모리</td><td>드래프트 모델·헤드의 가중치와 (드래프트 모델이면) 그 KV가 추가됨. 14편의 KV 공간 계산에 반영</td></tr>
+      <tr><td class="k">버전 짝 맞추기</td><td>헤드는 특정 대상 모델(과 버전)에 맞춰 학습됨. 대상 모델을 바꾸면 헤드도 바꿔야 수락률이 유지. 6편 카탈로그에 짝으로 등록</td></tr>
+      <tr><td class="k">기능 조합</td><td>구조화 출력·LoRA·P/D·특정 어텐션 백엔드와의 조합은 버전마다 지원 범위가 다름. 릴리스 노트와 호환 표 확인 (v0.31.0은 Model Runner V2에 추측 디코딩 지원 확장)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>LoRA 멀티 어댑터 서빙</h2>
+  <p class="lede">베이스 모델 하나에 고객·업무별 어댑터 여러 개를 얹어, GPU 한 벌로 여러 “맞춤 모델”을 서빙합니다.</p>
+  <div class="prose">
+    <p>LoRA 어댑터는 베이스 가중치에 더하는 작은 저랭크 행렬입니다. vLLM은 한 배치 안에서 요청마다 다른 어댑터를 적용하는 전용 커널로, 어댑터가 다른 요청들도 함께 배치합니다. 앱은 요청의 <code>model</code> 필드에 어댑터 이름을 넣어 고릅니다.</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>설정</th><th>의미</th><th>운영 포인트</th></tr></thead>
+    <tbody>
+      <tr><td class="k">--enable-lora</td><td>LoRA 기능 켜기</td><td>켜기만 해도 일부 버퍼·커널 경로가 추가됨. 쓰지 않으면 끔</td></tr>
+      <tr><td class="k">--max-loras</td><td>한 배치에 동시에 올릴 수 있는 어댑터 수 (GPU 슬롯)</td><td>요청이 섞이는 어댑터 수에 맞춤. 넘치면 대기</td></tr>
+      <tr><td class="k">--max-lora-rank</td><td>허용하는 최대 랭크</td><td>가장 큰 어댑터 기준. 클수록 버퍼·연산 증가</td></tr>
+      <tr><td class="k">--max-cpu-loras</td><td>CPU에 캐시해 둘 어댑터 수</td><td>GPU 슬롯보다 많은 어댑터를 빠르게 교체</td></tr>
+      <tr><td class="k">--lora-modules 이름=경로</td><td>기동 시 등록할 어댑터</td><td>정적 등록. 6편 레지스트리 경로 사용</td></tr>
+      <tr><td class="k">런타임 등록 API</td><td>실행 중 어댑터 추가·제거 (환경 변수로 허용 필요)</td><td>관리 경로이므로 게이트웨이로 노출 금지(4·7편). 등록 권한 통제</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <ul>
+      <li><b>성능</b>: 어댑터를 쓰는 요청은 추가 행렬 곱 때문에 TPOT가 조금 늘고, 한 배치에 서로 다른 어댑터가 많을수록 효율이 떨어집니다. 실습 16-4에서 어댑터 없음·1개·4개 혼합을 비교합니다.</li>
+      <li><b>라우팅</b>: 레플리카가 여럿이면 어댑터가 이미 올라간 레플리카로 보내는 LoRA 친화도 점수(11편)가 효과적입니다.</li>
+      <li><b>MSP</b>: 고객별 파인튜닝 결과를 어댑터로 받으면 베이스 모델 하나로 여러 고객을 서빙할 수 있습니다. 어댑터는 고객 데이터로 학습된 산출물이므로 6편의 반입 심사(safetensors만, 출처·해시 기록)와 테넌트별 접근 통제를 적용합니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>구조화 출력·툴 콜링의 비용</h2>
+  <p class="lede">형식을 강제하는 기능은 공짜가 아닙니다. 대부분 작지만, 처음과 복잡한 경우에 드러납니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>비용</th><th>언제</th><th>줄이는 방법</th></tr></thead>
+    <tbody>
+      <tr><td class="k">문법 컴파일</td><td>새 JSON 스키마·문법을 처음 받을 때 (첫 요청 TTFT 증가)</td><td>스키마를 재사용(캐시됨), 스키마 종류 수를 줄이기, 워밍업 요청(13편)</td></tr>
+      <tr><td class="k">토큰 마스크 계산</td><td>매 Decode 스텝 허용 토큰 계산 (TPOT 소폭 증가)</td><td>기본 백엔드(xgrammar 계열) 유지, 지나치게 큰 enum·깊은 중첩 피하기</td></tr>
+      <tr><td class="k">출력 토큰 증가</td><td>JSON 키·따옴표 등 형식 토큰</td><td>간결한 스키마, 짧은 키 이름</td></tr>
+      <tr><td class="k">툴 정의 입력</td><td>도구 정의가 매 요청 입력 토큰으로 들어감</td><td>필요한 도구만, 정의 순서 고정(15편 프리픽스 캐시)</td></tr>
+      <tr><td class="k">추론(생각) 토큰</td><td>추론 모드 모델의 생각 출력</td><td>필요 없으면 생각 모드 끄기, 생각 길이 한도</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>그 밖의 고급 기능</h2>
+  <p class="lede">성능에 영향을 주는 요청 옵션들. 앱 팀이 무심코 켜는 경우가 많습니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>요청 옵션</th><th>성능 영향</th><th>권장</th></tr></thead>
+    <tbody>
+      <tr><td class="k">n &gt; 1 (여러 후보 생성)</td><td>출력 토큰이 n배. 앞부분은 공유(프리픽스)되지만 Decode 부하는 n배</td><td>필요할 때만. 게이트웨이에서 상한</td></tr>
+      <tr><td class="k">logprobs·top_logprobs</td><td>토큰마다 확률 계산·전송</td><td>평가·디버깅 용도로 한정</td></tr>
+      <tr><td class="k">긴 max_tokens</td><td>스케줄러·KV 예약에는 직접 영향이 작지만, 실제로 길게 생성하면 KV·TPOT 부담</td><td>게이트웨이에서 상한(12편)</td></tr>
+      <tr><td class="k">stop 문자열 많음</td><td>매 토큰 문자열 검사</td><td>필요한 것만</td></tr>
+      <tr><td class="k">멀티모달 입력</td><td>이미지 하나가 수백~수천 토큰, 인코더 연산 추가</td><td>해상도·개수 상한(4편 limit-mm-per-prompt)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>MSP 관점</h2>
+  <p class="lede">고급 기능은 상품의 차별화 요소이자, 관리하지 않으면 원가를 흔드는 요소입니다.</p>
+  <div class="prose">
+    <ul>
+      <li><b>저지연 상품</b>: 추측 디코딩을 켠 레플리카를 “저지연 등급”으로, 끈 레플리카를 “처리량 등급”으로 구분해 게이트웨이(12편)에서 테넌트 등급별로 라우팅할 수 있습니다.</li>
+      <li><b>맞춤 모델 상품</b>: 고객 어댑터를 베이스 모델 공유 풀에서 서빙하면 전용 GPU 없이 맞춤 모델을 제공할 수 있습니다. 어댑터 수·랭크 상한과 반입 절차를 계약에 넣습니다.</li>
+      <li><b>요청 옵션 정책</b>: n, max_tokens, logprobs, 이미지 수 같은 비용 증폭 옵션은 게이트웨이에서 등급별 상한을 둡니다.</li>
+      <li><b>검증 표준</b>: 추측 디코딩·LoRA를 켜거나 버전을 바꿀 때 6편 품질 평가와 14편 SLO 측정을 함께 돌리는 것을 표준 절차로 둡니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>흔한 오해</h2>
+  <p class="lede">고급 기능에 대해 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>실습</h2>
+  <p class="lede">GB10에서 n-gram과 EAGLE-3 추측 디코딩을 켜고, 작업 종류·동시성별로 TPOT와 수락률을 잽니다. 이어서 LoRA 어댑터와 구조화 출력의 오버헤드를 측정합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>7편 랩, 14편 기본 오버레이(qwen3-8b-fp8). 추측 디코딩 헤드는 vLLM Speculators 프로젝트가 공개한 <code>RedHatAI/Qwen3-8B-speculator.eagle3</code>를 씁니다(BF16 대상 모델로 학습된 헤드를 FP8 대상 모델에 쓰는 구성은 공개 예시에도 있음). 허브에서 존재·라이선스를 먼저 확인하세요.</li>
+        <li>지표 이름은 버전마다 다를 수 있어 스크립트는 <code>spec_decode</code>가 들어간 줄을 찾아 읽습니다.</li>
+        <li>추측 디코딩과 다른 기능(LoRA·구조화 출력 등)의 조합 지원은 버전마다 다르므로, 이 실습은 기능을 하나씩 켭니다.</li>
+      </ul>
+    </div>
+
+    <h3>실습 16-1 · 헤드 내려받기와 오버레이 만들기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>./lab.sh download RedHatAI/Qwen3-8B-speculator.eagle3
+
+<span class="c-cm"># 오버레이 생성 도우미: spec_overlay.sh 이름 'vllm.yaml에 추가할 줄'</span>
+cat &gt; spec_overlay.sh &lt;&lt;'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+NAME=$1; EXTRA=${2:-}; OV=30-serving/overlays/$NAME; mkdir -p $OV
+cp 30-serving/overlays/qwen3-8b-fp8/vllm.yaml $OV/vllm.yaml 2&gt;/dev/null || printf 'host: 0.0.0.0\nport: 8000\ngpu-memory-utilization: 0.35\nmax-model-len: 16384\n' &gt; $OV/vllm.yaml
+[ -n "$EXTRA" ] &amp;&amp; printf '%s\n' "$EXTRA" &gt;&gt; $OV/vllm.yaml
+cat &gt; $OV/kustomization.yaml &lt;&lt;EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [../../base]
+components: [../../components/compile-cache]
+labels: [ { pairs: { llm-lab/variant: $NAME } } ]
+configMapGenerator:
+- { name: llm-engine-env, behavior: replace, literals: [MODEL_PATH=/models/Qwen/Qwen3-8B-FP8, SERVED_NAME=qwen3-8b] }
+- { name: llm-engine-config, behavior: replace, files: [vllm.yaml] }
+EOF
+echo "만듦: $OV"; cat $OV/vllm.yaml
+SH
+chmod +x spec_overlay.sh
+./spec_overlay.sh spec-base
+./spec_overlay.sh spec-ngram   "speculative-config: '{\"method\":\"ngram\",\"num_speculative_tokens\":4,\"prompt_lookup_max\":4,\"prompt_lookup_min\":2}'"
+./spec_overlay.sh spec-eagle3  "speculative-config: '{\"method\":\"eagle3\",\"model\":\"/models/RedHatAI/Qwen3-8B-speculator.eagle3\",\"num_speculative_tokens\":3}'"
+./spec_overlay.sh spec-eagle5  "speculative-config: '{\"method\":\"eagle3\",\"model\":\"/models/RedHatAI/Qwen3-8B-speculator.eagle3\",\"num_speculative_tokens\":5}'"</code></pre></div>
+
+    <h3>실습 16-2 · 측정 스크립트</h3>
+    <div class="codeblock"><div class="cap"><span>python · spec_probe.py (50-tools/scripts에 추가)</span><button class="copy">복사</button></div><pre><code>"""작업 종류(자유 설명·문서 편집·코드 수정)와 동시성별로 TPOT·처리량을 재고, 추측 디코딩 수락률을 계산한다.
+사용: python spec_probe.py --label spec-eagle3 [--conc 1 8 32]"""
+import argparse, asyncio, json, random, statistics, time, urllib.request
+from openai import AsyncOpenAI
+ap = argparse.ArgumentParser()
+ap.add_argument("--label", required=True); ap.add_argument("--conc", type=int, nargs="+", default=[1, 8, 32])
+ap.add_argument("--base", default="http://llm-engine:8000"); ap.add_argument("--max-tokens", type=int, default=256)
+a = ap.parse_args()
+cli = AsyncOpenAI(base_url=a.base + "/v1", api_key="EMPTY", timeout=900)
+r = random.Random(3)
+DOC = " ".join(r.choice("노드 파드 쿼터 지연 처리량 메모리 대역폭 캐시 배치 스케줄러 게이트웨이 장애 알림 예산".split()) for _ in range(350))
+CODE = "\n".join(f"def f{i}(x, y):\n    total = x + y * {i}\n    if total &gt; 10:\n        return total - 1\n    return total\n" for i in range(12))
+TASKS = {
+  "free": "쿠버네티스에서 GPU 노드를 운영할 때 주의할 점을 자세히 설명해 줘.",
+  "edit": f"다음 메모를 그대로 다시 쓰되 '장애'를 '사고'로만 바꿔 줘:\n{DOC}",
+  "code": f"다음 파이썬 코드에 타입 힌트만 추가해서 전체를 다시 출력해 줘:\n{CODE}",
+}
+def spec_counts():
+    txt = urllib.request.urlopen(a.base + "/metrics", timeout=10).read().decode()
+    c = {"draft": 0.0, "acc": 0.0, "drafts": 0.0}
+    for l in txt.splitlines():
+        if l.startswith("#") or "spec_decode" not in l or "per_pos" in l: continue
+        name, val = l.split("{")[0].split(" ")[0], float(l.rsplit(" ", 1)[1])
+        if "num_draft_tokens" in name: c["draft"] += val
+        elif "num_accepted_tokens" in name: c["acc"] += val
+        elif "num_drafts" in name: c["drafts"] += val
+    return c
+async def one(prompt):
+    t0 = time.perf_counter(); first = last = None; usage = None
+    s = await cli.chat.completions.create(model="qwen3-8b", max_tokens=a.max_tokens, temperature=0, stream=True,
+        stream_options={"include_usage": True}, messages=[{"role": "user", "content": prompt + " /no_think"}])
+    async for ev in s:
+        if getattr(ev, "usage", None): usage = ev.usage
+        if ev.choices and ev.choices[0].delta and ev.choices[0].delta.content:
+            now = time.perf_counter(); first = first or now; last = now
+    n = usage.completion_tokens if usage else 1
+    return (last - first) / max(n - 1, 1) * 1000, n
+async def main():
+    for task, prompt in TASKS.items():
+        for c in a.conc:
+            before = spec_counts(); t0 = time.perf_counter()
+            res = await asyncio.gather(*[one(prompt) for _ in range(c)])
+            wall = time.perf_counter() - t0; after = spec_counts()
+            d = {k: after[k] - before[k] for k in after}
+            row = {"label": a.label, "task": task, "conc": c,
+                   "tpot_ms": round(statistics.median(x[0] for x in res), 1),
+                   "tok_s": round(sum(x[1] for x in res) / wall, 1),
+                   "accept_rate": round(d["acc"] / d["draft"], 3) if d["draft"] else None,
+                   "mean_accepted_per_draft": round(d["acc"] / d["drafts"], 2) if d["drafts"] else None}
+            print(json.dumps(row, ensure_ascii=False))
+            open("/results/spec.jsonl", "a").write(json.dumps(row, ensure_ascii=False) + "\n")
+asyncio.run(main())</code></pre></div>
+
+    <h3>실습 16-3 · 세 구성 비교</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>for OV in spec-base spec-ngram spec-eagle3 spec-eagle5; do
+  ./lab.sh up $OV
+  kubectl -n llmsvc-lab logs deploy/llm-engine | grep -iE "specul|eagle|ngram|draft" | head -5
+  kubectl -n llmsvc-lab exec bench -- python /scripts/spec_probe.py --label $OV
+done
+./lab.sh results</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>python · spec_report.py (작업 머신에서)</span><button class="copy">복사</button></div><pre><code>import json, collections
+rows = [json.loads(l) for l in open("results/spec.jsonl")]
+base = {(r["task"], r["conc"]): r for r in rows if r["label"] == "spec-base"}
+print(f"{'구성':&lt;12}{'작업':&lt;6}{'동시성':&gt;6}{'TPOT ms':&gt;9}{'TPOT 개선':&gt;10}{'tok/s':&gt;8}{'처리량 변화':&gt;11}{'수락률':&gt;8}{'평균 수락':&gt;9}")
+for r in rows:
+    b = base.get((r["task"], r["conc"]))
+    sp = f"{b['tpot_ms'] / r['tpot_ms']:.2f}x" if b else "-"
+    th = f"{r['tok_s'] / b['tok_s']:.2f}x" if b else "-"
+    print(f"{r['label']:&lt;12}{r['task']:&lt;6}{r['conc']:&gt;6}{r['tpot_ms']:&gt;9}{sp:&gt;10}{r['tok_s']:&gt;8}{th:&gt;11}"
+          f"{str(r['accept_rate']):&gt;8}{str(r['mean_accepted_per_draft']):&gt;9}")</code></pre></div>
+    <p><b>관찰 포인트</b>: (1) 동시성 1에서 EAGLE-3의 TPOT 개선 배수가 히어로 계산기(수락률을 실측값으로 넣었을 때)와 비슷한가. (2) n-gram은 <code>edit</code>·<code>code</code>에서는 크게, <code>free</code>에서는 거의 이득이 없는가. (3) 동시성을 32로 올렸을 때 개선 배수가 얼마나 줄고, 처리량(tok/s)이 기준선보다 떨어지는 구성이 있는가. (4) k=3과 k=5 중 어느 쪽이 나은가 — 수락률이 낮으면 k=5가 손해일 수 있습니다.</p>
+
+    <h3>실습 16-4 · LoRA 어댑터 오버헤드</h3>
+    <p>공개된 Qwen3-8B 어댑터가 없어도 오버헤드는 잴 수 있습니다. B 행렬을 0으로 둔 “빈” 어댑터를 만들면 출력은 베이스와 같지만 LoRA 연산은 그대로 수행됩니다.</p>
+    <div class="codeblock"><div class="cap"><span>python · make_lora.py (Qwen3-8B 형상의 빈 LoRA 어댑터 생성)</span><button class="copy">복사</button></div><pre><code>import json, os, sys, numpy as np
+from safetensors.numpy import save_file
+OUT, R = sys.argv[1] if len(sys.argv) &gt; 1 else "/models/lora", 16
+H, Q_OUT, KV_OUT, LAYERS = 4096, 4096, 1024, 36          # Qwen3-8B: 은닉 4096, KV 헤드 8 × 128
+for name in ["cust-a", "cust-b", "cust-c", "cust-d"]:
+    d = os.path.join(OUT, name); os.makedirs(d, exist_ok=True)
+    rng = np.random.default_rng(abs(hash(name)) % 2**32); t = {}
+    for i in range(LAYERS):
+        for proj, out in [("q_proj", Q_OUT), ("v_proj", KV_OUT)]:
+            p = f"base_model.model.model.layers.{i}.self_attn.{proj}"
+            t[f"{p}.lora_A.weight"] = (rng.standard_normal((R, H)) * 0.01).astype(np.float16)
+            t[f"{p}.lora_B.weight"] = np.zeros((out, R), dtype=np.float16)   # B=0 → 출력은 베이스와 동일
+    save_file(t, os.path.join(d, "adapter_model.safetensors"))
+    json.dump({"peft_type": "LORA", "task_type": "CAUSAL_LM", "r": R, "lora_alpha": 32, "lora_dropout": 0.0,
+               "target_modules": ["q_proj", "v_proj"], "bias": "none", "fan_in_fan_out": False,
+               "base_model_name_or_path": "Qwen/Qwen3-8B"}, open(os.path.join(d, "adapter_config.json"), "w"))
+    print("만듦:", d)</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>yaml · make-lora-job.yaml (모델 캐시 PVC에 어댑터 생성)</span><button class="copy">복사</button></div><pre><code>apiVersion: batch/v1
+kind: Job
+metadata: { name: make-lora, namespace: llmsvc-lab, labels: { llm-lab/part: models } }
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector: { llm-lab/role: gpu-serving }
+      tolerations: [ { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule } ]
+      containers:
+      - name: mk
+        image: python:3.12-slim
+        command: ["/bin/sh", "-c", "pip install -q numpy safetensors &amp;&amp; python /work/make_lora.py /models/lora"]
+        resources: { requests: { cpu: "1", memory: 2Gi } }
+        volumeMounts: [ { name: models, mountPath: /models }, { name: work, mountPath: /work } ]
+      volumes:
+      - { name: models, persistentVolumeClaim: { claimName: model-cache } }
+      - { name: work, configMap: { name: make-lora } }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 어댑터 생성, LoRA 켠 엔진, 런타임 등록</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab create configmap make-lora --from-file=make_lora.py
+kubectl apply -f make-lora-job.yaml &amp;&amp; kubectl -n llmsvc-lab wait --for=condition=complete job/make-lora --timeout=10m
+
+./spec_overlay.sh lora "$(printf 'enable-lora: true\nmax-loras: 4\nmax-lora-rank: 16')"
+<span class="c-cm"># 런타임 등록 API 허용 환경 변수 패치 (관리 API: 게이트웨이로 노출 금지)</span>
+cat &gt;&gt; 30-serving/overlays/lora/kustomization.yaml &lt;&lt;'EOF'
+patches:
+- target: { kind: Deployment, name: llm-engine }
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value: { name: VLLM_ALLOW_RUNTIME_LORA_UPDATING, value: "True" }
+EOF
+./lab.sh up lora
+for n in cust-a cust-b cust-c cust-d; do
+  kubectl -n llmsvc-lab exec bench -- python -c "import json,urllib.request;r=urllib.request.Request('http://llm-engine:8000/v1/load_lora_adapter',json.dumps({'lora_name':'$n','lora_path':'/models/lora/$n'}).encode(),{'Content-Type':'application/json'});print(urllib.request.urlopen(r).read().decode())"
+done
+kubectl -n llmsvc-lab exec bench -- python -c "import urllib.request;print(urllib.request.urlopen('http://llm-engine:8000/v1/models').read().decode())"</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>python · lora_probe.py</span><button class="copy">복사</button></div><pre><code>import asyncio, statistics, time, json
+from openai import AsyncOpenAI
+cli = AsyncOpenAI(base_url="http://llm-engine:8000/v1", api_key="EMPTY", timeout=600)
+async def one(model):
+    s = await cli.chat.completions.create(model=model, max_tokens=128, stream=True, stream_options={"include_usage": True},
+        extra_body={"ignore_eos": True}, messages=[{"role": "user", "content": "GPU 운영 체크리스트를 써 줘. /no_think"}])
+    first = last = None; n = 1
+    async for ev in s:
+        if getattr(ev, "usage", None): n = ev.usage.completion_tokens
+        if ev.choices and ev.choices[0].delta and ev.choices[0].delta.content:
+            now = time.perf_counter(); first = first or now; last = now
+    return (last - first) / max(n - 1, 1) * 1000, n
+async def run(label, models, conc=16):
+    t0 = time.perf_counter(); res = await asyncio.gather(*[one(models[i % len(models)]) for i in range(conc)])
+    wall = time.perf_counter() - t0
+    print(json.dumps({"case": label, "tpot_ms": round(statistics.median(x[0] for x in res), 1),
+                      "tok_s": round(sum(x[1] for x in res) / wall, 1)}, ensure_ascii=False))
+async def main():
+    await run("베이스만", ["qwen3-8b"])
+    await run("어댑터 1종", ["cust-a"])
+    await run("어댑터 4종 혼합", ["cust-a", "cust-b", "cust-c", "cust-d"])
+    await run("베이스+어댑터 혼합", ["qwen3-8b", "cust-a", "qwen3-8b", "cust-b"])
+asyncio.run(main())</code></pre></div>
+    <p><b>관찰 포인트</b>: LoRA를 켠 엔진에서 “베이스만” 요청도 LoRA를 끈 엔진(spec-base)보다 느려지는지, 어댑터 종류가 섞일수록 TPOT가 얼마나 늘어나는지. FP8 베이스와 LoRA 조합이 사용하는 버전에서 지원되지 않아 기동이 실패하면, 7편의 <code>qwen3-8b-bf16</code>을 베이스로 같은 실험을 합니다.</p>
+
+    <h3>실습 16-5 · 구조화 출력의 비용</h3>
+    <div class="codeblock"><div class="cap"><span>python · struct_probe.py</span><button class="copy">복사</button></div><pre><code>import time, statistics, json
+from openai import OpenAI
+cli = OpenAI(base_url="http://llm-engine:8000/v1", api_key="EMPTY")
+P = [{"role": "user", "content": "로그 'KV cache usage 99%, preemptions rising'을 분류해 줘. /no_think"}]
+def schema(tag):
+    return {"type": "json_schema", "json_schema": {"name": f"alert{tag}", "schema": {"type": "object",
+        "properties": {"severity": {"type": "string", "enum": ["info", "warning", "critical", f"x{tag}"]},
+                       "component": {"type": "string"}, "action": {"type": "string"}},
+        "required": ["severity", "component", "action"], "additionalProperties": False}}}
+def ttft(**kw):
+    t0 = time.perf_counter()
+    for ev in cli.chat.completions.create(model="qwen3-8b", messages=P, max_tokens=80, stream=True, **kw):
+        if ev.choices and ev.choices[0].delta.content: return (time.perf_counter() - t0) * 1000
+for label, mk in [("자유 텍스트", lambda i: {}), ("같은 스키마 반복", lambda i: {"response_format": schema(0)}),
+                  ("요청마다 새 스키마", lambda i: {"response_format": schema(i + 1000)})]:
+    xs = [ttft(**mk(i)) for i in range(12)]
+    print(json.dumps({"case": label, "첫 요청 TTFT": round(xs[0]), "나머지 중앙값": round(statistics.median(xs[1:]))}, ensure_ascii=False))</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>./lab.sh up spec-base
+kubectl -n llmsvc-lab exec bench -- python /scripts/struct_probe.py</code></pre></div>
+    <p><b>관찰 포인트</b>: 같은 스키마 반복에서는 첫 요청만 느리고(문법 컴파일), 요청마다 새 스키마에서는 매번 컴파일 비용이 드는지. 결과를 앱 팀 가이드(“스키마는 고정해서 재사용”)의 근거로 씁니다.</p>
+
+    <h3>결과 정리와 승격</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>기능</th><th>동시성 1 TPOT 변화</th><th>동시성 32 처리량 변화</th><th>품질·기타</th><th>운영 채택 여부</th></tr></thead>
+    <tbody>
+      <tr><td class="k">n-gram (edit·code)</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="k">EAGLE-3 k=3</td><td></td><td></td><td>수락률:</td><td></td></tr>
+      <tr><td class="k">EAGLE-3 k=5</td><td></td><td></td><td>수락률:</td><td></td></tr>
+      <tr><td class="k">LoRA (4종 혼합)</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="k">구조화 출력 (스키마 고정)</td><td></td><td>—</td><td>첫 요청 지연:</td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>추측 디코딩을 기본 오버레이에 넣기 전에 14편 방식의 SLO 스윕(<code>tune.sh</code>)과 6편 품질 평가를 한 번 더 돌립니다. 동시성이 높은 시간대에 처리량이 떨어진다면, 저지연 레플리카에만 켜는 구성을 검토합니다(9장).</p>
+    <div class="codeblock"><div class="cap"><span>bash · 정리</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab delete job make-lora --ignore-not-found
+kubectl -n llmsvc-lab delete configmap make-lora --ignore-not-found
+./lab.sh up qwen3-8b-fp8</code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: 수락률, EAGLE, MTP, LoRA" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13" class="quiz">
+  <h2><span class="sec-num">13</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14">
+  <h2><span class="sec-num">14</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>추측 디코딩은 남는 연산으로 여러 토큰을 한 번에 검증</b>하는 손실 없는 가속이다.</li>
+      <li><b>기대 토큰 = (1 − α^(k+1)) ÷ (1 − α).</b> 수락률과 초안 비용이 이득을 정한다.</li>
+      <li><b>메모리 병목에서 이기고 연산 병목에서 진다.</b> 짧은 문맥·큰 배치·낮은 수락률이 손해 조건이고, 긴 문맥과 대역폭이 작은 GB10은 이득 구간이 넓다.</li>
+      <li><b>MTP → EAGLE-3 → n-gram(입력 반복 워크로드)</b> 순으로 검토하고, 수락률 지표로 k를 조정한다. 헤드는 대상 모델과 짝으로 관리한다.</li>
+      <li><b>LoRA는 베이스 하나로 여러 맞춤 모델</b>을 제공하지만, 켜는 것만으로도·섞일수록 오버헤드가 있다. 어댑터는 반입 심사 대상이다.</li>
+      <li><b>구조화 출력은 스키마를 고정해 재사용</b>하고, n·logprobs·max_tokens 같은 비용 증폭 옵션은 게이트웨이에서 상한을 둔다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">추측 디코딩이 품질을 바꾸지 않는 이유를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">수락률·k로 스텝당 기대 토큰을 계산할 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">n-gram과 EAGLE-3의 효과를 작업 종류별로 측정했다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">동시성이 높을 때 추측 디코딩의 이득이 줄어드는 것을 확인했다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">LoRA 켜기·어댑터 혼합의 오버헤드를 측정했다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">구조화 출력의 첫 요청 지연과 스키마 재사용 효과를 확인했다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">저지연·처리량 레플리카 구분 같은 운영 정책을 제안할 수 있다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 17편 분산 서빙: 병렬화 전략과 멀티노드</span>
+      <p>한 GPU에 들어가지 않는 모델을 위한 편입니다. 텐서·파이프라인·데이터·전문가 병렬의 원리와 통신 비용, NVLink 도메인과 노드 경계, 대형 MoE의 전문가 병렬, LeaderWorkerSet으로 멀티노드 인스턴스를 띄우는 방법, 그리고 병렬화 조합을 고르는 계산까지. GPU 한 장 랩의 한계 안에서 볼 수 있는 것과 계산·설계로 다룰 것을 나눠 진행합니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 16편 추측 디코딩과 고급 기능 · 2026년 10월 기준(vLLM v0.31.0, vLLM Speculators의 EAGLE-3 헤드). 지원 방법·옵션·지표 이름과 기능 조합 지원 범위는 버전마다 다르므로 설치 시점의 문서를 확인하세요. 계산기는 원리 설명용 단순 모델입니다.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";hero();});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero: speculative decoding ---------- */
+const GPU={gb10:{bw:273,tf:200},h100:{bw:3350,tf:1979}};
+const P=8.2e9,W=8.4e9,KV=144*1024;
+function step(g,b,q,ctx){const comp=2*P*b*q/(g.tf*1e12*0.5),mem=(W+b*ctx*KV)/(g.bw*1e9*0.75);return{t:Math.max(comp,mem)+0.0008+1.5e-6*b*q,cb:comp>mem}}
+function draftStep(g,b,params,bytes){return Math.max(2*params*b/(g.tf*1e12*0.4),bytes/(g.bw*1e9*0.75))+0.0002}
+function spec(g,m,a,k,b,ctx){const base=step(g,b,1,ctx),ver=step(g,b,k+1,ctx);
+ const draft=m==="ngram"?0.0002:m==="eagle"?k*draftStep(g,b,0.8e9,1.6e9):k*draftStep(g,b,1.7e9,1.8e9);
+ const E=(1-Math.pow(a,k+1))/(1-a);const tpot=(ver.t+draft)/E;return{E,base:base.t,tpot,speed:base.t/tpot,cb:ver.cb}}
+const BS=[1,2,4,8,16,32,64,128,256];
+function hero(){const g=GPU[$("#hG").value],m=$("#hM").value,a=+$("#hA").value,k=+$("#hK").value,bi=+$("#hB").value,b=BS[bi];
+ $("#hAV").textContent=a.toFixed(2);$("#hKV").textContent=k;$("#hBV").textContent=b;
+ const ctx=+$("#hC").value;const r=spec(g,m,a,k,b,ctx);$("#hE").textContent=fmt(r.E,2)+" 토큰";
+ $("#hS").textContent=`${fmt(r.base*1000,1)} → ${fmt(r.tpot*1000,1)} ms (${fmt(r.speed,2)}배)`;$("#hBn").textContent=r.cb?"검증이 연산 병목":"메모리 병목";
+ const pts=BS.map(bb=>spec(g,m,a,k,bb,ctx).speed);const svg=$("#hSvg"),Wd=520,H=200,L=40,R=12,T=12,B=30,pw=Wd-L-R,ph=H-T-B;
+ const mx=Math.max(2,...pts)*1.1,x=i=>L+i/(BS.length-1)*pw,y=v=>T+ph-v/mx*ph,mut=css("--muted");
+ let s=`<rect x="${L}" y="${T}" width="${pw}" height="${ph}" fill="none" stroke="${css("--line")}"/><line x1="${L}" x2="${L+pw}" y1="${y(1)}" y2="${y(1)}" stroke="${css("--bad")}" stroke-dasharray="5 4"/>`;
+ s+=`<polyline fill="none" stroke="${css("--l4")}" stroke-width="2.5" points="${pts.map((p,i)=>x(i)+","+y(p)).join(" ")}"/>`;
+ s+=`<circle cx="${x(bi)}" cy="${y(pts[bi])}" r="5" fill="${css("--l4")}"/>`;
+ BS.forEach((bb,i)=>{s+=`<text x="${x(i)}" y="${H-12}" font-size="10" text-anchor="middle" fill="${mut}">${bb}</text>`});
+ for(let v=0;v<=mx;v+=Math.max(0.5,Math.ceil(mx/4*2)/2)){s+=`<text x="${L-4}" y="${y(v)+3}" font-size="10" text-anchor="end" fill="${mut}">${fmt(v,1)}×</text>`}
+ s+=`<text x="${L+pw/2}" y="${H-1}" font-size="10" text-anchor="middle" fill="${mut}">동시 Decode 요청 수 (빨간 선 = 이득 없음)</text>`;svg.innerHTML=s;
+ const lose=BS.find((bb,i)=>pts[i]<1);
+ $("#hNote").innerHTML=`<p>${r.speed>=1.05?`이 조건에서 TPOT가 약 ${fmt(r.speed,2)}배 빨라집니다.`:r.speed>=0.97?"이 조건에서는 이득이 거의 없습니다.":"<b>이 조건에서는 오히려 느려집니다.</b>"} ${lose?`동시성 ${lose} 이상에서는 검증 연산이 병목이 되어 손해입니다.`:`그래프 범위 안에서는 이득이지만, 동시성이 커질수록 배수가 ${pts[pts.length-1]<pts[0]?"줄어듭니다":"유지됩니다(문맥이 길어 KV 읽기가 병목)"}.`} 문맥을 짧게, 수락률을 낮게, 방법을 드래프트 모델로 바꾸면 손해 구간이 나타나는지 보세요. ${m==="ngram"?"n-gram의 수락률은 작업 종류에 크게 좌우됩니다(편집·코드 수정에서 높음).":""} GPU를 바꿔 같은 설정을 비교해 보세요. 수락률은 실습 16-3의 실측값으로 바꿔 넣으면 더 정확해집니다.</p>`;}
+$$("#hG,#hM,#hA,#hK,#hB,#hC").forEach(e=>e.addEventListener("input",hero));hero();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["추측 디코딩은 품질을 조금 희생하는 근사 기법이다.","거절 샘플링으로 출력 분포를 대상 모델과 같게 유지하는 손실 없는 기법입니다. 다만 수치 연산 순서 차이로 같은 시드에서도 드물게 다른 문장이 나올 수 있는 것은 일반 배치와 같습니다."],
+ ["추측 디코딩을 켜면 처리량도 늘어난다.","주로 TPOT(지연)를 줄이는 기법입니다. 동시성이 높아 연산 병목이면 검증 연산 때문에 처리량이 오히려 줄 수 있습니다."],
+ ["추측 토큰 수 k는 클수록 좋다.","수락률이 낮으면 거절될 토큰의 검증 연산만 늘어납니다. 수락률을 보고 2~5 사이에서 실측으로 고릅니다."],
+ ["n-gram은 모델이 없으니 쓸모없다.","입력을 많이 반복하는 편집·요약·코드 수정·RAG 인용에서는 거의 공짜로 큰 이득을 냅니다. 작업 종류에 따라 다릅니다."],
+ ["EAGLE 헤드는 아무 버전의 모델에나 쓸 수 있다.","특정 대상 모델에 맞춰 학습된 헤드입니다. 대상 모델을 바꾸면 수락률이 떨어지므로 짝으로 관리합니다."],
+ ["LoRA는 켜 두기만 하면 비용이 없다.","켜는 것만으로도 버퍼·커널 경로가 추가되고, 서로 다른 어댑터가 한 배치에 섞일수록 효율이 떨어집니다. 쓰지 않으면 끕니다."],
+ ["구조화 출력은 매 요청 같은 비용이다.","새 스키마의 첫 요청에 문법 컴파일 비용이 몰리고, 같은 스키마는 캐시됩니다. 스키마를 고정해 재사용하면 대부분 사라집니다."],
+ ["GB10처럼 느린 장비에는 고급 최적화가 의미 없다.","대역폭이 작은 장비일수록 추측 디코딩처럼 남는 연산을 활용하는 기법의 효과가 큽니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["추측 디코딩","Speculative decoding","초안 토큰을 제안하고 대상 모델이 한 번에 검증하는 손실 없는 가속."],
+ ["초안·드래프트","Draft","대상 모델보다 빠르게 다음 토큰을 제안하는 것(모델·헤드·문자열 매칭)."],
+ ["검증","Verification","대상 모델이 초안 k개를 한 번의 순전파로 확인하는 단계."],
+ ["거절 샘플링","Rejection sampling","분포가 바뀌지 않도록 초안을 수락·거절하는 규칙."],
+ ["수락률","Acceptance rate","제안한 초안 토큰 중 수락된 비율."],
+ ["평균 수락 길이","Mean acceptance length","한 번의 검증 스텝에서 얻는 평균 토큰 수."],
+ ["추측 토큰 수","num_speculative_tokens (k)","한 번에 제안하는 초안 토큰 수."],
+ ["n-gram","Prompt lookup","입력에서 같은 토큰열을 찾아 뒤를 제안하는 방법."],
+ ["접미사 디코딩","Suffix decoding","입력·이전 출력의 접미사 트리로 패턴을 찾는 방법(Arctic Inference)."],
+ ["EAGLE·EAGLE-3","EAGLE","대상 모델 은닉 상태를 쓰는 가벼운 예측 헤드."],
+ ["MTP","Multi-Token Prediction","모델에 내장된 다중 토큰 예측 층."],
+ ["Medusa","Medusa","대상 모델에 붙인 여러 예측 헤드."],
+ ["Speculators","vLLM Speculators","추측 디코딩 헤드를 학습·저장하는 vLLM 프로젝트의 라이브러리."],
+ ["LoRA","Low-Rank Adaptation","베이스 가중치에 작은 저랭크 행렬을 더하는 파인튜닝 방식."],
+ ["멀티 어댑터 서빙","Multi-LoRA serving","한 배치 안에서 요청마다 다른 어댑터를 적용하는 서빙."],
+ ["max-loras","--max-loras","한 배치에 동시에 올릴 수 있는 어댑터 수."],
+ ["max-lora-rank","--max-lora-rank","허용하는 최대 LoRA 랭크."],
+ ["런타임 어댑터 등록","Runtime LoRA loading","실행 중 어댑터를 추가·제거하는 관리 API."],
+ ["문법 컴파일","Grammar compilation","구조화 출력 스키마를 토큰 제약으로 바꾸는 첫 처리."],
+ ["토큰 마스크","Token mask","매 스텝 허용되는 토큰만 남기는 구조화 출력의 제약."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["추측 디코딩이 Decode를 빠르게 할 수 있는 근본 이유는?",["모델이 작아져서","메모리 병목이라 남는 연산으로 한 번의 가중치 읽기에 여러 토큰을 검증","KV를 안 써서","양자화해서"],1,"Decode는 대역폭에 묶여 연산이 남습니다."],
+ ["α = 0.7, k = 3일 때 스텝당 기대 토큰은 대략?",["1.0","2.5","4.0","7.0"],1,"(1 − 0.7⁴) ÷ (1 − 0.7) ≈ 2.53."],
+ ["추측 디코딩 이득이 줄거나 손해가 되는 조건은?",["동시성 1","높은 동시성으로 연산 병목일 때","입력이 반복될 때","대역폭이 작은 GPU"],1,"검증 연산이 비용으로 드러납니다."],
+ ["문서 편집처럼 출력이 입력을 많이 반복할 때 추가 모델 없이 효과가 큰 방법은?",["Medusa","n-gram","드래프트 모델","MTP"],1,"입력에서 그대로 찾아 제안합니다."],
+ ["EAGLE-3 헤드 운영 시 주의점은?",["어느 모델에나 호환","특정 대상 모델용이라 모델을 바꾸면 헤드도 바꿔야 함","GPU가 두 장 필요","KV를 쓰지 않음"],1,"짝으로 관리합니다."],
+ ["GB10에서 추측 디코딩 효과가 상대적으로 클 수 있는 이유는?",["MIG가 없어서","대역폭이 작아 더 큰 배치까지 메모리 병목이 유지됨","통합 메모리라서 KV가 무한","FP8 미지원"],1,"연산 여유 구간이 넓습니다."],
+ ["LoRA 멀티 어댑터 서빙에서 성능이 가장 나빠지는 경우는?",["어댑터 미사용","한 배치에 서로 다른 어댑터가 많이 섞일 때","베이스만 요청","랭크가 작을 때"],1,"혼합될수록 효율이 떨어집니다."],
+ ["구조화 출력의 첫 요청이 느린 이유와 대책은?",["네트워크; 재시도","새 스키마의 문법 컴파일; 스키마 고정·재사용·워밍업","GPU 부족; 증설","토크나이저; 교체"],1,"같은 스키마는 캐시됩니다."],
+ ["MSP가 추측 디코딩을 상품화하는 합리적인 방법은?",["모든 레플리카에 항상 켬","저지연 레플리카와 처리량 레플리카를 나눠 테넌트 등급별로 라우팅","끔","고객이 직접 켜게 함"],1,"부하 특성에 따라 이득이 달라집니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 17편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 17편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>

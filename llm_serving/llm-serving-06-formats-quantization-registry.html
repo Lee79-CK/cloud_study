@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LLM 서빙 플랫폼 6편 · 모델 포맷·양자화·레지스트리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1726; --bg2:#121D30; --surface:#17243B; --surface2:#1D2C47; --line:#2A3C5C;
+  --text:#E6ECF5; --muted:#9BABC6; --faint:#6F82A3;
+  --l7:#F15BB5; --l6:#7BD389; --l5:#FF8A5B; --l4:#4D9DFF; --l3:#9B7BFF; --l2:#2EC4B6; --l1:#F2B84B;
+  --ok:#5DD39E; --warn:#FFC857; --bad:#FF6B7A;
+  --code-bg:#0A1220; --code-text:#D7E2F2;
+  --shadow:0 10px 30px rgba(3,8,18,.45);
+  --radius-lg:18px; --radius:10px; --radius-sm:6px;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#F4F6FB; --bg2:#EBEFF7; --surface:#FFFFFF; --surface2:#F1F4FA; --line:#D3DBEA;
+  --text:#18233A; --muted:#4D5D7A; --faint:#7385A3;
+  --l7:#C8288A; --l6:#2E9A57; --l5:#D9541F; --l4:#1F6FD6; --l3:#6A45E0; --l2:#0E8F84; --l1:#B97D05;
+  --ok:#1E9E62; --warn:#B98300; --bad:#D33045;
+  --code-bg:#0F1A2C; --code-text:#E1E9F6;
+  --shadow:0 10px 26px rgba(30,45,80,.12);
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 70px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16.5px;line-height:1.75;-webkit-font-smoothing:antialiased;word-break:keep-all;overflow-wrap:break-word}
+a{color:var(--l4)}
+img,svg{max-width:100%}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--line);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+:focus-visible{outline:3px solid var(--l4);outline-offset:2px;border-radius:4px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.topbar .series{font-weight:600;font-size:.92rem;color:var(--muted)}
+.topbar .series b{color:var(--text)}
+.topbar .spacer{flex:1}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--l1),var(--l2),var(--l3),var(--l4),var(--l5),var(--l6),var(--l7))}
+.btn{font:inherit;font-size:.9rem;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--l4);border-color:var(--l4);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.menu-btn{display:none}
+
+/* ---------- layout ---------- */
+.shell{display:grid;grid-template-columns:260px minmax(0,1fr);max-width:1320px;margin:0 auto}
+nav.toc{position:sticky;top:58px;align-self:start;height:calc(100vh - 58px);overflow:auto;padding:26px 18px 40px 22px;border-right:1px solid var(--line)}
+nav.toc h2{font-size:.85rem;color:var(--faint);font-weight:600;margin:0 0 10px}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:.92rem;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:1.4em;padding-top:2px}
+nav.toc a:hover{background:var(--surface);color:var(--text)}
+nav.toc a.active{background:var(--surface);color:var(--text);box-shadow:inset 3px 0 0 var(--l4)}
+main{padding:0 clamp(18px,4vw,56px) 120px;min-width:0}
+.prose{max-width:780px}
+section{padding-top:56px}
+section>h2{font-size:clamp(1.55rem,2.6vw,2rem);line-height:1.3;margin:0 0 6px;letter-spacing:-.01em}
+.sec-num{display:inline-block;font-family:var(--mono);font-size:.95rem;color:var(--faint);margin-right:10px;vertical-align:middle}
+section>h2 + .lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem}
+h3{font-size:1.22rem;margin:38px 0 10px;line-height:1.4}
+h4{font-size:1.04rem;margin:24px 0 6px}
+p{margin:0 0 14px}
+ul,ol{padding-left:1.3em;margin:0 0 14px}
+li{margin:4px 0}
+.wide{max-width:1080px}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:40px;align-items:start;padding-top:44px;max-width:1120px}
+.hero h1{font-size:clamp(2rem,4.4vw,3.15rem);line-height:1.18;margin:8px 0 18px;letter-spacing:-.025em}
+.hero .kicker{color:var(--muted);font-weight:500}
+.hero p.intro{font-size:1.08rem;color:var(--muted);max-width:34em}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.chip{font-size:.83rem;padding:4px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--text);font-weight:600}
+
+/* stack */
+.stack-wrap{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px;box-shadow:var(--shadow)}
+.stack-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.stack-head strong{font-size:.98rem}
+.stack-head .spacer{flex:1}
+.stack{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;position:relative}
+.layers{display:flex;flex-direction:column;gap:6px;position:relative}
+.layer{position:relative;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:pointer;text-align:left;font:inherit;color:var(--text);transition:transform .18s,border-color .18s,background .18s}
+.layer:hover{transform:translateX(3px)}
+.layer .bar{width:6px;align-self:stretch;border-radius:4px;background:var(--c)}
+.layer .lnum{font-family:var(--mono);font-size:.78rem;color:var(--faint);min-width:22px}
+.layer .lname{font-weight:600;font-size:.97rem;line-height:1.3}
+.layer .ltech{display:block;font-weight:400;font-size:.8rem;color:var(--muted);margin-top:2px}
+.layer.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 14%,var(--surface))}
+.layer.pulse{animation:pulse .5s ease}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}100%{box-shadow:0 0 0 10px transparent}}
+.packet{position:absolute;left:-3px;width:12px;height:12px;border-radius:50%;background:var(--text);box-shadow:0 0 12px var(--l4);opacity:0;pointer-events:none;z-index:3;transition:top .42s cubic-bezier(.5,0,.3,1),opacity .2s}
+.cross{display:flex;flex-direction:column;gap:6px}
+.cross div{flex:1;writing-mode:vertical-rl;text-orientation:mixed;font-size:.72rem;color:var(--muted);display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px dashed var(--line);letter-spacing:.04em}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.readout div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.readout span{display:block;font-size:.72rem;color:var(--faint)}
+.readout b{font-family:var(--mono);font-size:1.02rem}
+.tokens{min-height:52px;margin-top:10px;padding:8px 12px;border-radius:8px;background:var(--code-bg);color:var(--code-text);font-size:.9rem;line-height:1.6}
+.tokens .tk{display:inline;border-bottom:2px solid color-mix(in srgb,var(--l6) 60%,transparent);margin-right:1px}
+.layer-detail{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.92rem;min-height:92px}
+.layer-detail h4{margin:0 0 4px;font-size:.98rem}
+.layer-detail p{margin:0 0 6px;color:var(--muted)}
+
+/* ---------- blocks ---------- */
+.callout{border-left:4px solid var(--c,var(--l4));background:color-mix(in srgb,var(--c,var(--l4)) 9%,var(--surface));padding:14px 18px;border-radius:0 var(--radius) var(--radius) 0;margin:20px 0}
+.callout .ttl{font-weight:700;margin-bottom:4px;display:block}
+.callout p:last-child,.callout ul:last-child{margin-bottom:0}
+.analogy{--c:var(--l1)}
+.warnbox{--c:var(--warn)}
+.tip{--c:var(--l6)}
+.msp{--c:var(--l7)}
+.goal-list{counter-reset:g;list-style:none;padding:0}
+.goal-list li{counter-increment:g;position:relative;padding:10px 14px 10px 50px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.goal-list li::before{content:counter(g);position:absolute;left:14px;top:10px;width:24px;height:24px;border-radius:50%;background:var(--l4);color:#fff;font-size:.8rem;font-weight:700;display:grid;place-items:center}
+
+.table-scroll{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td.k{font-weight:600;white-space:nowrap}
+.tag{display:inline-block;font-size:.76rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin:1px 2px 1px 0;white-space:nowrap}
+
+.codeblock{position:relative;margin:14px 0 20px;border-radius:var(--radius);background:var(--code-bg);border:1px solid var(--line);overflow:hidden}
+.codeblock .cap{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:#9FB0CC;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.06)}
+.codeblock pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.84rem;line-height:1.6;color:var(--code-text)}
+.copy{font:inherit;font-size:.74rem;background:transparent;color:#C9D6EA;border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:2px 9px;cursor:pointer}
+.c-cm{color:#7F92B2}.c-kw{color:#C59BFF}.c-st{color:#9BE29B}.c-nu{color:#FFC27A}
+
+/* layer cards */
+.layer-cards{display:flex;flex-direction:column;gap:14px;margin:18px 0}
+details.lc{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+details.lc>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:8px auto 1fr auto;gap:14px;align-items:center;padding:14px 16px}
+details.lc>summary::-webkit-details-marker{display:none}
+details.lc>summary .rail{width:8px;height:38px;border-radius:4px;background:var(--c)}
+details.lc>summary .n{font-family:var(--mono);color:var(--faint);font-size:.85rem}
+details.lc>summary .t{font-weight:700;font-size:1.05rem;line-height:1.3}
+details.lc>summary .t small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+details.lc>summary .chev{color:var(--faint);transition:transform .2s}
+details.lc[open]>summary .chev{transform:rotate(90deg)}
+details.lc .body{padding:4px 20px 18px 46px;border-top:1px dashed var(--line)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini h5{margin:14px 0 4px;font-size:.9rem;color:var(--c,var(--muted))}
+.mini ul{font-size:.92rem}
+
+/* journey */
+.journey{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:22px;margin:18px 0}
+.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.steps button{width:100%;text-align:left;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.steps button .dot{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+.steps button.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.steps button small{margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:.76rem}
+.step-panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:sticky;top:76px;align-self:start}
+.step-panel h4{margin:0 0 6px}
+.step-panel .fail{margin-top:10px;padding:10px 12px;background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:8px;font-size:.9rem}
+.budget{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:10px 0 6px;border:1px solid var(--line)}
+.budget div{display:grid;place-items:center;font-size:.72rem;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* calculators */
+.tool{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.tool h4{margin:0 0 4px}
+.tool .desc{color:var(--muted);font-size:.9rem;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px 16px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:.84rem;color:var(--muted)}
+.form input,.form select{font:inherit;font-size:.95rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+.form input[type=range]{padding:0;accent-color:var(--l4)}
+.result{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.result .r{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.result .r span{display:block;font-size:.76rem;color:var(--faint)}
+.result .r b{font-family:var(--mono);font-size:1.12rem}
+.verdict{margin-top:12px;padding:12px 14px;border-radius:9px;font-size:.94rem;border:1px solid var(--line);background:var(--surface)}
+.verdict.good{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--surface))}
+.verdict.mid{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--surface))}
+.verdict.badv{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.meter{height:12px;border-radius:6px;background:var(--surface2);overflow:hidden;display:flex;margin-top:8px;border:1px solid var(--line)}
+.meter div{height:100%}
+
+/* maturity */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.checks label{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:.92rem;cursor:pointer}
+.checks input{margin-top:5px;accent-color:var(--l6)}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:.82rem;line-height:1.45;opacity:.55;transition:opacity .2s,border-color .2s}
+.levels div b{display:block;font-size:.9rem;margin-bottom:2px}
+.levels div.on{opacity:1;border-color:var(--l6);background:color-mix(in srgb,var(--l6) 12%,var(--surface))}
+
+/* decision tree */
+.dt{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius-lg);padding:20px;margin:20px 0}
+.dt .q{font-weight:600;margin-bottom:10px;font-size:1.02rem}
+.dt .opts{display:flex;flex-wrap:wrap;gap:8px}
+.dt .trail{font-size:.84rem;color:var(--muted);margin-bottom:10px}
+.dt .ans{padding:14px 16px;border-radius:10px;background:var(--surface);border:1px solid var(--l6)}
+
+/* myths */
+.myths{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.myth{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.myth .m{font-weight:600}
+.myth .m::before{content:"오해 ";color:var(--bad);font-weight:700}
+.myth button{margin-top:8px}
+.myth .f{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);font-size:.93rem;color:var(--muted)}
+.myth .f::before{content:"사실 ";color:var(--ok);font-weight:700}
+.myth.open .f{display:block}
+
+/* roadmap */
+.road{display:flex;flex-direction:column;gap:10px}
+.road details{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.road summary{cursor:pointer;padding:12px 16px;font-weight:600;display:flex;gap:12px;align-items:center;list-style:none}
+.road summary::-webkit-details-marker{display:none}
+.road summary .lv{font-family:var(--mono);font-size:.8rem;padding:2px 9px;border-radius:999px;background:var(--c);color:var(--bg);font-weight:700}
+.road summary small{color:var(--muted);font-weight:400;margin-left:auto;font-size:.82rem}
+.road ol{margin:0;padding:4px 20px 14px 44px}
+.road li{margin:6px 0;font-size:.94rem}
+.road li b{font-weight:600}
+.road li.here b{color:var(--l4)}
+.road li span{color:var(--muted)}
+
+/* glossary */
+.gloss-search{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+.gloss{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.gloss dl{margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.gloss dt{font-weight:700}
+.gloss dt small{font-weight:400;color:var(--faint);margin-left:6px;font-size:.8rem}
+.gloss dd{margin:4px 0 0;font-size:.91rem;color:var(--muted)}
+.gloss dd .lnk{display:inline-block;margin-top:4px;font-size:.78rem;color:var(--faint)}
+
+/* quiz */
+.quiz .qq{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:16px 18px;margin:12px 0}
+.quiz .qq p{font-weight:600}
+.quiz .qq .op{display:block;width:100%;text-align:left;font:inherit;font-size:.94rem;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;cursor:pointer}
+.quiz .qq .op.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--bg2))}
+.quiz .qq .op.wrong{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--bg2))}
+.quiz .qq .ex{display:none;margin-top:8px;font-size:.92rem;color:var(--muted)}
+.quiz .qq.done .ex{display:block}
+.score{font-weight:700;font-size:1.05rem}
+
+/* checklist */
+.cl{list-style:none;padding:0}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line)}
+.cl input{margin-top:6px;accent-color:var(--l6)}
+
+/* usecases */
+.uc{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+.uc article{border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--radius);background:var(--surface);padding:14px 16px}
+.uc h4{margin:0 0 6px}
+.uc dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0;font-size:.88rem}
+.uc dt{color:var(--faint)}
+.uc dd{margin:0}
+
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  nav.toc{position:fixed;top:58px;left:0;bottom:0;width:280px;z-index:30;background:var(--bg);transform:translateX(-105%);transition:transform .25s;height:auto}
+  nav.toc.open{transform:none;box-shadow:var(--shadow)}
+  .menu-btn{display:inline-block}
+  .hero{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:15.5px}
+  .grid2,.grid3,.checks,.myths,.gloss,.uc,.journey{grid-template-columns:minmax(0,1fr)}
+  .levels{grid-template-columns:1fr 1fr}
+  .step-panel{position:static}
+  details.lc .body{padding:4px 16px 16px}
+  .topbar .series span{display:none}
+  .readout{grid-template-columns:1fr 1fr 1fr}
+}
+
+
+/* ---------- episode 2 additions ---------- */
+.tokrow{display:flex;flex-wrap:wrap;gap:4px;margin:10px 0;padding:12px;border-radius:10px;background:var(--code-bg)}
+.tokrow span{font-family:var(--mono);font-size:.86rem;color:#0B1220;padding:2px 6px;border-radius:5px}
+.tokrow .lab{color:#9FB0CC;background:none;font-family:var(--font);font-size:.8rem;width:100%;padding:0 0 4px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:16px 0}
+.flow .node{flex:1 1 120px;min-width:110px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flow .node b{display:block;font-size:.93rem;color:var(--c,var(--text))}
+.flow .arr{align-self:center;color:var(--faint);font-size:1.1rem}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:14px}
+.chartbox svg{display:block;width:100%;height:auto}
+.chartbox text{font-family:var(--font);fill:var(--muted);font-size:11px}
+.gantt{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.gantt .row{display:grid;grid-template-columns:62px 1fr;gap:8px;align-items:center;font-size:.78rem;color:var(--muted)}
+.gantt .lane{position:relative;height:24px;background:var(--surface2);border-radius:5px;border:1px solid var(--line);overflow:hidden}
+.gantt .seg{position:absolute;top:2px;bottom:2px;border-radius:4px;font-size:.68rem;color:#0B1220;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.gantt .seg.wait{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--bad) 40%,transparent) 4px 7px)}
+.gantt .seg.pad{background:repeating-linear-gradient(45deg,transparent 0 4px,color-mix(in srgb,var(--faint) 60%,transparent) 4px 7px)}
+.gantt .axis{display:grid;grid-template-columns:62px 1fr;font-size:.72rem;color:var(--faint)}
+.memgrid{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:10px}
+.memgrid div{aspect-ratio:1;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.formula{font-family:var(--mono);font-size:.88rem;background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:12px 0;overflow-x:auto;line-height:1.7;white-space:pre}
+.steps-calc{font-family:var(--mono);font-size:.84rem;background:var(--code-bg);color:var(--code-text);border-radius:9px;padding:12px 14px;margin-top:12px;white-space:pre-wrap;line-height:1.7}
+.seg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.seg-tabs .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+.kpi-inline{display:inline-block;font-family:var(--mono);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+
+
+/* ---------- episode 3 additions ---------- */
+section>.lede{color:var(--muted);margin:0 0 26px;font-size:1.04rem;max-width:780px}
+.cmp{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cmp .row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:.86rem}
+.cmp .bars{display:flex;flex-direction:column;gap:3px}
+.cmp .bar{height:16px;border-radius:4px;display:flex;align-items:center;padding-left:6px;font-size:.72rem;font-weight:700;color:#0B1220;white-space:nowrap;min-width:fit-content}
+.timeline{position:relative;margin:18px 0 10px;padding:30px 0 10px}
+.timeline .track{position:relative;height:44px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);display:flex;overflow:hidden}
+.timeline .track div{display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;color:#0B1220;border-right:1px solid rgba(0,0,0,.15)}
+.timeline .brace{position:relative;height:26px;margin-top:6px}
+.timeline .brace span{position:absolute;top:0;height:22px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;font-size:.74rem;color:var(--c);display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-weight:700;white-space:nowrap}
+.rank td.best{color:var(--ok);font-weight:700}
+.rank tr.na td{opacity:.5}
+#dcTable td,#dcTable th{white-space:nowrap;font-size:.86rem;padding:8px 10px}
+/* ---------- episode 4 additions ---------- */
+.arch{display:grid;grid-template-columns:1fr;gap:10px}
+.arch .tier{border:1px dashed var(--line);border-radius:12px;padding:10px;position:relative}
+.arch .tier>span.lab{position:absolute;top:-10px;left:12px;background:var(--bg2);padding:0 6px;font-size:.74rem;color:var(--faint)}
+.arch .boxes{display:flex;flex-wrap:wrap;gap:8px}
+.arch .bx{flex:1 1 120px;font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:9px;padding:8px 10px;cursor:pointer;font-size:.86rem;line-height:1.35;transition:background .2s,border-color .2s}
+.arch .bx b{display:block;font-size:.92rem}
+.arch .bx small{color:var(--muted)}
+.arch .bx.on{background:color-mix(in srgb,var(--c) 16%,var(--surface));border-color:var(--c)}
+.arch .bx.flash{animation:pulse .5s ease}
+.arch .wire{font-size:.74rem;color:var(--faint);text-align:center;margin:-4px 0}
+.proc{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.proc span{font-size:.78rem;font-weight:700;padding:6px 9px;border-radius:7px;color:#0B1220}
+.sched{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.sched .q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:120px}
+.sched .q h5{margin:0 0 8px;font-size:.88rem;color:var(--muted)}
+.sched .rq{display:flex;justify-content:space-between;gap:8px;font-size:.84rem;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface2)}
+.sched .rq b{font-family:var(--mono);font-size:.8rem}
+.sched .rq.pre{border-left:4px solid var(--l3)}
+.sched .rq.dec{border-left:4px solid var(--l6)}
+.sched .rq.done{opacity:.45}
+.optf{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.optf .btn.on{background:var(--l4);border-color:var(--l4);color:#fff}
+#optTable td:first-child{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+.pathlist{list-style:none;padding:0;margin:14px 0;counter-reset:p}
+.pathlist li{counter-increment:p;position:relative;padding:10px 14px 10px 52px;margin:6px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.pathlist li::before{content:counter(p);position:absolute;left:14px;top:10px;width:26px;height:26px;border-radius:50%;background:var(--c,var(--l4));color:#0B1220;font-weight:700;font-size:.8rem;display:grid;place-items:center}
+.pathlist li b{display:block}
+.pathlist li span{color:var(--muted);font-size:.92rem}
+/* ---------- episode 5 additions ---------- */
+.engrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.engcard{font:inherit;text-align:left;color:var(--text);background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:10px 12px;cursor:pointer;line-height:1.35}
+.engcard b{display:block;font-size:.95rem;word-break:normal}
+.engcard small{color:var(--muted);font-size:.78rem}
+.engcard.on{background:color-mix(in srgb,var(--c) 14%,var(--surface));border-color:var(--c)}
+.axis-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin:5px 0;font-size:.84rem}
+.axis-bar{height:12px;border-radius:6px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}
+.axis-bar div{height:100%;border-radius:6px}
+.tokstrip{display:flex;flex-wrap:wrap;gap:2px;margin:6px 0 2px}
+.tokstrip i{display:inline-block;width:9px;height:14px;border-radius:2px;background:var(--surface2);border:1px solid var(--line)}
+.tokstrip i.hit{background:var(--l6);border-color:var(--l6)}
+.tokstrip i.miss{background:var(--l3);border-color:var(--l3);opacity:.75}
+.rxrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;font-size:.82rem;margin:4px 0}
+@media (max-width:760px){.engrid{grid-template-columns:1fr 1fr}.rxrow{grid-template-columns:1fr}}
+/* ---------- episode 6 additions ---------- */
+.bits{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.bits .brow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;font-size:.82rem}
+.bits .cells{display:flex;gap:2px;flex-wrap:nowrap;overflow:hidden}
+.bits .cells i{flex:1 1 0;max-width:22px;min-width:5px;height:22px;border-radius:3px}
+.bits .s{background:#FF8A8A}.bits .e{background:#9BD2FF}.bits .m{background:#9BE2B6}.bits .q{background:#FFD59B}
+.qhist{display:flex;align-items:flex-end;gap:1px;height:90px;margin-top:8px;padding:4px;border:1px solid var(--line);border-radius:8px;background:var(--surface2)}
+.qhist div{flex:1;background:var(--l4);border-radius:2px 2px 0 0;min-height:1px}
+.flowline{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:14px 0}
+.flowline .st{flex:1 1 140px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);border-top:4px solid var(--c);background:var(--surface);font-size:.86rem;line-height:1.45}
+.flowline .st b{display:block;font-size:.93rem}
+.flowline .ar{align-self:center;color:var(--faint)}
+.hwcell{font-weight:700}
+.hwcell.ok{color:var(--ok)}.hwcell.mid{color:var(--warn)}.hwcell.no{color:var(--bad)}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="btn menu-btn" id="menuBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="series"><b>LLM 서빙 플랫폼</b> <span>개념 · 설계와 구축 · 튜닝 · 모니터링 — 6 / 26편</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="shell">
+<nav class="toc" id="toc" aria-label="목차">
+  <h2>6편 목차</h2>
+  <ol>
+    <li><a href="#s1">시작하기 전에</a></li>
+    <li><a href="#s2">모델 저장소 해부</a></li>
+    <li><a href="#s3">파일 포맷</a></li>
+    <li><a href="#s4">숫자 표현과 스케일</a></li>
+    <li><a href="#s5">양자화 방식 지도</a></li>
+    <li><a href="#s6">품질·속도·메모리 맞교환</a></li>
+    <li><a href="#s7">GPU 세대별 차이</a></li>
+    <li><a href="#s8">모델 레지스트리와 배포 경로</a></li>
+    <li><a href="#s9">라이선스·게이트 모델 관리</a></li>
+    <li><a href="#s10">시나리오별 선택</a></li>
+    <li><a href="#s11">흔한 오해</a></li>
+    <li><a href="#s12">실습</a></li>
+    <li><a href="#s13">용어 사전</a></li>
+    <li><a href="#s14">확인 퀴즈</a></li>
+    <li><a href="#s15">정리와 체크리스트</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+
+<div class="hero">
+  <div>
+    <div class="kicker">Level 1 · 서빙 엔진 — 6편</div>
+    <h1>모델 포맷·양자화<br>레지스트리</h1>
+    <p class="intro">2편에서 “가중치 메모리 = 파라미터 × 바이트”를 배웠고, 3편에서는 FP8·FP4가 토큰당 비용을 바꾸는 것을, 5편에서는 “같은 정밀도로 맞췄나”가 공정한 비교의 첫 조건이라는 것을 봤습니다. 이번 편은 그 “바이트”를 정면으로 다룹니다. 모델이 어떤 파일로 오는지, 숫자를 몇 비트로 어떻게 줄이는지, 그 대가로 무엇을 잃는지, 같은 양자화가 왜 GPU마다 다르게 동작하는지, 그리고 그 모델 파일을 회사 안에서 어떻게 들여오고 관리하고 라이선스를 지키는지까지.</p>
+    <div class="meta-row">
+      <span class="chip">선행 <b>2·3·5편</b></span>
+      <span class="chip">읽는 시간 <b>약 110분</b></span>
+      <span class="chip">실습 <b>약 120분</b></span>
+      <span class="chip">기준 <b>2026년 10월</b></span>
+    </div>
+  </div>
+  <div class="stack-wrap" aria-label="정밀도별 메모리 비교">
+    <div class="stack-head"><strong>같은 모델, 네 가지 정밀도</strong></div>
+    <div class="seg-tabs" id="heroTabs">
+      <button class="btn on" data-p="8.2">8B급</button>
+      <button class="btn" data-p="32.8">32B급</button>
+      <button class="btn" data-p="70.6">70B급</button>
+      <button class="btn" data-p="235">235B급 MoE</button>
+    </div>
+    <div id="heroBars"></div>
+    <div class="layer-detail" id="heroNote"></div>
+    <p style="font-size:.76rem;color:var(--faint);margin:8px 0 0">가중치만 계산(스케일 등 부가 데이터 근사 포함). 세로선은 GPU 한 장의 메모리. 품질 위험은 일반적 경향이며 모델·작업마다 반드시 평가해야 합니다.</p>
+  </div>
+</div>
+
+<!-- ================= S1 ================= -->
+<section id="s1">
+  <h2><span class="sec-num">01</span>시작하기 전에</h2>
+  <p class="lede">양자화는 “공짜 성능”이 아니라 품질을 담보로 메모리·속도를 사는 거래입니다. 거래 조건을 아는 사람이 이깁니다.</p>
+  <div class="prose">
+    <h3>학습 목표</h3>
+    <ol class="goal-list">
+      <li>Hugging Face 모델 저장소의 파일 구성과 safetensors·GGUF·compressed-tensors 등 포맷의 차이, pickle 형식의 보안 위험을 설명할 수 있다.</li>
+      <li>BF16·FP8·INT4·FP4의 비트 구조와 스케일 단위(텐서·채널·그룹·블록·마이크로스케일)를 설명하고, 이상치가 왜 문제인지 보여 줄 수 있다.</li>
+      <li>가중치 전용·가중치+활성값·KV 캐시 양자화와 GPTQ·AWQ·SmoothQuant·RTN의 차이, 보정 데이터의 역할을 설명할 수 있다.</li>
+      <li>같은 양자화가 A100·L4·H100·B200·GB10에서 다르게 동작하는 이유를 텐서 코어와 커널 경로로 설명할 수 있다.</li>
+      <li>사내 모델 레지스트리의 선택지(허브 미러·오브젝트 스토리지·OCI 레지스트리)와 반입·검증·버전 고정 절차를 설계할 수 있다.</li>
+      <li>라이선스와 게이트 모델의 운영 규칙을 세우고, 같은 모델의 BF16·FP8·AWQ 버전을 메모리·속도·품질로 비교할 수 있다.</li>
+    </ol>
+    <div class="callout analogy">
+      <span class="ttl">이 편의 비유: 사진 압축</span>
+      <p>BF16 원본은 RAW 사진, FP8은 고화질 JPEG, 4비트 양자화는 메신저로 보낼 때 줄어든 사진입니다. 풍경 사진은 압축해도 거의 티가 안 나지만, 작은 글씨가 많은 문서 사진은 금방 뭉개집니다. LLM도 마찬가지로 일상 대화는 잘 버티지만, 수학·코드·긴 추론·드문 언어처럼 “작은 글씨”가 중요한 작업에서 압축 손실이 먼저 드러납니다. 그리고 압축을 잘하는 방법(어느 부분을 덜 깎을지 정하는 알고리즘)에 따라 같은 용량에서도 화질이 달라집니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S2 ================= -->
+<section id="s2">
+  <h2><span class="sec-num">02</span>모델 저장소 해부</h2>
+  <p class="lede">vLLM이 “모델을 읽는다”고 할 때 실제로 읽는 파일들.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>파일</th><th>내용</th><th>플랫폼에서 확인할 것</th></tr></thead>
+    <tbody>
+      <tr><td class="k">config.json</td><td>모델 구조(층 수, 헤드 수, 어휘 크기 등). 양자화 모델이면 <code>quantization_config</code>가 들어 있음</td><td>2편 KV 계산의 원천. 양자화 방식·대상 층·제외 층 확인</td></tr>
+      <tr><td class="k">generation_config.json</td><td>기본 샘플링 값(temperature, top_p 등)과 종료 토큰</td><td>4편: vLLM 기본값의 출처</td></tr>
+      <tr><td class="k">tokenizer.json, tokenizer_config.json</td><td>토크나이저 어휘와 규칙, 특수 토큰</td><td>토큰 수·템플릿 차이의 원인(2·5편)</td></tr>
+      <tr><td class="k">chat_template (jinja)</td><td>채팅 템플릿. tokenizer_config 안 또는 별도 파일</td><td>툴 콜·추론 출력 동작을 좌우</td></tr>
+      <tr><td class="k">*.safetensors (+ index.json)</td><td>가중치. 큰 모델은 여러 조각과 조각 목록(index)</td><td>총 크기 = 대략 가중치 메모리. 해시 고정</td></tr>
+      <tr><td class="k">README.md (모델 카드)</td><td>설명, 평가, 권장 서빙 방법, <b>라이선스</b></td><td>라이선스·사용 제한·권장 엔진 옵션</td></tr>
+      <tr><td class="k">LICENSE, USE_POLICY 등</td><td>라이선스 원문, 허용 사용 정책</td><td>9장의 검토 대상</td></tr>
+      <tr><td class="k">*.py (선택)</td><td>사용자 정의 모델 코드</td><td>있으면 <code>--trust-remote-code</code>가 필요. 코드 검토 대상</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout tip">
+      <span class="ttl">리비전은 브랜치 이름이 아니라 커밋 해시로</span>
+      <p>허브의 모델 저장소는 Git 저장소라 <code>main</code> 브랜치가 언제든 바뀔 수 있습니다. 가중치·토크나이저·템플릿이 조용히 갱신되면 같은 배포 설정에서 다른 모델이 뜹니다. 운영에서는 <code>--revision</code>에 <b>커밋 해시</b>를 넣고, 사내 레지스트리에도 해시를 함께 기록합니다(8장).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S3 ================= -->
+<section id="s3">
+  <h2><span class="sec-num">03</span>파일 포맷</h2>
+  <p class="lede">같은 가중치도 어떤 그릇에 담느냐에 따라 안전성·로딩 속도·지원 엔진이 달라집니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>포맷</th><th>특징</th><th>주 사용처</th><th>운영 메모</th></tr></thead>
+    <tbody>
+      <tr><td class="k">PyTorch pickle (.bin, .pt)</td><td>파이썬 객체 직렬화. 읽는 순간 임의 코드가 실행될 수 있음</td><td>오래된 모델</td><td><b>보안 위험.</b> 출처가 불분명하면 반입 금지 또는 safetensors로 변환 후 반입. 스캐너로 검사</td></tr>
+      <tr><td class="k">safetensors</td><td>텐서 데이터와 헤더만 담는 단순 포맷. 코드 실행 없음, 메모리 매핑으로 빠른 로딩</td><td>현재 HF 모델의 표준</td><td>기본 선택. 조각 파일과 index 함께 관리</td></tr>
+      <tr><td class="k">compressed-tensors</td><td>safetensors 안에 양자화 가중치·스케일을 담고 config에 방식을 기록하는 규약</td><td>llm-compressor 결과물, vLLM이 그대로 로드</td><td>vLLM 생태계의 양자화 표준 그릇</td></tr>
+      <tr><td class="k">ModelOpt 체크포인트</td><td>NVIDIA Model Optimizer가 만든 FP8·NVFP4 등</td><td>TensorRT-LLM, vLLM·SGLang도 다수 지원</td><td>NVIDIA가 공개하는 양자화 모델에 흔함</td></tr>
+      <tr><td class="k">GGUF</td><td>가중치·토크나이저·메타데이터를 한 파일에. 다양한 K-quant 정수 양자화</td><td>llama.cpp·Ollama (vLLM은 일부·실험적)</td><td>엣지·망분리 반입에 편리. 데이터센터 엔진 표준은 아님</td></tr>
+      <tr><td class="k">AWQ·GPTQ 패킹 포맷</td><td>4비트 정수 가중치를 패킹해 저장(라이브러리별 규약)</td><td>여러 엔진이 읽음</td><td>최근 도구는 compressed-tensors로 변환·통합하는 추세</td></tr>
+      <tr><td class="k">MXFP4 체크포인트</td><td>MoE 전문가 가중치를 MXFP4로 배포</td><td>gpt-oss 등</td><td>원본 자체가 4비트. BF16 버전이 없을 수 있음</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">포맷과 정밀도는 다른 축이다</span>
+      <p>“safetensors 모델”이라는 말은 정밀도를 알려 주지 않습니다. 같은 safetensors 안에 BF16도, FP8도, 패킹된 INT4도 들어갈 수 있습니다. 정밀도는 <code>config.json</code>의 <code>torch_dtype</code>과 <code>quantization_config</code>로 판단합니다(실습 6-1).</p>
+    </div>
+  </div>
+</section>
+<!-- ================= S4 ================= -->
+<section id="s4">
+  <h2><span class="sec-num">04</span>숫자 표현과 스케일</h2>
+  <p class="lede">양자화를 이해하는 데 필요한 것은 두 가지뿐입니다: 숫자 하나를 몇 비트로 표현하나, 그리고 그 작은 숫자를 원래 크기로 되돌리는 “스케일”을 몇 개씩 묶어 공유하나.</p>
+  <div class="prose">
+    <h3>비트 구조 한눈에</h3>
+    <p>부동소수점은 <b>부호</b>, 수의 크기 범위를 정하는 <b>지수</b>, 정밀도를 정하는 <b>가수</b>로 나뉩니다. 지수 비트가 많을수록 넓은 범위, 가수 비트가 많을수록 촘촘한 값을 표현합니다.</p>
+    <div class="bits" id="bitRows"></div>
+    <div class="legend"><span><i style="background:#FF8A8A"></i>부호</span><span><i style="background:#9BD2FF"></i>지수</span><span><i style="background:#9BE2B6"></i>가수</span><span><i style="background:#FFD59B"></i>정수</span></div>
+    <ul style="margin-top:12px">
+      <li><b>BF16 vs FP16</b>: 둘 다 16비트지만 BF16은 FP32와 같은 지수(8비트)를 가져 범위가 넓고, FP16은 가수가 많아 촘촘하지만 최댓값이 65,504라 큰 값에서 넘칩니다. 대부분의 최신 모델이 BF16으로 학습·배포되는 이유입니다.</li>
+      <li><b>FP8 두 종류</b>: E4M3(최대 448)은 정밀도를, E5M2(최대 57,344)는 범위를 택했습니다. 추론의 가중치·활성값에는 보통 E4M3를 씁니다.</li>
+      <li><b>FP4 (E2M1)</b>: 표현 가능한 양수가 0, 0.5, 1, 1.5, 2, 3, 4, 6 여덟 개뿐입니다. 그래서 스케일을 아주 잘게 공유해야 쓸 만해집니다.</li>
+      <li><b>INT8·INT4</b>: 지수가 없는 균등 간격 정수. 스케일(과 필요하면 영점)을 곱해 원래 값으로 되돌립니다.</li>
+    </ul>
+
+    <h3>스케일을 몇 개씩 공유하나</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>단위</th><th>스케일 하나가 담당하는 범위</th><th>장점</th><th>단점</th><th>대표 사용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">텐서 단위</td><td>행렬 전체</td><td>부가 데이터 최소, 커널 단순</td><td>이상치 하나가 전체 정밀도를 망침</td><td>FP8 per-tensor</td></tr>
+      <tr><td class="k">채널 단위</td><td>출력 채널(행) 하나</td><td>채널 간 크기 차이를 흡수</td><td>채널 안의 이상치에는 약함</td><td>FP8·INT8 per-channel</td></tr>
+      <tr><td class="k">그룹 단위</td><td>연속된 값 g개(보통 32~128)</td><td>4비트에서 품질을 크게 살림</td><td>스케일 저장량 증가, 커널 복잡</td><td>W4A16 (AWQ·GPTQ group 128)</td></tr>
+      <tr><td class="k">블록 단위</td><td>2차원 블록(예: 128×128)</td><td>행렬 곱 타일과 맞아 효율적</td><td>블록 안 이상치에 영향</td><td>FP8 block (DeepSeek 계열에서 대중화)</td></tr>
+      <tr><td class="k">마이크로스케일</td><td>값 16개(NVFP4) 또는 32개(MXFP4·MXFP8)</td><td>4비트 부동소수점을 실용적으로 만듦. 하드웨어가 스케일 처리를 직접 지원</td><td>지원 GPU 필요(Blackwell 등)</td><td>NVFP4: 16개마다 FP8 스케일 + 텐서 단위 FP32 스케일, MXFP4: 32개마다 지수형(E8M0) 스케일</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="tool wide" id="qzTool">
+    <h4>양자화 실험실: 이상치와 스케일 단위의 영향</h4>
+    <div class="desc">가중치처럼 생긴 값 1,024개(대부분 작은 값 + 드문 이상치)를 여러 방식으로 양자화했다가 되돌려, 원래 값과의 오차를 잽니다. 실제 커널 구현이 아니라 숫자 표현의 원리를 보여 주는 계산입니다. 실제 LLM에서 큰 이상치는 가중치보다 <b>활성값</b>에서 더 두드러지므로(5장 SmoothQuant), 이 실험의 오차 크기를 실제 모델 품질 손실로 그대로 읽지 마세요.</div>
+    <div class="form">
+      <label>방식
+        <select id="qzMode">
+          <option value="int8t">INT8 · 텐서 단위</option>
+          <option value="fp8t">FP8 E4M3 · 텐서 단위</option>
+          <option value="int4t">INT4 · 텐서 단위</option>
+          <option value="int4g" selected>INT4 · 그룹 128 (W4A16 방식)</option>
+          <option value="int4g32">INT4 · 그룹 32</option>
+          <option value="nvfp4">NVFP4 · 16개 블록 + FP8 스케일</option>
+          <option value="mxfp4">MXFP4 · 32개 블록 + 2의 거듭제곱 스케일</option>
+        </select>
+      </label>
+      <label>이상치 비율 <span id="qzOV">0.2%</span><input type="range" id="qzO" min="0" max="30" step="1" value="2"></label>
+      <label>이상치 크기 (표준편차 대비) <span id="qzMV">12배</span><input type="range" id="qzM" min="2" max="60" step="1" value="12"></label>
+    </div>
+    <div class="result">
+      <div class="r"><span>값당 비트 (스케일 포함)</span><b id="qzBits">—</b></div>
+      <div class="r"><span>상대 오차 (RMS)</span><b id="qzErr">—</b></div>
+      <div class="r"><span>0으로 뭉개진 작은 값</span><b id="qzZero">—</b></div>
+      <div class="r"><span>이상치 최대 오차</span><b id="qzOut">—</b></div>
+    </div>
+    <div class="qhist" id="qzHist" aria-label="복원 오차 분포"></div>
+    <div style="font-size:.76rem;color:var(--faint);margin-top:4px">막대: 값별 복원 오차의 분포 (왼쪽이 작은 오차)</div>
+    <div class="verdict" id="qzNote"></div>
+  </div>
+</section>
+
+<!-- ================= S5 ================= -->
+<section id="s5">
+  <h2><span class="sec-num">05</span>양자화 방식 지도</h2>
+  <p class="lede">“무엇을”(가중치·활성값·KV), “어떻게”(알고리즘), “언제”(미리·로딩 시) 줄이느냐의 세 축으로 정리합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>표기</th><th>무엇을 줄이나</th><th>대표 방법</th><th>보정 데이터</th><th>주된 이득</th><th>품질 위험</th></tr></thead>
+    <tbody>
+      <tr><td class="k">W8A16</td><td>가중치만 8비트(FP8·INT8)</td><td>RTN</td><td>불필요</td><td>메모리 절반, 작은 배치 Decode</td><td>매우 낮음</td></tr>
+      <tr><td class="k">W4A16</td><td>가중치만 4비트 정수</td><td>GPTQ, AWQ, AutoRound</td><td>필요(수백 샘플)</td><td>메모리 1/4, 작은 배치 Decode</td><td>낮음~중간. 작은 모델·수학·코드에서 민감</td></tr>
+      <tr><td class="k">W8A8-FP8</td><td>가중치+활성값 FP8</td><td>동적(요청마다 활성 스케일 계산) 또는 정적</td><td>동적은 불필요</td><td>메모리 절반 + FP8 연산(Prefill·큰 배치)</td><td>매우 낮음. 많은 모델의 새 기본값</td></tr>
+      <tr><td class="k">W8A8-INT8</td><td>가중치+활성값 INT8</td><td>SmoothQuant + GPTQ</td><td>필요</td><td>FP8 없는 GPU(A100 등)에서 연산 가속</td><td>낮음~중간</td></tr>
+      <tr><td class="k">W4A8 / W4AFP8</td><td>가중치 4비트 + 활성값 8비트</td><td>혼합</td><td>필요</td><td>메모리와 연산 둘 다</td><td>중간</td></tr>
+      <tr><td class="k">NVFP4 (W4A4)</td><td>가중치+활성값 FP4 마이크로스케일</td><td>RTN·GPTQ·AWQ 계열 + 보정</td><td>필요(활성 스케일)</td><td>메모리 1/4 + FP4 연산(Blackwell)</td><td>중간. 정수 4비트보다 나은 경우가 많지만 평가 필수</td></tr>
+      <tr><td class="k">NVFP4A16·MXFP4A16</td><td>가중치만 FP4</td><td>RTN·GPTQ</td><td>선택</td><td>메모리 1/4</td><td>중간</td></tr>
+      <tr><td class="k">KV FP8 (·FP4)</td><td>KV 캐시</td><td>스케일 보정 또는 동적</td><td>선택</td><td>KV 공간 2배 → 동시성(2·3편)</td><td>대체로 낮음. 긴 컨텍스트·추론에서 확인</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>알고리즘 네 가지를 한 문장씩</h3>
+    <ul>
+      <li><b>RTN (Round-To-Nearest)</b>: 그냥 가장 가까운 값으로 반올림. 보정 데이터가 필요 없고 빠릅니다. 8비트에서는 대부분 충분합니다.</li>
+      <li><b>GPTQ</b>: 층 하나씩, 보정 데이터로 측정한 입력 통계를 이용해 한 가중치를 반올림하며 생긴 오차를 아직 반올림하지 않은 가중치들이 메워 주도록 조정합니다. 4비트 품질을 크게 끌어올린 대표 방법입니다.</li>
+      <li><b>AWQ (Activation-aware Weight Quantization)</b>: 활성값이 큰 소수의 “중요한 채널”이 결과를 좌우한다는 관찰에서 출발해, 그 채널의 가중치가 덜 깎이도록 스케일을 조정한 뒤 양자화합니다.</li>
+      <li><b>SmoothQuant</b>: 활성값에 몰린 이상치를 수학적으로 등가인 변환으로 가중치 쪽에 옮겨, 활성값까지 8비트로 줄일 수 있게 만듭니다.</li>
+    </ul>
+    <p>최근에는 회전(Hadamard) 변환으로 이상치를 고르게 퍼뜨린 뒤 양자화하는 방법들(QuIP·SpinQuant 계열)과 AutoRound 같은 최적화 기반 방법도 도구에 통합되어 있습니다. vLLM 생태계의 표준 도구인 <b>LLM Compressor</b>는 AWQ·GPTQ·AutoRound·RTN과 이런 변환들, FP8·INT8·INT4·NVFP4·MXFP4·혼합 정밀도, KV 캐시·어텐션 양자화까지 지원하고 결과를 vLLM이 바로 읽는 compressed-tensors로 저장합니다. NVIDIA 쪽에서는 <b>ModelOpt</b>가 같은 역할을 합니다.</p>
+
+    <h3>보정 데이터는 “우리 데이터”여야 한다</h3>
+    <div class="callout msp">
+      <span class="ttl">한국어 서비스라면 한국어로 보정한다</span>
+      <p>GPTQ·AWQ·정적 활성 스케일은 보정 데이터에서 본 분포에 맞춰 “어디를 덜 깎을지”를 정합니다. 공개 양자화 모델은 대개 영어 위주 데이터로 보정되어 있어, 한국어·사내 용어·코드 비중이 높은 서비스에서는 품질 손실이 예상보다 클 수 있습니다. 4비트가 필요하다면 <b>실제 서비스 프롬프트를 닮은 수백 개 샘플(개인정보 제거)</b>로 직접 보정하고, 같은 데이터로 원본과 비교 평가하세요(실습 6-4).</p>
+    </div>
+
+    <h3>미리 양자화 vs 로딩 시 양자화</h3>
+    <p>vLLM은 BF16 체크포인트를 읽으면서 FP8로 바꾸는 <b>온라인 양자화</b>를 지원합니다(v0.31.0에서는 <code>fp8_per_tensor</code> 같은 단축 표기로 정리됨). 보정 없이 바로 쓸 수 있어 편하지만, 로딩 때마다 변환 비용이 들고 정적 스케일·4비트처럼 보정이 필요한 방식에는 쓸 수 없습니다. 운영에서는 <b>미리 양자화해 레지스트리에 올린 체크포인트</b>를 쓰는 것이 재현성·기동 시간 면에서 낫습니다.</p>
+  </div>
+</section>
+
+<!-- ================= S6 ================= -->
+<section id="s6">
+  <h2><span class="sec-num">06</span>품질·속도·메모리 맞교환</h2>
+  <p class="lede">메모리는 확실히 줄고, 속도는 상황에 따라 다르고, 품질은 반드시 재야 합니다.</p>
+  <div class="prose">
+    <h3>속도가 “상황에 따라” 다른 이유</h3>
+    <ul>
+      <li><b>Decode, 작은 배치</b>: 메모리 대역폭 병목(2편)이라 읽을 바이트가 줄면 그대로 빨라집니다. 가중치 전용 4비트(W4A16)가 가장 크게 이득을 봅니다.</li>
+      <li><b>Decode, 큰 배치·Prefill</b>: 연산 병목으로 넘어갑니다. W4A16은 매번 4비트를 16비트로 풀어 BF16 연산을 하므로 연산 이득이 없고, 오히려 풀어내는 비용 때문에 FP8(W8A8)보다 느려질 수 있습니다. 여기서는 <b>활성값까지 저정밀로 계산하는 방식(FP8·NVFP4)</b>이 이깁니다.</li>
+      <li><b>KV 공간</b>: 가중치가 줄면 같은 GPU에 KV 공간이 늘어 동시성이 늘어납니다(2편 11장). 많은 경우 이것이 속도보다 큰 이득입니다.</li>
+    </ul>
+  </div>
+  <div class="tool wide" id="toTool">
+    <h4>맞교환 탐색기</h4>
+    <div class="desc">모델·GPU·배치를 고르면 방식별로 메모리, Decode 스텝 시간, Prefill 연산 경로, 품질 위험 경향을 보여 줍니다. 2편의 단순 모델을 쓴 교육용 추정입니다.</div>
+    <div class="form">
+      <label>모델 크기 <select id="toP"><option value="8.2">8B급</option><option value="32.8" selected>32B급</option><option value="70.6">70B급</option></select></label>
+      <label>GPU <select id="toG"><option value="a100">A100 80GB</option><option value="h100" selected>H100 80GB</option><option value="b200">B200 180GB</option><option value="gb10">GB10 128GB</option><option value="l4">L4 24GB</option></select></label>
+      <label>동시 Decode 배치 <span id="toBV">8</span><input type="range" id="toB" min="0" max="8" step="1" value="3"></label>
+    </div>
+    <div class="table-scroll" style="margin-top:12px"><table id="toTable" style="min-width:720px"></table></div>
+    <div class="verdict" id="toNote"></div>
+  </div>
+  <div class="prose">
+    <h3>품질은 어떻게 무너지나</h3>
+    <p>양자화 손실은 평균 점수에서는 잘 안 보이다가 특정 영역에서 먼저 드러나는 경향이 있습니다. 평가 세트를 만들 때 아래 영역을 꼭 포함하세요(22편에서 체계화).</p>
+    <ul>
+      <li><b>정확한 계산·코드</b>: 숫자 하나, 괄호 하나가 틀리면 전체가 틀립니다.</li>
+      <li><b>긴 추론·긴 컨텍스트</b>: 작은 오차가 수천 토큰에 걸쳐 누적됩니다.</li>
+      <li><b>형식 준수</b>: JSON·툴 호출 형식이 미묘하게 깨지는 경우.</li>
+      <li><b>비영어·전문 용어</b>: 보정 데이터에 적게 나온 분포.</li>
+      <li><b>작은 모델</b>: 같은 비트 수에서 큰 모델보다 손실이 큽니다. 8B 모델의 4비트와 70B 모델의 4비트는 같은 이야기가 아닙니다.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================= S7 ================= -->
+<section id="s7">
+  <h2><span class="sec-num">07</span>GPU 세대별 차이</h2>
+  <p class="lede">“이 GPU가 FP8을 지원하나”는 사실 두 질문입니다: 하드웨어가 그 연산을 하는가, 그리고 엔진에 그 GPU용 커널이 있는가.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>세대 (아키텍처 번호)</th><th>대표 GPU</th><th>하드웨어 저정밀 연산</th><th>W4A16·W8A16 (가중치 전용)</th><th>FP8 (W8A8)</th><th>FP4 (NVFP4·MXFP4)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">Ampere (SM80·86)</td><td>A100, A10</td><td>BF16·FP16·INT8</td><td class="hwcell ok">가속 (Marlin 등 혼합 정밀도 커널)</td><td class="hwcell mid">가중치만 FP8로 저장, 연산은 BF16</td><td class="hwcell no">하드웨어 미지원</td></tr>
+      <tr><td class="k">Ada (SM89)</td><td>L4, L40S</td><td>+ FP8</td><td class="hwcell ok">가속</td><td class="hwcell ok">하드웨어 FP8</td><td class="hwcell no">하드웨어 미지원</td></tr>
+      <tr><td class="k">Hopper (SM90)</td><td>H100, H200</td><td>+ FP8 (Transformer Engine)</td><td class="hwcell ok">가속 (Hopper 전용 혼합 커널)</td><td class="hwcell ok">하드웨어 FP8, 성숙한 커널</td><td class="hwcell mid">가중치만 저장·변환 경로(지원 여부는 엔진 확인)</td></tr>
+      <tr><td class="k">Blackwell 데이터센터 (SM100·103)</td><td>B200, B300, GB200·GB300</td><td>+ FP4·FP6, 마이크로스케일 지원</td><td class="hwcell ok">가속</td><td class="hwcell ok">하드웨어 FP8</td><td class="hwcell ok">하드웨어 FP4, 가장 깊게 최적화</td></tr>
+      <tr><td class="k">Blackwell 클라이언트·GB10 (SM120·121)</td><td>RTX PRO 6000, GB10(DGX Spark·PGX)</td><td>+ FP4</td><td class="hwcell ok">가속</td><td class="hwcell ok">하드웨어 FP8</td><td class="hwcell mid">하드웨어 FP4. 단, 데이터센터 Blackwell과 커널 경로가 달라 엔진·모델별 지원이 다를 수 있음</td></tr>
+      <tr><td class="k">AMD CDNA3·4</td><td>MI300X, MI355X</td><td>FP8 (CDNA3는 변형 FP8), CDNA4는 MXFP4·MXFP6</td><td class="hwcell ok">가속 (ROCm 커널)</td><td class="hwcell ok">지원 (형식 변형 주의)</td><td class="hwcell mid">MI355X 계열 MXFP4. NVFP4 체크포인트는 변환 경로 필요</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>왜 같은 체크포인트가 GPU마다 다르게 도나</h3>
+    <ol>
+      <li><b>하드웨어 연산 유무</b>: FP8 텐서 코어가 없는 A100에서 FP8 체크포인트는 “메모리에는 8비트로, 계산은 16비트로” 돌아갑니다. 메모리 이득은 같고 연산 이득은 없습니다.</li>
+      <li><b>엔진이 고르는 커널</b>: 같은 W4A16이라도 Ampere에서는 Marlin 계열, Hopper에서는 Hopper 전용 혼합 정밀도 커널, Blackwell에서는 또 다른 커널이 선택됩니다. 커널마다 배치 크기별 효율이 달라 “작은 배치에서는 A가, 큰 배치에서는 B가 빠른” 현상이 생깁니다.</li>
+      <li><b>세대 안에서도 다르다</b>: Blackwell이라도 데이터센터용(SM100)과 GB10·RTX 계열(SM12x)은 커널이 별도로 만들어집니다. 새 장비에서 특정 양자화 모델이 안 뜨거나 느리다면 엔진 릴리스 노트에서 해당 SM 지원을 먼저 확인하세요.</li>
+      <li><b>형식 변형</b>: AMD MI300 계열의 FP8은 NVIDIA의 E4M3와 미세하게 다른 변형을 쓰고, NVFP4와 MXFP4는 스케일 구조가 다릅니다. 체크포인트를 그대로 옮기면 엔진이 변환하거나 거부합니다.</li>
+    </ol>
+    <div class="callout tip">
+      <span class="ttl">확인하는 방법</span>
+      <p>엔진 기동 로그에는 “어떤 양자화 방식을, 어떤 커널로” 처리하는지가 찍힙니다(4편 실습에서 본 로그). 같은 체크포인트를 다른 GPU에 옮길 때는 이 줄을 비교하는 것이 첫 번째 점검입니다. 실습 6-2에서 GB10의 로그로 확인합니다.</p>
+    </div>
+  </div>
+</section>
+<!-- ================= S8 ================= -->
+<section id="s8">
+  <h2><span class="sec-num">08</span>모델 레지스트리와 배포 경로</h2>
+  <p class="lede">컨테이너 이미지를 아무 데서나 받아 쓰지 않듯, 모델 가중치도 검증된 경로로만 들어와야 합니다.</p>
+  <div class="flowline wide">
+    <div class="st" style="--c:var(--l7)"><b>① 외부 출처</b>Hugging Face Hub, 모델 제작사, NGC 등</div><span class="ar">›</span>
+    <div class="st" style="--c:var(--l5)"><b>② 반입 심사</b>라이선스·출처 확인, 포맷 검사(pickle 금지), 해시 기록, 평가 통과</div><span class="ar">›</span>
+    <div class="st" style="--c:var(--l4)"><b>③ 사내 레지스트리</b>불변 버전, 메타데이터, 접근 통제</div><span class="ar">›</span>
+    <div class="st" style="--c:var(--l2)"><b>④ 클러스터 캐시</b>노드 로컬·PVC·이미지 볼륨</div><span class="ar">›</span>
+    <div class="st" style="--c:var(--l3)"><b>⑤ 엔진</b>고정된 리비전으로 로딩</div>
+  </div>
+  <div class="prose">
+    <h3>저장 방식 선택지</h3>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>방식</th><th>구성</th><th>장점</th><th>약점</th><th>맞는 곳</th></tr></thead>
+    <tbody>
+      <tr><td class="k">허브 직접 사용</td><td>각 Pod가 Hugging Face Hub에서 내려받음</td><td>가장 간단</td><td>외부 의존, 속도 제한, 재현성 낮음, 토큰 관리</td><td>개발·실습</td></tr>
+      <tr><td class="k">허브 조직·엔터프라이즈 기능</td><td>비공개 저장소, 조직 단위 권한, SSO·감사 로그 등 유료 기능</td><td>허브 생태계 그대로, 협업 편리</td><td>외부 SaaS에 가중치 보관</td><td>클라우드 친화 조직</td></tr>
+      <tr><td class="k">허브 프록시·미러</td><td>사내 아티팩트 저장소가 허브를 프록시·캐시 (<code>HF_ENDPOINT</code>로 경로 전환)</td><td>앱·엔진 코드 변경 최소, 캐시 효과</td><td>제품 지원 여부 확인 필요, 첫 다운로드는 외부</td><td>인터넷 일부 허용 환경</td></tr>
+      <tr><td class="k">오브젝트 스토리지</td><td>S3·MinIO에 저장소 구조 그대로 업로드, 엔진은 버킷에서 스트리밍 로딩</td><td>대용량에 강함, 비용 낮음, 스트리밍 로더로 빠른 기동(13편)</td><td>버전·메타데이터 관리는 별도 카탈로그 필요</td><td>대규모·멀티클러스터</td></tr>
+      <tr><td class="k">OCI 레지스트리</td><td>Harbor 등에 ORAS·ModelPack 규격으로 저장. KServe Modelcar, Kubernetes 이미지 볼륨으로 마운트</td><td>이미지와 같은 도구·권한·서명·복제·P2P 배포(Dragonfly)</td><td>초대형 파일 처리 성능 확인, 클러스터·런타임 버전 요건</td><td>컨테이너 운영 체계가 성숙한 조직, 망분리</td></tr>
+      <tr><td class="k">MLOps 레지스트리</td><td>MLflow·Kubeflow Model Registry가 메타데이터와 위치(스토리지 URI)를 관리</td><td>학습·평가 이력과 연결</td><td>가중치 자체는 다른 저장소에</td><td>자체 파인튜닝을 하는 조직</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <p>CNCF 생태계에서는 모델 가중치를 컨테이너 이미지처럼 OCI 아티팩트로 다루는 흐름이 커지고 있습니다. ModelPack 규격은 모델 전용 아티팩트 유형과 가중치·설정·코드·문서 계층 유형을 정의하고, Harbor·ORAS·Dragonfly 같은 프로젝트가 저장·전송·P2P 배포를 맡습니다. Kubernetes 쪽에서는 OCI 이미지를 볼륨으로 바로 마운트하는 기능(KEP-4639)이 이 흐름을 받쳐 줍니다. 클러스터 버전·기능 게이트·컨테이너 런타임 지원 여부를 확인한 뒤 도입하세요. 로딩 성능 비교는 13편에서 합니다.</p>
+
+    <h3>카탈로그 항목에 반드시 남길 것</h3>
+    <div class="codeblock"><div class="cap"><span>yaml · 사내 모델 카탈로그 항목 예시</span><button class="copy">복사</button></div><pre><code>id: qwen3-8b-fp8@2026-10
+source:
+  hub_repo: Qwen/Qwen3-8B-FP8
+  revision: &lt;커밋 해시 40자리&gt;        <span class="c-cm"># 브랜치 이름 금지</span>
+  retrieved_at: 2026-10-17
+license:
+  name: apache-2.0
+  gated: false
+  acceptance_record: null              <span class="c-cm"># 게이트 모델이면 누가·언제·어떤 계정으로 동의했는지</span>
+  notes: "파생 모델(양자화) 배포 시 원 라이선스 고지 유지"
+artifact:
+  format: safetensors
+  precision: { weights: fp8-e4m3, activations: fp8-dynamic, kv: bf16 }
+  total_bytes: 9123456789
+  sha256: { "model-00001-of-00002.safetensors": "...", "model-00002-of-00002.safetensors": "..." }
+  location: s3://models/qwen3-8b-fp8/&lt;해시&gt;/   <span class="c-cm"># 또는 oci://harbor.example/models/qwen3-8b-fp8:&lt;태그&gt;</span>
+quantization:
+  tool: upstream                        <span class="c-cm"># 직접 했다면 llm-compressor 버전·레시피·보정 데이터셋</span>
+evaluation:
+  baseline: qwen3-8b-bf16@2026-10
+  suite: internal-ko-v3
+  results: { exact_match: 0.0, json_valid: 0.0, delta_vs_baseline: 0.0 }   <span class="c-cm"># 실습 6-3 결과로 채움</span>
+serving:
+  engines_validated: [ "vllm v0.31.0 on GB10", "vllm v0.31.0 on H100" ]
+  recommended_args: [ "--max-model-len=16384" ]
+approval:
+  approved_uses: [ "사내 업무 챗봇" ]
+  owner: platform-team
+  approved_at: 2026-10-20</code></pre></div>
+    <div class="callout warnbox">
+      <span class="ttl">망분리 환경의 다운로드 습관</span>
+      <ul>
+        <li>엔진이 기동하면서 허브에 접속하지 않도록 오프라인 모드(<code>HF_HUB_OFFLINE=1</code>)를 켜고, 로컬 경로를 모델 인자로 넘깁니다.</li>
+        <li>반입용 다운로드는 Hugging Face CLI(최근 명령 이름은 <code>hf</code>, 예전 이름은 <code>huggingface-cli</code>)로 <b>리비전을 지정해</b> 받고, 받은 즉시 해시를 기록합니다.</li>
+        <li>pickle(.bin) 파일, 사용자 정의 코드(*.py), 실행 파일이 섞여 있는지 확인합니다. 필요한 파일만 허용 목록으로 받는 것이 안전합니다.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S9 ================= -->
+<section id="s9">
+  <h2><span class="sec-num">09</span>라이선스·게이트 모델 관리</h2>
+  <p class="lede">“오픈 모델”이 “아무렇게나 써도 되는 모델”은 아닙니다. 아래는 운영 관점의 정리이며, 실제 계약·배포 판단은 법무 검토를 거쳐야 합니다.</p>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>유형</th><th>예시</th><th>운영에서 확인할 것</th></tr></thead>
+    <tbody>
+      <tr><td class="k">허용형 오픈소스 라이선스</td><td>Apache 2.0(Qwen3 계열, gpt-oss 등), MIT(DeepSeek 계열 등)</td><td>라이선스·고지문 보존. 모델에 별도 사용 정책이 붙어 있는지 확인</td></tr>
+      <tr><td class="k">조건부 커뮤니티 라이선스</td><td>Llama 계열 커뮤니티 라이선스, Gemma 이용 약관 등</td><td>허용 사용 정책(금지 용도), 대규모 사용자 기준 같은 상업 조건, 표기 의무, 파생 모델에 조건이 따라가는지</td></tr>
+      <tr><td class="k">비상업·연구용</td><td>CC BY-NC 계열, 연구 전용 라이선스</td><td>업무·상용 서비스 사용 불가. 사내 PoC라도 범위 확인</td></tr>
+      <tr><td class="k">게이트 모델</td><td>허브에서 약관 동의·승인 후 내려받는 모델</td><td>누가 어떤 계정으로 동의했는지 기록. 개인 토큰을 공용 서버에 두지 않기. 조직 서비스 계정 사용</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>운영 규칙 다섯 가지</h3>
+    <ol>
+      <li><b>양자화·파인튜닝 모델도 파생물</b>입니다. 원 모델의 라이선스 의무가 그대로 따라오므로 레지스트리에 원본 라이선스와 고지문을 함께 보관합니다.</li>
+      <li><b>모델 카드의 라이선스 항목만 믿지 말고 원문을 저장</b>합니다. 약관이 버전마다 바뀌는 경우가 있어, 반입 시점의 원문을 남겨야 나중에 근거가 됩니다.</li>
+      <li><b>게이트 모델 토큰은 Secret으로, 읽기 전용·최소 권한</b>으로 발급합니다. 사람 계정의 토큰을 클러스터에 두지 않습니다.</li>
+      <li><b>사용 용도 승인</b>을 카탈로그에 기록합니다(8장 approved_uses). 허용 사용 정책이 있는 모델은 용도가 바뀔 때 다시 검토합니다.</li>
+      <li><b>배포 범위</b>: 모델을 고객에게 넘기거나 외부에 서빙하는 것이 라이선스상 “재배포”에 해당하는지 확인합니다.</li>
+    </ol>
+    <div class="callout msp">
+      <span class="ttl">MSP 관점: 라이선스 당사자는 누구인가</span>
+      <p>MSP가 고객 환경에 모델을 대신 내려받아 운영할 때, 약관에 동의하는 주체가 MSP인지 고객인지가 모호해지기 쉽습니다. 원칙적으로 <b>모델을 사용하는 고객이 라이선스 당사자</b>가 되도록 하고, MSP는 고객이 승인한 모델 목록과 동의 기록을 근거로 운영한다는 점을 계약서·작업 지시서에 명시하세요. 공용 MSP 서비스(여러 고객이 같은 모델을 쓰는 경우)는 MSP가 당사자가 되므로 서비스 약관과 모델 라이선스가 충돌하지 않는지 사전에 검토합니다.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= S10 ================= -->
+<section id="s10">
+  <h2><span class="sec-num">10</span>시나리오별 선택</h2>
+  <p class="lede">지금까지의 내용을 현장 질문에 적용해 봅니다.</p>
+  <div class="uc wide">
+    <article style="--c:var(--l1)"><h4>A100 80GB에 70B 모델을 올려 달라</h4><p style="font-size:.92rem;color:var(--muted)">BF16은 141GB라 한 장에 안 들어갑니다. FP8 체크포인트는 메모리상 들어가지만 KV 공간이 빠듯하고 A100엔 FP8 연산이 없습니다.</p><dl><dt>후보</dt><dd>W4A16(AWQ·GPTQ) 한 장 또는 BF16·FP8 두 장(TP2)</dd><dt>판단</dt><dd>한국어 평가 세트로 W4A16 품질을 확인. 손실이 크면 두 장 구성</dd></dl></article>
+    <article style="--c:var(--l4)"><h4>H100에서 32B 사내 챗봇</h4><p style="font-size:.92rem;color:var(--muted)">BF16은 KV 공간이 거의 없습니다(2편).</p><dl><dt>후보</dt><dd>W8A8-FP8 + 필요 시 KV FP8</dd><dt>판단</dt><dd>FP8은 대개 손실이 거의 없어 기본값으로 삼고 회귀 테스트만</dd></dl></article>
+    <article style="--c:var(--l6)"><h4>B200에서 대형 MoE 비용 절감</h4><p style="font-size:.92rem;color:var(--muted)">메모리·연산 모두 4비트 부동소수점 이득을 볼 수 있는 세대입니다.</p><dl><dt>후보</dt><dd>NVFP4(공식·검증 체크포인트 우선) + FP8 KV</dd><dt>판단</dt><dd>FP8 버전과 나란히 평가해 품질 차이와 토큰당 비용 차이를 함께 보고 결정</dd></dl></article>
+    <article style="--c:var(--l7)"><h4>공장 엣지 서버 (GPU 없음)</h4><p style="font-size:.92rem;color:var(--muted)">CPU 서버에서 소형 모델로 매뉴얼 질의응답.</p><dl><dt>후보</dt><dd>GGUF Q4_K_M~Q8_0 + llama.cpp (5편)</dd><dt>판단</dt><dd>Q8_0부터 시작해 속도가 부족할 때만 비트를 낮춤</dd></dl></article>
+    <article style="--c:var(--l2)"><h4>망분리 금융 고객</h4><p style="font-size:.92rem;color:var(--muted)">외부 다운로드 불가, 반입 심사 필수.</p><dl><dt>후보</dt><dd>반입 서버에서 리비전 고정 다운로드 → 해시·라이선스 기록 → OCI·오브젝트 스토리지 등록</dd><dt>판단</dt><dd>safetensors만 허용, pickle·사용자 코드 차단, 평가 결과 첨부 후 승인</dd></dl></article>
+    <article style="--c:var(--l5)"><h4>한국어 품질이 중요한 4비트 배포</h4><p style="font-size:.92rem;color:var(--muted)">공개 AWQ 버전이 영어 위주 보정이라 걱정됩니다.</p><dl><dt>후보</dt><dd>한국어 서비스 샘플로 직접 보정한 W4A16 또는 NVFP4</dd><dt>판단</dt><dd>공개 버전·자체 보정 버전·FP8을 같은 평가 세트로 비교(실습 6-4)</dd></dl></article>
+  </div>
+</section>
+
+<!-- ================= S11 ================= -->
+<section id="s11">
+  <h2><span class="sec-num">11</span>흔한 오해</h2>
+  <p class="lede">양자화와 모델 관리에서 자주 듣는 말들.</p>
+  <div class="myths wide" id="myths"></div>
+</section>
+<!-- ================= S12 ================= -->
+<section id="s12">
+  <h2><span class="sec-num">12</span>실습</h2>
+  <p class="lede">같은 Qwen3-8B의 BF16·FP8·AWQ(4비트) 버전과 온라인 FP8을 GB10에서 차례로 띄워 메모리·속도·품질을 비교하고, 직접 한국어 보정 4비트 모델을 만들어 레지스트리 항목까지 작성합니다.</p>
+  <div class="prose">
+    <div class="callout warnbox">
+      <span class="ttl">실습 환경 전제</span>
+      <ul>
+        <li>GB10 GPU 노드, 네임스페이스 <code>llmsvc-lab</code>, 인터넷 접근 가능. 5편의 측정 Pod(<code>bench</code>)와 <code>engine_bench.py</code>를 재사용합니다(지웠다면 5편 실습 5-2로 다시 준비).</li>
+        <li>엔진은 vLLM v0.31.0 하나로 고정하고 <b>모델 정밀도만</b> 바꿉니다. 5편의 공정성 체크리스트에서 “엔진”과 “정밀도” 변수를 분리하는 것입니다.</li>
+        <li>사용하는 공식 저장소: <code>Qwen/Qwen3-8B</code>(BF16), <code>Qwen/Qwen3-8B-FP8</code>, <code>Qwen/Qwen3-8B-AWQ</code>. 실습 전에 허브에서 존재와 라이선스를 확인하세요.</li>
+      </ul>
+    </div>
+
+    <h3>실습 6-1 · 저장소 해부: 정밀도·크기·해시·라이선스 확인</h3>
+    <div class="codeblock"><div class="cap"><span>python · inspect_repo.py (GPU 불필요, pip install huggingface_hub)</span><button class="copy">복사</button></div><pre><code>"""허브 저장소의 파일 구성, 총 크기, 정밀도·양자화 설정, 라이선스, 게이트 여부, 파일 해시를 출력한다."""
+import json, sys
+from huggingface_hub import HfApi, hf_hub_download
+
+REPOS = sys.argv[1:] or ["Qwen/Qwen3-8B", "Qwen/Qwen3-8B-FP8", "Qwen/Qwen3-8B-AWQ", "Qwen/Qwen3-8B-GGUF"]
+api = HfApi()
+
+for repo in REPOS:
+    info = api.model_info(repo, files_metadata=True)
+    files = info.siblings or []
+    total = sum((f.size or 0) for f in files)
+    kinds = {}
+    for f in files:
+        ext = f.rfilename.rsplit(".", 1)[-1] if "." in f.rfilename else "(없음)"
+        kinds[ext] = kinds.get(ext, 0) + 1
+    card = info.card_data.to_dict() if info.card_data else {}
+    print(f"\n=== {repo} ===")
+    print(f"  리비전(커밋): {info.sha}")
+    print(f"  라이선스: {card.get('license')}   게이트: {info.gated}")
+    print(f"  파일 수: {len(files)}  총 크기: {total/1e9:.2f} GB  확장자: {kinds}")
+    risky = [f.rfilename for f in files if f.rfilename.endswith((".bin", ".pt", ".pkl", ".py"))]
+    if risky: print("  주의 파일(pickle·코드):", risky)
+    try:
+        cfg = json.load(open(hf_hub_download(repo, "config.json", revision=info.sha)))
+        print("  torch_dtype:", cfg.get("torch_dtype") or cfg.get("dtype"))
+        qc = cfg.get("quantization_config")
+        print("  quantization_config:", json.dumps(qc, ensure_ascii=False)[:300] if qc else "없음 (원본 정밀도)")
+    except Exception as e:
+        print("  config.json 없음 (GGUF 저장소 등):", type(e).__name__)
+    for f in [f for f in files if f.rfilename.endswith((".safetensors", ".gguf"))][:3]:
+        sha = f.lfs.sha256 if f.lfs else None
+        print(f"  {f.rfilename}: {f.size/1e9:.2f} GB  sha256={str(sha)[:16]}…")</code></pre></div>
+    <p><b>확인할 것</b>: 세 버전의 총 크기 비율이 4장의 비트 수 비율(16 : 8 : 4+α)과 맞는가. FP8·AWQ 저장소의 <code>quantization_config</code>에서 방식·그룹 크기·제외된 층(보통 출력층)을 찾을 수 있는가. GGUF 저장소에는 왜 config.json이 없어도 되는가.</p>
+
+    <h3>실습 6-2 · 정밀도별로 띄우고 로그 비교</h3>
+    <div class="codeblock"><div class="cap"><span>bash · variant.sh</span><button class="copy">복사</button></div><pre><code>#!/usr/bin/env bash
+# 사용: ./variant.sh bf16|fp8|awq|fp8online|fp8kv
+set -euo pipefail
+V=${1:?bf16|fp8|awq|fp8online|fp8kv}; NS=llmsvc-lab
+IMAGE=vllm/vllm-openai:v0.31.0     <span class="c-cm"># arm64 지원 태그 확인, 또는 NGC vLLM 이미지</span>
+case $V in
+  bf16)      MODEL=Qwen/Qwen3-8B;     EXTRA="" ;;
+  fp8)       MODEL=Qwen/Qwen3-8B-FP8; EXTRA="" ;;
+  awq)       MODEL=Qwen/Qwen3-8B-AWQ; EXTRA="" ;;
+  fp8online) MODEL=Qwen/Qwen3-8B;     EXTRA="--quantization fp8" ;;      <span class="c-cm"># 로딩 시 FP8 변환</span>
+  fp8kv)     MODEL=Qwen/Qwen3-8B-FP8; EXTRA="--kv-cache-dtype fp8" ;;   <span class="c-cm"># 가중치+KV 모두 FP8</span>
+  *) echo unknown; exit 1 ;;
+esac
+CMD="vllm serve $MODEL --served-model-name qwen3-8b --host 0.0.0.0 --port 8000 \
+     --gpu-memory-utilization 0.35 --max-model-len 8192 $EXTRA"
+
+kubectl -n $NS delete deploy,svc llm-engine --ignore-not-found --wait=true
+cat &lt;&lt;YAML | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: llm-engine, namespace: $NS, labels: { app: llm-engine, variant: $V } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: llm-engine } }
+  template:
+    metadata: { labels: { app: llm-engine, variant: $V } }
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector: { kubernetes.io/arch: arm64 }
+      tolerations: [ { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule } ]
+      containers:
+      - name: engine
+        image: $IMAGE
+        command: ["/bin/sh", "-c", "exec $CMD"]
+        env: [ { name: HF_HOME, value: /cache } ]
+        ports: [ { containerPort: 8000, name: http } ]
+        resources: { requests: { cpu: "4", memory: 8Gi }, limits: { nvidia.com/gpu: 1 } }
+        startupProbe:   { httpGet: { path: /health, port: http }, periodSeconds: 10, failureThreshold: 360 }
+        readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 5 }
+        volumeMounts: [ { name: cache, mountPath: /cache }, { name: shm, mountPath: /dev/shm } ]
+      volumes:
+      - { name: cache, emptyDir: {} }
+      - { name: shm, emptyDir: { medium: Memory, sizeLimit: 4Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: llm-engine, namespace: $NS }
+spec:
+  selector: { app: llm-engine }
+  ports: [ { name: http, port: 8000, targetPort: http } ]
+YAML
+time kubectl -n $NS rollout status deploy/llm-engine --timeout=60m
+kubectl -n $NS logs deploy/llm-engine | grep -Ei "quantiz|marlin|fp8|awq|kernel|model loading|kv cache|concurrency" | head -25</code></pre></div>
+    <p>다섯 변형을 하나씩 띄우며 아래 표를 채웁니다(“측정” 열은 실습 6-3에서).</p>
+  </div>
+  <div class="table-scroll wide">
+  <table>
+    <thead><tr><th>변형</th><th>로그: 가중치 메모리</th><th>로그: 선택된 양자화·커널</th><th>로그: KV 토큰 수</th><th>기동 시간</th><th>측정: TPOT (동시 1)</th><th>측정: 처리량 (동시 32)</th><th>측정: 정확도·BF16 일치도</th></tr></thead>
+    <tbody>
+      <tr><td class="k">bf16</td><td></td><td>(없음)</td><td></td><td></td><td></td><td></td><td>기준</td></tr>
+      <tr><td class="k">fp8</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="k">awq</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="k">fp8online</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td class="k">fp8kv</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose">
+    <h3>실습 6-3 · 속도와 품질 측정</h3>
+    <p>속도는 5편의 <code>engine_bench.py</code>를 그대로 씁니다. 품질은 정답이 정해진 계산 문제, JSON 형식 준수, BF16 응답과의 일치도를 보는 간이 평가로 잽니다.</p>
+    <div class="codeblock"><div class="cap"><span>python · quick_eval.py</span><button class="copy">복사</button></div><pre><code>"""간이 품질 평가: (1) 다단계 계산 정확도 (2) JSON 형식 준수 (3) BF16 기준 응답과의 유사도.
+사용: python quick_eval.py --base http://llm-engine:8000/v1 --label fp8 [--ref /tmp/eval_bf16.json]"""
+import argparse, asyncio, difflib, json, random, re
+from openai import AsyncOpenAI
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--base", required=True); ap.add_argument("--label", required=True); ap.add_argument("--ref")
+a = ap.parse_args()
+cli = AsyncOpenAI(base_url=a.base, api_key="EMPTY", timeout=600)
+M = "qwen3-8b"
+SEM = asyncio.Semaphore(8)
+
+def math_items(n=40, seed=11):
+    r = random.Random(seed); items = []
+    for i in range(n):
+        x, y, z, w = r.randint(12, 97), r.randint(3, 19), r.randint(2, 9), r.randint(5, 60)
+        q = (f"서버 랙 하나에 GPU 노드가 {x}대 있고, 노드마다 GPU가 {z}장 있다. "
+             f"랙이 {y}개일 때 전체 GPU 수에서 고장 난 {w}장을 빼면 몇 장인가? 마지막 줄에 숫자만 써라.")
+        items.append((q, x * z * y - w))
+    return items
+
+JSON_ITEMS = [f"다음 경보를 분류해 JSON으로만 답하라. 키는 severity(info|warning|critical), component, action. 경보: {t}"
+              for t in ["GPU 온도 92도 지속", "KV 캐시 사용률 99% 선점 증가", "인증서 만료 30일 전",
+                        "노드 디스크 사용률 71%", "vLLM Pod 재시작 5회", "게이트웨이 5xx 비율 4%",
+                        "모델 다운로드 지연", "DCGM XID 79 발생", "프리픽스 캐시 적중률 하락", "TTFT p95 SLO 위반"]]
+SIM_ITEMS = [f"{t}을(를) 세 문장으로 설명하라." for t in
+             ["KV 캐시", "연속 배칭", "FP8 양자화", "텐서 병렬", "프리픽스 캐시", "선점",
+              "TTFT", "Goodput", "AWQ", "모델 레지스트리"]]
+
+async def ask(prompt, max_tokens=400):
+    async with SEM:
+        r = await cli.chat.completions.create(model=M, temperature=0, max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt + " /no_think"}])
+        return r.choices[0].message.content or ""
+
+def last_int(t):
+    m = re.findall(r"-?\d[\d,]*", t)
+    return int(m[-1].replace(",", "")) if m else None
+
+def json_ok(t):
+    t = t.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        o = json.loads(t)
+        return o.get("severity") in ("info", "warning", "critical") and "component" in o and "action" in o
+    except Exception:
+        return False
+
+async def main():
+    mi = math_items()
+    math_out = await asyncio.gather(*[ask(q) for q, _ in mi])
+    acc = sum(last_int(o) == ans for o, (_, ans) in zip(math_out, mi)) / len(mi)
+    js = await asyncio.gather(*[ask(p, 200) for p in JSON_ITEMS])
+    jok = sum(json_ok(o) for o in js) / len(js)
+    sim = await asyncio.gather(*[ask(p, 300) for p in SIM_ITEMS])
+    res = {"label": a.label, "math_acc": acc, "json_valid": jok, "sim_outputs": sim}
+    if a.ref:
+        ref = json.load(open(a.ref))["sim_outputs"]
+        res["similarity_vs_ref"] = sum(difflib.SequenceMatcher(None, x, y).ratio() for x, y in zip(sim, ref)) / len(ref)
+    print(f"{a.label}: 계산 정확도 {acc:.1%}  JSON 준수 {jok:.0%}" +
+          (f"  기준 대비 유사도 {res['similarity_vs_ref']:.2f}" if a.ref else ""))
+    json.dump(res, open(f"/tmp/eval_{a.label}.json", "w"), ensure_ascii=False, indent=1)
+
+asyncio.run(main())</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash · 변형마다 반복</span><button class="copy">복사</button></div><pre><code>kubectl cp quick_eval.py llmsvc-lab/bench:/tmp/quick_eval.py
+for V in bf16 fp8 awq fp8online fp8kv; do
+  ./variant.sh $V
+  kubectl -n llmsvc-lab exec bench -- python /tmp/engine_bench.py --base http://llm-engine:8000/v1 --label $V
+  REF=""; [ "$V" != "bf16" ] &amp;&amp; REF="--ref /tmp/eval_bf16.json"
+  kubectl -n llmsvc-lab exec bench -- python /tmp/quick_eval.py --base http://llm-engine:8000/v1 --label $V $REF
+done</code></pre></div>
+    <p><b>해석 과제</b>:</p>
+    <ol>
+      <li>FP8과 BF16의 계산 정확도·JSON 준수 차이는 몇 퍼센트포인트인가요? 40문제 기준 한두 문제 차이는 우연 범위일 수 있습니다. 정밀한 판단에는 표본이 더 필요합니다(22편).</li>
+      <li>AWQ는 동시성 1의 TPOT에서 BF16보다 얼마나 빨랐고, 동시성 32의 처리량에서는 FP8과 비교해 어땠나요? 6장의 “작은 배치는 가중치 전용, 큰 배치는 연산 저정밀” 설명과 맞나요?</li>
+      <li>fp8과 fp8online의 결과가 거의 같다면, 운영에서 미리 양자화한 체크포인트를 쓰는 이유는 무엇일까요? 기동 시간·재현성 관점으로 답해 보세요.</li>
+      <li>fp8kv는 KV 토큰 수가 fp8의 약 두 배가 되었나요? 그 대가로 품질 지표가 변했나요?</li>
+      <li>“기준 대비 유사도”가 낮은데 정확도는 같다면 무엇을 뜻할까요? (같은 정답을 다른 표현으로 말한 것인지, 내용이 달라진 것인지 직접 읽어 보세요.)</li>
+    </ol>
+    <div class="callout tip">
+      <span class="ttl">(선택) 표준 벤치마크로 교차 확인</span>
+      <p>lm-evaluation-harness는 OpenAI 호환 API를 대상으로 표준 과제를 돌릴 수 있습니다. 예: <code>lm_eval --model local-chat-completions --model_args model=qwen3-8b,base_url=http://llm-engine:8000/v1/chat/completions,num_concurrent=8 --tasks gsm8k --apply_chat_template --limit 200</code>. 인자 이름은 버전에 따라 다를 수 있으니 <code>lm_eval --help</code>로 확인하세요. 영어 과제라 한국어 품질은 따로 봐야 한다는 점을 잊지 마세요.</p>
+    </div>
+
+    <h3>실습 6-4 · (선택) 한국어로 보정한 4비트 모델 직접 만들기</h3>
+    <p>LLM Compressor로 GPTQ W4A16을 만들어 공개 AWQ 버전과 비교합니다. 보정 데이터는 한국어 지시문 데이터셋 또는 여러분이 준비한 서비스 프롬프트(개인정보 제거) JSONL을 씁니다. GPU 노드에서 Job으로 실행합니다.</p>
+    <div class="codeblock"><div class="cap"><span>python · quantize_w4a16.py</span><button class="copy">복사</button></div><pre><code>"""한국어 보정 데이터로 Qwen3-8B를 GPTQ W4A16(compressed-tensors)으로 양자화한다.
+사용: python quantize_w4a16.py [보정용 JSONL 경로(각 줄 {"text": ...})]"""
+import json, sys
+from datasets import Dataset, load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import GPTQModifier
+
+SRC, OUT, N, MAXLEN = "Qwen/Qwen3-8B", "/out/Qwen3-8B-W4A16-ko", 256, 2048
+tok = AutoTokenizer.from_pretrained(SRC)
+model = AutoModelForCausalLM.from_pretrained(SRC, torch_dtype="auto")
+
+if len(sys.argv) &gt; 1:                               # 서비스 프롬프트 샘플
+    texts = [json.loads(l)["text"] for l in open(sys.argv[1], encoding="utf-8")][:N]
+else:                                               # 공개 한국어 지시문 데이터 (존재·라이선스 확인 후 사용)
+    ds = load_dataset("beomi/KoAlpaca-v1.1a", split="train").shuffle(seed=0).select(range(N))
+    texts = [tok.apply_chat_template([{"role": "user", "content": r["instruction"]},
+                                      {"role": "assistant", "content": r["output"]}], tokenize=False)
+             for r in ds]
+calib = Dataset.from_dict(tok(texts, max_length=MAXLEN, truncation=True))
+
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+oneshot(model=model, dataset=calib, recipe=recipe, max_seq_length=MAXLEN, num_calibration_samples=len(texts))
+model.save_pretrained(OUT, save_compressed=True)
+tok.save_pretrained(OUT)
+print("저장 완료:", OUT)</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>yaml · quantize-job.yaml (결과는 노드의 /data/models에 저장 — 경로는 환경에 맞게)</span><button class="copy">복사</button></div><pre><code>apiVersion: batch/v1
+kind: Job
+metadata: { name: quantize-w4a16, namespace: llmsvc-lab }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      nodeSelector: { kubernetes.io/arch: arm64 }
+      tolerations: [ { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule } ]
+      containers:
+      - name: q
+        image: vllm/vllm-openai:v0.31.0      <span class="c-cm"># torch·transformers가 들어 있는 이미지를 출발점으로</span>
+        command: ["/bin/sh", "-c"]
+        args: ["pip install -q llmcompressor datasets &amp;&amp; python /work/quantize_w4a16.py"]
+        env: [ { name: HF_HOME, value: /cache } ]
+        resources: { limits: { nvidia.com/gpu: 1 } }
+        volumeMounts:
+        - { name: work, mountPath: /work }
+        - { name: out, mountPath: /out }
+        - { name: cache, mountPath: /cache }
+      volumes:
+      - { name: work, configMap: { name: quantize-script } }
+      - { name: out, hostPath: { path: /data/models, type: DirectoryOrCreate } }
+      - { name: cache, emptyDir: {} }</code></pre></div>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab create configmap quantize-script --from-file=quantize_w4a16.py
+kubectl apply -f quantize-job.yaml
+kubectl -n llmsvc-lab logs -f job/quantize-w4a16
+<span class="c-cm"># 완료 후: variant.sh에 변형 하나를 추가해 hostPath /data/models/Qwen3-8B-W4A16-ko 를 마운트하고</span>
+<span class="c-cm"># MODEL=/models/Qwen3-8B-W4A16-ko 로 띄운 뒤, 6-3과 같은 측정을 반복 (label=w4a16ko)</span></code></pre></div>
+    <p><b>비교 포인트</b>: 공개 AWQ와 직접 만든 W4A16 중 어느 쪽이 계산 정확도·한국어 응답 유사도에서 나은가요? 양자화에 걸린 시간과 GPU 메모리 사용량도 기록하세요. 같은 방식으로 <code>scheme="NVFP4"</code>(보정 필요)를 시도해 볼 수도 있지만, GB10에서 NVFP4 서빙 커널 지원은 엔진 버전에 따라 다를 수 있습니다(7장).</p>
+
+    <h3>실습 6-5 · 레지스트리 항목 만들기</h3>
+    <p>8장의 카탈로그 항목을 실제 값으로 채우는 스크립트입니다. 허브의 커밋 해시와 파일 해시를 가져와 기록합니다.</p>
+    <div class="codeblock"><div class="cap"><span>python · catalog_entry.py</span><button class="copy">복사</button></div><pre><code>"""허브 모델의 커밋·라이선스·파일 해시를 읽어 사내 카탈로그 YAML 초안을 만든다. (pip install huggingface_hub pyyaml)"""
+import sys, datetime, yaml
+from huggingface_hub import HfApi
+repo = sys.argv[1] if len(sys.argv) &gt; 1 else "Qwen/Qwen3-8B-FP8"
+info = HfApi().model_info(repo, files_metadata=True)
+card = info.card_data.to_dict() if info.card_data else {}
+weights = [f for f in info.siblings if f.rfilename.endswith(".safetensors")]
+entry = {
+  "id": f"{repo.split('/')[-1].lower()}@{datetime.date.today():%Y-%m}",
+  "source": {"hub_repo": repo, "revision": info.sha, "retrieved_at": str(datetime.date.today())},
+  "license": {"name": card.get("license"), "gated": bool(info.gated), "acceptance_record": None},
+  "artifact": {"format": "safetensors", "total_bytes": sum(f.size or 0 for f in weights),
+               "sha256": {f.rfilename: (f.lfs.sha256 if f.lfs else None) for f in weights}},
+  "evaluation": {"baseline": None, "suite": "quick_eval", "results": {}},
+  "approval": {"approved_uses": [], "owner": None, "approved_at": None},
+}
+print(yaml.safe_dump(entry, allow_unicode=True, sort_keys=False))</code></pre></div>
+    <p>출력된 YAML에 실습 6-3의 결과와 승인 정보를 채워 보세요. 내려받은 파일의 해시(<code>sha256sum</code>)가 허브에 기록된 해시와 일치하는지 확인하는 단계를 반입 절차에 넣으면, 전송 중 손상이나 바꿔치기를 잡을 수 있습니다. 조직에 Harbor 같은 OCI 레지스트리가 있다면 ORAS로 같은 파일들을 아티팩트로 올려 보는 것도 좋은 연습입니다(13편에서 로딩 방식으로 다시 다룸).</p>
+
+    <h3>정리하기</h3>
+    <div class="codeblock"><div class="cap"><span>bash</span><button class="copy">복사</button></div><pre><code>kubectl -n llmsvc-lab delete deploy,svc llm-engine --ignore-not-found
+kubectl -n llmsvc-lab delete job quantize-w4a16 --ignore-not-found
+kubectl -n llmsvc-lab delete configmap quantize-script --ignore-not-found
+<span class="c-cm"># bench Pod와 결과 파일은 이후 편에서 재사용하므로 남겨 둡니다</span></code></pre></div>
+  </div>
+</section>
+
+<!-- ================= S13 ================= -->
+<section id="s13">
+  <h2><span class="sec-num">13</span>용어 사전</h2>
+  <p class="lede">이번 편 중심. 일부만 입력해도 검색됩니다.</p>
+  <div class="prose">
+    <input type="search" class="gloss-search" id="glossQ" placeholder="예: AWQ, E4M3, NVFP4, 게이트" aria-label="용어 검색">
+    <div class="gloss" id="gloss"></div>
+  </div>
+</section>
+
+<!-- ================= S14 ================= -->
+<section id="s14" class="quiz">
+  <h2><span class="sec-num">14</span>확인 퀴즈</h2>
+  <p class="lede">9문제.</p>
+  <div class="prose">
+    <div id="quiz"></div>
+    <p class="score" id="score"></p>
+  </div>
+</section>
+
+<!-- ================= S15 ================= -->
+<section id="s15">
+  <h2><span class="sec-num">15</span>정리와 체크리스트</h2>
+  <p class="lede">핵심 여섯 문장.</p>
+  <div class="prose">
+    <ol>
+      <li><b>포맷과 정밀도는 다른 축</b>이다. safetensors가 표준 그릇이고, 정밀도는 config의 dtype과 quantization_config로 판단한다. pickle은 반입하지 않는다.</li>
+      <li><b>양자화의 핵심은 비트 수와 스케일 단위</b>다. 이상치가 정밀도를 망치므로 4비트에서는 그룹·마이크로스케일 같은 잘게 나눈 스케일이 필요하다.</li>
+      <li><b>가중치 전용(W4A16)은 작은 배치 Decode에, 연산 저정밀(FP8·NVFP4)은 Prefill·큰 배치에</b> 유리하다. 메모리 절감은 KV 공간·동시성으로 이어진다.</li>
+      <li><b>FP8은 대부분 손실이 거의 없는 새 기본값</b>이고, 4비트는 모델 크기·작업·보정 데이터에 따라 손실이 달라 반드시 우리 데이터로 평가한다.</li>
+      <li><b>같은 체크포인트도 GPU 세대와 엔진 커널에 따라 다르게 돈다.</b> 기동 로그의 양자화·커널 줄로 확인한다.</li>
+      <li><b>모델은 반입 심사 → 사내 레지스트리(커밋 해시·파일 해시·라이선스·평가·승인 기록) → 캐시 → 엔진</b>의 경로로만 들어온다. 파생 모델에도 원 라이선스가 따라간다.</li>
+    </ol>
+    <h3>스스로 확인하기</h3>
+    <ul class="cl" id="selfCheck">
+      <li><input type="checkbox" id="c1"><label for="c1">모델 저장소의 파일만 보고 정밀도·양자화 방식·라이선스·게이트 여부를 판별할 수 있다.</label></li>
+      <li><input type="checkbox" id="c2"><label for="c2">INT4 그룹 양자화와 NVFP4가 이상치를 다루는 방식의 차이를 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c3"><label for="c3">GPTQ·AWQ·SmoothQuant·RTN을 한 문장씩 설명하고, 보정 데이터가 왜 중요한지 말할 수 있다.</label></li>
+      <li><input type="checkbox" id="c4"><label for="c4">A100에서 FP8 체크포인트가 어떻게 동작하는지, GB10에서 NVFP4 지원을 어떻게 확인하는지 설명할 수 있다.</label></li>
+      <li><input type="checkbox" id="c5"><label for="c5">BF16·FP8·AWQ 변형의 메모리·속도·품질을 같은 조건에서 측정하고 표로 정리했다.</label></li>
+      <li><input type="checkbox" id="c6"><label for="c6">사내 모델 카탈로그 항목을 커밋 해시·파일 해시·라이선스·평가·승인으로 작성했다.</label></li>
+      <li><input type="checkbox" id="c7"><label for="c7">게이트 모델 토큰과 라이선스 동의 주체에 대한 운영 규칙을 말할 수 있다.</label></li>
+    </ul>
+    <p id="selfOut" style="color:var(--muted)"></p>
+    <div class="callout" style="--c:var(--l3)">
+      <span class="ttl">다음 편 · 7편 실습 랩 구축 (Level 1 마지막)</span>
+      <p>지금까지 매 편 임시로 띄우고 지웠던 실습 환경을 이후 편들이 계속 쓸 “랩”으로 정리합니다. RKE2 + GPU Operator 점검, 서빙 전용 네임스페이스 설계, 모델 캐시용 스토리지, Gateway 기본 구성, 측정 Pod와 공통 스크립트, 엔진·정밀도 변형을 바꿔 끼우는 기준 배포를 만듭니다.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  LLM 서빙 플랫폼 강의 시리즈 · 6편 모델 포맷·양자화·레지스트리 · 2026년 10월 기준(vLLM v0.31.0, LLM Compressor 2026년 9월 릴리스 계열). 양자화 실험실과 맞교환 탐색기는 원리 설명용 단순 계산입니다. 라이선스 내용은 운영 관점의 일반 정리이며 법률 자문이 아닙니다. 실제 판단은 원문과 법무 검토를 따르세요.
+</footer>
+
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const fmt=(n,d=0)=>Number(n).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:d});
+
+/* ---------- chrome ---------- */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+themeBtn.addEventListener("click",()=>{const l=root.getAttribute("data-theme")==="light";root.setAttribute("data-theme",l?"dark":"light");themeBtn.textContent=l?"라이트 테마":"다크 테마";});
+const toc=$("#toc"),menuBtn=$("#menuBtn");
+menuBtn.addEventListener("click",()=>{const o=toc.classList.toggle("open");menuBtn.setAttribute("aria-expanded",o)});
+$$("#toc a").forEach(a=>a.addEventListener("click",()=>{toc.classList.remove("open");menuBtn.setAttribute("aria-expanded","false")}));
+const prog=$("#progress");
+window.addEventListener("scroll",()=>{const h=document.documentElement;prog.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%"},{passive:true});
+const links=$$("#toc a");
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting)links.forEach(l=>l.classList.toggle("active",l.getAttribute("href")==="#"+e.target.id))})},{rootMargin:"-30% 0px -65% 0px"});
+$$("main section[id]").forEach(s=>io.observe(s));
+$$(".copy").forEach(b=>b.addEventListener("click",()=>{const t=b.closest(".codeblock").querySelector("pre").innerText;if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>{b.textContent="복사됨";setTimeout(()=>b.textContent="복사",1400)}).catch(()=>{b.textContent="복사 실패"})}));
+
+/* ---------- hero ---------- */
+const PREC=[["BF16 (원본)",2.0,"--l4","기준"],["FP8 (W8A8)",1.02,"--l6","매우 낮음"],["INT4 W4A16 (AWQ·GPTQ)",0.53,"--l5",null],["NVFP4 (W4A4)",0.57,"--l3",null]];
+const GPUL=[["L4",24],["H100",80],["H200",141],["B200",180]];
+function hero(P){const max=Math.max(P*2.1,30);
+ const marks=GPUL.filter(([n,m])=>m<=max).map(([n,m])=>`<div style="position:absolute;top:-2px;bottom:-2px;left:${m/max*100}%;border-left:2px dashed var(--faint)"></div>`).join("");
+ let h="";
+ PREC.forEach(([n,b,c,r])=>{const gb=P*b;const risk=r||(P<15?"중간":"낮음~중간");
+  h+=`<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:.84rem"><span>${n}</span><span><b>${fmt(gb,gb<20?1:0)} GB</b> · 품질 위험 ${risk}</span></div>
+  <div style="position:relative;height:16px;border-radius:6px;background:var(--surface2);border:1px solid var(--line)"><div style="height:100%;border-radius:6px;width:${Math.min(100,gb/max*100)}%;background:var(${c})"></div>${marks}</div></div>`;});
+ h+=`<div style="position:relative;height:16px;font-size:.68rem;color:var(--faint)">${GPUL.filter(([n,m])=>m<=max).map(([n,m])=>`<span style="position:absolute;left:${m/max*100}%;transform:translateX(-50%)">${n} ${m}GB</span>`).join("")}</div>`;
+ $("#heroBars").innerHTML=h;
+ const fitsH100=GPUL.filter(g=>P*1.02<g[1]*0.9-3).map(g=>g[0]);
+ $("#heroNote").innerHTML=`<p>BF16 ${fmt(P*2)}GB → FP8 ${fmt(P*1.02)}GB → 4비트 ${fmt(P*0.53)}~${fmt(P*0.57)}GB. 같은 모델이 정밀도만으로 GPU 한 장에 들어가기도, 안 들어가기도 합니다. ${fitsH100.length?`FP8이면 ${fitsH100.join("·")} 한 장에 가중치가 들어갑니다(KV 공간은 별도 확인).`:"FP8로도 한 장에 들어가지 않아 여러 장 또는 4비트가 필요합니다."} ${P<15?"작은 모델일수록 4비트의 품질 손실이 상대적으로 크다는 점에 주의하세요.":""}</p>`;}
+$$("#heroTabs .btn").forEach(b=>b.addEventListener("click",()=>{$$("#heroTabs .btn").forEach(x=>x.classList.toggle("on",x===b));hero(+b.dataset.p)}));hero(8.2);
+
+/* ---------- bit rows ---------- */
+const BITS=[["FP32",[1,8,23],"범위 넓음·정밀"],["BF16",[1,8,7],"FP32와 같은 범위"],["FP16",[1,5,10],"최대 65,504"],["FP8 E4M3",[1,4,3],"최대 448"],["FP8 E5M2",[1,5,2],"최대 57,344"],["FP4 E2M1",[1,2,1],"값 8종: 0~6"],["INT8",[0,0,0,8],"−128~127"],["INT4",[0,0,0,4],"−8~7"]];
+$("#bitRows").innerHTML=BITS.map(([n,b,t])=>{let c="";for(let i=0;i<b[0];i++)c+='<i class="s"></i>';for(let i=0;i<b[1];i++)c+='<i class="e"></i>';for(let i=0;i<b[2];i++)c+='<i class="m"></i>';for(let i=0;i<(b[3]||0);i++)c+='<i class="q"></i>';
+ const tot=b[0]+b[1]+b[2]+(b[3]||0);return `<div class="brow"><span><b>${n}</b> · ${tot}비트</span><div class="cells">${c}</div><span style="color:var(--muted)">${t}</span></div>`}).join("");
+
+/* ---------- quantization lab ---------- */
+function rng(seed){let s=seed;return()=>{s=(s*16807)%2147483647;return s/2147483647}}
+function gauss(r){let u=0;while(u===0)u=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*r())}
+const E4M3=(()=>{const v=[];for(let e=0;e<16;e++)for(let m=0;m<8;m++){if(e===15&&m===7)continue;v.push(e===0?(m/8)*Math.pow(2,-6):(1+m/8)*Math.pow(2,e-7))}return [...new Set(v)].sort((a,b)=>a-b)})();
+const E2M1=[0,0.5,1,1.5,2,3,4,6];
+function nearest(arr,x){const a=Math.abs(x);let lo=0,hi=arr.length-1;if(a>=arr[hi])return Math.sign(x)*arr[hi];while(hi-lo>1){const mid=(lo+hi)>>1;if(arr[mid]<=a)lo=mid;else hi=mid}const v=(a-arr[lo]<=arr[hi]-a)?arr[lo]:arr[hi];return Math.sign(x)*v}
+function qInt(xs,qmax,g){const out=new Array(xs.length);for(let i=0;i<xs.length;i+=g){const blk=xs.slice(i,i+g);const s=Math.max(...blk.map(Math.abs))/qmax||1e-12;blk.forEach((x,j)=>{out[i+j]=Math.max(-qmax,Math.min(qmax,Math.round(x/s)))*s})}return out}
+function qFp8(xs){const s=Math.max(...xs.map(Math.abs))/448;return xs.map(x=>nearest(E4M3,x/s)*s)}
+function qNvfp4(xs){const amax=Math.max(...xs.map(Math.abs));const gs=amax/(448*6)||1e-12;const out=new Array(xs.length);
+ for(let i=0;i<xs.length;i+=16){const blk=xs.slice(i,i+16);const local=Math.max(...blk.map(Math.abs))/6;const sb=Math.max(nearest(E4M3,local/gs),E4M3[1])*gs;blk.forEach((x,j)=>{out[i+j]=nearest(E2M1,x/sb)*sb})}return out}
+function qMxfp4(xs){const out=new Array(xs.length);for(let i=0;i<xs.length;i+=32){const blk=xs.slice(i,i+32);const am=Math.max(...blk.map(Math.abs))||1e-12;const s=Math.pow(2,Math.ceil(Math.log2(am/6)));blk.forEach((x,j)=>{out[i+j]=nearest(E2M1,x/s)*s})}return out}
+const QM={int8t:{f:x=>qInt(x,127,x.length),b:8,n:"INT8 텐서 단위"},fp8t:{f:qFp8,b:8,n:"FP8 E4M3 텐서 단위"},int4t:{f:x=>qInt(x,7,x.length),b:4,n:"INT4 텐서 단위"},
+ int4g:{f:x=>qInt(x,7,128),b:4+16/128,n:"INT4 그룹 128"},int4g32:{f:x=>qInt(x,7,32),b:4+16/32,n:"INT4 그룹 32"},nvfp4:{f:qNvfp4,b:4+8/16,n:"NVFP4"},mxfp4:{f:qMxfp4,b:4+8/32,n:"MXFP4"}};
+function qz(){const mode=$("#qzMode").value,op=+$("#qzO").value/10,mag=+$("#qzM").value;$("#qzOV").textContent=fmt(op,1)+"%";$("#qzMV").textContent=mag+"배";
+ const r=rng(123),N=1024,xs=[],isOut=[];for(let i=0;i<N;i++){const o=r()<op/100;isOut.push(o);xs.push(o?(r()<.5?-1:1)*mag*(0.8+0.4*r()):gauss(r))}
+ const q=QM[mode].f(xs);const err=xs.map((x,i)=>x-q[i]);
+ const rms=Math.sqrt(err.reduce((a,e)=>a+e*e,0)/N)/Math.sqrt(xs.reduce((a,x)=>a+x*x,0)/N);
+ const small=xs.map((x,i)=>!isOut[i]&&Math.abs(x)>0.05&&q[i]===0).filter(Boolean).length/Math.max(1,isOut.filter(o=>!o).length);
+ const oerr=Math.max(0,...err.filter((e,i)=>isOut[i]).map(Math.abs));
+ $("#qzBits").textContent=fmt(QM[mode].b,2)+" 비트";$("#qzErr").textContent=fmt(rms*100,2)+"%";$("#qzZero").textContent=fmt(small*100,1)+"%";$("#qzOut").textContent=isOut.some(Boolean)?fmt(oerr,2):"이상치 없음";
+ const ae=err.map(Math.abs).sort((a,b)=>a-b);const p99=ae[Math.floor(N*.99)]||1e-9;const NB=24,bins=new Array(NB).fill(0);ae.forEach(e=>{bins[Math.min(NB-1,Math.floor(e/p99*(NB-1)))]++});const mb=Math.max(...bins);
+ $("#qzHist").innerHTML=bins.map(b=>`<div style="height:${b/mb*100}%"></div>`).join("");
+ const others=Object.keys(QM).map(k=>{const qq=QM[k].f(xs);const e=Math.sqrt(xs.reduce((a,x,i)=>a+(x-qq[i])**2,0)/N)/Math.sqrt(xs.reduce((a,x)=>a+x*x,0)/N);return [k,e]});
+ const best4=others.filter(o=>["int4t","int4g","int4g32","nvfp4","mxfp4"].includes(o[0])).sort((a,b)=>a[1]-b[1])[0];
+ let note=`${QM[mode].n}: 상대 오차 ${fmt(rms*100,2)}%. `;
+ if(mode==="int4t")note+=`텐서 전체를 스케일 하나로 다루니 이상치가 스케일을 키워 <b>작은 값의 ${fmt(small*100,0)}%가 0으로 뭉개졌습니다</b>. 이것이 4비트에서 그룹·블록 스케일이 필요한 이유입니다. `;
+ else if(mode==="int8t"||mode==="fp8t")note+=`8비트는 텐서 단위 스케일로도 대체로 버팁니다. 이상치를 키워 보면 INT8보다 FP8이 작은 값을 더 잘 지키는지 비교해 보세요(지수가 있어 작은 값 근처가 촘촘함). `;
+ else note+=`스케일을 잘게 공유해 이상치의 영향이 그 블록 안에 갇힙니다. `;
+ note+=`이 데이터에서 4비트 방식 중 오차가 가장 작은 것은 <b>${QM[best4[0]].n}</b>(${fmt(best4[1]*100,2)}%)입니다. 값당 비트(스케일 포함)도 함께 비교하세요.`;
+ $("#qzNote").innerHTML=note;}
+$$("#qzMode,#qzO,#qzM").forEach(e=>e.addEventListener("input",qz));qz();
+
+/* ---------- tradeoff explorer ---------- */
+const TG={a100:{n:"A100",mem:80,bw:2039,bf16:312,fp8:0,fp4:0},h100:{n:"H100",mem:80,bw:3350,bf16:989,fp8:1979,fp4:0},b200:{n:"B200",mem:180,bw:8000,bf16:2250,fp8:4500,fp4:9000},gb10:{n:"GB10",mem:128,bw:273,bf16:100,fp8:200,fp4:400},l4:{n:"L4",mem:24,bw:300,bf16:121,fp8:242,fp4:0}};
+const KVK={8.2:144,32.8:256,70.6:320};
+function to(){const P=+$("#toP").value,g=TG[$("#toG").value],b=2**(+$("#toB").value);$("#toBV").textContent=b;const kv=KVK[P]*1024,ctx=2048;
+ const S=[{n:"BF16",by:2,path:()=>["BF16 연산",g.bf16,1]},
+  {n:"FP8 (W8A8)",by:1.02,path:()=>g.fp8?["FP8 텐서 코어",g.fp8,1]:["가중치만 FP8, 연산 BF16",g.bf16,1.05]},
+  {n:"W4A16 (AWQ·GPTQ)",by:0.53,path:()=>["4비트→16비트 풀어 BF16 연산",g.bf16,1.15]},
+  {n:"NVFP4 (W4A4)",by:0.57,path:()=>g.fp4?["FP4 텐서 코어",g.fp4,1]:["하드웨어 FP4 없음 → 가중치 전용 경로 또는 미지원",g.bf16,1.2]}];
+ let h=`<thead><tr><th>방식</th><th>가중치</th><th>KV 여유 (GPU 1장)</th><th>연산 경로</th><th>Decode 스텝</th><th>요청당 속도</th><th>병목</th><th>품질 위험</th></tr></thead><tbody>`;
+ const res=[];
+ S.forEach(s=>{const W=P*s.by,avail=g.mem*0.9-3-W;const [label,tf,ov]=s.path();
+  if(avail<=0){h+=`<tr class="na"><td class="k">${s.n}</td><td>${fmt(W,1)} GB</td><td style="color:var(--bad)">들어가지 않음</td><td colspan="5">—</td></tr>`;return}
+  const tc=2*P*1e9*b*ov/(tf*1e12*0.6),tm=(P*1e9*s.by+b*ctx*kv)/(g.bw*1e9*0.75),st=Math.max(tc,tm);const kvNeed=b*ctx*kv/1e9;
+  if(kvNeed>avail){h+=`<tr class="na"><td class="k">${s.n}</td><td>${fmt(W,1)} GB</td><td>${fmt(avail,1)} GB</td><td>${label}</td><td colspan="4" style="color:var(--bad)">KV 공간 부족: 이 배치에 ${fmt(kvNeed,1)} GB 필요 (불가)</td></tr>`;return}
+  res.push({n:s.n,st});
+  const risk=s.n.startsWith("BF16")?"기준":s.n.startsWith("FP8")?"매우 낮음":(P<15?"중간":"낮음~중간");
+  h+=`<tr><td class="k">${s.n}</td><td>${fmt(W,1)} GB</td><td>${fmt(avail,1)} GB</td><td>${label}</td><td>${fmt(st*1000,1)} ms</td><td>${fmt(1/st,1)} tok/s</td><td>${tm>=tc?"메모리":"연산"}</td><td>${risk}</td></tr>`});
+ $("#toTable").innerHTML=h+"</tbody>";
+ const best=res.sort((a,b)=>a.st-b.st)[0];
+ const bestAt=(bb,ctxx)=>{let r=null;S.forEach(s=>{const W=P*s.by;if(g.mem*0.9-3-W<=0)return;if(bb*ctxx*kv/1e9>g.mem*0.9-3-W)return;const [,tf,ov]=s.path();const tc=2*P*1e9*bb*ov/(tf*1e12*0.6),tm=(P*1e9*s.by+bb*ctxx*kv)/(g.bw*1e9*0.75),st=Math.max(tc,tm);if(!r||st<r.st)r={n:s.n,st,cb:tc>tm}});return r};
+ const b1=bestAt(1,ctx),bBig=bestAt(256,256);
+ $("#toNote").innerHTML=best&&b1?`이 조건(배치 ${b}, 요청당 컨텍스트 ${fmt(ctx)})에서 Decode가 가장 빠른 것은 <b>${best.n}</b>입니다. 비교: 배치 1에서는 <b>${b1?b1.n:"—"}</b>, 짧은 컨텍스트(256)·배치 256에서는 ${bBig?`<b>${bBig.n}</b>${bBig.cb?" (연산 병목)":" (여전히 메모리 병목)"}`:"<b>KV 공간이 부족해 어떤 방식도 불가</b>"}이 가장 빠릅니다. 배치가 작으면 읽는 바이트가 적은 방식이, 연산 병목으로 넘어가면 하드웨어 저정밀 연산 경로가 있는 방식이 유리해집니다. 컨텍스트가 길면 KV 읽기가 커져 큰 배치에서도 메모리 병목이 유지됩니다. ${g.fp4?"":"이 GPU에는 FP4 하드웨어가 없어 NVFP4의 연산 이점이 없습니다. "}${g.fp8?"":"이 GPU에는 FP8 하드웨어가 없어 FP8 체크포인트는 메모리 이득만 있습니다."}`:"이 배치·컨텍스트를 GPU 한 장으로 감당할 수 있는 방식이 없습니다. 배치를 줄이거나 더 큰 GPU·여러 장을 검토하세요.";}
+$$("#toP,#toG,#toB").forEach(e=>e.addEventListener("input",to));to();
+
+/* ---------- myths ---------- */
+const MYTHS=[
+ ["양자화하면 무조건 빨라진다.","메모리는 확실히 줄지만 속도는 상황에 따라 다릅니다. W4A16은 큰 배치·Prefill에서 4비트를 풀어내는 비용 때문에 FP8보다 느릴 수 있고, 하드웨어가 그 정밀도를 지원하지 않으면 연산 이득이 없습니다."],
+ ["FP8은 품질이 떨어지니 중요한 서비스에는 BF16을 써야 한다.","FP8(W8A8)은 많은 모델에서 손실이 거의 없어 사실상 새 기본값이 되었습니다. 그래도 회귀 테스트는 거쳐야 하지만, BF16을 고집하면 KV 공간·동시성·비용에서 큰 손해를 봅니다."],
+ ["safetensors 모델이면 원본 정밀도다.","safetensors는 그릇일 뿐입니다. 정밀도와 양자화는 config.json의 dtype과 quantization_config로 확인합니다."],
+ ["공개된 4비트 모델을 쓰면 우리 서비스 품질도 괜찮다.","공개 양자화 모델은 대개 영어 위주 데이터로 보정되어 있습니다. 한국어·사내 용어·코드 비중이 높으면 우리 데이터로 평가하고, 필요하면 직접 보정합니다."],
+ ["A100에서도 FP8 모델을 쓰면 H100처럼 빨라진다.","A100에는 FP8 텐서 코어가 없어 FP8 가중치를 16비트로 풀어 계산합니다. 메모리 절감은 같지만 연산 가속은 없습니다."],
+ ["Blackwell이면 다 똑같이 NVFP4를 지원한다.","데이터센터 Blackwell(SM100)과 GB10·RTX 계열(SM12x)은 커널 경로가 다릅니다. 엔진·모델별 지원을 릴리스 노트와 기동 로그로 확인해야 합니다."],
+ ["양자화한 모델은 새 모델이니 원 라이선스와 무관하다.","양자화·파인튜닝 모델은 파생물이라 원 모델의 라이선스 의무가 따라옵니다. 원문과 고지문을 함께 보관하고 배포 범위를 확인합니다."],
+ ["허브의 main 브랜치를 쓰면 항상 최신이라 좋다.","main은 예고 없이 바뀔 수 있습니다. 가중치·토크나이저·템플릿이 조용히 바뀌면 같은 설정에서 다른 모델이 뜹니다. 커밋 해시로 고정합니다."]
+];
+const my=$("#myths");MYTHS.forEach(([m,f])=>{const d=document.createElement("div");d.className="myth";d.innerHTML=`<div class="m">${m}</div><button class="btn" type="button">사실 확인</button><div class="f">${f}</div>`;
+ d.querySelector("button").onclick=e=>{const o=d.classList.toggle("open");e.target.textContent=o?"접기":"사실 확인"};my.appendChild(d)});
+
+/* ---------- glossary ---------- */
+const G=[
+ ["safetensors","safetensors","텐서와 헤더만 담는 안전한 가중치 포맷. 코드 실행 없음, 메모리 매핑 로딩."],
+ ["pickle","Python pickle","파이썬 객체 직렬화. 로드 시 임의 코드 실행 위험."],
+ ["GGUF","GGUF","llama.cpp 계열 단일 파일 포맷. 가중치·토크나이저·메타데이터 포함."],
+ ["compressed-tensors","compressed-tensors","양자화 가중치·스케일과 방식을 기록하는 규약. LLM Compressor 출력, vLLM 직접 로드."],
+ ["quantization_config","config.json 항목","양자화 방식·비트·그룹·제외 층 등을 기록한 설정."],
+ ["BF16","bfloat16","FP32와 같은 지수 8비트를 가진 16비트 부동소수점. 현재 모델 배포의 기본."],
+ ["E4M3 / E5M2","FP8 형식","FP8의 두 변형. 추론에는 주로 E4M3(최대 448)."],
+ ["E2M1","FP4 형식","4비트 부동소수점. 표현 가능한 양수 8개(0~6)."],
+ ["스케일","Scale","저정밀 값을 원래 크기로 되돌리는 배율. 공유 단위가 품질을 좌우."],
+ ["그룹 양자화","Group-wise quantization","값 g개(보통 128)마다 스케일 하나. 4비트 품질의 핵심."],
+ ["블록 양자화","Block-wise quantization","2차원 블록(예: 128×128)마다 스케일. FP8 block."],
+ ["마이크로스케일","Microscaling (MX)","값 16~32개마다 공유 스케일을 하드웨어가 직접 처리하는 형식군."],
+ ["NVFP4","NVIDIA FP4","16개마다 FP8 스케일 + 텐서 단위 FP32 스케일을 쓰는 FP4."],
+ ["MXFP4","OCP MXFP4","32개마다 2의 거듭제곱 스케일(E8M0)을 쓰는 FP4 표준."],
+ ["이상치","Outlier","분포에서 크게 벗어난 값. 스케일을 키워 다른 값의 정밀도를 망침."],
+ ["W4A16","Weight 4-bit, Activation 16-bit","가중치만 4비트, 연산은 16비트."],
+ ["W8A8","Weight 8-bit, Activation 8-bit","가중치·활성값 모두 8비트(INT8 또는 FP8)."],
+ ["동적 활성 양자화","Dynamic activation quantization","요청마다 활성값 스케일을 계산. 보정 데이터 불필요."],
+ ["정적 활성 양자화","Static activation quantization","보정 데이터로 미리 정한 활성 스케일 사용."],
+ ["RTN","Round-To-Nearest","가장 가까운 값으로 반올림하는 가장 단순한 양자화."],
+ ["GPTQ","GPTQ","입력 통계로 반올림 오차를 남은 가중치가 보상하게 하는 층별 양자화."],
+ ["AWQ","Activation-aware Weight Quantization","활성값이 큰 중요 채널이 덜 깎이도록 스케일을 조정하는 양자화."],
+ ["SmoothQuant","SmoothQuant","활성값 이상치를 가중치 쪽으로 옮겨 W8A8을 가능하게 하는 변환."],
+ ["보정 데이터","Calibration data","양자화 시 분포를 측정하는 샘플. 서비스 데이터와 닮아야 함."],
+ ["온라인 양자화","Online quantization","엔진이 로딩하면서 원본을 저정밀로 변환. 보정 없는 방식에 한정."],
+ ["KV 캐시 양자화","KV cache quantization","KV 캐시를 FP8 등으로 저장해 공간을 늘리는 것."],
+ ["Marlin","Marlin kernel","가중치 전용 4·8비트 × 16비트 혼합 정밀도 행렬 곱 커널 계열."],
+ ["LLM Compressor","LLM Compressor","vLLM 생태계의 양자화 도구. 결과를 compressed-tensors로 저장."],
+ ["ModelOpt","NVIDIA Model Optimizer","NVIDIA의 양자화·최적화 도구."],
+ ["리비전","Revision","허브 저장소의 커밋 해시. 운영에서는 브랜치 대신 해시로 고정."],
+ ["게이트 모델","Gated model","약관 동의·승인 후에만 내려받을 수 있는 모델."],
+ ["모델 카드","Model card","모델 설명·평가·라이선스를 담은 README."],
+ ["파생 모델","Derivative model","양자화·파인튜닝 등으로 만든 모델. 원 라이선스 의무 승계."],
+ ["ModelPack","CNCF ModelPack","모델을 OCI 아티팩트로 담는 규격."],
+ ["ORAS","OCI Registry As Storage","OCI 레지스트리에 임의 파일을 아티팩트로 올리고 받는 도구."],
+ ["이미지 볼륨","Image volume (KEP-4639)","OCI 이미지를 Pod 볼륨으로 마운트하는 Kubernetes 기능."],
+ ["Modelcar","KServe Modelcar","모델을 OCI 이미지로 담아 사이드카로 제공하는 KServe 방식."],
+ ["HF_HUB_OFFLINE","환경 변수","허브 접속 없이 로컬 캐시만 쓰게 하는 설정."]
+];
+function gl(q){q=(q||"").trim().toLowerCase();$("#gloss").innerHTML=G.filter(g=>!q||(g[0]+g[1]+g[2]).toLowerCase().includes(q)).map(g=>`<dl><dt>${g[0]}<small>${g[1]}</small></dt><dd>${g[2]}</dd></dl>`).join("")||`<p style="color:var(--muted)">해당하는 용어가 없습니다.</p>`}
+$("#glossQ").addEventListener("input",e=>gl(e.target.value));gl("");
+
+/* ---------- quiz ---------- */
+const Q=[
+ ["32B 모델의 대략적인 가중치 크기로 맞는 조합은?",["BF16 32GB / FP8 16GB / 4비트 8GB","BF16 65GB / FP8 33GB / 4비트 약 17~19GB","BF16 130GB / FP8 65GB / 4비트 33GB","정밀도와 무관"],1,"파라미터 × 바이트. 4비트는 스케일 등 부가 데이터로 절반의 절반보다 조금 큽니다."],
+ ["INT4 텐서 단위 양자화에서 작은 값이 0으로 뭉개지는 주된 이유는?",["비트가 너무 많아서","이상치 하나가 스케일을 키워 작은 값의 간격이 너무 넓어져서","FP8이라서","보정 데이터가 많아서"],1,"그래서 그룹·블록·마이크로스케일처럼 스케일을 잘게 공유합니다."],
+ ["NVFP4와 MXFP4의 차이로 맞는 것은?",["둘은 같다","NVFP4는 16개마다 FP8 스케일(+텐서 스케일), MXFP4는 32개마다 2의 거듭제곱 스케일","MXFP4는 8비트다","NVFP4는 정수다"],1,"스케일 단위와 형식이 다릅니다."],
+ ["동시 배치가 큰 상황에서 W4A16이 FP8(W8A8)보다 느려질 수 있는 이유는?",["4비트는 메모리를 더 써서","연산 병목 구간에서 W4A16은 16비트로 풀어 계산하므로 FP8 연산 가속을 못 받고 변환 비용까지 들어서","FP8은 GPU를 안 써서","W4A16은 KV를 늘려서"],1,"작은 배치(메모리 병목)에서는 W4A16이, 큰 배치(연산 병목)에서는 저정밀 연산이 유리합니다."],
+ ["A100에서 FP8 체크포인트를 서빙할 때 맞는 설명은?",["로드 불가","메모리는 절반으로 줄지만 FP8 연산 가속은 없다","H100과 같은 FP8 가속","자동으로 FP4가 된다"],1,"가중치 전용 경로로 동작합니다."],
+ ["GPTQ와 AWQ에 공통으로 필요한 것은?",["FP4 하드웨어","보정 데이터","인터넷 연결","LoRA 어댑터"],1,"둘 다 보정 데이터로 측정한 분포를 이용해 양자화 오차를 줄입니다."],
+ ["운영 배포에서 --revision에 넣을 값으로 가장 적절한 것은?",["main","latest","커밋 해시","모델 이름"],2,"브랜치는 바뀔 수 있으므로 해시로 고정합니다."],
+ ["반입 심사에서 가장 먼저 차단해야 할 파일 유형은?",["config.json","*.safetensors","출처가 불분명한 pickle(.bin)과 검토되지 않은 *.py","README.md"],2,"pickle은 로드 시 코드 실행 위험, *.py는 trust-remote-code로 실행되는 코드입니다."],
+ ["MSP가 고객 환경에 게이트 모델을 배포할 때 바람직한 원칙은?",["MSP 직원 개인 토큰으로 받아 둔다","모델을 쓰는 고객이 라이선스 당사자가 되고, 동의 기록과 승인 목록을 근거로 운영한다","라이선스는 확인할 필요 없다","양자화하면 라이선스가 사라진다"],1,"동의 주체와 기록을 계약서에 명시합니다."]
+];
+let score=0,answered=0;
+$("#quiz").innerHTML=Q.map((q,i)=>`<div class="qq" data-i="${i}"><p>${i+1}. ${q[0]}</p>${q[1].map((o,j)=>`<button class="op" type="button" data-j="${j}">${o}</button>`).join("")}<div class="ex">${q[3]}</div></div>`).join("");
+$$(".qq").forEach(el=>{const q=Q[+el.dataset.i];el.querySelectorAll(".op").forEach(b=>b.addEventListener("click",()=>{if(el.classList.contains("done"))return;el.classList.add("done");const j=+b.dataset.j;
+ el.querySelectorAll(".op")[q[2]].classList.add("right");if(j!==q[2])b.classList.add("wrong");else score++;answered++;
+ $("#score").textContent=`${answered} / ${Q.length} 문제 풀이 · ${score}개 정답`+(answered===Q.length?(score>=8?" — 7편으로 넘어가세요.":" — 틀린 문제의 장을 다시 보세요."):"")}))});
+function sc(){const c=$$("#selfCheck input"),n=c.filter(x=>x.checked).length;$("#selfOut").textContent=n===c.length?"모두 확인했습니다. 7편 준비 완료.":`${n} / ${c.length} 확인`}
+$$("#selfCheck input").forEach(x=>x.addEventListener("change",sc));sc();
+})();
+</script>
+</body>
+</html>
