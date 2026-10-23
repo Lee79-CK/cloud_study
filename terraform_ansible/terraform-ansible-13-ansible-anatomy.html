@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terraform & Ansible 강의 13편 — Ansible 해부</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0D1B2A; --bg-grid:rgba(120,170,225,.07); --surface:#132639; --surface2:#1A3249; --line:#26435F;
+  --ink:#E6EEF6; --muted:#9DB2C7; --faint:#6F8AA5;
+  --tf:#9A8CFF; --tf-soft:rgba(154,140,255,.14);
+  --ans:#FF7A72; --ans-soft:rgba(255,122,114,.14);
+  --teal:#3DD6C4; --teal-soft:rgba(61,214,196,.13);
+  --amber:#F5B841; --amber-soft:rgba(245,184,65,.14);
+  --green:#5BD68A; --red:#FF5C5C;
+  --code-bg:#0A1622; --shadow:0 10px 30px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#F2F6FB; --bg-grid:rgba(40,90,150,.07); --surface:#FFFFFF; --surface2:#E7EFF8; --line:#C6D6E7;
+  --ink:#10233A; --muted:#47617D; --faint:#6E869F;
+  --tf:#5B47D6; --tf-soft:rgba(91,71,214,.10);
+  --ans:#C9352E; --ans-soft:rgba(201,53,46,.09);
+  --teal:#0B8A7C; --teal-soft:rgba(11,138,124,.10);
+  --amber:#A86A06; --amber-soft:rgba(168,106,6,.11);
+  --green:#1C8F4A; --red:#C62828;
+  --code-bg:#0F1E2E; --shadow:0 8px 24px rgba(16,35,58,.10);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(70px + env(safe-area-inset-top,0px))}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;font-size:17px;line-height:1.75;
+  background-image:linear-gradient(var(--bg-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bg-grid) 1px,transparent 1px);background-size:28px 28px;background-attachment:fixed}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--surface)}
+a{color:var(--teal)}
+code,pre,.mono{font-family:"JetBrains Mono","D2Coding",Consolas,monospace}
+:not(pre)>code{background:var(--surface2);border:1px solid var(--line);padding:.05em .4em;border-radius:5px;font-size:.86em}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:14px;padding:10px 20px}
+.topbar .title{font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .title small{color:var(--muted);font-weight:400;margin-left:8px}
+.topbar .spacer{flex:1}
+.themebtn{border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:999px;padding:6px 14px;font:inherit;font-size:.85rem;cursor:pointer}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--tf),var(--teal),var(--ans))}
+.tocbtn{display:none;border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer}
+
+/* layout */
+.layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 24px}
+nav.toc{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:24px 0 40px;font-size:.88rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li a{display:flex;gap:10px;padding:5px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45;border-left:2px solid transparent}
+nav.toc li a span.n{color:var(--faint);font-family:"JetBrains Mono",monospace;font-size:.8rem;min-width:1.6em;padding-top:.1em}
+nav.toc li a:hover{background:var(--surface2);color:var(--ink)}
+nav.toc li a.active{color:var(--ink);background:var(--surface2);border-left-color:var(--teal)}
+main{min-width:0;padding-bottom:120px}
+section.unit{padding-top:56px;max-width:860px}
+.prose{max-width:760px}
+h1,h2,h3,h4{line-height:1.3;letter-spacing:-.01em}
+h2{font-size:1.75rem;margin:0 0 6px;display:flex;align-items:baseline;gap:14px}
+h2 .no{font-family:"JetBrains Mono",monospace;font-size:1rem;color:var(--teal);border:1px solid var(--teal);border-radius:6px;padding:1px 8px;flex:none}
+h3{font-size:1.22rem;margin:34px 0 8px}
+h4{font-size:1.02rem;margin:22px 0 6px}
+.lead{color:var(--muted);margin:0 0 18px;font-size:1.02rem}
+p{margin:12px 0}
+ul,ol{padding-left:1.3em}
+li{margin:4px 0}
+strong{color:var(--ink)}
+.tf{color:var(--tf)} .ans{color:var(--ans)} .tl{color:var(--teal)} .am{color:var(--amber)}
+
+/* hero */
+.hero{padding:52px 0 18px;max-width:900px}
+.hero .series{color:var(--muted);font-size:.92rem;margin-bottom:12px}
+.hero h1{font-size:clamp(2rem,4.6vw,3.2rem);margin:0 0 14px;font-weight:700;letter-spacing:-.02em}
+.hero h1 .sub{display:block;font-size:.5em;font-weight:500;color:var(--muted);margin-top:10px;letter-spacing:0}
+.hero p{max-width:720px;color:var(--muted)}
+.blueprint{margin:28px 0 10px;display:grid;grid-template-columns:1fr 70px 1fr;gap:0;align-items:stretch;border:1px dashed var(--line);border-radius:14px;padding:18px;background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.bp-col h4{margin:0 0 10px;font-size:.92rem;color:var(--muted);font-weight:500}
+.bp-code{background:var(--code-bg);color:#DCE6F2;border-radius:10px;padding:14px 16px;font-size:.84rem;line-height:1.7;font-family:"JetBrains Mono",monospace;margin:0;white-space:pre;overflow:auto}
+.bp-mid{display:flex;align-items:center;justify-content:center;font-size:1.6rem;color:var(--teal)}
+.bp-real{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.bp-box{border:1.5px solid var(--teal);border-radius:10px;padding:10px 8px;text-align:center;font-size:.8rem;background:var(--teal-soft);transition:all .35s}
+.bp-box b{display:block;font-family:"JetBrains Mono",monospace;font-size:.82rem}
+.bp-box.drift{border-color:var(--red);background:rgba(255,92,92,.15);transform:rotate(-2deg)}
+.bp-status{margin-top:12px;font-size:.88rem;padding:10px 12px;border-radius:8px;background:var(--surface2);border-left:3px solid var(--teal)}
+.bp-status.bad{border-left-color:var(--red)}
+.bp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* buttons */
+.btn{border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:7px 14px;font:inherit;font-size:.88rem;cursor:pointer}
+.btn:hover{border-color:var(--teal)}
+.btn.tf{border-color:var(--tf);color:var(--tf)}
+.btn.ans{border-color:var(--ans);color:var(--ans)}
+.btn.primary{background:var(--teal);color:#062320;border-color:var(--teal);font-weight:600}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn.on{background:var(--teal);color:#062320;border-color:var(--teal)}
+
+/* callouts */
+.callout{border:1px solid var(--line);border-left:4px solid var(--teal);background:var(--surface);border-radius:10px;padding:14px 18px;margin:18px 0}
+.callout.tf{border-left-color:var(--tf)} .callout.ans{border-left-color:var(--ans)} .callout.warn{border-left-color:var(--amber)} .callout.bad{border-left-color:var(--red)}
+.callout .ct{font-weight:600;margin-bottom:4px}
+.callout p:first-of-type{margin-top:4px}
+
+/* panels & grids */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;margin:20px 0;box-shadow:var(--shadow)}
+.panel h4{margin-top:0}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.tile h4{margin:0 0 6px}
+.tile p{margin:6px 0;font-size:.93rem;color:var(--muted)}
+.tag{display:inline-block;font-size:.75rem;padding:1px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin:2px 4px 2px 0}
+.tag.tf{border-color:var(--tf);color:var(--tf);background:var(--tf-soft)}
+.tag.ans{border-color:var(--ans);color:var(--ans);background:var(--ans-soft)}
+.tag.tl{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.tag.am{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
+
+/* code */
+pre.code{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:16px 18px;overflow-x:auto;font-size:.84rem;line-height:1.65;margin:12px 0;border:1px solid #1F3650}
+pre.code .c{color:#7E95AE} pre.code .k{color:#C3A6FF} pre.code .s{color:#9FE3A4} pre.code .n{color:#FFC777} pre.code .f{color:#7FD4FF} pre.code .r{color:#FF9A93}
+.codehead{display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:var(--muted);margin-top:16px;margin-bottom:-6px}
+
+/* tables */
+.tablewrap{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:640px}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+
+/* timeline */
+.timeline{position:relative;margin:20px 0;padding-left:26px;border-left:2px solid var(--line)}
+.tl-item{position:relative;margin:0 0 16px}
+.tl-item::before{content:"";position:absolute;left:-33px;top:7px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--teal)}
+.tl-item.tf::before{border-color:var(--tf)} .tl-item.ans::before{border-color:var(--ans)} .tl-item.am::before{border-color:var(--amber)}
+.tl-item .y{font-family:"JetBrains Mono",monospace;font-size:.82rem;color:var(--muted)}
+.tl-item p{margin:2px 0;font-size:.94rem}
+
+/* calculator */
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.field{margin:10px 0}
+.field label{display:flex;justify-content:space-between;font-size:.88rem;color:var(--muted)}
+.field label b{color:var(--ink);font-family:"JetBrains Mono",monospace}
+input[type=range]{width:100%;accent-color:var(--teal)}
+.meter{margin:10px 0}
+.meter .lbl{display:flex;justify-content:space-between;font-size:.86rem}
+.meter .bar{height:12px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-top:4px}
+.meter .bar i{display:block;height:100%;border-radius:6px;transition:width .3s}
+.bignum{font-size:1.6rem;font-weight:700;font-family:"JetBrains Mono",monospace}
+.note{font-size:.82rem;color:var(--faint)}
+
+/* layer map */
+.layers{display:flex;flex-direction:column;gap:6px}
+.layer{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--surface);cursor:pointer;text-align:left;color:var(--ink);font:inherit;font-size:.93rem}
+.layer .ln{font-family:"JetBrains Mono",monospace;color:var(--faint);font-size:.8rem}
+.layer.sel{outline:2px solid var(--teal)}
+.layer.t-tf{border-left:5px solid var(--tf)} .layer.t-ans{border-left:5px solid var(--ans)} .layer.t-git{border-left:5px solid var(--teal)} .layer.t-mix{border-left:5px solid var(--amber)}
+.layerinfo{min-height:150px}
+
+/* simulator */
+.servers{display:flex;flex-wrap:wrap;gap:8px;min-height:62px;padding:12px;border:1px dashed var(--line);border-radius:10px;background:var(--surface2);margin:10px 0}
+.srv{width:50px;height:38px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-family:"JetBrains Mono",monospace;border:1.5px solid var(--teal);background:var(--teal-soft)}
+.srv.extra{border-color:var(--red);background:rgba(255,92,92,.16)}
+.srv.new{animation:pop .35s}
+@keyframes pop{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+.log{background:var(--code-bg);color:#CFE0F0;border-radius:10px;padding:10px 14px;font-family:"JetBrains Mono",monospace;font-size:.8rem;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+.log .ok{color:#7EE2A0} .log .ch{color:#FFC777} .log .er{color:#FF8A84} .log .dim{color:#7E95AE}
+
+/* states */
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+.st{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface2);text-align:center}
+.st .h{font-size:.82rem;color:var(--muted)}
+.st .v{font-family:"JetBrains Mono",monospace;font-size:1.02rem;margin-top:6px;font-weight:600}
+.st.diff{border-color:var(--red);background:rgba(255,92,92,.12)}
+.st.missing .v{color:var(--red)}
+
+/* tabs/filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.filters .btn{font-size:.82rem;padding:5px 12px;border-radius:999px}
+
+/* glossary */
+.gsearch{width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:14px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+dl.gloss dt,dl.gloss dd{margin:0;padding:10px 14px;border-bottom:1px solid var(--line)}
+dl.gloss dt{font-weight:600;background:var(--surface2)}
+dl.gloss dt small{display:block;font-weight:400;color:var(--muted);font-size:.78rem;font-family:"JetBrains Mono",monospace}
+dl.gloss dd{font-size:.92rem}
+dl.gloss .hide{display:none}
+
+/* quiz */
+.q{border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0;background:var(--surface)}
+.q .qt{font-weight:600}
+.q .opts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.q .opt{text-align:left;border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:8px 12px;font:inherit;font-size:.92rem;cursor:pointer}
+.q .opt.right{border-color:var(--green);background:rgba(91,214,138,.15)}
+.q .opt.wrong{border-color:var(--red);background:rgba(255,92,92,.12)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:10px}
+.q.done .exp{display:block}
+.score{font-weight:600;font-family:"JetBrains Mono",monospace}
+
+/* details */
+details{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:10px 0;padding:0 16px}
+details summary{cursor:pointer;padding:12px 0;font-weight:600}
+details[open] summary{border-bottom:1px dashed var(--line);margin-bottom:8px}
+details > div{padding-bottom:12px}
+
+/* checklist */
+.check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line);font-size:.93rem}
+.check input{margin-top:6px;accent-color:var(--teal);width:18px;height:18px;flex:none}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:8px;border-radius:8px;border:1px solid var(--line);font-size:.78rem;text-align:center;color:var(--muted)}
+.levels div.cur{border-color:var(--teal);background:var(--teal-soft);color:var(--ink);font-weight:600}
+
+/* series map */
+.smap{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:14px 0}
+.smap .lv{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface);font-size:.78rem}
+.smap .lv b{display:block;font-size:.82rem;margin-bottom:6px}
+.smap .ep{display:block;padding:2px 6px;border-radius:5px;color:var(--muted);line-height:1.45}
+.smap .ep.now{background:var(--teal);color:#062320;font-weight:600}
+
+/* cases */
+.case{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px;margin:12px 0}
+.case h4{margin:0 0 8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.case .vs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.case .vs div{font-size:.88rem;padding:10px 12px;border-radius:8px;background:var(--surface2)}
+.case .vs div b{display:block;font-size:.8rem;margin-bottom:3px}
+.case .vs .bad b{color:var(--red)} .case .vs .good b{color:var(--green)}
+
+.anti{display:grid;grid-template-columns:40px 1fr;gap:12px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.anti .num{font-family:"JetBrains Mono",monospace;color:var(--red);font-weight:600}
+.anti p{margin:3px 0;font-size:.92rem}
+
+
+/* flow diagrams */
+.flow{display:flex;flex-direction:column;gap:6px}
+.frow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}
+.frow>.fbox{flex:1;min-width:120px}
+.fbox{border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface2)}
+.fbox .fh{font-weight:600;font-size:.92rem}
+.fbox p{margin:6px 0 0;font-size:.85rem;color:var(--muted)}
+.fbox.ftf{border-color:var(--tf);background:var(--tf-soft)} .fbox.fam{border-color:var(--amber);background:var(--amber-soft)}
+.fbox.ftl{border-color:var(--teal);background:var(--teal-soft)} .fbox.fans{border-color:var(--ans);background:var(--ans-soft)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.farrow{text-align:center;font-size:.8rem;color:var(--muted)}
+.farrow::before{content:"↓";display:block;font-size:1.2rem;color:var(--teal);line-height:1}
+.fside{display:flex;align-items:center;justify-content:center;text-align:center;font-size:.8rem;color:var(--muted);min-width:60px}
+ol.steps{margin:8px 0 0;padding-left:1.4em;font-size:.88rem}
+ol.steps.big{font-size:.92rem;border:1px dashed var(--line);border-radius:12px;padding:12px 14px 12px 2.2em;margin:0;background:var(--surface)}
+ul.mini{margin:8px 0 0;padding-left:1.1em;font-size:.86rem}
+.ansflow{display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:12px;align-items:center}
+#toolTable{min-width:1080px}
+body{word-break:keep-all;overflow-wrap:anywhere}
+@media (max-width:980px){.ansflow{grid-template-columns:1fr}.fside{min-width:100%;padding:4px 0}}
+.btn,.themebtn,.tocbtn{white-space:nowrap}
+.bp-col{min-width:0}
+.blueprint{grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr)}
+@media (max-width:980px){.blueprint{grid-template-columns:minmax(0,1fr)}.bp-actions .btn{white-space:normal;text-align:left}}
+footer{max-width:760px;margin-top:60px;color:var(--faint);font-size:.85rem;border-top:1px solid var(--line);padding-top:20px}
+
+@media (max-width:980px){
+  .layout{grid-template-columns:1fr;padding:0 16px}
+  nav.toc{display:none;position:fixed;top:calc(52px + env(safe-area-inset-top,0px));left:0;right:0;bottom:0;max-height:none;background:var(--surface);z-index:40;padding:16px}
+  nav.toc.open{display:block}
+  .tocbtn{display:inline-block}
+  .grid2,.grid3,.calc,.case .vs{grid-template-columns:minmax(0,1fr)}
+  .smap{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .blueprint{grid-template-columns:1fr}
+  .bp-mid{transform:rotate(90deg);padding:6px 0}
+  .three{grid-template-columns:1fr}
+  dl.gloss{grid-template-columns:1fr}
+  dl.gloss dt{border-bottom:none}
+  .levels{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ---- 2편 추가 ---- */
+.ostabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px}
+.ostabs .btn{border-radius:999px}
+.osnote{font-size:.85rem;color:var(--muted)}
+.os{display:none} .os.show{display:block}
+pre.code{position:relative}
+.cbtn{position:absolute;top:8px;right:8px;font:inherit;font-size:.72rem;padding:3px 9px;border-radius:6px;border:1px solid #2E4A66;background:#132639;color:#BFD3E6;cursor:pointer;opacity:.8}
+.cbtn:hover{opacity:1}
+.cbtn.done{background:#1C6B4A;color:#fff;border-color:#1C6B4A}
+pre.code .p{color:#7E95AE;user-select:none}
+.tree{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:16px 18px;font-family:"JetBrains Mono",monospace;font-size:.82rem;line-height:1.7;overflow-x:auto;white-space:pre;border:1px solid #1F3650}
+.tree .d{color:#7FD4FF} .tree .c{color:#7E95AE} .tree .g{color:#9FE3A4} .tree .w{color:#FFC777}
+.cp{display:inline-flex;align-items:center;gap:8px;margin:18px 0 6px;padding:6px 12px;border-radius:999px;border:1px solid var(--green);color:var(--green);font-size:.85rem;font-weight:600;background:rgba(91,214,138,.10)}
+.cp input{accent-color:var(--green);width:16px;height:16px}
+.hprog{margin-top:18px;max-width:560px}
+.hprog .bar{height:10px;border-radius:6px;background:var(--surface2);overflow:hidden;border:1px solid var(--line)}
+.hprog .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--tf),var(--teal),var(--ans));transition:width .4s}
+.hprog .lbl{display:flex;justify-content:space-between;font-size:.85rem;color:var(--muted);margin-bottom:6px}
+.labmap{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;margin-top:24px}
+.labmap .zone{border:1.5px dashed var(--line);border-radius:14px;padding:14px;background:color-mix(in srgb,var(--surface) 75%,transparent)}
+.labmap .zone h4{margin:0 0 8px;font-size:.95rem}
+.labmap .zone.ctl{grid-row:span 2;border-color:var(--teal)}
+.labmap .zone.loc{border-color:var(--ans)}
+.labmap .zone.cld{border-color:var(--tf)}
+.chiprow{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:.8rem;padding:3px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--line)}
+.chip.tf{border-color:var(--tf);color:var(--tf)} .chip.ans{border-color:var(--ans);color:var(--ans)} .chip.tl{border-color:var(--teal);color:var(--teal)} .chip.am{border-color:var(--amber);color:var(--amber)}
+.zone .sub{font-size:.82rem;color:var(--muted);margin:8px 0 0}
+.stack{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.stack button{display:grid;grid-template-columns:30px 1fr;gap:10px;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.9rem;padding:10px 12px;cursor:pointer}
+.stack button .k{font-family:"JetBrains Mono",monospace;color:var(--teal)}
+.stack button.sel{outline:2px solid var(--teal)}
+.costrow{display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);font-size:.9rem}
+.costrow input{accent-color:var(--red);width:17px;height:17px}
+.costrow .r{font-family:"JetBrains Mono",monospace;color:var(--muted);font-size:.82rem}
+.faq-filter{margin-bottom:10px}
+.timebox{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+.timebox div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+.timebox b{display:block;font-size:1.25rem;font-family:"JetBrains Mono",monospace}
+.timebox span{font-size:.82rem;color:var(--muted)}
+@media (max-width:980px){.labmap{grid-template-columns:minmax(0,1fr)}.labmap .zone.ctl{grid-row:auto}.timebox{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---- 3편 추가 ---- */
+.anat{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+.anat pre.code .t{cursor:pointer;border-radius:4px;padding:0 2px;outline:1px dashed rgba(127,212,255,.35)}
+.anat pre.code .t:hover{background:rgba(127,212,255,.15)}
+.anat pre.code .t.sel{background:rgba(61,214,196,.28);outline:1px solid #3DD6C4}
+.anat .tile{position:sticky;top:76px;min-height:220px}
+.steps-nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.steps-nav .btn{border-radius:999px}
+.stepbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.stepbox .tile p{color:var(--ink)}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:.9rem}
+.kv b{color:var(--muted);font-weight:500}
+.plines{display:flex;flex-direction:column;gap:4px}
+.pline{text-align:left;font-family:"JetBrains Mono",monospace;font-size:.82rem;background:var(--code-bg);color:#DCE6F2;border:1px solid #1F3650;border-radius:8px;padding:8px 12px;cursor:pointer;white-space:pre-wrap}
+.pline.sel{outline:2px solid var(--teal)}
+.pline .g{color:#7EE2A0} .pline .y{color:#FFC777} .pline .r{color:#FF8A84} .pline .b{color:#7FD4FF} .pline .m{color:#7E95AE}
+.dagwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface2);padding:10px}
+.dag{display:block;min-width:820px;width:100%;height:auto}
+.dag .node rect{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:fill .3s,stroke .3s}
+.dag .node text{fill:var(--ink);font-size:12px;font-family:"JetBrains Mono",monospace}
+.dag .node.data rect{stroke-dasharray:5 3}
+.dag .node.doing rect{fill:rgba(245,184,65,.25);stroke:var(--amber)}
+.dag .node.done rect{fill:rgba(91,214,138,.22);stroke:var(--green)}
+.dag .node.gone rect{fill:rgba(255,92,92,.14);stroke:var(--red)}
+.dag .node.warn rect{fill:rgba(255,92,92,.25);stroke:var(--red);stroke-width:2.5}
+.dag .edge{stroke:var(--faint);stroke-width:1.4;fill:none}
+.dag .edge.exp{stroke:var(--amber);stroke-dasharray:6 4;stroke-width:2}
+.dag .wave{fill:var(--muted);font-size:11px;font-family:"IBM Plex Sans KR",sans-serif}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem;color:var(--muted);margin-top:8px}
+.legend span::before{content:"";display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle;border:1.5px solid var(--line)}
+.legend .l1::before{border-style:dashed}
+.legend .l2::before{border-color:var(--amber);background:rgba(245,184,65,.25)}
+.legend .l3::before{border-color:var(--green);background:rgba(91,214,138,.22)}
+.legend .l4::before{border:none;border-top:2px dashed var(--amber);height:0;border-radius:0}
+@media (max-width:980px){.anat,.stepbox{grid-template-columns:minmax(0,1fr)}.anat .tile{position:static}}
+
+/* ---- 4편 추가 ---- */
+.prec{display:flex;flex-direction:column;gap:6px}
+.precrow{display:grid;grid-template-columns:26px 34px minmax(0,1.4fr) minmax(0,1fr);gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--surface)}
+.precrow .rk{font-family:"JetBrains Mono",monospace;color:var(--faint);font-size:.8rem}
+.precrow input[type=checkbox]{accent-color:var(--teal);width:17px;height:17px}
+.precrow input[type=text]{width:100%;padding:6px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface2);color:var(--ink);font:inherit;font-family:"JetBrains Mono",monospace;font-size:.85rem}
+.precrow .src{font-size:.88rem}
+.precrow .src small{display:block;color:var(--muted);font-size:.78rem}
+.precrow.win{border-color:var(--green);background:rgba(91,214,138,.10)}
+.precrow.lose{opacity:.55}
+.cfbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.items{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.item{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 6px 3px 12px;background:var(--surface2);font-family:"JetBrains Mono",monospace;font-size:.84rem}
+.item button{border:none;background:var(--surface);color:var(--red);border-radius:999px;width:22px;height:22px;cursor:pointer;font:inherit;line-height:1}
+.addrow{display:flex;gap:6px;flex-wrap:wrap}
+.addrow input{padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;width:140px}
+.vfield{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:8px 0}
+.vfield input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-family:"JetBrains Mono",monospace;font-size:.88rem}
+.vres{font-family:"JetBrains Mono",monospace;font-size:.82rem;white-space:pre-wrap;border-radius:8px;padding:8px 12px;margin:2px 0 8px 160px}
+.vres.ok{background:rgba(91,214,138,.12);color:var(--green)}
+.vres.err{background:rgba(255,92,92,.12);color:var(--red)}
+.ex{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:8px 0;background:var(--surface)}
+.ex .in,.ex .out{font-family:"JetBrains Mono",monospace;font-size:.82rem;padding:10px 12px;white-space:pre-wrap;overflow-x:auto}
+.ex .in{background:var(--code-bg);color:#DCE6F2}
+.ex .out{color:var(--green);background:var(--surface2)}
+.ex .out.err{color:var(--red)}
+.ex .why{grid-column:1/-1;padding:8px 12px;font-size:.86rem;color:var(--muted);border-top:1px dashed var(--line)}
+@media (max-width:980px){.precrow{grid-template-columns:22px 28px minmax(0,1fr)}.precrow input[type=text]{grid-column:1/-1}.cfbox,.ex{grid-template-columns:minmax(0,1fr)}.vfield{grid-template-columns:minmax(0,1fr)}.vres{margin-left:0}}
+
+/* ---- 5편 추가 ---- */
+.json{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:14px 16px;font-family:"JetBrains Mono",monospace;font-size:.8rem;line-height:1.6;white-space:pre;overflow:auto;max-height:560px;border:1px solid #1F3650;margin:0}
+.json .k{color:#C3A6FF;cursor:pointer;border-radius:3px;outline:1px dashed rgba(195,166,255,.35)}
+.json .k:hover{background:rgba(195,166,255,.15)}
+.json .k.sel{background:rgba(61,214,196,.3);outline:1px solid #3DD6C4}
+.json .s{color:#9FE3A4} .json .n{color:#FFC777} .json .w{color:#FF8A84;font-weight:600}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.lane{border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:10px;min-height:230px}
+.lane h5{margin:0 0 8px;font-size:.88rem}
+.lane .ev{font-size:.8rem;font-family:"JetBrains Mono",monospace;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface);border-left:3px solid var(--line);opacity:0;transform:translateY(4px);transition:all .25s}
+.lane .ev.show{opacity:1;transform:none}
+.lane .ev.ok{border-left-color:var(--green)} .lane .ev.bad{border-left-color:var(--red)} .lane .ev.wait{border-left-color:var(--amber)}
+.evo{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+.evo .st2{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface)}
+.evo .st2 .ver{font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--muted)}
+.evo .st2 h4{margin:4px 0 8px}
+.dots{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:.8rem;margin-top:8px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:4px}
+.dot.y{background:var(--red)} .dot.n{background:var(--green)} .dot.m{background:var(--amber)}
+.scen{display:flex;flex-direction:column;gap:6px}
+.scen button{text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.9rem;padding:9px 12px;cursor:pointer}
+.scen button.sel{outline:2px solid var(--teal)}
+@media (max-width:980px){.lanes,.evo{grid-template-columns:minmax(0,1fr)}}
+
+#sizeTabs .btn{white-space:normal;text-align:left;border-radius:10px}
+.arch{display:grid;grid-template-columns:120px repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.arch .azone{border:1.5px dashed var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.arch .azone.pub{border-color:var(--teal)} .arch .azone.app{border-color:var(--ans)} .arch .azone.db{border-color:var(--tf)}
+.arch .azone.side{grid-column:2/-1;flex-direction:row;flex-wrap:wrap;border-color:var(--amber)}
+.arch .zl{font-size:.78rem;color:var(--muted);width:100%}
+.arch .ab{border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.86rem;padding:10px;cursor:pointer;text-align:center;line-height:1.35;white-space:normal}
+.arch .ab small{color:var(--muted);font-size:.75rem}
+.arch .ab:hover{border-color:var(--teal)} .arch .ab.sel{outline:2px solid var(--teal);background:var(--teal-soft)}
+.arch .z-ext{align-self:center}
+@media (max-width:980px){.arch{grid-template-columns:minmax(0,1fr)}.arch .azone.side{grid-column:auto}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="tocbtn" id="tocBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="title">Terraform &amp; Ansible 13편 <small>Ansible 해부</small></div>
+  <div class="spacer"></div>
+  <button class="themebtn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="layout">
+<nav class="toc" id="toc" aria-label="이 편의 목차">
+  <ol>
+    <li><a href="#u0"><span class="n">0</span>들어가며</a></li>
+    <li><a href="#u1"><span class="n">1</span>서버 안으로</a></li>
+    <li><a href="#u2"><span class="n">2</span>에이전트리스 실행 원리</a></li>
+    <li><a href="#u3"><span class="n">3</span>연결: SSH·WinRM·그 밖</a></li>
+    <li><a href="#u4"><span class="n">4</span>인벤토리: INI와 YAML</a></li>
+    <li><a href="#u5"><span class="n">5</span>group_vars·host_vars</a></li>
+    <li><a href="#u6"><span class="n">6</span>호스트 패턴</a></li>
+    <li><a href="#u7"><span class="n">7</span>ad-hoc 명령</a></li>
+    <li><a href="#u8"><span class="n">8</span>ansible.cfg 우선순위</a></li>
+    <li><a href="#u9"><span class="n">9</span>2.19+ 데이터 태깅·템플릿 변화</a></li>
+    <li><a href="#u10"><span class="n">10</span>Terraform 출력과 연결</a></li>
+    <li><a href="#u11"><span class="n">11</span>실습 A: 노드 점검과 인벤토리</a></li>
+    <li><a href="#u12"><span class="n">12</span>실습 B: ad-hoc 운영</a></li>
+    <li><a href="#u13"><span class="n">13</span>실습 C: 2.19+ 변화 체험</a></li>
+    <li><a href="#u14"><span class="n">14</span>흔한 오류와 해결</a></li>
+    <li><a href="#u15"><span class="n">15</span>MSP 현장 팁</a></li>
+    <li><a href="#u16"><span class="n">16</span>용어 사전</a></li>
+    <li><a href="#u17"><span class="n">17</span>확인 퀴즈</a></li>
+    <li><a href="#u18"><span class="n">18</span>과제</a></li>
+    <li><a href="#u19"><span class="n">19</span>정리와 다음 편</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+<div class="hero">
+  <div class="series">Terraform &amp; Ansible 강의 · Level 3 Ansible 기초 · 13편 / 26편 · <a href="terraform-ansible-00-index.html">시리즈 목차</a></div>
+  <h1>에이전트 없이, SSH 하나로
+    <span class="sub">Ansible 해부 — 에이전트리스 구조, 연결 방식, 인벤토리와 변수 파일, 호스트 패턴, ad-hoc, ansible.cfg, 2.19+ 템플릿 변화</span></h1>
+  <p>Terraform이 서버를 만들었다면, 그 안을 구성하는 것은 Ansible의 몫입니다(1편 12장). Ansible은 관리할 서버에 아무것도 설치하지 않고 SSH로 접속해 작은 프로그램(모듈)을 보내 실행하고 결과를 받아 옵니다. 이번 편은 플레이북을 쓰기 전에, 그 밑에서 무슨 일이 일어나는지 — 어떻게 접속하고, 어느 서버에 어떤 값을 줄지 어떻게 정하고, 설정은 어디서 읽는지 — 를 실제 실행 결과로 해부합니다. ansible-core 2.19부터 크게 바뀐 템플릿 처리도 이번 편에서 먼저 짚습니다. 예전 자료의 코드가 지금은 오류가 나기 때문입니다.</p>
+  <div class="grid3" style="margin-top:18px">
+    <div class="tile"><h4 class="tl">컨트롤 노드</h4><p>Ansible이 설치된 곳(내 PC, CI 러너). 여기서만 명령을 실행한다.</p></div>
+    <div class="tile"><h4 class="am">인벤토리</h4><p>관리할 서버 목록과 그룹, 서버별 값.</p></div>
+    <div class="tile"><h4 class="ans">관리 노드</h4><p>SSH와 Python만 있으면 된다. 에이전트 없음.</p></div>
+  </div>
+</div>
+
+<!-- ================= 0 ================= -->
+<section class="unit" id="u0">
+  <h2><span class="no">0</span>들어가며</h2>
+  <p class="lead">이번 편의 목표와 실습 지도</p>
+  <div class="prose">
+  <h3>이번 편을 마치면</h3>
+  <ul>
+    <li>Ansible이 에이전트 없이 동작하는 과정(접속 → 인터프리터 탐색 → 모듈 전송·실행 → JSON 결과)을 <code>-vvv</code> 출력으로 설명할 수 있습니다.</li>
+    <li>SSH 연결의 핵심 설정(키, 사용자, 연결 재사용, 파이프라이닝)과 Windows용 WinRM·SSH 연결의 차이를 압니다.</li>
+    <li>INI·YAML 인벤토리, 그룹과 자식 그룹, <code>group_vars</code>·<code>host_vars</code>의 우선순위를 <code>ansible-inventory</code>로 확인할 수 있습니다.</li>
+    <li>호스트 패턴(와일드카드, 합·교·차집합, 정규식, 슬라이스)으로 대상을 정확히 고릅니다.</li>
+    <li>ad-hoc 명령으로 점검·간단한 변경을 하고, 멱등한 모듈과 그렇지 않은 모듈의 차이를 결과(CHANGED/SUCCESS)로 구분합니다.</li>
+    <li><code>ansible.cfg</code>를 어디서 찾는지, 설정 값의 우선순위와 확인 방법을 압니다.</li>
+    <li>2.19 이후의 데이터 태깅·템플릿 변화(불리언 아닌 조건식 오류, 표현식 속 템플릿 금지, 신뢰할 수 없는 문자열, 팩트 변수 주입 지원 중단)를 실측으로 확인합니다.</li>
+  </ul>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>실습</th><th>대상</th><th>내용</th><th>비용</th></tr>
+    <tr><td>A. 노드 점검과 인벤토리</td><td>2편의 node1·2·3</td><td>ping, 인벤토리 그래프, INI → YAML, group_vars·host_vars</td><td>0원 (로컬 랩)</td></tr>
+    <tr><td>B. ad-hoc 운영</td><td>같은 노드</td><td>사용자·디렉터리·패키지, 멱등성, 점검 모드, become</td><td>0원</td></tr>
+    <tr><td>C. 2.19+ 변화 체험</td><td>컨트롤 노드(localhost)</td><td>6가지 변화를 일부러 일으켜 오류 메시지 읽기</td><td>0원</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">실측 환경에 대해</div>
+  <p>이 편의 출력은 ansible-core <b>2.21.5</b>(2026년 10월 최신)로 실제 실행한 결과입니다. 2편 트랙 B(Docker)와 같은 구조 — <code>127.0.0.1</code>의 2221·2222·2223 포트, <code>ansible</code> 사용자, <code>lab_ed25519</code> 키, 2편의 <code>ansible.cfg</code>·<code>lab.ini</code> 그대로 — 를 SSH 서버 3개로 재현해 실행했습니다. 다만 세 노드가 같은 운영체제 위에 있어 node3도 Ubuntu로 보고됩니다. 여러분의 2편 랩에서 node3는 Rocky 9이므로 배포판 관련 팩트가 다르게 나옵니다.</p></div>
+</section>
+
+<!-- ================= 1 ================= -->
+<section class="unit" id="u1">
+  <h2><span class="no">1</span>서버 안으로</h2>
+  <p class="lead">Terraform이 멈추는 곳에서 Ansible이 시작한다</p>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>Terraform (1~12편)</th><th>Ansible (13편~)</th></tr>
+    <tr><td>다루는 것</td><td>클라우드 API로 만드는 자원: VPC, 서버, DB, 로드밸런서</td><td>서버 안: 패키지, 설정 파일, 서비스, 사용자, 보안 설정</td></tr>
+    <tr><td>상태 기록</td><td>state 파일 (5편)</td><td>없음. 매번 현재 상태를 확인하고 필요한 것만 바꾼다</td></tr>
+    <tr><td>실행 방식</td><td>plan → apply, 의존 그래프</td><td>위에서 아래로 순서대로 (작업 목록)</td></tr>
+    <tr><td>대상 정의</td><td>코드의 리소스 블록</td><td>인벤토리 (서버 목록) + 플레이북 (작업 목록)</td></tr>
+    <tr><td>접속</td><td>클라우드 API (HTTPS)</td><td>SSH (리눅스), WinRM·SSH (Windows), 그 밖의 연결 플러그인</td></tr>
+  </table></div>
+  <div class="tablewrap"><table>
+    <tr><th>구성 요소</th><th>설명</th><th>이 편의 장</th></tr>
+    <tr><td>컨트롤 노드</td><td>ansible-core가 설치된 머신. 리눅스·macOS·WSL (Windows 네이티브는 불가). 2.21은 Python 3.12 이상 필요</td><td>2</td></tr>
+    <tr><td>관리 노드</td><td>설정 대상. 리눅스는 SSH + Python 3.9 이상 (모듈 실행용, 2.21 기준)</td><td>2·3</td></tr>
+    <tr><td>인벤토리</td><td>관리 노드 목록, 그룹, 변수</td><td>4·5·6</td></tr>
+    <tr><td>모듈</td><td>원격에서 실행되는 작업 단위 (copy, user, package…). 대부분 멱등</td><td>7</td></tr>
+    <tr><td>ad-hoc / 플레이북</td><td>모듈 하나를 즉석 실행 / 작업 목록을 파일로 (14편)</td><td>7</td></tr>
+    <tr><td>설정</td><td>ansible.cfg, 환경 변수, 명령줄 옵션</td><td>8</td></tr>
+    <tr><td>컬렉션</td><td>모듈·플러그인 묶음. <code>ansible.builtin</code>은 ansible-core에 포함, 나머지는 설치 (16편)</td><td>3·7</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">ansible-core와 ansible 패키지</div>
+  <p><code>ansible-core</code>(2.21.5)는 엔진과 <code>ansible.builtin</code> 모듈만 담은 최소 패키지이고, <code>ansible</code>(14.5.0) 패키지는 ansible-core에 커뮤니티 컬렉션 수십 개를 묶은 것입니다. 2편에서 pipx로 설치한 것은 ansible-core입니다. 필요한 컬렉션만 골라 설치하는 편이 재현성이 좋습니다(16편).</p></div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section class="unit" id="u2">
+  <h2><span class="no">2</span>에이전트리스 실행 원리</h2>
+  <p class="lead"><code>ansible node1 -m ping</code> 한 줄 뒤에서 일어나는 일 — 단계를 눌러 보세요</p>
+  <div class="panel">
+    <div class="steps-nav" id="exNav"></div>
+    <div class="stepbox"><div class="tile" id="exL"></div><div class="tile" id="exR"></div></div>
+  </div>
+<pre class="code"><span class="c"># 실측: ansible node1 -m ping -vvv 의 핵심 줄 (파이프라이닝 켬, 2편 ansible.cfg)</span>
+&lt;127.0.0.1&gt; ESTABLISH SSH CONNECTION FOR USER: ansible
+&lt;127.0.0.1&gt; SSH: EXEC ssh -C -o 'IdentityFile="…/lab/keys/lab_ed25519"' -o 'User="ansible"'
+            -o 'ControlPath="/root/.ansible/cp/805f61046b"' 127.0.0.1 '/bin/sh -c '"'"'echo FOUND; command -v …'
+&lt;127.0.0.1&gt; (0, b'FOUND\n/usr/bin/python3.12\n/usr/bin/python3\n…ENDFOUND\n', b'')    <span class="c"># ← 인터프리터 탐색</span>
+Using module file …/ansible/modules/ping.py
+&lt;127.0.0.1&gt; SSH: EXEC ssh … 127.0.0.1 '/bin/sh -c /usr/bin/python3.12'     <span class="c"># ← 모듈을 표준입력으로 흘려 실행</span>
+
+<span class="c"># 실측: 같은 명령, 파이프라이닝 끔 (ANSIBLE_PIPELINING=False)</span>
+&lt;127.0.0.1&gt; PUT /root/.ansible/tmp/…/tmpm8s542bh TO /home/ansible/.ansible/tmp/ansible-tmp-…/AnsiballZ_ping.py
+&lt;127.0.0.1&gt; SSH: EXEC ssh … (임시 디렉터리 만들기, chmod, 실행, 삭제 — SSH 왕복이 여러 번)</pre>
+  <div class="tablewrap"><table>
+    <tr><th>개념</th><th>뜻</th><th>운영에서의 의미</th></tr>
+    <tr><td>AnsiballZ</td><td>모듈 코드와 필요한 공용 라이브러리를 하나의 Python 파일로 묶은 것</td><td>관리 노드에 Ansible을 설치하지 않아도 되는 이유. 대신 Python은 있어야 한다</td></tr>
+    <tr><td>인터프리터 탐색</td><td>관리 노드에서 쓸 Python을 찾는 과정 (<code>interpreter_python = auto_silent</code>)</td><td>Python이 여러 개인 서버에서 의도와 다른 것이 잡히면 <code>ansible_python_interpreter</code>로 고정</td></tr>
+    <tr><td>파이프라이닝</td><td>모듈을 파일로 올리지 않고 SSH 표준입력으로 바로 실행</td><td>SSH 왕복이 줄어 빨라진다. become 사용 시 sudoers의 <code>requiretty</code>가 켜져 있으면 실패하므로 확인</td></tr>
+    <tr><td>ControlPersist</td><td>SSH 연결을 일정 시간(기본 60초) 열어 두고 재사용 (<code>~/.ansible/cp/</code>)</td><td>두 번째 명령부터 빠르다. 키를 바꿔도 열린 연결이 재사용되어 “인증 실패가 안 나는” 착각이 생길 수 있다(실측: 소켓을 지우자 비로소 Permission denied)</td></tr>
+    <tr><td>forks</td><td>동시에 작업할 호스트 수 (2편 설정 10, 기본 5)</td><td>결과가 호스트 순서와 다르게 섞여 나오는 이유 (실측: node2 → node3 → node1)</td></tr>
+  </table></div>
+</section>
+<!-- ================= 3 ================= -->
+<section class="unit" id="u3">
+  <h2><span class="no">3</span>연결: SSH·WinRM·그 밖</h2>
+  <p class="lead">연결 플러그인이 “어떻게 들어갈지”를 정한다</p>
+  <div class="tablewrap"><table>
+    <tr><th>연결 (<code>ansible_connection</code>)</th><th>대상</th><th>필요한 것</th><th>이 강의</th></tr>
+    <tr><td><code>ssh</code> (기본)</td><td>리눅스·유닉스, Windows(OpenSSH)</td><td>OpenSSH 클라이언트, 키, 관리 노드의 sshd + Python</td><td>13~17편 전부</td></tr>
+    <tr><td><code>ansible.windows</code>의 <code>winrm</code> / <code>psrp</code></td><td>Windows</td><td>WinRM(HTTPS 5986 권장) 활성화, NTLM·Kerberos·인증서 인증, 관리 노드 PowerShell (Python 불필요)</td><td>개요만</td></tr>
+    <tr><td><code>local</code></td><td>컨트롤 노드 자신</td><td>없음</td><td>실습 C</td></tr>
+    <tr><td><code>community.docker.docker</code></td><td>컨테이너 내부</td><td>Docker API 접근</td><td>—</td></tr>
+    <tr><td><code>amazon.aws.aws_ssm</code></td><td>AWS EC2 (SSH 없이)</td><td>SSM 에이전트, Session Manager 경로(7편의 엔드포인트·NAT), S3 버킷</td><td>18편</td></tr>
+  </table></div>
+  <div class="tablewrap"><table>
+    <tr><th>자주 쓰는 연결 변수</th><th>뜻</th><th>예</th></tr>
+    <tr><td><code>ansible_host</code></td><td>실제 접속 주소 (인벤토리 이름과 다를 때)</td><td><code>127.0.0.1</code>, <code>10.10.10.25</code></td></tr>
+    <tr><td><code>ansible_port</code></td><td>SSH 포트</td><td><code>2221</code></td></tr>
+    <tr><td><code>ansible_user</code></td><td>접속 사용자 (ansible.cfg의 <code>remote_user</code>보다 우선)</td><td><code>ansible</code>, <code>ec2-user</code></td></tr>
+    <tr><td><code>ansible_ssh_private_key_file</code></td><td>개인 키</td><td><code>~/iac-lab/lab/keys/lab_ed25519</code></td></tr>
+    <tr><td><code>ansible_become</code> / <code>ansible_become_user</code></td><td>권한 상승 / 상승할 사용자</td><td><code>true</code> / <code>root</code></td></tr>
+    <tr><td><code>ansible_python_interpreter</code></td><td>관리 노드의 Python 경로 고정</td><td><code>/usr/bin/python3</code></td></tr>
+    <tr><td><code>ansible_shell_type</code></td><td>원격 셸 (Windows OpenSSH면 <code>powershell</code>)</td><td>—</td></tr>
+  </table></div>
+<pre class="code"><span class="c"># Windows 관리 노드의 인벤토리 예 (개요, 이 강의에서는 실행하지 않음)</span>
+[windows]
+win1 ansible_host=10.20.0.15
+
+[windows:vars]
+ansible_connection=winrm
+ansible_port=5986
+ansible_winrm_transport=kerberos       <span class="c"># 도메인 환경. 도메인 밖이면 ntlm (HTTPS 필수) 또는 인증서</span>
+ansible_winrm_server_cert_validation=validate
+<span class="c"># Windows용 모듈은 ansible.windows 컬렉션 (win_feature, win_service, win_package …)</span></pre>
+  <div class="callout warn prose"><div class="ct">host_key_checking = False는 랩 전용</div>
+  <p>2편 설정은 랩 노드가 자주 다시 만들어지기 때문에 호스트 키 검사를 껐습니다. 고객 서버에서 끄면 중간자 공격을 탐지할 방법이 사라집니다. 운영에서는 <code>True</code>로 두고, 새 서버의 호스트 키는 <code>ssh-keyscan</code> 결과를 검증해 known_hosts에 넣거나, 클라우드에서는 인스턴스 콘솔 출력·SSM으로 지문을 확인하는 절차를 둡니다(19편).</p></div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section class="unit" id="u4">
+  <h2><span class="no">4</span>인벤토리: INI와 YAML</h2>
+  <p class="lead">같은 구조, 두 가지 문법 — 그리고 값의 타입이 다르다</p>
+  <div class="grid2">
+    <div><div class="codehead"><span>inventory/lab.ini (2편)</span></div>
+<pre class="code">[ubuntu]
+node1 ansible_host=127.0.0.1 ansible_port=2221
+node2 ansible_host=127.0.0.1 ansible_port=2222
+
+[rocky]
+node3 ansible_host=127.0.0.1 ansible_port=2223
+
+[lab:children]
+ubuntu
+rocky</pre>
+    </div>
+    <div><div class="codehead"><span>inventory/lab.yml (같은 구조)</span></div>
+<pre class="code"><span class="c"># lab.ini 과 같은 구조를 YAML로 (값의 타입이 그대로 유지된다)</span>
+all:
+  children:
+    lab:
+      children:
+        ubuntu:
+          hosts:
+            node1:
+              ansible_host: 127.0.0.1
+              ansible_port: 2221
+            node2:
+              ansible_host: 127.0.0.1
+              ansible_port: 2222
+        rocky:
+          hosts:
+            node3:
+              ansible_host: 127.0.0.1
+              ansible_port: 2223</pre>
+    </div>
+  </div>
+<pre class="code"><span class="c"># 실측: ansible-inventory --graph</span>
+@all:
+  |--@ungrouped:
+  |--@lab:
+  |  |--@ubuntu:
+  |  |  |--node1
+  |  |  |--node2
+  |  |--@rocky:
+  |  |  |--node3</pre>
+  <div class="tablewrap"><table>
+    <tr><th>개념</th><th>설명</th></tr>
+    <tr><td><code>all</code>, <code>ungrouped</code></td><td>항상 존재하는 그룹. 모든 호스트는 all에, 어느 그룹에도 없으면 ungrouped에 속한다</td></tr>
+    <tr><td>자식 그룹 (<code>:children</code>, <code>children:</code>)</td><td>그룹의 그룹. lab = ubuntu + rocky. 호스트는 여러 그룹에 동시에 속할 수 있다</td></tr>
+    <tr><td>범위 표기</td><td>정의할 때 <code>web[01:20].example.com</code>처럼 여러 호스트를 한 줄로 (INI·YAML 모두)</td></tr>
+    <tr><td>인벤토리 디렉터리</td><td><code>-i inventory/</code>로 디렉터리를 주면 안의 파일을 모두 합친다. 정적 파일과 동적 플러그인(18편)을 섞을 수 있다</td></tr>
+  </table></div>
+  <h3>INI 값의 타입 함정 (실측)</h3>
+<pre class="code"><span class="c"># /tmp/ini_types.ini</span>
+[web]
+node1 ansible_host=127.0.0.1 ansible_port=2221 http_port=8080 enable_tls=true
+
+[web:vars]
+max_conn=100
+debug_mode=false
+
+<span class="c"># 실측 (ansible-core 2.21.5): ansible … -m debug -a "msg={{변수|type_debug}}"</span>
+http_port:  int       <span class="c"># 숫자는 숫자로</span>
+enable_tls: str       <span class="c"># "true" 는 문자열! (파이썬 리터럴 True 가 아님)</span>
+max_conn:   int
+debug_mode: str       <span class="c"># "false" 도 문자열 → 조건식에 쓰면 9장의 오류</span></pre>
+  <div class="callout warn prose"><div class="ct">불리언·목록·딕셔너리가 필요하면 YAML로</div>
+  <p>INI에서 <code>true</code>/<code>false</code>는 문자열이 됩니다. 2.18까지는 문자열 <code>"false"</code>를 조건에 쓰면 비어 있지 않은 문자열이라 참으로 평가되는 조용한 버그가 났고, 2.19부터는 “조건식 결과는 불리언이어야 한다” 오류가 납니다(9장). 연결 정보만 INI에 두고 나머지 변수는 YAML(group_vars·host_vars)에 두거나, 인벤토리 자체를 YAML로 쓰는 것이 안전합니다.</p></div>
+</section>
+
+<!-- ================= 5 ================= -->
+<section class="unit" id="u5">
+  <h2><span class="no">5</span>group_vars·host_vars</h2>
+  <p class="lead">값을 인벤토리 옆 디렉터리에 두고, 넓은 것에서 좁은 것 순으로 덮어쓴다</p>
+<div class="tree"><span class="d">ansible/inventory/</span>
+├── lab.yml
+├── <span class="d">group_vars/</span>
+│   ├── all.yml        <span class="c"># 모든 호스트 (가장 약함)</span>
+│   ├── lab.yml        <span class="c"># lab 그룹</span>
+│   ├── ubuntu.yml     <span class="c"># ubuntu 그룹 (lab의 자식 → lab보다 강함)</span>
+│   └── rocky.yml
+└── <span class="d">host_vars/</span>
+    └── node3.yml      <span class="c"># 이 호스트만 (그룹보다 강함)</span></div>
+  <div class="grid2">
+    <div><div class="codehead"><span>group_vars/all.yml</span></div>
+<pre class="code"><span class="c"># 모든 호스트의 기본값 (가장 약함)</span>
+ntp_server: time.example.com
+http_port: 80
+enable_tls: false</pre>
+      <div class="codehead"><span>group_vars/ubuntu.yml</span></div>
+<pre class="code">pkg_manager: apt
+http_port: 8080</pre>
+    </div>
+    <div><div class="codehead"><span>group_vars/rocky.yml · lab.yml</span></div>
+<pre class="code">pkg_manager: dnf</pre>
+<pre class="code">env_name: lab</pre>
+      <div class="codehead"><span>host_vars/node3.yml</span></div>
+<pre class="code"><span class="c"># 이 호스트만 다른 값 (그룹 변수보다 강함)</span>
+http_port: 9090
+enable_tls: true</pre>
+    </div>
+  </div>
+  <div class="panel">
+    <h4>변수 해석기 — 호스트를 고르면 각 값이 어느 파일에서 왔는지 보여 줍니다 (실측 결과 기준)</h4>
+    <div class="filters" id="hvTabs"></div>
+    <div class="tablewrap" style="margin:0"><table id="hvTable"></table></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>인벤토리 안에서의 우선순위 (약 → 강)</th><th>비고</th></tr>
+    <tr><td>1. <code>group_vars/all</code></td><td>기본값</td></tr>
+    <tr><td>2. 부모 그룹 (<code>lab</code>)</td><td>자식 그룹이 부모를 덮는다</td></tr>
+    <tr><td>3. 자식 그룹 (<code>ubuntu</code>, <code>rocky</code>)</td><td>같은 깊이의 그룹끼리 겹치면 이름 알파벳순으로 뒤가 이긴다 → <code>ansible_group_priority</code>로 조정</td></tr>
+    <tr><td>4. <code>host_vars/호스트</code></td><td>인벤토리 안에서는 가장 강함</td></tr>
+  </table></div>
+  <div class="prose"><p class="note">이것은 Ansible의 변수 우선순위 22단계 중 인벤토리 부분입니다. 플레이북의 vars, 역할 기본값, <code>-e</code> 추가 변수까지 포함한 전체 순서는 15편에서 다룹니다(<code>-e</code>가 항상 가장 강하다는 것만 먼저 기억하세요). <code>group_vars</code>·<code>host_vars</code>는 인벤토리 파일 옆 또는 플레이북 옆에 둘 수 있으며, 둘 다 있으면 플레이북 쪽이 더 강합니다.</p></div>
+</section>
+
+<!-- ================= 6 ================= -->
+<section class="unit" id="u6">
+  <h2><span class="no">6</span>호스트 패턴</h2>
+  <p class="lead">“어느 서버에” 를 한 줄로 — 패턴을 입력해 결과를 확인하세요</p>
+  <div class="panel">
+    <h4>패턴 연습기 — 2편 랩 인벤토리(node1·node2 ∈ ubuntu, node3 ∈ rocky, 모두 lab)</h4>
+    <div class="vfield"><label for="patIn">패턴</label><input id="patIn" value="lab:!rocky"></div>
+    <div class="filters" id="patEx"></div>
+    <div class="log" id="patOut"></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>패턴</th><th>뜻</th><th>실측 결과</th></tr>
+    <tr><td><code>all</code> 또는 <code>*</code></td><td>전부</td><td>node1, node2, node3</td></tr>
+    <tr><td><code>ubuntu:rocky</code> (또는 <code>ubuntu,rocky</code>)</td><td>합집합</td><td>node1, node2, node3</td></tr>
+    <tr><td><code>lab:!rocky</code></td><td>차집합 (셸에서는 작은따옴표로 감쌀 것)</td><td>node1, node2</td></tr>
+    <tr><td><code>ubuntu:&amp;lab</code></td><td>교집합</td><td>node1, node2</td></tr>
+    <tr><td><code>node*</code></td><td>와일드카드</td><td>node1, node2, node3</td></tr>
+    <tr><td><code>~node[12]</code></td><td>정규식 (<code>~</code>로 시작)</td><td>node1, node2</td></tr>
+    <tr><td><code>lab[0:1]</code></td><td>그룹 안 순서로 자르기 (0부터, 끝 포함)</td><td>node1, node2</td></tr>
+    <tr><td><code>node[1:2]</code></td><td>호스트 이름에 범위 표기는 패턴에서 안 된다</td><td>경고: Could not match supplied host pattern, ignoring: node</td></tr>
+    <tr><td><code>--limit node3</code></td><td>플레이북·ad-hoc의 대상을 한 번 더 좁힘</td><td>node3</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">실행 전에는 항상 --list-hosts</div>
+  <p><code>ansible '패턴' --list-hosts</code>와 <code>ansible-playbook site.yml --limit '패턴' --list-hosts</code>는 아무것도 실행하지 않고 대상만 보여 줍니다. 운영 서버에 무언가를 하기 전의 습관으로 만드세요. 셸에서 <code>!</code>·<code>&amp;</code>·<code>*</code>가 해석되지 않도록 패턴은 작은따옴표로 감쌉니다.</p></div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section class="unit" id="u7">
+  <h2><span class="no">7</span>ad-hoc 명령</h2>
+  <p class="lead">모듈 하나를 즉석에서 — 점검과 일회성 작업용</p>
+<pre class="code">ansible &lt;패턴&gt; -m &lt;모듈&gt; -a "&lt;인자&gt;" [-b] [-C] [-f 10] [-e 변수=값]
+<span class="c">#       대상     모듈       모듈 인자    권한상승 점검모드 동시수  추가변수</span></pre>
+  <div class="tablewrap"><table>
+    <tr><th>모듈 (<code>ansible.builtin.</code>)</th><th>용도</th><th>멱등?</th></tr>
+    <tr><td><code>ping</code></td><td>접속·Python 확인 (ICMP ping 아님)</td><td>예 (바꾸지 않음)</td></tr>
+    <tr><td><code>setup</code></td><td>팩트 수집 (<code>-a 'filter=ansible_distribution*'</code>)</td><td>예</td></tr>
+    <tr><td><code>command</code></td><td>명령 실행 (셸 거치지 않음: 파이프·리디렉션 불가)</td><td><b>아니오</b> — 항상 CHANGED</td></tr>
+    <tr><td><code>shell</code></td><td>셸을 통해 실행 (파이프·변수·와일드카드)</td><td><b>아니오</b></td></tr>
+    <tr><td><code>raw</code></td><td>Python 없이 SSH로 명령만 (Python 설치 전 부트스트랩용)</td><td>아니오</td></tr>
+    <tr><td><code>copy</code> / <code>file</code></td><td>파일 내용 / 파일·디렉터리 속성</td><td>예</td></tr>
+    <tr><td><code>user</code> / <code>group</code></td><td>계정</td><td>예</td></tr>
+    <tr><td><code>package</code> (<code>apt</code>, <code>dnf</code>)</td><td>패키지 (package는 배포판에 맞는 것을 자동 선택)</td><td>예</td></tr>
+    <tr><td><code>service</code> / <code>systemd_service</code></td><td>서비스 시작·활성화</td><td>예</td></tr>
+    <tr><td><code>reboot</code></td><td>재부팅하고 다시 붙을 때까지 대기</td><td>—</td></tr>
+  </table></div>
+<pre class="code"><span class="c"># 실측: 같은 copy를 두 번 → 처음만 CHANGED, 두 번째는 SUCCESS(changed: false)</span>
+$ ansible node1 -m copy -a 'dest=/tmp/hello.txt content="hello iac-lab\n" mode=0644'
+node1 | CHANGED =&gt;
+    changed: true
+$ ansible node1 -m copy -a 'dest=/tmp/hello.txt content="hello iac-lab\n" mode=0644'
+node1 | SUCCESS =&gt;
+    changed: false
+
+<span class="c"># 실측: command는 셸이 아니다 — 파이프가 그냥 인자로 전달됨 (환경 변수는 확장됨)</span>
+$ ansible node1 -m command -a 'echo $HOME | wc -c'
+node1 | CHANGED | rc=0 &gt;&gt;
+/home/ansible | wc -c
+$ ansible node1 -m shell -a 'echo $HOME | wc -c'
+node1 | CHANGED | rc=0 &gt;&gt;
+14
+
+<span class="c"># 실측: 권한이 필요한 작업을 become 없이</span>
+$ ansible node1 -m user -a 'name=deploy state=present'
+[ERROR]: Task failed: Module failed: useradd: Permission denied.
+useradd: cannot lock /etc/passwd; try again later.
+$ ansible node1 -b -m user -a 'name=deploy state=present'      <span class="c"># -b (become) → CHANGED, 다시 하면 SUCCESS</span></pre>
+  <div class="tablewrap"><table>
+    <tr><th>결과 표시</th><th>뜻</th></tr>
+    <tr><td><code>SUCCESS</code> (changed: false)</td><td>이미 원하는 상태. 아무것도 바꾸지 않음</td></tr>
+    <tr><td><code>CHANGED</code></td><td>바꿨음 (command·shell은 무엇을 했든 항상 CHANGED)</td></tr>
+    <tr><td><code>FAILED</code></td><td>모듈이 실패를 보고</td></tr>
+    <tr><td><code>UNREACHABLE</code></td><td>접속 자체가 안 됨 (SSH, 네트워크, 인증)</td></tr>
+  </table></div>
+  <div class="callout warn prose"><div class="ct">ad-hoc는 기록이 남지 않는 변경이다</div>
+  <p>ad-hoc 명령은 점검(ping, setup, 상태 조회)과 긴급 조치에 씁니다. 반복될 변경을 ad-hoc로 하면 1편의 “클릭 운영”과 같은 문제가 터미널에서 재현됩니다. 한 번이라도 다시 할 일이라면 플레이북(14편)으로 만들고 Git에 남기세요. 또한 <code>command</code>·<code>shell</code>로 할 수 있는 일 대부분에는 전용 모듈이 있고, 전용 모듈이 멱등합니다.</p></div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section class="unit" id="u8">
+  <h2><span class="no">8</span>ansible.cfg 우선순위</h2>
+  <p class="lead">어느 설정 파일을 읽는가, 그리고 같은 설정이 여러 곳에 있으면 누가 이기는가</p>
+  <div class="tablewrap"><table>
+    <tr><th>설정 파일 탐색 순서 (처음 찾은 하나만 사용)</th><th>비고</th></tr>
+    <tr><td>1. 환경 변수 <code>ANSIBLE_CONFIG</code>가 가리키는 파일</td><td>CI·스크립트에서 명시적으로</td></tr>
+    <tr><td>2. 현재 디렉터리의 <code>ansible.cfg</code></td><td>프로젝트별 설정 (이 강의 방식). <b>디렉터리가 누구나 쓸 수 있는(world-writable) 곳이면 무시</b></td></tr>
+    <tr><td>3. <code>~/.ansible.cfg</code></td><td>개인 기본값</td></tr>
+    <tr><td>4. <code>/etc/ansible/ansible.cfg</code></td><td>시스템 기본값 (pip·pipx 설치 시 보통 없음)</td></tr>
+  </table></div>
+<pre class="code"><span class="c"># 실측: 권한 777인 디렉터리에서 실행 → 그 안의 ansible.cfg를 무시</span>
+[WARNING]: Ansible is being run in a world writable directory (/tmp/ww), ignoring it as an ansible.cfg source.
+  config file = None
+
+<span class="c"># 실측: 설정 파일이 없는 디렉터리 vs ANSIBLE_CONFIG 지정</span>
+$ cd /tmp &amp;&amp; ansible --version | grep "config file"
+  config file = None
+$ ANSIBLE_CONFIG=~/iac-lab/ansible/ansible.cfg ansible --version | grep "config file"
+  config file = /root/iac-lab/ansible/ansible.cfg</pre>
+  <div class="tablewrap"><table>
+    <tr><th>같은 설정의 우선순위 (약 → 강)</th><th>예 (forks)</th></tr>
+    <tr><td>1. 기본값</td><td>5</td></tr>
+    <tr><td>2. ansible.cfg</td><td><code>forks = 10</code></td></tr>
+    <tr><td>3. 환경 변수</td><td><code>ANSIBLE_FORKS=20</code></td></tr>
+    <tr><td>4. 명령줄 옵션</td><td><code>-f 30</code></td></tr>
+    <tr><td>(연결 관련은) 5. 인벤토리·플레이 변수</td><td><code>ansible_user</code>가 <code>remote_user</code>보다 우선</td></tr>
+  </table></div>
+<pre class="code"><span class="c"># 실측: 지금 실제로 적용된(기본값이 아닌) 설정과 그 출처</span>
+$ ANSIBLE_FORKS=20 ansible-config dump --only-changed
+CONFIG_FILE() = /root/iac-lab/ansible/ansible.cfg
+DEFAULT_FORKS(env: ANSIBLE_FORKS) = 20                        <span class="c"># ← 환경 변수가 cfg의 10을 이김</span>
+DEFAULT_HOST_LIST(/root/iac-lab/ansible/ansible.cfg) = ['/root/iac-lab/ansible/inventory/lab.ini']
+DEFAULT_PRIVATE_KEY_FILE(/root/iac-lab/ansible/ansible.cfg) = /root/iac-lab/lab/keys/lab_ed25519
+DEFAULT_REMOTE_USER(/root/iac-lab/ansible/ansible.cfg) = ansible
+HOST_KEY_CHECKING(/root/iac-lab/ansible/ansible.cfg) = False
+INTERPRETER_PYTHON(/root/iac-lab/ansible/ansible.cfg) = auto_silent
+
+ansible-config view                         <span class="c"># 읽은 파일 내용</span>
+ansible-config list                         <span class="c"># 모든 설정의 설명·기본값·환경 변수 이름</span>
+ansible-config init --disabled -t all &gt; ansible.cfg.full   <span class="c"># 모든 설정을 주석으로 담은 견본 (실측 981줄)</span></pre>
+  <div class="codehead"><span>~/iac-lab/ansible/ansible.cfg (2편) — 항목별 의미</span></div>
+<pre class="code">[defaults]
+inventory          = inventory/lab.ini
+remote_user        = ansible
+private_key_file   = ../lab/keys/lab_ed25519
+<span class="c"># 랩 노드는 자주 재생성되어 호스트 키가 바뀌므로 검사 생략 (실서버에서는 True 유지!)</span>
+host_key_checking  = False
+interpreter_python = auto_silent
+forks              = 10
+<span class="c"># 결과를 읽기 쉬운 YAML 형태로 출력</span>
+callback_result_format = yaml
+
+[ssh_connection]
+pipelining = True</pre>
+  <div class="tablewrap"><table>
+    <tr><th>항목</th><th>의미</th><th>운영 권장</th></tr>
+    <tr><td><code>inventory</code></td><td>기본 인벤토리 (<code>-i</code> 생략 시)</td><td>환경별로 디렉터리를 나누고 실행 시 <code>-i</code>로 명시(8편 환경 분리와 같은 원칙)</td></tr>
+    <tr><td><code>remote_user</code>, <code>private_key_file</code></td><td>기본 접속 사용자·키</td><td>개인 키 경로는 개인 설정이나 에이전트로. 저장소에 키를 두지 않는다</td></tr>
+    <tr><td><code>host_key_checking</code></td><td>호스트 키 검사</td><td><b>True</b> (3장)</td></tr>
+    <tr><td><code>interpreter_python</code></td><td>Python 자동 탐색, 경고 숨김</td><td>그대로, 문제 서버만 변수로 고정</td></tr>
+    <tr><td><code>forks</code></td><td>동시 호스트 수</td><td>컨트롤 노드 자원과 대상 수에 맞게 (20편 성능)</td></tr>
+    <tr><td><code>callback_result_format = yaml</code></td><td>결과를 YAML로 (기본은 JSON)</td><td>사람이 읽기 좋음. CI 파싱에는 JSON 콜백</td></tr>
+    <tr><td><code>pipelining</code></td><td>2장의 파이프라이닝</td><td>켜기 (requiretty 확인)</td></tr>
+  </table></div>
+</section>
+<!-- ================= 9 ================= -->
+<section class="unit" id="u9">
+  <h2><span class="no">9</span>2.19+ 데이터 태깅·템플릿 변화</h2>
+  <p class="lead">예전 자료의 플레이북이 지금은 오류가 나는 이유</p>
+  <div class="prose"><p>ansible-core 2.19(Ansible 12)는 템플릿 엔진을 전면 개편하고 <strong>데이터 태깅(Data Tagging)</strong>을 도입했습니다. 모든 값에 “어디서 왔는가(파일·줄 위치), 믿을 수 있는가” 같은 꼬리표가 붙어, 오류 메시지가 정확한 위치를 가리키고 위험한 동작을 막을 수 있게 되었습니다. 그 대가로 예전에 조용히 넘어가던 코드가 오류를 냅니다. 아래는 2.21.5에서 실제로 실행한 결과입니다(실습 C).</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>변화</th><th>예전 (≤ 2.18)</th><th>지금 (2.19+, 실측 2.21.5)</th><th>고치는 법</th></tr>
+    <tr><td>① 조건식은 불리언이어야 한다</td><td><code>when: enable_tls</code> (값 "true" 문자열) → 비어 있지 않으니 참</td><td>오류: <i>Conditional result (True) was derived from value of type 'str' … Conditionals must have a boolean result.</i></td><td><code>when: enable_tls | bool</code>, 목록이면 <code>| length &gt; 0</code>, 정의 여부면 <code>is defined</code></td></tr>
+    <tr><td>② 표현식 안에 <code>{{ }}</code> 금지</td><td><code>when: "{{ n }} == 3"</code> 은 경고만</td><td>오류: <i>Syntax error in expression. Template delimiters are not supported in expressions</i></td><td><code>when: n == 3</code> (when·assert·changed_when 등은 이미 표현식)</td></tr>
+    <tr><td>③ 신뢰할 수 없는 문자열은 템플릿으로 실행하지 않음</td><td>모듈 결과 등은 unsafe 표시로 막았지만 경로에 따라 새는 경우가 있었음</td><td>명령 결과에 담긴 <code>{{ 7 * 7 }}</code>이 그대로 출력됨 (실행되지 않음)</td><td>설계상 정상. 템플릿을 동적으로 조립하던 코드는 변수 참조로 바꾼다</td></tr>
+    <tr><td>④ 팩트의 최상위 변수 주입 지원 중단</td><td><code>ansible_distribution</code></td><td>지원 중단 경고: <i>INJECT_FACTS_AS_VARS default to True is deprecated … will be removed from ansible-core version 2.24</i></td><td><code>ansible_facts['distribution']</code> (ansible_ 접두사 없이)</td></tr>
+    <tr><td>⑤ INI의 true/false</td><td>문자열이지만 ①이 조용히 참으로 처리</td><td>①의 오류로 드러남 (4장 실측)</td><td>YAML 변수 파일, 또는 <code>| bool</code></td></tr>
+    <tr><td>⑥ 누락 값의 omit</td><td>루프 항목에 omit 자리표시가 새어 나가 우연히 동작</td><td>새지 않음</td><td><code>| default(omit)</code>를 명시 (예전 버전과도 호환)</td></tr>
+  </table></div>
+<pre class="code"><span class="c"># 실측 ①: 오류 메시지가 값이 정의된 위치(dt.yml 6행 17열)와 사용 위치(12행 13열)를 모두 가리킨다</span>
+[ERROR]: Task failed: A 'when' expression failed: Conditional result (True) was derived from value of type 'str'
+at '/tmp/dt/dt.yml:6:17'. Conditionals must have a boolean result.
+…
+12       when: enable_tls
+               ^ column 13
+Broken conditionals can be temporarily allowed with the `ALLOW_BROKEN_CONDITIONALS` configuration option.
+
+<span class="c"># 실측 ③</span>
+ok: [localhost] =&gt; {
+    "msg": "결과: {{ 7 * 7 }}"
+}
+
+<span class="c"># 실측 ④</span>
+[DEPRECATION WARNING]: INJECT_FACTS_AS_VARS default to `True` is deprecated, top-level facts will not be auto
+injected after the change. This feature will be removed from ansible-core version 2.24.
+Use `ansible_facts["fact_name"]` (no `ansible_` prefix) instead.</pre>
+  <div class="callout warn prose"><div class="ct">업그레이드 전략</div>
+  <p>① 오래된 플레이북을 2.19+로 올릴 때는 먼저 <code>ANSIBLE_ALLOW_BROKEN_CONDITIONALS=True</code>(또는 ansible.cfg의 <code>allow_broken_conditionals = True</code>)로 한 번 돌려 목록을 모으고, 하나씩 고친 뒤 이 설정을 끕니다. 실측: 이 설정을 켜면 오류가 “… This feature will be removed from ansible-core version 2.23.”라는 지원 중단 경고로 바뀝니다. 즉 2.23부터는 이 완화책도 사라집니다. ② 신뢰 문제를 추적할 때는 <code>_ANSIBLE_TEMPLAR_UNTRUSTED_TEMPLATE_BEHAVIOR=warning</code>(실험적 환경 변수)으로 무시되는 템플릿을 경고로 볼 수 있습니다. ③ ansible-lint(16편)가 이런 패턴 상당수를 미리 잡아 줍니다. ④ 인터넷 예제를 복사할 때 작성 시점의 버전을 확인하세요. 2025년 이전 자료의 <code>when: "{{ … }}"</code>는 지금 바로 오류입니다.</p></div>
+  <div class="callout prose"><div class="ct">그 밖에 이번 버전대에서 알아둘 지원 중단 (실측)</div>
+  <p>ad-hoc의 한 줄 출력 옵션 <code>-o</code>와 <code>oneline</code> 콜백은 지원 중단되어 ansible-core 2.23에서 제거될 예정이라는 경고가 나옵니다. 출력 형식은 콜백 설정(<code>callback_result_format</code> 등)으로 다룹니다.</p></div>
+</section>
+
+<!-- ================= 10 ================= -->
+<section class="unit" id="u10">
+  <h2><span class="no">10</span>Terraform 출력과 연결</h2>
+  <p class="lead">7편에서 설계한 ansible_inventory 출력은 그대로 인벤토리가 된다</p>
+<pre class="code">cd ~/iac-lab/terraform/07-app
+terraform output -raw ansible_inventory_yaml &gt; ~/iac-lab/ansible/inventory/aws-dev.yml   <span class="c"># 7편 과제 5의 출력</span>
+cd ~/iac-lab/ansible
+ansible-inventory -i inventory/aws-dev.yml --graph
+ansible-inventory -i inventory/aws-dev.yml --host web2
+ansible-inventory -i inventory/lab.yml -i inventory/aws-dev.yml --graph    <span class="c"># 여러 인벤토리를 합쳐서</span></pre>
+<pre class="code"><span class="c"># 실측 (7편 10장의 YAML)</span>
+@all:
+  |--@ungrouped:
+  |--@web:
+  |  |--web1
+  |  |--web2
+{
+    "alb_dns_name": "iaclab-dev-app-1234567890.ap-northeast-2.elb.amazonaws.com",
+    "ansible_host": "10.10.11.37",
+    "app_port": 80,
+    "az": "ap-northeast-2b",
+    "db_host": "iaclab-dev-app-db.abcdefghijkl.ap-northeast-2.rds.amazonaws.com",
+    "db_name": "app",
+    "db_port": 5432,
+    "db_secret_arn": "arn:aws:secretsmanager:…",
+    "instance_id": "i-0a1b2c3d4e5f60002"
+}
+
+<span class="c"># 실측: 내 PC에서 프라이빗 IP로 접속 시도</span>
+$ ansible -i inventory/aws-dev.yml web1 -m ping -T 3
+[ERROR]: Task failed: Failed to connect to the host via ssh: ssh: connect to host 10.10.10.25 port 22: Connection timed out</pre>
+  <div class="prose"><p>Terraform의 출력이 그룹(web)·호스트·그룹 변수(DB 주소, 비밀의 ARN)까지 그대로 Ansible에 전달되었습니다. 7편에서 출력을 “Ansible 인벤토리 모양”으로 설계한 이유입니다. 다만 접속은 실패합니다. 웹 서버는 프라이빗 서브넷에 있고 SSH 22번도 열려 있지 않기 때문입니다(7편 보안 설계). 이 접속 문제는 Session Manager 연결(<code>amazon.aws.aws_ssm</code>)과 태그 기반 동적 인벤토리로 18편에서, 두 도구를 하나의 흐름으로 묶는 방법은 23편에서 다룹니다. 그 전까지(14~17편)는 2편의 랩 노드로 진행합니다.</p></div>
+</section>
+<!-- ================= 11 ================= -->
+<section class="unit" id="u11">
+  <h2><span class="no">11</span>실습 A: 노드 점검과 인벤토리</h2>
+  <p class="lead">2편 랩을 깨우고, Ansible이 무엇을 보고 있는지 확인한다</p>
+<pre class="code"><span class="c"># 0) 랩 노드 켜기 (2편 트랙에 맞게)</span>
+<span class="c">#   트랙 A: multipass start node1 node2 node3</span>
+<span class="c">#   트랙 B: cd ~/iac-lab/lab &amp;&amp; docker compose up -d</span>
+cd ~/iac-lab/ansible
+ansible --version | head -3          <span class="c"># config file = …/iac-lab/ansible/ansible.cfg 인지 확인</span>
+ansible-inventory --graph
+ansible all -m ping</pre>
+<pre class="code"><span class="c"># 실측</span>
+ansible [core 2.21.5]
+  config file = /root/iac-lab/ansible/ansible.cfg
+node1 | SUCCESS =&gt;
+    ansible_facts:
+        discovered_interpreter_python: /usr/bin/python3.12
+    changed: false
+    ping: pong
+node3 | SUCCESS =&gt; …
+node2 | SUCCESS =&gt; …</pre>
+<pre class="code"><span class="c"># 1) 팩트 맛보기 — 배포판 정보만</span>
+ansible all -m setup -a 'filter=ansible_distribution*'
+<span class="c">#   실측(node1): ansible_distribution: Ubuntu / ansible_distribution_version: '24.04' / …_release: noble</span>
+<span class="c">#   2편 랩의 node3(Rocky 9)에서는 Rocky / '9.x' / os_family RedHat 이 나온다</span>
+
+<span class="c"># 2) YAML 인벤토리와 변수 파일로 옮기기 (4·5장의 파일들 작성)</span>
+ansible-inventory -i inventory/lab.yml --graph --vars
+ansible-inventory -i inventory/lab.yml --host node1
+ansible-inventory -i inventory/lab.yml --host node3</pre>
+<pre class="code"><span class="c"># 실측</span>
+$ ansible-inventory -i inventory/lab.yml --host node1        $ ansible-inventory -i inventory/lab.yml --host node3
+{                                                            {
+    "ansible_host": "127.0.0.1",                                 "ansible_host": "127.0.0.1",
+    "ansible_port": 2221,                                        "ansible_port": 2223,
+    "enable_tls": false,          ← all                          "enable_tls": true,           ← host_vars/node3
+    "env_name": "lab",            ← lab                          "env_name": "lab",
+    "http_port": 8080,            ← ubuntu (all의 80을 덮음)       "http_port": 9090,            ← host_vars/node3
+    "ntp_server": "time.example.com",                            "ntp_server": "time.example.com",
+    "pkg_manager": "apt"          ← ubuntu                       "pkg_manager": "dnf"          ← rocky
+}                                                            }</pre>
+<pre class="code"><span class="c"># 3) 패턴 확인 (6장)</span>
+ansible 'lab:!rocky' --list-hosts
+ansible '~node[12]' --list-hosts
+ansible 'node[1:2]' --list-hosts      <span class="c"># 실측: [WARNING]: Could not match supplied host pattern, ignoring: node</span>
+
+<span class="c"># 4) 2편 기본 인벤토리를 YAML로 바꾸려면 ansible.cfg의 inventory = inventory/lab.yml 로</span></pre>
+</section>
+
+<!-- ================= 12 ================= -->
+<section class="unit" id="u12">
+  <h2><span class="no">12</span>실습 B: ad-hoc 운영</h2>
+  <p class="lead">멱등성을 눈으로 보고, 점검 모드와 권한 상승을 써 본다</p>
+<pre class="code"><span class="c"># 1) 운영 계정 만들기 — 두 번 실행해 CHANGED → SUCCESS 확인</span>
+ansible lab -b -m ansible.builtin.user -a 'name=deploy state=present shell=/bin/bash'
+
+<span class="c"># 2) 디렉터리 — 소유자·권한까지</span>
+ansible lab -b -m ansible.builtin.file -a 'path=/opt/iac-lab state=directory owner=deploy mode=0750'
+ansible lab -m ansible.builtin.command -a 'ls -ld /opt/iac-lab'
+<span class="c">#   실측: drwxr-x--- 2 deploy root 4096 … /opt/iac-lab</span>
+
+<span class="c"># 3) 패키지 — 배포판을 몰라도 package 모듈이 apt/dnf를 고른다</span>
+ansible lab -b -m ansible.builtin.package -a 'name=tree state=present'
+<span class="c">#   실측(node1): 처음 CHANGED, 다시 하면 SUCCESS (changed: false)</span>
+
+<span class="c"># 4) 점검 모드(-C): 바뀔지 보기만</span>
+ansible lab -C -b -m ansible.builtin.file -a 'path=/opt/check-mode state=directory'
+<span class="c">#   실측: 세 노드 모두 CHANGED 로 표시되지만 실제로는 만들어지지 않음 (ls: cannot access '/opt/check-mode')</span>
+
+<span class="c"># 5) 정리</span>
+ansible lab -b -m ansible.builtin.file -a 'path=/opt/iac-lab state=absent'
+ansible lab -b -m ansible.builtin.user -a 'name=deploy state=absent remove=true'</pre>
+  <div class="grid2">
+    <div class="tile"><h4>관찰 1: command의 CHANGED</h4><p>4번의 <code>ls</code>처럼 아무것도 바꾸지 않는 명령도 command 모듈은 CHANGED로 보고합니다. Ansible은 명령이 무엇을 했는지 모르기 때문입니다. 플레이북에서는 <code>changed_when: false</code>로 알려 줍니다(14편).</p></div>
+    <div class="tile"><h4>관찰 2: 점검 모드의 한계</h4><p>점검 모드는 모듈이 지원할 때만 정확합니다. command·shell은 점검 모드에서 실행을 건너뛰고, 앞 단계의 결과에 의존하는 작업(패키지를 설치해야 생기는 설정 파일 등)은 점검 모드에서 실패할 수 있습니다. 14편의 <code>--check --diff</code>로 이어집니다.</p></div>
+  </div>
+</section>
+
+<!-- ================= 13 ================= -->
+<section class="unit" id="u13">
+  <h2><span class="no">13</span>실습 C: 2.19+ 변화 체험</h2>
+  <p class="lead">일부러 예전 방식으로 써서 지금의 오류 메시지를 읽어 본다 (플레이북 맛보기)</p>
+  <div class="codehead"><span>~/iac-lab/ansible/playbooks/dt.yml</span></div>
+<pre class="code">- name: 2.19+ 템플릿 변화 확인
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars:
+    enable_tls: "true"        <span class="c"># INI 인벤토리에서 온 값처럼 문자열</span>
+    items_count: 3
+  tasks:
+    - name: 1) 문자열을 조건에 그대로 (2.18까지는 truthy로 통과)
+      ansible.builtin.debug:
+        msg: "TLS 켜짐"
+      when: enable_tls
+      ignore_errors: true
+
+    - name: 2) 명시적으로 bool 변환
+      ansible.builtin.debug:
+        msg: "TLS 켜짐"
+      when: enable_tls | bool
+
+    - name: 3) 조건식 안에 템플릿 구분자
+      ansible.builtin.debug:
+        msg: "세 개"
+      when: "{{ items_count }} == 3"
+      ignore_errors: true
+
+    - name: 4) 명령 결과에 템플릿처럼 보이는 문자열
+      ansible.builtin.command: echo "{{ '{{' }} 7 * 7 {{ '}}' }}"
+      register: out
+      changed_when: false
+
+    - name: 5) 신뢰할 수 없는 문자열은 다시 렌더링되지 않는다
+      ansible.builtin.debug:
+        msg: "결과: {{ out.stdout }}"
+
+    - name: 6) 팩트를 최상위 변수로 (INJECT_FACTS_AS_VARS)
+      ansible.builtin.debug:
+        msg: "{{ ansible_distribution }} / {{ ansible_facts['distribution'] }}"</pre>
+<pre class="code">cd ~/iac-lab/ansible
+ansible-playbook playbooks/dt.yml          <span class="c"># 9장 표의 결과가 순서대로 나온다</span>
+ANSIBLE_ALLOW_BROKEN_CONDITIONALS=True ansible-playbook playbooks/dt.yml   <span class="c"># 1번이 오류 → 지원 중단 경고로</span></pre>
+<pre class="code"><span class="c"># 실측 요약</span>
+TASK [1) 문자열을 조건에 그대로 …]   → [ERROR] … Conditionals must have a boolean result.  (...ignoring)
+TASK [2) 명시적으로 bool 변환]       → ok  "msg": "TLS 켜짐"
+TASK [3) 조건식 안에 템플릿 구분자]  → [ERROR] … Template delimiters are not supported in expressions  (...ignoring)
+TASK [4) …템플릿처럼 보이는 문자열]  → ok
+TASK [5) 신뢰할 수 없는 문자열…]     → ok  "msg": "결과: {{ 7 * 7 }}"
+TASK [6) 팩트를 최상위 변수로]       → [DEPRECATION WARNING] INJECT_FACTS_AS_VARS … removed from ansible-core version 2.24
+                                        "msg": "Ubuntu / Ubuntu"
+PLAY RECAP: localhost : ok=7  changed=0  unreachable=0  failed=0  skipped=0  rescued=0  ignored=2</pre>
+  <div class="prose"><p class="note">이 플레이북은 <code>hosts: localhost</code>, <code>connection: local</code>이라 컨트롤 노드에서만 실행됩니다(인벤토리가 없으면 “implicit localhost”만 쓴다는 경고가 나올 수 있음). 플레이·태스크·모듈의 구조와 작성법은 다음 편에서 본격적으로 다룹니다.</p></div>
+</section>
+
+<!-- ================= 14 ================= -->
+<section class="unit" id="u14">
+  <h2><span class="no">14</span>흔한 오류와 해결</h2>
+  <p class="lead">첫 접속부터 템플릿까지, 실제로 만나는 문제 15가지</p>
+  <input class="gsearch faq-filter" id="faqSearch" type="search" placeholder="검색 (예: UNREACHABLE, Permission denied, world writable, Conditional)" aria-label="오류 검색">
+  <div id="faq"></div>
+</section>
+
+<!-- ================= 15 ================= -->
+<section class="unit" id="u15">
+  <h2><span class="no">15</span>MSP 현장 팁</h2>
+  <p class="lead">고객사 서버 수백 대에 Ansible을 붙일 때</p>
+  <div class="grid2">
+    <div class="tile"><h4>접속 계정과 키를 표준화</h4><p>고객마다 전용 자동화 계정(예: <code>svc-ansible</code>)과 키를 두고, sudo 권한 범위를 문서화합니다. 사람 계정으로 자동화하지 않습니다. 키 교체 주기와 절차는 19편에서 다룹니다.</p></div>
+    <div class="tile"><h4>인벤토리는 고객·환경 단위로</h4><p>8편과 같은 원칙: <code>inventories/custa-prd/</code>, <code>inventories/custa-dev/</code>처럼 나누고 실행 시 <code>-i</code>로 명시합니다. ansible.cfg의 기본 인벤토리를 운영으로 두면 실수로 운영에 실행하는 사고가 납니다.</p></div>
+    <div class="tile"><h4>첫 접속 점검표</h4><p>새 고객 서버를 받으면: ① <code>ping</code> 전체 ② <code>setup -a filter=ansible_distribution*</code>로 OS 분포 ③ Python 버전(구형 서버는 3.9 미만일 수 있음 → 대상 Python 업그레이드나 구버전 ansible-core 필요) ④ sudo 동작 ⑤ 호스트 키 수집. 이 결과가 고객 서버 현황표가 됩니다.</p></div>
+    <div class="tile"><h4>오래된 플레이북 인수인계</h4><p>고객이 쓰던 플레이북을 받으면 사용하던 ansible-core 버전부터 확인합니다. 2.18 이하용이면 9장의 변화 때문에 바로 실패할 수 있습니다. 같은 버전으로 실행 환경을 고정해 두고(20편 Execution Environment), 별도 작업으로 2.19+ 이전을 계획합니다.</p></div>
+    <div class="tile"><h4>ad-hoc 사용 규칙</h4><p>ad-hoc는 조회와 긴급 조치에만, 변경은 플레이북과 PR로. 긴급 ad-hoc 변경을 했다면 같은 날 플레이북에 반영합니다(Terraform의 드리프트 규칙과 같은 원칙, 9편).</p></div>
+    <div class="tile"><h4>Windows 서버가 섞여 있다면</h4><p>국내 고객사에는 Windows 서버가 흔합니다. WinRM(HTTPS, Kerberos)과 OpenSSH 중 고객 보안 정책에 맞는 방식을 정하고, Windows 그룹은 별도 그룹·변수 파일로 분리합니다. 모듈도 <code>ansible.windows</code> 컬렉션으로 달라집니다.</p></div>
+  </div>
+</section>
+
+<!-- ================= 16 ================= -->
+<section class="unit" id="u16">
+  <h2><span class="no">16</span>용어 사전</h2>
+  <p class="lead">이번 편에 나온 용어</p>
+  <input class="gsearch" id="gSearch" type="search" placeholder="용어 검색 (예: 컨트롤 노드, 파이프라이닝, group_vars)" aria-label="용어 검색">
+  <dl class="gloss" id="gloss"></dl>
+  <p class="note" id="gCount"></p>
+</section>
+
+<!-- ================= 17 ================= -->
+<section class="unit" id="u17">
+  <h2><span class="no">17</span>확인 퀴즈</h2>
+  <p class="lead">보기를 누르면 바로 채점과 해설이 나옵니다</p>
+  <div id="quiz"></div>
+  <div class="panel"><span>점수: </span><span class="score" id="qScore">0 / 0</span> <button class="btn" id="qReset" style="margin-left:10px">다시 풀기</button></div>
+</section>
+
+<!-- ================= 18 ================= -->
+<section class="unit" id="u18">
+  <h2><span class="no">18</span>과제</h2>
+  <p class="lead">실습 A~C를 마친 뒤에 풀어 보세요</p>
+  <details><summary>과제 1. 같은 깊이 그룹의 충돌</summary><div>
+    <p>node1을 ubuntu 그룹과 새 그룹 <code>webservers</code>에 동시에 넣고, 두 그룹의 group_vars에 서로 다른 <code>http_port</code>를 주세요. node1의 값은 무엇이 되나요? <code>ansible_group_priority</code>로 결과를 뒤집어 보세요.</p>
+    <details><summary>해설</summary><div><p>같은 깊이의 그룹은 이름 알파벳순으로 병합되어 뒤(webservers가 ubuntu보다 뒤)가 이깁니다. <code>group_vars/ubuntu.yml</code>에 <code>ansible_group_priority: 10</code>을 주면 우선순위가 높아져 ubuntu 값이 이깁니다(기본 1). 이런 겹침이 생기지 않게 그룹을 역할(webservers)과 속성(ubuntu)으로 나누고, 같은 변수를 두 축에서 정의하지 않는 것이 더 좋은 해법입니다.</p></div></details>
+  </div></details>
+  <details><summary>과제 2. 파이프라이닝 효과 측정</summary><div>
+    <p><code>time ansible lab -m setup &gt; /dev/null</code>을 파이프라이닝 켬·끔(<code>ANSIBLE_PIPELINING=False</code>), ControlPersist 소켓 삭제 전·후로 비교하세요. 무엇이 가장 큰 차이를 만드나요?</p>
+  </div></details>
+  <details><summary>과제 3. INI를 YAML로, 타입 바로잡기</summary><div>
+    <p>4장의 <code>ini_types.ini</code>를 YAML 인벤토리로 옮기고, 네 변수의 타입이 int·bool·int·bool이 되는지 <code>type_debug</code>로 확인하세요. 9장의 ①번 오류가 사라지는지도 확인합니다.</p>
+  </div></details>
+  <details><summary>과제 4. Windows 인벤토리 설계</summary><div>
+    <p>“도메인에 가입된 Windows Server 3대와 리눅스 5대”를 관리하는 인벤토리를 YAML로 설계하세요. 연결 변수는 어느 그룹에 두나요? 비밀번호는 어디에 두면 안 되나요?</p>
+    <details><summary>해설 요지</summary><div><p><code>windows</code> 그룹의 group_vars에 <code>ansible_connection: winrm</code>, 포트 5986, Kerberos 전송을 두고, 리눅스는 ssh 기본값. 비밀번호·키는 인벤토리 평문에 두지 않고 Ansible Vault나 외부 비밀 저장소로(19편).</p></div></details>
+  </div></details>
+  <details><summary>과제 5. 고객 서버 현황표 만들기</summary><div>
+    <p>ad-hoc 명령만으로 lab의 각 노드에 대해 “호스트명, 배포판·버전, Python 버전, CPU 수, 메모리(MB), 루트 디스크 사용률”을 모으는 방법을 찾고, 결과를 표로 정리하세요. 어떤 값은 setup 팩트에 있고 어떤 값은 명령이 필요한가요?</p>
+    <details><summary>힌트</summary><div><p><code>setup -a 'filter=ansible_distribution*,ansible_python_version,ansible_processor_vcpus,ansible_memtotal_mb'</code>로 대부분 해결되고, 디스크 사용률은 <code>ansible_mounts</code> 팩트나 <code>df</code> 명령으로. <code>--tree</code> 옵션(지원 중단 여부 확인)이나 JSON 콜백으로 저장해 가공하는 방법도 있습니다. 15편에서 팩트와 템플릿으로 이 표를 자동 생성합니다.</p></div></details>
+  </div></details>
+</section>
+
+<!-- ================= 19 ================= -->
+<section class="unit" id="u19">
+  <h2><span class="no">19</span>정리와 다음 편</h2>
+  <p class="lead">한 장으로 다시 보기</p>
+  <div class="grid2">
+    <div class="tile"><h4>에이전트리스</h4><p>SSH 접속 → Python 탐색 → 모듈(AnsiballZ)을 파이프라이닝으로 실행 → JSON 결과. 관리 노드에는 SSH와 Python 3.9+만.</p></div>
+    <div class="tile"><h4>연결</h4><p>ssh(기본), Windows는 winrm·psrp 또는 OpenSSH, local, aws_ssm(18편). ControlPersist로 연결 재사용, 호스트 키 검사는 운영에서 켠다.</p></div>
+    <div class="tile"><h4>인벤토리와 변수</h4><p>INI·YAML, 그룹·자식 그룹. INI의 true/false는 문자열. all → 부모 → 자식 → host_vars 순으로 강해진다. ansible-inventory로 확인.</p></div>
+    <div class="tile"><h4>패턴과 ad-hoc</h4><p>:, :!, :&amp;, *, ~정규식, [i:j]. 실행 전 --list-hosts. 전용 모듈은 멱등, command·shell은 항상 CHANGED. ad-hoc는 조회·긴급용.</p></div>
+    <div class="tile"><h4>ansible.cfg</h4><p>ANSIBLE_CONFIG → ./ansible.cfg(world-writable이면 무시) → ~/.ansible.cfg → /etc. 기본값 &lt; cfg &lt; 환경 변수 &lt; 명령줄. dump --only-changed.</p></div>
+    <div class="tile"><h4>2.19+</h4><p>조건식은 불리언, 표현식 속 {{ }} 금지, 신뢰할 수 없는 문자열은 템플릿 실행 안 함, 최상위 팩트 변수는 2.24에서 제거 → ansible_facts[...].</p></div>
+  </div>
+  <div class="panel">
+    <h4>이번 편 커리큘럼 대비 점검</h4>
+    <div class="tablewrap" style="margin:0"><table>
+      <tr><th>커리큘럼 항목</th><th>다룬 곳</th><th>상태</th></tr>
+      <tr><td>에이전트리스 구조</td><td>1장 구성 요소, 2장 실행 원리 단계 인터랙티브·-vvv 실측(파이프라이닝 켬·끔)·AnsiballZ·ControlPersist·forks</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>SSH/WinRM 연결</td><td>3장 연결 플러그인 표·연결 변수·Windows 인벤토리 예·호스트 키 검사, 14장 인증 오류(실측), 과제 4</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>컨트롤 노드 vs 관리 노드</td><td>1장 비교·요구 사항(2.21: 컨트롤 Python 3.12+, 관리 노드 3.9+ — 패키지 메타데이터로 확인)</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>인벤토리 (INI·YAML·그룹·host_vars/group_vars)</td><td>4장 INI·YAML·그래프·타입 함정(실측), 5장 변수 파일·우선순위·변수 해석기(실측), 6장 패턴(실측), 10장 Terraform 출력 인벤토리(실측), 실습 A, 과제 1·3</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>ad-hoc 명령</td><td>7장 문법·모듈 표·멱등성·command vs shell·become(실측), 실습 B(점검 모드 실측), 과제 5</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>ansible.cfg 우선순위</td><td>8장 탐색 순서·world-writable(실측)·설정 우선순위(실측 dump)·2편 설정 해설</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>2.19+ 데이터 태깅과 템플릿 엔진 변경점</td><td>9장 변화 6가지 표·실측 메시지·업그레이드 전략(완화 설정과 2.23 제거 실측), 실습 C</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>추가 보강</td><td>-o 옵션 지원 중단(실측), 14장 오류 15, 15장 MSP 팁, 용어·퀴즈·과제</td><td style="color:var(--teal)">보강</td></tr>
+    </table></div>
+  </div>
+  <div class="callout tl prose" style="border-left-color:var(--teal)"><div class="ct">다음 편 — 14편. 플레이북 작성</div>
+  <p>ad-hoc 명령을 파일로 옮깁니다. 플레이·태스크·모듈의 구조, 멱등성의 실제 의미(changed_when, 상태 기반 모듈), 핸들러와 notify(설정이 바뀔 때만 재시작), <code>--check</code>·<code>--diff</code> 모드, 태그로 일부만 실행하기, YAML의 함정(따옴표, 불리언, 들여쓰기)을 다루고, 2편 노드 3대에 패키지·서비스·설정 파일을 관리하는 첫 플레이북을 작성합니다.</p></div>
+  <footer>
+    Terraform &amp; Ansible 강의 13편 · 기준: ansible-core 2.21.5 (ansible 패키지 14.5.0), 2026년 10월. 출력은 2편 트랙 B 구조를 재현한 SSH 노드 3대에서 실제 실행한 결과입니다(세 노드가 같은 OS라 배포판 팩트는 모두 Ubuntu로 표시).
+  </footer>
+</section>
+</main>
+</div>
+<script>
+(function(){
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const root=document.documentElement, tbtn=$('#themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마':'다크 테마';store.set('iac-theme',t);}
+setTheme(store.get('iac-theme')==='light'?'light':'dark');
+tbtn.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+const toc=$('#toc'), tocBtn=$('#tocBtn');
+tocBtn.addEventListener('click',()=>{const o=toc.classList.toggle('open');tocBtn.setAttribute('aria-expanded',o)});
+$$('#toc a').forEach(a=>a.addEventListener('click',()=>{toc.classList.remove('open');tocBtn.setAttribute('aria-expanded','false')}));
+const links=$$('#toc a');
+const obs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+e.target.id))}})},{rootMargin:'-30% 0px -60% 0px'});
+$$('section.unit').forEach(s=>obs.observe(s));
+window.addEventListener('scroll',()=>{const h=document.documentElement;$('#progress').style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%'},{passive:true});
+$$('pre.code').forEach(pre=>{const b=document.createElement('button');b.className='cbtn';b.type='button';b.textContent='복사';
+ b.addEventListener('click',()=>{const t=Array.from(pre.childNodes).filter(n=>n!==b).map(n=>n.textContent).join('');
+  const done=()=>{b.textContent='복사됨';b.classList.add('done');setTimeout(()=>{b.textContent='복사';b.classList.remove('done')},1400)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,()=>fb(t,done));}else fb(t,done);});
+ pre.appendChild(b);});
+function fb(t,done){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){}ta.remove();}
+
+/* execution steps */
+const ex=[
+ {n:'1. 계획',l:['인벤토리에서 패턴(node1)에 맞는 호스트와 그 변수를 계산','ansible.cfg·환경 변수·명령줄을 합쳐 접속 설정 결정 (8장)','forks 수만큼 작업자 프로세스 준비'],r:[['어디서','컨트롤 노드'],['관련 설정','inventory, forks, remote_user'],['확인 명령','ansible-inventory --host node1, ansible-config dump --only-changed']]},
+ {n:'2. 접속',l:['ssh로 접속 (ControlMaster로 연결을 열어 60초 유지)','키·사용자·포트는 연결 변수와 설정에서','이미 열린 연결이 있으면 재사용 (실측: ~/.ansible/cp/ 소켓)'],r:[['어디서','컨트롤 → 관리 노드'],['실패하면','UNREACHABLE (SSH 오류, 타임아웃, 인증)'],['관련 설정','ansible_host/port/user, private_key_file, host_key_checking']]},
+ {n:'3. Python 찾기',l:['원격에서 echo FOUND; command -v python3.x … 실행 (실측 출력)','찾은 경로를 discovered_interpreter_python 팩트로 기록','관리 노드 Python 3.9 이상 필요 (2.21)'],r:[['관련 설정','interpreter_python, ansible_python_interpreter'],['실패하면','“/usr/bin/python: not found” 류 → 경로 고정 또는 raw로 Python 설치'],['Windows','PowerShell 사용 (Python 불필요)']]},
+ {n:'4. 모듈 묶기',l:['ping.py 등 모듈과 필요한 module_utils를 AnsiballZ 파일 하나로 묶음','인자(-a)를 함께 담음'],r:[['어디서','컨트롤 노드'],['의미','관리 노드에 Ansible 설치가 필요 없는 이유'],['확인','-vvv의 “Using module file …”']]},
+ {n:'5. 전송·실행',l:['파이프라이닝 켬: SSH 표준입력으로 python3에 바로 흘려 실행 (실측)','파이프라이닝 끔: 임시 디렉터리 생성 → PUT AnsiballZ_*.py → chmod → 실행 → 삭제 (실측)','become이면 sudo를 거쳐 실행'],r:[['관련 설정','pipelining, become, become_method'],['주의','sudoers requiretty와 파이프라이닝 충돌'],['효과','파이프라이닝이 SSH 왕복을 크게 줄인다']]},
+ {n:'6. 결과',l:['모듈이 JSON을 표준출력으로 돌려줌 (changed, failed, 결과 값)','컨트롤 노드가 받아 콜백 플러그인으로 출력 (2편 설정: YAML 형식)','관리 노드에는 아무것도 남지 않음'],r:[['표시','SUCCESS · CHANGED · FAILED · UNREACHABLE'],['관련 설정','callback_result_format, stdout_callback'],['다음','플레이북이면 다음 태스크로 (14편)']]}
+];
+const en=$('#exNav');
+ex.forEach((s,i)=>{const b=document.createElement('button');b.className='btn';b.textContent=s.n;b.addEventListener('click',()=>showEx(i));en.appendChild(b);});
+function showEx(i){const s=ex[i];$$('#exNav .btn').forEach((b,j)=>b.classList.toggle('on',i===j));$('#exL').innerHTML='<h4>'+s.n+'</h4>'+s.l.map(x=>'<p>'+esc(x)+'</p>').join('');$('#exR').innerHTML='<h4>요점</h4><div class="kv">'+s.r.map(x=>'<b>'+esc(x[0])+'</b><span>'+esc(x[1])+'</span>').join('')+'</div>';}
+showEx(4);
+
+/* variable resolver (실측 결과 기준) */
+const hv={
+ node1:[['ansible_host','127.0.0.1','lab.yml (호스트 정의)'],['ansible_port','2221','lab.yml (호스트 정의)'],['enable_tls','false','group_vars/all.yml'],['env_name','lab','group_vars/lab.yml'],['http_port','8080','group_vars/ubuntu.yml (all의 80을 덮음)'],['ntp_server','time.example.com','group_vars/all.yml'],['pkg_manager','apt','group_vars/ubuntu.yml']],
+ node2:[['ansible_host','127.0.0.1','lab.yml (호스트 정의)'],['ansible_port','2222','lab.yml (호스트 정의)'],['enable_tls','false','group_vars/all.yml'],['env_name','lab','group_vars/lab.yml'],['http_port','8080','group_vars/ubuntu.yml (all의 80을 덮음)'],['ntp_server','time.example.com','group_vars/all.yml'],['pkg_manager','apt','group_vars/ubuntu.yml']],
+ node3:[['ansible_host','127.0.0.1','lab.yml (호스트 정의)'],['ansible_port','2223','lab.yml (호스트 정의)'],['enable_tls','true','host_vars/node3.yml (all의 false를 덮음)'],['env_name','lab','group_vars/lab.yml'],['http_port','9090','host_vars/node3.yml (all의 80을 덮음)'],['ntp_server','time.example.com','group_vars/all.yml'],['pkg_manager','dnf','group_vars/rocky.yml']]
+};
+Object.keys(hv).forEach((h,i)=>{const b=document.createElement('button');b.className='btn'+(i===0?' on':'');b.textContent=h;b.addEventListener('click',()=>{$$('#hvTabs .btn').forEach(x=>x.classList.toggle('on',x===b));showHv(h);});$('#hvTabs').appendChild(b);});
+function showHv(h){$('#hvTable').innerHTML='<tr><th>변수</th><th>최종 값</th><th>어디서 왔나</th></tr>'+hv[h].map(r=>'<tr><td><code>'+esc(r[0])+'</code></td><td><code>'+esc(r[1])+'</code></td><td>'+esc(r[2])+'</td></tr>').join('');}
+showHv('node1');
+
+/* pattern tester */
+const HOSTS=['node1','node2','node3'];
+const GROUPS={all:['node1','node2','node3'],ungrouped:[],lab:['node1','node2','node3'],ubuntu:['node1','node2'],rocky:['node3']};
+function globToRe(g){return new RegExp('^'+g.replace(/[.+^${}()|\\]/g,'\\$&').replace(/\*/g,'.*').replace(/\?/g,'.')+'$');}
+function matchTerm(t,warn){
+ if(t==='all'||t==='*')return GROUPS.all.slice();
+ if(t.startsWith('~')){let re;try{re=new RegExp(t.slice(1));}catch(e){warn.push('정규식 오류: '+t);return [];}
+  const out=new Set();Object.keys(GROUPS).forEach(g=>{if(re.test(g))GROUPS[g].forEach(h=>out.add(h));});HOSTS.forEach(h=>{if(re.test(h))out.add(h);});return [...out];}
+ const sl=t.match(/^([^\[]+)\[(-?\d*)(?::(-?\d*))?\]$/);
+ if(sl&&GROUPS[sl[1]]){const arr=GROUPS[sl[1]];let a=sl[2]===''?0:+sl[2];if(sl[3]===undefined){if(a<0)a=arr.length+a;return arr[a]?[arr[a]]:[];}let b=sl[3]===''?arr.length-1:+sl[3];if(a<0)a=arr.length+a;if(b<0)b=arr.length+b;return arr.slice(a,b+1);}
+ if(GROUPS[t])return GROUPS[t].slice();
+ if(HOSTS.includes(t))return [t];
+ if(/[*?]/.test(t)){const re=globToRe(t);const out=new Set();Object.keys(GROUPS).forEach(g=>{if(re.test(g))GROUPS[g].forEach(h=>out.add(h));});HOSTS.forEach(h=>{if(re.test(h))out.add(h);});return [...out];}
+ warn.push('Could not match supplied host pattern, ignoring: '+t.replace(/\[.*$/,''));return [];
+}
+function evalPattern(p){
+ const warn=[];const terms=p.split(/[:,](?![^\[]*\])/).map(x=>x.trim()).filter(Boolean);
+ const reg=terms.filter(t=>!t.startsWith('!')&&!t.startsWith('&')),inter=terms.filter(t=>t.startsWith('&')),exc=terms.filter(t=>t.startsWith('!'));
+ let res=[];reg.forEach(t=>{matchTerm(t,warn).forEach(h=>{if(!res.includes(h))res.push(h);});});
+ inter.forEach(t=>{const m=matchTerm(t.slice(1),warn);res=res.filter(h=>m.includes(h));});
+ exc.forEach(t=>{const m=matchTerm(t.slice(1),warn);res=res.filter(h=>!m.includes(h));});
+ return {res,warn}; // 순서는 Ansible처럼 패턴에 나온 순서를 따른다
+}
+function runPat(){const p=$('#patIn').value.trim();const r=evalPattern(p);
+ $('#patOut').innerHTML=(r.warn.length?r.warn.map(w=>'<span class="ch">[WARNING]: '+esc(w)+'</span>').join('\n')+'\n':'')+(r.res.length?'':'<span class="ch">[WARNING]: No hosts matched, nothing to do</span>\n')+'<span class="ok">  hosts ('+r.res.length+'):</span>\n'+r.res.map(h=>'    '+h).join('\n');}
+['all','lab:!rocky','ubuntu:&lab','node*','~node[12]','lab[0:1]','node[1:2]','ubuntu,rocky','lab:!node2:&ubuntu'].forEach(e=>{const b=document.createElement('button');b.className='btn';b.textContent=e;b.addEventListener('click',()=>{$('#patIn').value=e;runPat();});$('#patEx').appendChild(b);});
+$('#patIn').addEventListener('input',runPat);runPat();
+
+/* FAQ */
+const faq=[
+ ['UNREACHABLE: Connection refused','Failed to connect to the host via ssh: ssh: connect to host 127.0.0.1 port 2224: Connection refused','그 포트에 SSH 서버가 없습니다(노드가 꺼짐, 포트 오타).','랩 노드 시작(2편), ansible_port 확인, ssh -p 로 직접 접속 시험.'],
+ ['UNREACHABLE: Connection timed out','ssh: connect to host 10.10.10.25 port 22: Connection timed out','네트워크 경로가 없거나 보안 그룹·방화벽이 막습니다(10장 실측: 프라이빗 IP).','경로 확인. 클라우드 프라이빗 서버는 점프 서버나 SSM 연결(18편).'],
+ ['Permission denied (publickey)','Failed to connect to the host via ssh: ansible@127.0.0.1: Permission denied (publickey,keyboard-interactive).','사용자나 키가 틀렸습니다(실측: 다른 키, 다른 사용자).','remote_user·ansible_user, private_key_file 확인. ssh -i 키 -p 포트 사용자@호스트 로 같은 조건 재현.'],
+ ['키를 바꿨는데 여전히 접속됨','(인증 실패가 나야 하는데 성공)','ControlPersist로 열려 있던 연결이 재사용되었습니다(실측).','rm -rf ~/.ansible/cp 후 다시 시험.'],
+ ['호스트 키 검증 실패','Host key verification failed. / REMOTE HOST IDENTIFICATION HAS CHANGED','host_key_checking이 켜져 있고 known_hosts에 없거나 키가 바뀌었습니다(서버 재생성).','랩이면 ssh-keygen -R 로 지우고 재수집. 운영에서 키가 바뀌었다면 이유를 먼저 확인(중간자 공격 가능성).'],
+ ['become 없이 권한 오류','Module failed: useradd: Permission denied. useradd: cannot lock /etc/passwd','root 권한이 필요한 작업을 일반 사용자로 했습니다(실측).','-b (become). 플레이북에서는 become: true.'],
+ ['sudo 비밀번호 요구','Missing sudo password','관리 노드의 sudo가 비밀번호를 요구합니다.','-K(--ask-become-pass), 또는 자동화 계정에 NOPASSWD 범위 지정(19편).'],
+ ['Python을 찾지 못함','/bin/sh: 1: /usr/bin/python3: not found / Failed to find a usable Python','관리 노드에 Python이 없거나 경로가 다릅니다(최소 이미지, 구형 OS).','raw 모듈로 설치(ansible host -b -m raw -a "dnf install -y python3"), 또는 ansible_python_interpreter 고정.'],
+ ['ansible.cfg가 무시됨','[WARNING]: Ansible is being run in a world writable directory … ignoring it as an ansible.cfg source.','디렉터리 권한이 777 등 누구나 쓸 수 있습니다(실측). WSL의 /mnt/c 아래도 흔함.','chmod 755, 또는 ANSIBLE_CONFIG로 명시. WSL은 리눅스 쪽 홈에서 작업.'],
+ ['패턴이 아무것도 고르지 않음','[WARNING]: Could not match supplied host pattern, ignoring: node','이름 범위 표기(node[1:2])는 패턴에서 안 됩니다(실측). 또는 그룹·호스트 이름 오타.','node*, ~node[12], 그룹 슬라이스 lab[0:1]. --list-hosts로 확인.'],
+ ['implicit localhost 경고','[WARNING]: No inventory was parsed, only implicit localhost is available','인벤토리를 찾지 못했습니다(ansible.cfg를 못 읽었거나 -i 경로 오류).','ansible --version의 config file 확인, -i 명시.'],
+ ['불리언이 아닌 조건식','Conditional result (True) was derived from value of type str … Conditionals must have a boolean result.','2.19+ 규칙(실측). INI의 true/false 문자열이 흔한 원인.','| bool, is defined, | length > 0. 임시로 ANSIBLE_ALLOW_BROKEN_CONDITIONALS (2.23에서 제거 예정).'],
+ ['표현식 속 템플릿','Syntax error in expression. Template delimiters are not supported in expressions','when·assert·changed_when 안에 {{ }}를 썼습니다(실측).','구분자를 빼고 변수 이름을 바로 쓴다: when: n == 3.'],
+ ['팩트 변수 지원 중단 경고','INJECT_FACTS_AS_VARS default to True is deprecated … removed from ansible-core version 2.24','ansible_distribution처럼 최상위 팩트 변수를 썼습니다(실측).',"ansible_facts['distribution']로 바꾼다."],
+ ['ad-hoc 인자 해석 오류','Finalization of task args for ansible.builtin.debug failed','-a 문자열 안의 공백 때문에 인자가 쪼개졌습니다(이 강의 작성 중 실제로 겪음).','템플릿 안 공백을 없애거나 따옴표 구조를 정리. 복잡하면 플레이북으로.']
+];
+$('#faq').innerHTML=faq.map((f,i)=>'<details class="faqi" data-k="'+esc((f[0]+' '+f[1]+' '+f[2]).toLowerCase())+'"><summary>'+(i+1)+'. '+esc(f[0])+'</summary><div><p><b>메시지</b>: <code>'+esc(f[1])+'</code></p><p><b>원인</b>: '+f[2]+'</p><p><b>해결</b>: '+f[3]+'</p></div></details>').join('');
+$('#faqSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('.faqi').forEach(d=>{const m=!q||d.dataset.k.includes(q);d.style.display=m?'':'none';if(q&&m)d.open=true;});});
+
+/* glossary */
+const gl=[
+ ['컨트롤 노드','control node','Ansible이 설치되어 명령을 실행하는 머신.'],
+ ['관리 노드','managed node','Ansible이 설정하는 대상 서버.'],
+ ['에이전트리스','agentless','대상에 상주 프로그램을 설치하지 않는 방식.'],
+ ['ansible-core','—','엔진과 ansible.builtin만 담은 최소 패키지(2.21.5).'],
+ ['ansible 패키지','—','ansible-core + 커뮤니티 컬렉션 묶음(14.5.0).'],
+ ['모듈','module','원격에서 실행되는 작업 단위.'],
+ ['AnsiballZ','—','모듈과 공용 코드를 묶은 단일 Python 파일.'],
+ ['인터프리터 탐색','interpreter discovery','관리 노드의 Python 경로를 찾는 과정.'],
+ ['파이프라이닝','pipelining','모듈을 파일로 올리지 않고 SSH 표준입력으로 실행.'],
+ ['ControlPersist','SSH','SSH 연결을 열어 두고 재사용하는 기능.'],
+ ['forks','—','동시에 작업할 호스트 수.'],
+ ['연결 플러그인','connection plugin','ssh, winrm, psrp, local, aws_ssm 등 접속 방식.'],
+ ['WinRM / PSRP','—','Windows 원격 관리 프로토콜 / PowerShell 원격.'],
+ ['become','—','권한 상승(sudo 등).'],
+ ['인벤토리','inventory','관리 노드 목록·그룹·변수.'],
+ ['그룹 / 자식 그룹','group / children','호스트 묶음 / 그룹의 그룹.'],
+ ['all / ungrouped','—','항상 존재하는 그룹.'],
+ ['group_vars / host_vars','—','그룹별·호스트별 변수 파일 디렉터리.'],
+ ['ansible_group_priority','—','같은 깊이 그룹 충돌 시 우선순위.'],
+ ['호스트 패턴','host pattern','대상을 고르는 표현(:, :!, :&, *, ~, [i:j]).'],
+ ['--limit','—','실행 대상을 한 번 더 좁히는 옵션.'],
+ ['ad-hoc 명령','—','모듈 하나를 즉석에서 실행하는 명령.'],
+ ['멱등','idempotent','여러 번 실행해도 결과가 같은 성질.'],
+ ['CHANGED / SUCCESS','—','바꿨음 / 이미 원하는 상태.'],
+ ['UNREACHABLE','—','접속 실패.'],
+ ['점검 모드','check mode (-C)','바꾸지 않고 바뀔지만 보는 실행.'],
+ ['팩트','facts','setup 모듈이 수집하는 호스트 정보.'],
+ ['ansible.cfg','—','Ansible 설정 파일.'],
+ ['ANSIBLE_CONFIG','환경 변수','사용할 설정 파일 경로를 지정.'],
+ ['ansible-config dump','—','적용된 설정과 출처 확인.'],
+ ['데이터 태깅','Data Tagging (2.19+)','값에 출처·신뢰 정보를 붙이는 새 체계.'],
+ ['깨진 조건식','broken conditional','불리언이 아닌 결과를 내는 조건식(2.19+ 오류).'],
+ ['신뢰할 수 없는 템플릿','untrusted template','모듈 결과 등 외부에서 온 문자열의 템플릿. 실행되지 않음.'],
+ ['INJECT_FACTS_AS_VARS','—','팩트를 최상위 변수로 넣는 설정. 기본값 변경·2.24 제거 예정.']
+];
+$('#gloss').innerHTML=gl.map(g=>'<dt data-k="'+esc((g[0]+' '+g[1]+' '+g[2]).toLowerCase())+'">'+esc(g[0])+'<small>'+esc(g[1])+'</small></dt><dd>'+esc(g[2])+'</dd>').join('');
+function gfilter(){const q=$('#gSearch').value.trim().toLowerCase();let n=0;$$('#gloss dt').forEach(dt=>{const m=!q||dt.dataset.k.includes(q);dt.classList.toggle('hide',!m);dt.nextElementSibling.classList.toggle('hide',!m);if(m)n++;});$('#gCount').textContent=n+' / '+gl.length+'개 용어';}
+$('#gSearch').addEventListener('input',gfilter);gfilter();
+
+/* quiz */
+const qs=[
+ {q:'관리 노드(리눅스)에 반드시 있어야 하는 것은?',o:['Ansible 에이전트','SSH 서버와 Python','Docker','ansible-core'],a:1,e:'에이전트 없이 SSH로 접속해 모듈을 Python으로 실행합니다(2.21: Python 3.9+).'},
+ {q:'파이프라이닝을 켜면 달라지는 것은?',o:['모듈이 관리 노드에 설치된다','모듈을 파일로 올리지 않고 SSH 표준입력으로 실행해 왕복이 줄어든다','결과가 YAML이 된다','become이 필요 없어진다'],a:1,e:'실측: 켜면 PUT 단계가 사라지고 python3에 바로 흘려 실행합니다.'},
+ {q:'INI 인벤토리의 enable_tls=true 의 타입은? (2.21 실측)',o:['bool','str','int','None'],a:1,e:'true는 파이썬 리터럴 True가 아니라 문자열입니다. 불리언이 필요하면 YAML로.'},
+ {q:'node3에 대해 group_vars/all.yml의 http_port=80, host_vars/node3.yml의 http_port=9090이면?',o:['80','9090','오류','둘 다'],a:1,e:'인벤토리 안에서는 host_vars가 가장 강합니다.'},
+ {q:'ubuntu 그룹 중 lab에도 속한 호스트를 고르는 패턴은?',o:['ubuntu:lab','ubuntu:!lab','ubuntu:&lab','ubuntu&lab'],a:2,e:':& 는 교집합입니다.'},
+ {q:'같은 copy ad-hoc 명령을 두 번째 실행하면?',o:['CHANGED','SUCCESS (changed: false)','FAILED','UNREACHABLE'],a:1,e:'copy는 멱등 모듈. 이미 원하는 상태면 바꾸지 않습니다.'},
+ {q:'command 모듈로 echo $HOME | wc -c 를 실행하면? (실측)',o:['14','/home/ansible | wc -c','오류','빈 출력'],a:1,e:'command는 셸을 거치지 않아 파이프가 인자로 전달됩니다(변수는 확장됨). 파이프가 필요하면 shell.'},
+ {q:'권한 777 디렉터리에 둔 ansible.cfg는?',o:['가장 먼저 읽힌다','보안상 무시된다','경고 후 읽힌다','root만 읽는다'],a:1,e:'실측: world writable 경고와 함께 config file = None.'},
+ {q:'2.19+에서 when: "{{ n }} == 3" 의 결과는?',o:['정상 동작','경고만','오류: 표현식 안 템플릿 구분자 불가','항상 거짓'],a:2,e:'when은 이미 표현식이므로 n == 3 으로 씁니다.'},
+ {q:'ansible_distribution 대신 권장되는 쓰임은?',o:["ansible_facts['distribution']",'facts.distribution','hostvars.distribution','setup.distribution'],a:0,e:'INJECT_FACTS_AS_VARS 기본값 변경과 2.24 제거 예정(실측 경고).'}
+];
+let answered=0, correct=0;
+function buildQuiz(){answered=0;correct=0;$('#quiz').innerHTML=qs.map((x,i)=>'<div class="q" data-i="'+i+'"><div class="qt">Q'+(i+1)+'. '+esc(x.q)+'</div><div class="opts">'+x.o.map((o,j)=>'<button class="opt" data-j="'+j+'">'+esc(o)+'</button>').join('')+'</div><div class="exp">'+esc(x.e)+'</div></div>').join('');
+ $$('#quiz .q').forEach(q=>{q.querySelectorAll('.opt').forEach(b=>b.addEventListener('click',()=>{if(q.classList.contains('done'))return;const i=+q.dataset.i,j=+b.dataset.j;q.classList.add('done');answered++;if(j===qs[i].a){correct++;b.classList.add('right');}else{b.classList.add('wrong');q.querySelectorAll('.opt')[qs[i].a].classList.add('right');}$('#qScore').textContent=correct+' / '+answered+(answered===qs.length?(correct>=8?'  — 훌륭합니다':'  — 틀린 문항의 장을 다시 보세요'):'');}));});
+ $('#qScore').textContent='0 / 0';}
+$('#qReset').addEventListener('click',buildQuiz);buildQuiz();
+})();
+</script>
+</body>
+</html>

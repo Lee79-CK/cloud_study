@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terraform & Ansible 강의 5편 — State 완전 이해</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0D1B2A; --bg-grid:rgba(120,170,225,.07); --surface:#132639; --surface2:#1A3249; --line:#26435F;
+  --ink:#E6EEF6; --muted:#9DB2C7; --faint:#6F8AA5;
+  --tf:#9A8CFF; --tf-soft:rgba(154,140,255,.14);
+  --ans:#FF7A72; --ans-soft:rgba(255,122,114,.14);
+  --teal:#3DD6C4; --teal-soft:rgba(61,214,196,.13);
+  --amber:#F5B841; --amber-soft:rgba(245,184,65,.14);
+  --green:#5BD68A; --red:#FF5C5C;
+  --code-bg:#0A1622; --shadow:0 10px 30px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#F2F6FB; --bg-grid:rgba(40,90,150,.07); --surface:#FFFFFF; --surface2:#E7EFF8; --line:#C6D6E7;
+  --ink:#10233A; --muted:#47617D; --faint:#6E869F;
+  --tf:#5B47D6; --tf-soft:rgba(91,71,214,.10);
+  --ans:#C9352E; --ans-soft:rgba(201,53,46,.09);
+  --teal:#0B8A7C; --teal-soft:rgba(11,138,124,.10);
+  --amber:#A86A06; --amber-soft:rgba(168,106,6,.11);
+  --green:#1C8F4A; --red:#C62828;
+  --code-bg:#0F1E2E; --shadow:0 8px 24px rgba(16,35,58,.10);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(70px + env(safe-area-inset-top,0px))}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;font-size:17px;line-height:1.75;
+  background-image:linear-gradient(var(--bg-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bg-grid) 1px,transparent 1px);background-size:28px 28px;background-attachment:fixed}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--surface)}
+a{color:var(--teal)}
+code,pre,.mono{font-family:"JetBrains Mono","D2Coding",Consolas,monospace}
+:not(pre)>code{background:var(--surface2);border:1px solid var(--line);padding:.05em .4em;border-radius:5px;font-size:.86em}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:14px;padding:10px 20px}
+.topbar .title{font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .title small{color:var(--muted);font-weight:400;margin-left:8px}
+.topbar .spacer{flex:1}
+.themebtn{border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:999px;padding:6px 14px;font:inherit;font-size:.85rem;cursor:pointer}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--tf),var(--teal),var(--ans))}
+.tocbtn{display:none;border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer}
+
+/* layout */
+.layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 24px}
+nav.toc{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:24px 0 40px;font-size:.88rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li a{display:flex;gap:10px;padding:5px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45;border-left:2px solid transparent}
+nav.toc li a span.n{color:var(--faint);font-family:"JetBrains Mono",monospace;font-size:.8rem;min-width:1.6em;padding-top:.1em}
+nav.toc li a:hover{background:var(--surface2);color:var(--ink)}
+nav.toc li a.active{color:var(--ink);background:var(--surface2);border-left-color:var(--teal)}
+main{min-width:0;padding-bottom:120px}
+section.unit{padding-top:56px;max-width:860px}
+.prose{max-width:760px}
+h1,h2,h3,h4{line-height:1.3;letter-spacing:-.01em}
+h2{font-size:1.75rem;margin:0 0 6px;display:flex;align-items:baseline;gap:14px}
+h2 .no{font-family:"JetBrains Mono",monospace;font-size:1rem;color:var(--teal);border:1px solid var(--teal);border-radius:6px;padding:1px 8px;flex:none}
+h3{font-size:1.22rem;margin:34px 0 8px}
+h4{font-size:1.02rem;margin:22px 0 6px}
+.lead{color:var(--muted);margin:0 0 18px;font-size:1.02rem}
+p{margin:12px 0}
+ul,ol{padding-left:1.3em}
+li{margin:4px 0}
+strong{color:var(--ink)}
+.tf{color:var(--tf)} .ans{color:var(--ans)} .tl{color:var(--teal)} .am{color:var(--amber)}
+
+/* hero */
+.hero{padding:52px 0 18px;max-width:900px}
+.hero .series{color:var(--muted);font-size:.92rem;margin-bottom:12px}
+.hero h1{font-size:clamp(2rem,4.6vw,3.2rem);margin:0 0 14px;font-weight:700;letter-spacing:-.02em}
+.hero h1 .sub{display:block;font-size:.5em;font-weight:500;color:var(--muted);margin-top:10px;letter-spacing:0}
+.hero p{max-width:720px;color:var(--muted)}
+.blueprint{margin:28px 0 10px;display:grid;grid-template-columns:1fr 70px 1fr;gap:0;align-items:stretch;border:1px dashed var(--line);border-radius:14px;padding:18px;background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.bp-col h4{margin:0 0 10px;font-size:.92rem;color:var(--muted);font-weight:500}
+.bp-code{background:var(--code-bg);color:#DCE6F2;border-radius:10px;padding:14px 16px;font-size:.84rem;line-height:1.7;font-family:"JetBrains Mono",monospace;margin:0;white-space:pre;overflow:auto}
+.bp-mid{display:flex;align-items:center;justify-content:center;font-size:1.6rem;color:var(--teal)}
+.bp-real{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.bp-box{border:1.5px solid var(--teal);border-radius:10px;padding:10px 8px;text-align:center;font-size:.8rem;background:var(--teal-soft);transition:all .35s}
+.bp-box b{display:block;font-family:"JetBrains Mono",monospace;font-size:.82rem}
+.bp-box.drift{border-color:var(--red);background:rgba(255,92,92,.15);transform:rotate(-2deg)}
+.bp-status{margin-top:12px;font-size:.88rem;padding:10px 12px;border-radius:8px;background:var(--surface2);border-left:3px solid var(--teal)}
+.bp-status.bad{border-left-color:var(--red)}
+.bp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* buttons */
+.btn{border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:7px 14px;font:inherit;font-size:.88rem;cursor:pointer}
+.btn:hover{border-color:var(--teal)}
+.btn.tf{border-color:var(--tf);color:var(--tf)}
+.btn.ans{border-color:var(--ans);color:var(--ans)}
+.btn.primary{background:var(--teal);color:#062320;border-color:var(--teal);font-weight:600}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn.on{background:var(--teal);color:#062320;border-color:var(--teal)}
+
+/* callouts */
+.callout{border:1px solid var(--line);border-left:4px solid var(--teal);background:var(--surface);border-radius:10px;padding:14px 18px;margin:18px 0}
+.callout.tf{border-left-color:var(--tf)} .callout.ans{border-left-color:var(--ans)} .callout.warn{border-left-color:var(--amber)} .callout.bad{border-left-color:var(--red)}
+.callout .ct{font-weight:600;margin-bottom:4px}
+.callout p:first-of-type{margin-top:4px}
+
+/* panels & grids */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;margin:20px 0;box-shadow:var(--shadow)}
+.panel h4{margin-top:0}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.tile h4{margin:0 0 6px}
+.tile p{margin:6px 0;font-size:.93rem;color:var(--muted)}
+.tag{display:inline-block;font-size:.75rem;padding:1px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin:2px 4px 2px 0}
+.tag.tf{border-color:var(--tf);color:var(--tf);background:var(--tf-soft)}
+.tag.ans{border-color:var(--ans);color:var(--ans);background:var(--ans-soft)}
+.tag.tl{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.tag.am{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
+
+/* code */
+pre.code{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:16px 18px;overflow-x:auto;font-size:.84rem;line-height:1.65;margin:12px 0;border:1px solid #1F3650}
+pre.code .c{color:#7E95AE} pre.code .k{color:#C3A6FF} pre.code .s{color:#9FE3A4} pre.code .n{color:#FFC777} pre.code .f{color:#7FD4FF} pre.code .r{color:#FF9A93}
+.codehead{display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:var(--muted);margin-top:16px;margin-bottom:-6px}
+
+/* tables */
+.tablewrap{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:640px}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+
+/* timeline */
+.timeline{position:relative;margin:20px 0;padding-left:26px;border-left:2px solid var(--line)}
+.tl-item{position:relative;margin:0 0 16px}
+.tl-item::before{content:"";position:absolute;left:-33px;top:7px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--teal)}
+.tl-item.tf::before{border-color:var(--tf)} .tl-item.ans::before{border-color:var(--ans)} .tl-item.am::before{border-color:var(--amber)}
+.tl-item .y{font-family:"JetBrains Mono",monospace;font-size:.82rem;color:var(--muted)}
+.tl-item p{margin:2px 0;font-size:.94rem}
+
+/* calculator */
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.field{margin:10px 0}
+.field label{display:flex;justify-content:space-between;font-size:.88rem;color:var(--muted)}
+.field label b{color:var(--ink);font-family:"JetBrains Mono",monospace}
+input[type=range]{width:100%;accent-color:var(--teal)}
+.meter{margin:10px 0}
+.meter .lbl{display:flex;justify-content:space-between;font-size:.86rem}
+.meter .bar{height:12px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-top:4px}
+.meter .bar i{display:block;height:100%;border-radius:6px;transition:width .3s}
+.bignum{font-size:1.6rem;font-weight:700;font-family:"JetBrains Mono",monospace}
+.note{font-size:.82rem;color:var(--faint)}
+
+/* layer map */
+.layers{display:flex;flex-direction:column;gap:6px}
+.layer{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--surface);cursor:pointer;text-align:left;color:var(--ink);font:inherit;font-size:.93rem}
+.layer .ln{font-family:"JetBrains Mono",monospace;color:var(--faint);font-size:.8rem}
+.layer.sel{outline:2px solid var(--teal)}
+.layer.t-tf{border-left:5px solid var(--tf)} .layer.t-ans{border-left:5px solid var(--ans)} .layer.t-git{border-left:5px solid var(--teal)} .layer.t-mix{border-left:5px solid var(--amber)}
+.layerinfo{min-height:150px}
+
+/* simulator */
+.servers{display:flex;flex-wrap:wrap;gap:8px;min-height:62px;padding:12px;border:1px dashed var(--line);border-radius:10px;background:var(--surface2);margin:10px 0}
+.srv{width:50px;height:38px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-family:"JetBrains Mono",monospace;border:1.5px solid var(--teal);background:var(--teal-soft)}
+.srv.extra{border-color:var(--red);background:rgba(255,92,92,.16)}
+.srv.new{animation:pop .35s}
+@keyframes pop{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+.log{background:var(--code-bg);color:#CFE0F0;border-radius:10px;padding:10px 14px;font-family:"JetBrains Mono",monospace;font-size:.8rem;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+.log .ok{color:#7EE2A0} .log .ch{color:#FFC777} .log .er{color:#FF8A84} .log .dim{color:#7E95AE}
+
+/* states */
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+.st{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface2);text-align:center}
+.st .h{font-size:.82rem;color:var(--muted)}
+.st .v{font-family:"JetBrains Mono",monospace;font-size:1.02rem;margin-top:6px;font-weight:600}
+.st.diff{border-color:var(--red);background:rgba(255,92,92,.12)}
+.st.missing .v{color:var(--red)}
+
+/* tabs/filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.filters .btn{font-size:.82rem;padding:5px 12px;border-radius:999px}
+
+/* glossary */
+.gsearch{width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:14px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+dl.gloss dt,dl.gloss dd{margin:0;padding:10px 14px;border-bottom:1px solid var(--line)}
+dl.gloss dt{font-weight:600;background:var(--surface2)}
+dl.gloss dt small{display:block;font-weight:400;color:var(--muted);font-size:.78rem;font-family:"JetBrains Mono",monospace}
+dl.gloss dd{font-size:.92rem}
+dl.gloss .hide{display:none}
+
+/* quiz */
+.q{border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0;background:var(--surface)}
+.q .qt{font-weight:600}
+.q .opts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.q .opt{text-align:left;border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:8px 12px;font:inherit;font-size:.92rem;cursor:pointer}
+.q .opt.right{border-color:var(--green);background:rgba(91,214,138,.15)}
+.q .opt.wrong{border-color:var(--red);background:rgba(255,92,92,.12)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:10px}
+.q.done .exp{display:block}
+.score{font-weight:600;font-family:"JetBrains Mono",monospace}
+
+/* details */
+details{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:10px 0;padding:0 16px}
+details summary{cursor:pointer;padding:12px 0;font-weight:600}
+details[open] summary{border-bottom:1px dashed var(--line);margin-bottom:8px}
+details > div{padding-bottom:12px}
+
+/* checklist */
+.check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line);font-size:.93rem}
+.check input{margin-top:6px;accent-color:var(--teal);width:18px;height:18px;flex:none}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:8px;border-radius:8px;border:1px solid var(--line);font-size:.78rem;text-align:center;color:var(--muted)}
+.levels div.cur{border-color:var(--teal);background:var(--teal-soft);color:var(--ink);font-weight:600}
+
+/* series map */
+.smap{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:14px 0}
+.smap .lv{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface);font-size:.78rem}
+.smap .lv b{display:block;font-size:.82rem;margin-bottom:6px}
+.smap .ep{display:block;padding:2px 6px;border-radius:5px;color:var(--muted);line-height:1.45}
+.smap .ep.now{background:var(--teal);color:#062320;font-weight:600}
+
+/* cases */
+.case{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px;margin:12px 0}
+.case h4{margin:0 0 8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.case .vs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.case .vs div{font-size:.88rem;padding:10px 12px;border-radius:8px;background:var(--surface2)}
+.case .vs div b{display:block;font-size:.8rem;margin-bottom:3px}
+.case .vs .bad b{color:var(--red)} .case .vs .good b{color:var(--green)}
+
+.anti{display:grid;grid-template-columns:40px 1fr;gap:12px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.anti .num{font-family:"JetBrains Mono",monospace;color:var(--red);font-weight:600}
+.anti p{margin:3px 0;font-size:.92rem}
+
+
+/* flow diagrams */
+.flow{display:flex;flex-direction:column;gap:6px}
+.frow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}
+.frow>.fbox{flex:1;min-width:120px}
+.fbox{border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface2)}
+.fbox .fh{font-weight:600;font-size:.92rem}
+.fbox p{margin:6px 0 0;font-size:.85rem;color:var(--muted)}
+.fbox.ftf{border-color:var(--tf);background:var(--tf-soft)} .fbox.fam{border-color:var(--amber);background:var(--amber-soft)}
+.fbox.ftl{border-color:var(--teal);background:var(--teal-soft)} .fbox.fans{border-color:var(--ans);background:var(--ans-soft)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.farrow{text-align:center;font-size:.8rem;color:var(--muted)}
+.farrow::before{content:"↓";display:block;font-size:1.2rem;color:var(--teal);line-height:1}
+.fside{display:flex;align-items:center;justify-content:center;text-align:center;font-size:.8rem;color:var(--muted);min-width:60px}
+ol.steps{margin:8px 0 0;padding-left:1.4em;font-size:.88rem}
+ol.steps.big{font-size:.92rem;border:1px dashed var(--line);border-radius:12px;padding:12px 14px 12px 2.2em;margin:0;background:var(--surface)}
+ul.mini{margin:8px 0 0;padding-left:1.1em;font-size:.86rem}
+.ansflow{display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:12px;align-items:center}
+#toolTable{min-width:1080px}
+body{word-break:keep-all;overflow-wrap:anywhere}
+@media (max-width:980px){.ansflow{grid-template-columns:1fr}.fside{min-width:100%;padding:4px 0}}
+.btn,.themebtn,.tocbtn{white-space:nowrap}
+.bp-col{min-width:0}
+.blueprint{grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr)}
+@media (max-width:980px){.blueprint{grid-template-columns:minmax(0,1fr)}.bp-actions .btn{white-space:normal;text-align:left}}
+footer{max-width:760px;margin-top:60px;color:var(--faint);font-size:.85rem;border-top:1px solid var(--line);padding-top:20px}
+
+@media (max-width:980px){
+  .layout{grid-template-columns:1fr;padding:0 16px}
+  nav.toc{display:none;position:fixed;top:calc(52px + env(safe-area-inset-top,0px));left:0;right:0;bottom:0;max-height:none;background:var(--surface);z-index:40;padding:16px}
+  nav.toc.open{display:block}
+  .tocbtn{display:inline-block}
+  .grid2,.grid3,.calc,.case .vs{grid-template-columns:minmax(0,1fr)}
+  .smap{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .blueprint{grid-template-columns:1fr}
+  .bp-mid{transform:rotate(90deg);padding:6px 0}
+  .three{grid-template-columns:1fr}
+  dl.gloss{grid-template-columns:1fr}
+  dl.gloss dt{border-bottom:none}
+  .levels{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ---- 2편 추가 ---- */
+.ostabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px}
+.ostabs .btn{border-radius:999px}
+.osnote{font-size:.85rem;color:var(--muted)}
+.os{display:none} .os.show{display:block}
+pre.code{position:relative}
+.cbtn{position:absolute;top:8px;right:8px;font:inherit;font-size:.72rem;padding:3px 9px;border-radius:6px;border:1px solid #2E4A66;background:#132639;color:#BFD3E6;cursor:pointer;opacity:.8}
+.cbtn:hover{opacity:1}
+.cbtn.done{background:#1C6B4A;color:#fff;border-color:#1C6B4A}
+pre.code .p{color:#7E95AE;user-select:none}
+.tree{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:16px 18px;font-family:"JetBrains Mono",monospace;font-size:.82rem;line-height:1.7;overflow-x:auto;white-space:pre;border:1px solid #1F3650}
+.tree .d{color:#7FD4FF} .tree .c{color:#7E95AE} .tree .g{color:#9FE3A4} .tree .w{color:#FFC777}
+.cp{display:inline-flex;align-items:center;gap:8px;margin:18px 0 6px;padding:6px 12px;border-radius:999px;border:1px solid var(--green);color:var(--green);font-size:.85rem;font-weight:600;background:rgba(91,214,138,.10)}
+.cp input{accent-color:var(--green);width:16px;height:16px}
+.hprog{margin-top:18px;max-width:560px}
+.hprog .bar{height:10px;border-radius:6px;background:var(--surface2);overflow:hidden;border:1px solid var(--line)}
+.hprog .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--tf),var(--teal),var(--ans));transition:width .4s}
+.hprog .lbl{display:flex;justify-content:space-between;font-size:.85rem;color:var(--muted);margin-bottom:6px}
+.labmap{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;margin-top:24px}
+.labmap .zone{border:1.5px dashed var(--line);border-radius:14px;padding:14px;background:color-mix(in srgb,var(--surface) 75%,transparent)}
+.labmap .zone h4{margin:0 0 8px;font-size:.95rem}
+.labmap .zone.ctl{grid-row:span 2;border-color:var(--teal)}
+.labmap .zone.loc{border-color:var(--ans)}
+.labmap .zone.cld{border-color:var(--tf)}
+.chiprow{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:.8rem;padding:3px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--line)}
+.chip.tf{border-color:var(--tf);color:var(--tf)} .chip.ans{border-color:var(--ans);color:var(--ans)} .chip.tl{border-color:var(--teal);color:var(--teal)} .chip.am{border-color:var(--amber);color:var(--amber)}
+.zone .sub{font-size:.82rem;color:var(--muted);margin:8px 0 0}
+.stack{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.stack button{display:grid;grid-template-columns:30px 1fr;gap:10px;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.9rem;padding:10px 12px;cursor:pointer}
+.stack button .k{font-family:"JetBrains Mono",monospace;color:var(--teal)}
+.stack button.sel{outline:2px solid var(--teal)}
+.costrow{display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);font-size:.9rem}
+.costrow input{accent-color:var(--red);width:17px;height:17px}
+.costrow .r{font-family:"JetBrains Mono",monospace;color:var(--muted);font-size:.82rem}
+.faq-filter{margin-bottom:10px}
+.timebox{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+.timebox div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+.timebox b{display:block;font-size:1.25rem;font-family:"JetBrains Mono",monospace}
+.timebox span{font-size:.82rem;color:var(--muted)}
+@media (max-width:980px){.labmap{grid-template-columns:minmax(0,1fr)}.labmap .zone.ctl{grid-row:auto}.timebox{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---- 3편 추가 ---- */
+.anat{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+.anat pre.code .t{cursor:pointer;border-radius:4px;padding:0 2px;outline:1px dashed rgba(127,212,255,.35)}
+.anat pre.code .t:hover{background:rgba(127,212,255,.15)}
+.anat pre.code .t.sel{background:rgba(61,214,196,.28);outline:1px solid #3DD6C4}
+.anat .tile{position:sticky;top:76px;min-height:220px}
+.steps-nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.steps-nav .btn{border-radius:999px}
+.stepbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.stepbox .tile p{color:var(--ink)}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:.9rem}
+.kv b{color:var(--muted);font-weight:500}
+.plines{display:flex;flex-direction:column;gap:4px}
+.pline{text-align:left;font-family:"JetBrains Mono",monospace;font-size:.82rem;background:var(--code-bg);color:#DCE6F2;border:1px solid #1F3650;border-radius:8px;padding:8px 12px;cursor:pointer;white-space:pre-wrap}
+.pline.sel{outline:2px solid var(--teal)}
+.pline .g{color:#7EE2A0} .pline .y{color:#FFC777} .pline .r{color:#FF8A84} .pline .b{color:#7FD4FF} .pline .m{color:#7E95AE}
+.dagwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface2);padding:10px}
+.dag{display:block;min-width:820px;width:100%;height:auto}
+.dag .node rect{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:fill .3s,stroke .3s}
+.dag .node text{fill:var(--ink);font-size:12px;font-family:"JetBrains Mono",monospace}
+.dag .node.data rect{stroke-dasharray:5 3}
+.dag .node.doing rect{fill:rgba(245,184,65,.25);stroke:var(--amber)}
+.dag .node.done rect{fill:rgba(91,214,138,.22);stroke:var(--green)}
+.dag .node.gone rect{fill:rgba(255,92,92,.14);stroke:var(--red)}
+.dag .node.warn rect{fill:rgba(255,92,92,.25);stroke:var(--red);stroke-width:2.5}
+.dag .edge{stroke:var(--faint);stroke-width:1.4;fill:none}
+.dag .edge.exp{stroke:var(--amber);stroke-dasharray:6 4;stroke-width:2}
+.dag .wave{fill:var(--muted);font-size:11px;font-family:"IBM Plex Sans KR",sans-serif}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem;color:var(--muted);margin-top:8px}
+.legend span::before{content:"";display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle;border:1.5px solid var(--line)}
+.legend .l1::before{border-style:dashed}
+.legend .l2::before{border-color:var(--amber);background:rgba(245,184,65,.25)}
+.legend .l3::before{border-color:var(--green);background:rgba(91,214,138,.22)}
+.legend .l4::before{border:none;border-top:2px dashed var(--amber);height:0;border-radius:0}
+@media (max-width:980px){.anat,.stepbox{grid-template-columns:minmax(0,1fr)}.anat .tile{position:static}}
+
+/* ---- 4편 추가 ---- */
+.prec{display:flex;flex-direction:column;gap:6px}
+.precrow{display:grid;grid-template-columns:26px 34px minmax(0,1.4fr) minmax(0,1fr);gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--surface)}
+.precrow .rk{font-family:"JetBrains Mono",monospace;color:var(--faint);font-size:.8rem}
+.precrow input[type=checkbox]{accent-color:var(--teal);width:17px;height:17px}
+.precrow input[type=text]{width:100%;padding:6px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface2);color:var(--ink);font:inherit;font-family:"JetBrains Mono",monospace;font-size:.85rem}
+.precrow .src{font-size:.88rem}
+.precrow .src small{display:block;color:var(--muted);font-size:.78rem}
+.precrow.win{border-color:var(--green);background:rgba(91,214,138,.10)}
+.precrow.lose{opacity:.55}
+.cfbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.items{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.item{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 6px 3px 12px;background:var(--surface2);font-family:"JetBrains Mono",monospace;font-size:.84rem}
+.item button{border:none;background:var(--surface);color:var(--red);border-radius:999px;width:22px;height:22px;cursor:pointer;font:inherit;line-height:1}
+.addrow{display:flex;gap:6px;flex-wrap:wrap}
+.addrow input{padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;width:140px}
+.vfield{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:8px 0}
+.vfield input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-family:"JetBrains Mono",monospace;font-size:.88rem}
+.vres{font-family:"JetBrains Mono",monospace;font-size:.82rem;white-space:pre-wrap;border-radius:8px;padding:8px 12px;margin:2px 0 8px 160px}
+.vres.ok{background:rgba(91,214,138,.12);color:var(--green)}
+.vres.err{background:rgba(255,92,92,.12);color:var(--red)}
+.ex{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:8px 0;background:var(--surface)}
+.ex .in,.ex .out{font-family:"JetBrains Mono",monospace;font-size:.82rem;padding:10px 12px;white-space:pre-wrap;overflow-x:auto}
+.ex .in{background:var(--code-bg);color:#DCE6F2}
+.ex .out{color:var(--green);background:var(--surface2)}
+.ex .out.err{color:var(--red)}
+.ex .why{grid-column:1/-1;padding:8px 12px;font-size:.86rem;color:var(--muted);border-top:1px dashed var(--line)}
+@media (max-width:980px){.precrow{grid-template-columns:22px 28px minmax(0,1fr)}.precrow input[type=text]{grid-column:1/-1}.cfbox,.ex{grid-template-columns:minmax(0,1fr)}.vfield{grid-template-columns:minmax(0,1fr)}.vres{margin-left:0}}
+
+/* ---- 5편 추가 ---- */
+.json{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:14px 16px;font-family:"JetBrains Mono",monospace;font-size:.8rem;line-height:1.6;white-space:pre;overflow:auto;max-height:560px;border:1px solid #1F3650;margin:0}
+.json .k{color:#C3A6FF;cursor:pointer;border-radius:3px;outline:1px dashed rgba(195,166,255,.35)}
+.json .k:hover{background:rgba(195,166,255,.15)}
+.json .k.sel{background:rgba(61,214,196,.3);outline:1px solid #3DD6C4}
+.json .s{color:#9FE3A4} .json .n{color:#FFC777} .json .w{color:#FF8A84;font-weight:600}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.lane{border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:10px;min-height:230px}
+.lane h5{margin:0 0 8px;font-size:.88rem}
+.lane .ev{font-size:.8rem;font-family:"JetBrains Mono",monospace;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface);border-left:3px solid var(--line);opacity:0;transform:translateY(4px);transition:all .25s}
+.lane .ev.show{opacity:1;transform:none}
+.lane .ev.ok{border-left-color:var(--green)} .lane .ev.bad{border-left-color:var(--red)} .lane .ev.wait{border-left-color:var(--amber)}
+.evo{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+.evo .st2{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface)}
+.evo .st2 .ver{font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--muted)}
+.evo .st2 h4{margin:4px 0 8px}
+.dots{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:.8rem;margin-top:8px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:4px}
+.dot.y{background:var(--red)} .dot.n{background:var(--green)} .dot.m{background:var(--amber)}
+.scen{display:flex;flex-direction:column;gap:6px}
+.scen button{text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.9rem;padding:9px 12px;cursor:pointer}
+.scen button.sel{outline:2px solid var(--teal)}
+@media (max-width:980px){.lanes,.evo{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="tocbtn" id="tocBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="title">Terraform &amp; Ansible 5편 <small>State 완전 이해</small></div>
+  <div class="spacer"></div>
+  <button class="themebtn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="layout">
+<nav class="toc" id="toc" aria-label="이 편의 목차">
+  <ol>
+    <li><a href="#u0"><span class="n">0</span>들어가며</a></li>
+    <li><a href="#u1"><span class="n">1</span>state는 무엇을 기억하는가</a></li>
+    <li><a href="#u2"><span class="n">2</span>state 파일 해부</a></li>
+    <li><a href="#u3"><span class="n">3</span>serial·lineage·백업</a></li>
+    <li><a href="#u4"><span class="n">4</span>로컬 state의 한계</a></li>
+    <li><a href="#u5"><span class="n">5</span>잠금 (locking)</a></li>
+    <li><a href="#u6"><span class="n">6</span>S3 백엔드</a></li>
+    <li><a href="#u7"><span class="n">7</span>Azure Blob·GCS·기타</a></li>
+    <li><a href="#u8"><span class="n">8</span>백엔드 설정과 이전</a></li>
+    <li><a href="#u9"><span class="n">9</span>state 명령과 코드 블록</a></li>
+    <li><a href="#u10"><span class="n">10</span>민감 값 처리의 진화</a></li>
+    <li><a href="#u11"><span class="n">11</span>state 보안과 유출 사고</a></li>
+    <li><a href="#u12"><span class="n">12</span>다른 state 읽기</a></li>
+    <li><a href="#u13"><span class="n">13</span>실습 A: state 해부 (0원)</a></li>
+    <li><a href="#u14"><span class="n">14</span>실습 B: S3 원격 백엔드</a></li>
+    <li><a href="#u15"><span class="n">15</span>흔한 오류와 해결</a></li>
+    <li><a href="#u16"><span class="n">16</span>MSP 현장 팁</a></li>
+    <li><a href="#u17"><span class="n">17</span>용어 사전</a></li>
+    <li><a href="#u18"><span class="n">18</span>확인 퀴즈</a></li>
+    <li><a href="#u19"><span class="n">19</span>과제</a></li>
+    <li><a href="#u20"><span class="n">20</span>정리와 다음 편</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+<div class="hero">
+  <div class="series">Terraform &amp; Ansible 강의 · Level 1 Terraform 기초 · 5편 / 26편 · <a href="terraform-ansible-00-index.html">시리즈 목차</a></div>
+  <h1>기억이자 금고
+    <span class="sub">State 완전 이해 — 구조, 원격 백엔드와 잠금, state 명령, 민감 값의 진화, 유출 사고</span></h1>
+  <p>Terraform은 state 없이는 자기가 무엇을 만들었는지 기억하지 못합니다. 그리고 그 기억 안에는 데이터베이스 비밀번호와 접속 정보가 평문으로 들어 있을 수 있습니다. 이번 편은 이 파일을 열어 구조를 보고, 여러 사람이 안전하게 공유하도록 원격 백엔드와 잠금을 걸고, 꺼내 보거나 고칠 때 쓰는 명령과, 애초에 비밀을 state에 남기지 않는 최신 방법을 다룹니다.</p>
+  <div class="grid2" style="margin-top:22px">
+    <div class="callout tf" style="margin:0"><div class="ct">잃으면: 기억상실</div><p>state가 사라지면 Terraform은 클라우드에 있는 리소스를 “모르는 것”으로 보고 전부 새로 만들려 합니다. 이름 충돌, 중복 과금, 고아 리소스가 따라옵니다(1편 6장 시나리오 5).</p></div>
+    <div class="callout bad" style="margin:0"><div class="ct">새면: 금고 문이 열림</div><p>state가 공개되면 인프라 지도 전체와 그 안의 비밀이 함께 노출됩니다. 고객사 state라면 MSP의 계약·보안 사고가 됩니다.</p></div>
+  </div>
+</div>
+
+<!-- ================= 0 ================= -->
+<section class="unit" id="u0">
+  <h2><span class="no">0</span>들어가며</h2>
+  <p class="lead">이번 편의 목표와 실습 지도</p>
+  <div class="prose">
+  <h3>이번 편을 마치면</h3>
+  <ul>
+    <li>state가 하는 세 가지 일(대응 기록, 의존성 기억, 성능 캐시)과 파일 구조(<code>serial</code>, <code>lineage</code>, <code>resources</code>, <code>sensitive_attributes</code> 등)를 설명할 수 있습니다.</li>
+    <li>로컬 state의 한계를 알고 S3(네이티브 잠금 <code>use_lockfile</code>)·Azure Blob·GCS 원격 백엔드를 구성할 수 있습니다.</li>
+    <li>로컬에서 원격으로, 원격에서 원격으로 state를 안전하게 옮기고, 이전 버전으로 복구할 수 있습니다.</li>
+    <li><code>state list/show/mv/rm/pull/push</code>와 코드 기반 대안(<code>moved</code>·<code>removed</code>·<code>import</code>)을 상황에 맞게 고를 수 있습니다.</li>
+    <li>민감 값 처리의 진화 — <code>sensitive</code> → <code>ephemeral</code>(1.10) → write-only 인자(1.11) → <code>terraform_data</code>의 <code>store</code> 블록(1.16) — 를 “state에 무엇이 남는가” 기준으로 비교할 수 있습니다.</li>
+    <li>state 유출 사고의 전형적인 경로와 예방·대응 절차를 압니다.</li>
+  </ul>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>실습</th><th>디렉터리</th><th>배우는 것</th><th>비용</th></tr>
+    <tr><td>A. state 해부</td><td><code>terraform/05-state-anatomy</code></td><td>JSON 구조, 평문으로 남는 sensitive 값, serial·lineage 보호장치, state mv의 함정, moved·removed</td><td>0원 (내장 리소스만)</td></tr>
+    <tr><td>B. S3 원격 백엔드</td><td><code>terraform/05-state-bootstrap</code> 외</td><td>state 버킷 부트스트랩(버전닝·암호화·TLS 강제·수명 주기), 로컬 → S3 이전, 잠금 충돌 재현, 이전 버전 복구</td><td>사실상 0원 (KB 단위 S3 저장·요청)</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">이 편의 출력 예시에 대해</div>
+  <p>state JSON, <code>state push</code> 거부 메시지, <code>moved</code>·<code>removed</code> plan은 호환 엔진에서 실제로 실행해 얻은 출력입니다. Terraform에서는 “OpenTofu”라는 단어가 “Terraform”으로 바뀌는 등 문구가 조금 다를 수 있지만 동작은 같습니다.</p></div>
+</section>
+
+<!-- ================= 1 ================= -->
+<section class="unit" id="u1">
+  <h2><span class="no">1</span>state는 무엇을 기억하는가</h2>
+  <p class="lead">“클라우드에 다 있는데 왜 따로 기록해야 하나?”에 대한 답</p>
+  <div class="grid3">
+    <div class="tile"><h4 class="tf">① 코드와 실물의 대응</h4><p>코드의 <code>aws_instance.web["web1"]</code>이 클라우드의 <code>i-0abc123…</code>라는 연결 고리. 이것이 없으면 Terraform은 수천 개 인스턴스 중 어느 것이 “내 것”인지 알 수 없습니다. 태그는 누구나 바꿀 수 있고 모든 리소스가 태그를 지원하지도 않습니다.</p></div>
+    <div class="tile"><h4 class="am">② 코드에서 사라진 것의 기억</h4><p>코드에서 블록을 지우면 Terraform은 state를 보고 “예전에 내가 만든 이것을 지워야 한다”고 판단합니다. 의존 관계도 기록되어 있어서, 코드에서 사라진 리소스를 어떤 순서로 지울지도 압니다. Ansible이 할 수 없는 일입니다(1편 6장).</p></div>
+    <div class="tile"><h4 class="tl">③ 성능을 위한 캐시</h4><p>리소스 수백 개를 매번 처음부터 찾지 않고, 기록된 ID로 바로 조회(refresh)합니다. 아주 큰 환경에서는 <code>-refresh=false</code>로 조회조차 건너뛰고 state를 믿기도 합니다(위험을 알고 쓰는 옵션).</p></div>
+  </div>
+  <div class="callout tf prose"><div class="ct">“진실의 원천”이라는 말의 정확한 뜻</div>
+  <p>1편에서 IaC의 진실의 원천은 Git의 코드라고 했습니다. state는 “무엇이 <em>있어야 하는가</em>”의 원천이 아니라, “Terraform이 <em>무엇을 관리하고 있는가</em>”의 원천입니다. 코드(원하는 상태)와 클라우드(실제 상태) 사이를 이어 주는 장부이고, 이 장부가 틀리면 plan 전체가 틀립니다. 그래서 state는 사람이 손으로 고치는 파일이 아니라, Terraform 명령으로만 다루는 파일입니다.</p></div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section class="unit" id="u2">
+  <h2><span class="no">2</span>state 파일 해부</h2>
+  <p class="lead">실제로 만들어진 state 파일입니다. 점선 표시된 키를 눌러 보세요</p>
+  <div class="anat">
+<pre class="json" id="stjson">{
+  <span class="k" data-k="version">"version"</span>: <span class="n">4</span>,
+  <span class="k" data-k="tfver">"terraform_version"</span>: <span class="s">"1.16.5"</span>,
+  <span class="k" data-k="serial">"serial"</span>: <span class="n">1</span>,
+  <span class="k" data-k="lineage">"lineage"</span>: <span class="s">"3a7b008d-17b1-c072-3f04-ec65ef5f7b57"</span>,
+  <span class="k" data-k="outputs">"outputs"</span>: {
+    "app_id": { "value": <span class="s">"89e59c8c-…"</span>, "type": "string" }
+  },
+  <span class="k" data-k="resources">"resources"</span>: [
+    {
+      <span class="k" data-k="mode">"mode"</span>: <span class="s">"managed"</span>,
+      "type": <span class="s">"terraform_data"</span>,
+      "name": <span class="s">"app"</span>,
+      <span class="k" data-k="provider">"provider"</span>: <span class="s">"provider[\"terraform.io/builtin/terraform\"]"</span>,
+      <span class="k" data-k="instances">"instances"</span>: [
+        {
+          <span class="k" data-k="schema">"schema_version"</span>: <span class="n">0</span>,
+          <span class="k" data-k="attributes">"attributes"</span>: {
+            "id": <span class="s">"89e59c8c-5f32-8037-23c9-ea99d7f57770"</span>,
+            "input": {
+              "value": { "name": "web1", "password": <span class="w">"S3cr3t-Example!"</span> }
+            },
+            "output": {
+              "value": { "name": "web1", "password": <span class="w">"S3cr3t-Example!"</span> }
+            }
+          },
+          <span class="k" data-k="sensattr">"sensitive_attributes"</span>: [
+            [ { "type": "get_attr", "value": "input" },
+              { "type": "get_attr", "value": "password" } ]
+          ],
+          <span class="k" data-k="deps">"dependencies"</span>: [ ]
+        }
+      ]
+    }
+  ],
+  <span class="k" data-k="checks">"check_results"</span>: <span class="n">null</span>
+}</pre>
+    <div class="tile" id="stInfo"><h4>키를 눌러 보세요</h4><p>빨간색으로 표시한 두 곳을 먼저 보세요. 이 값은 <code>sensitive = true</code>로 선언한 변수에서 왔는데도 state에는 <b>평문으로, 두 번</b> 들어 있습니다. 이번 편 전체가 이 두 줄에서 출발합니다.</p></div>
+  </div>
+  <div class="prose"><p class="note">위 파일은 실습 A의 코드로 실제 생성한 state를 읽기 쉽게 줄인 것입니다(terraform_version 값만 강의 기준 버전으로 표기). 최신 Terraform은 리소스 식별(identity) 정보 등 필드가 더 붙을 수 있습니다. 필드 이름과 구조는 버전 4 형식에서 동일합니다.</p></div>
+  <h3>state를 보는 올바른 방법</h3>
+<pre class="code">terraform state list                         <span class="c"># 관리 중인 주소 목록</span>
+terraform state show 'aws_instance.web["web1"]'  <span class="c"># 한 리소스의 기록 (민감 값은 가려짐)</span>
+terraform state show -json 'aws_instance.web["web1"]'   <span class="c"># 1.16+: JSON으로</span>
+terraform show -json | jq '.values.root_module.resources | length'   <span class="c"># 기계가 읽는 전체 형식</span>
+terraform state pull &gt; backup-$(date +%Y%m%d-%H%M).tfstate          <span class="c"># 원격 state를 파일로 받기 (백업)</span></pre>
+  <div class="callout warn prose"><div class="ct">직접 편집 금지</div>
+  <p>state JSON을 편집기로 열어 고치는 것은 최후의 최후 수단입니다. 내부 형식은 공개된 계약이 아니라 바뀔 수 있고, 한 글자의 실수가 다음 apply에서 리소스 삭제·재생성으로 이어집니다. 9장의 명령과 코드 블록으로 해결되지 않는 상황은 거의 없습니다. 꼭 손대야 한다면 반드시 <code>state pull</code>로 백업하고, <code>serial</code>을 1 올린 뒤 <code>state push</code>로 올립니다.</p></div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section class="unit" id="u3">
+  <h2><span class="no">3</span>serial·lineage·백업</h2>
+  <p class="lead">state를 엉뚱한 것으로 덮어쓰지 못하게 하는 두 개의 숫자</p>
+  <div class="grid2">
+    <div class="tile"><h4><code>serial</code> — 판 번호</h4><p>state가 바뀔 때마다 1씩 올라갑니다. 더 낮은 번호의 state로 덮어쓰려 하면 거부됩니다. “어제 받아 둔 사본을 실수로 올려서 오늘의 변경을 날리는” 사고를 막습니다.</p></div>
+    <div class="tile"><h4><code>lineage</code> — 족보</h4><p>state가 처음 만들어질 때 정해지는 UUID로, 평생 바뀌지 않습니다. 다른 lineage의 state로 덮어쓰려 하면 거부됩니다. “개발계 state를 운영계 위치에 올리는” 사고를 막습니다.</p></div>
+  </div>
+  <div class="prose"><p>실습 A에서 실제로 확인한 결과입니다.</p></div>
+<pre class="code"><span class="c"># serial 2인 현재 state 위에 serial 1인 백업을 올리려 하면</span>
+$ terraform state push backup.tfstate
+<span class="r">Error: Failed to write the imported state</span>
+<span class="r">cannot import state with serial 1 over newer state with serial 2</span>
+
+<span class="c"># 족보가 다른 state를 올리려 하면</span>
+$ terraform state push other.tfstate
+<span class="r">Error: Failed to write the imported state</span>
+<span class="r">cannot import state with lineage "00000000-aaaa-…" over</span>
+<span class="r">unrelated state with lineage "b261acbd-2b7b-…"</span></pre>
+  <div class="callout bad prose"><div class="ct">-force는 보호장치를 끄는 스위치</div>
+  <p><code>terraform state push -force</code>는 두 검사를 모두 건너뜁니다. 이전 버전으로 의도적으로 되돌리는 복구 상황(14장)에서만, 무엇을 덮어쓰는지 알 때 씁니다. 되돌린 뒤에는 반드시 <code>terraform plan -refresh-only</code>로 실제와의 차이를 확인합니다.</p></div>
+  <h3>로컬 백업 파일들</h3>
+  <div class="tablewrap"><table>
+    <tr><th>파일</th><th>언제 생기나</th><th>쓰임</th></tr>
+    <tr><td><code>terraform.tfstate.backup</code></td><td>로컬 state를 쓸 때마다 직전 판을 보관</td><td>바로 전 단계로 되돌리기</td></tr>
+    <tr><td><code>terraform.tfstate.&lt;타임스탬프&gt;.backup</code></td><td><code>state mv</code>·<code>state rm</code> 등 state 수정 명령 실행 시</td><td>명령 직전 상태 (실습 A에서 생기는 것을 확인)</td></tr>
+    <tr><td><code>errored.tfstate</code></td><td>apply 후 원격 백엔드에 저장 실패 시(네트워크 끊김 등) 현재 디렉터리에 기록</td><td><b>절대 지우지 말 것.</b> 원인 해결 후 <code>terraform state push errored.tfstate</code>로 올림. 지우면 방금 만든 리소스의 기록이 사라짐</td></tr>
+  </table></div>
+  <div class="prose"><p class="note">원격 백엔드를 쓰면 로컬 <code>.backup</code> 파일은 만들어지지 않습니다. 대신 S3 버전닝(6장)이 모든 판을 보관합니다.</p></div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section class="unit" id="u4">
+  <h2><span class="no">4</span>로컬 state의 한계</h2>
+  <p class="lead">혼자 쓰는 실습 디렉터리를 넘어서는 순간 생기는 네 가지 문제</p>
+  <div class="grid2">
+    <div class="tile"><h4>공유 불가</h4><p>state가 내 노트북에만 있으면 동료가 같은 환경을 apply할 수 없습니다. 각자 다른 state를 갖게 되는 순간 리소스가 중복 생성됩니다. Git에 올리는 것은 2편에서 막은 이유(비밀 노출, 병합 충돌) 때문에 답이 아닙니다.</p></div>
+    <div class="tile"><h4>동시 실행 사고</h4><p>두 사람이 같은 state로 동시에 apply하면 나중에 저장한 쪽이 앞의 변경 기록을 덮어씁니다. 덮어써진 리소스는 클라우드에는 있지만 state에는 없는 고아가 됩니다(5장 시뮬레이터).</p></div>
+    <div class="tile"><h4>보안</h4><p>노트북 디스크의 평문 파일은 분실·백업 동기화·악성코드에 노출됩니다. 접근 기록도 남지 않습니다.</p></div>
+    <div class="tile"><h4>내구성</h4><p>디스크가 고장 나거나 디렉터리를 실수로 지우면 끝입니다. 이력도 직전 한 판(.backup)뿐입니다.</p></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>요구</th><th>원격 백엔드(S3 예)가 주는 것</th></tr>
+    <tr><td>공유</td><td>팀 전체와 CI가 같은 위치의 state를 읽고 씀</td></tr>
+    <tr><td>잠금</td><td><code>use_lockfile</code>로 한 번에 한 실행만</td></tr>
+    <tr><td>보안</td><td>저장 시 암호화, TLS 강제, IAM으로 접근 통제, CloudTrail로 접근 기록</td></tr>
+    <tr><td>내구성·이력</td><td>버전닝으로 모든 판 보관, 이전 판으로 복구</td></tr>
+  </table></div>
+</section>
+<!-- ================= 5 ================= -->
+<section class="unit" id="u5">
+  <h2><span class="no">5</span>잠금 (locking)</h2>
+  <p class="lead">한 번에 한 사람만 state를 바꾸게 하는 장치</p>
+  <div class="panel">
+    <h4>시뮬레이터 — 엔지니어 A와 B가 같은 환경에 거의 동시에 apply한다</h4>
+    <div class="filters"><button class="btn warn" id="lkNo">잠금 없이 실행</button><button class="btn primary" id="lkYes">잠금 켜고 실행 (use_lockfile)</button></div>
+    <div class="lanes">
+      <div class="lane"><h5 class="tl">엔지니어 A — 보안 그룹 규칙 추가</h5><div id="laneA"></div></div>
+      <div class="lane"><h5 class="am">원격 state (S3)</h5><div id="laneS"></div></div>
+      <div class="lane"><h5 class="tf">엔지니어 B — 인스턴스 유형 변경</h5><div id="laneB"></div></div>
+    </div>
+    <div class="callout" id="lkSum" style="margin-bottom:0"><p>버튼을 눌러 두 경우를 비교하세요.</p></div>
+  </div>
+  <div class="prose">
+  <h3>잠금이 걸리는 명령</h3>
+  <p>state를 쓸 수 있는 모든 명령이 잠금을 잡습니다: <code>plan</code>(refresh 결과 기록을 위해), <code>apply</code>, <code>destroy</code>, <code>import</code>, <code>state mv/rm/push</code>, <code>refresh</code>. <code>apply</code>는 “yes” 입력을 기다리는 동안에도 잠금을 쥐고 있습니다. 확인 프롬프트를 띄워 둔 채 점심을 먹으러 가면 팀 전체가 멈춥니다.</p>
+  </div>
+<pre class="code"><span class="c"># 다른 사람이 잠금을 쥐고 있을 때</span>
+<span class="r">Error: Error acquiring the state lock</span>
+<span class="r">Lock Info:</span>
+<span class="r">  ID:        5f2c1d7e-…</span>
+<span class="r">  Path:      iac-lab-tfstate-123456789012/iac-lab/dev/04-playground/terraform.tfstate</span>
+<span class="r">  Operation: OperationTypeApply</span>
+<span class="r">  Who:       hong@laptop</span>
+<span class="r">  Created:   2026-10-21 05:12:44 UTC</span>
+
+terraform plan -lock-timeout=120s      <span class="c"># 최대 2분 동안 잠금이 풀리기를 기다림 (CI에서 유용)</span>
+terraform force-unlock 5f2c1d7e-…      <span class="c"># 잠금 강제 해제 (아래 경고)</span></pre>
+  <div class="callout bad prose"><div class="ct">force-unlock 전에 반드시 확인할 세 가지</div>
+  <p>① Lock Info의 <b>Who</b>에게 연락해 실행 중이 아님을 확인했다. ② CI 파이프라인 실행 목록에서 해당 환경의 작업이 없음을 확인했다. ③ 프로세스가 비정상 종료(노트북 절전, 네트워크 끊김, Ctrl+C 두 번)되어 잠금이 남은 것이 확실하다. 실행 중인 apply의 잠금을 풀면 그 apply의 결과 기록과 내 변경이 서로 덮어써 위 시뮬레이터의 “잠금 없음” 결과가 그대로 재현됩니다.</p></div>
+  <h3>S3 잠금의 진화</h3>
+  <div class="tablewrap"><table>
+    <tr><th>방식</th><th>설정</th><th>상태</th></tr>
+    <tr><td>DynamoDB 테이블 잠금</td><td><code>dynamodb_table = "tf-locks"</code></td><td><b>지원 중단(deprecated)</b>. 1.11부터 경고, 향후 제거 예정. 별도 테이블 생성·권한 관리가 필요했음</td></tr>
+    <tr><td>S3 네이티브 잠금</td><td><code>use_lockfile = true</code></td><td>1.10에서 도입, <b>1.11에서 정식(GA)</b>. S3의 조건부 쓰기로 state 옆에 <code>.tflock</code> 파일을 만들어 잠금. 추가 리소스 불필요</td></tr>
+  </table></div>
+  <div class="prose"><p>기존 DynamoDB 방식을 쓰는 고객사라면 두 설정을 동시에 켠 상태로 한 번 <code>terraform init -reconfigure</code> 한 뒤, 모든 사용자·CI가 새 설정을 쓰게 되면 <code>dynamodb_table</code>을 제거하는 순서로 옮깁니다. 이 S3 잠금은 “S3 Object Lock(객체 잠금)” 기능과는 아무 관련이 없으며 일반 버킷에서 동작합니다.</p></div>
+</section>
+
+<!-- ================= 6 ================= -->
+<section class="unit" id="u6">
+  <h2><span class="no">6</span>S3 백엔드</h2>
+  <p class="lead">AWS 환경의 표준 원격 state 저장소</p>
+  <div class="codehead"><span>backend.tf — 모든 값을 적은 형태</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="k">backend</span> <span class="s">"s3"</span> {
+    <span class="f">bucket</span>       = <span class="s">"iac-lab-tfstate-123456789012"</span>              <span class="c"># state 전용 버킷</span>
+    <span class="f">key</span>          = <span class="s">"iac-lab/dev/04-aws-vars/terraform.tfstate"</span> <span class="c"># 버킷 안의 경로 = 이 state의 이름</span>
+    <span class="f">region</span>       = <span class="s">"ap-northeast-2"</span>                            <span class="c"># 버킷이 있는 리전</span>
+    <span class="f">encrypt</span>      = <span class="n">true</span>                                        <span class="c"># 저장 시 서버 측 암호화</span>
+    <span class="f">use_lockfile</span> = <span class="n">true</span>                                        <span class="c"># S3 네이티브 잠금</span>
+    <span class="c"># kms_key_id = "arn:aws:kms:..."   ← 고객 관리형 KMS 키를 쓸 때</span>
+  }
+}</pre>
+  <h3>state 버킷이 갖춰야 할 것</h3>
+  <div class="tablewrap"><table>
+    <tr><th>설정</th><th>왜</th><th>실습 B 리소스</th></tr>
+    <tr><td>버전닝</td><td>모든 판을 보관. 잘못 덮어쓰거나 지워도 복구 가능</td><td><code>aws_s3_bucket_versioning</code></td></tr>
+    <tr><td>기본 암호화</td><td>저장된 객체 암호화. SSE-S3(AES256)은 무료, SSE-KMS는 키 접근 권한까지 통제하고 사용 기록을 남김(키 월 비용·요청 비용 발생)</td><td><code>aws_s3_bucket_server_side_encryption_configuration</code></td></tr>
+    <tr><td>퍼블릭 접근 차단</td><td>설정 실수로 공개되는 것을 계정·버킷 수준에서 차단</td><td><code>aws_s3_bucket_public_access_block</code></td></tr>
+    <tr><td>ACL 비활성화</td><td>객체 소유권을 버킷 소유자로 고정, 권한은 정책으로만</td><td><code>aws_s3_bucket_ownership_controls</code></td></tr>
+    <tr><td>TLS 강제 정책</td><td>암호화되지 않은 HTTP 접근 거부</td><td><code>aws_s3_bucket_policy</code></td></tr>
+    <tr><td>수명 주기</td><td>오래된 판(이전 버전)을 일정 기간 후 삭제해 무한 누적 방지</td><td><code>aws_s3_bucket_lifecycle_configuration</code></td></tr>
+    <tr><td>삭제 방지</td><td>state 버킷을 terraform destroy로 지우는 사고 방지</td><td><code>lifecycle { prevent_destroy = true }</code> (11편)</td></tr>
+    <tr><td>접근 기록</td><td>누가 state를 읽었는지 추적 (감사)</td><td>CloudTrail S3 데이터 이벤트 (16장, 선택)</td></tr>
+  </table></div>
+  <h3>필요한 IAM 권한</h3>
+<pre class="code">{
+  <span class="s">"Version"</span>: <span class="s">"2012-10-17"</span>,
+  <span class="s">"Statement"</span>: [
+    { <span class="s">"Effect"</span>: <span class="s">"Allow"</span>, <span class="s">"Action"</span>: <span class="s">"s3:ListBucket"</span>,
+      <span class="s">"Resource"</span>: <span class="s">"arn:aws:s3:::iac-lab-tfstate-123456789012"</span> },
+    { <span class="s">"Effect"</span>: <span class="s">"Allow"</span>, <span class="s">"Action"</span>: [<span class="s">"s3:GetObject"</span>, <span class="s">"s3:PutObject"</span>],
+      <span class="s">"Resource"</span>: <span class="s">"arn:aws:s3:::iac-lab-tfstate-123456789012/iac-lab/dev/*"</span> },
+    { <span class="s">"Effect"</span>: <span class="s">"Allow"</span>, <span class="s">"Action"</span>: <span class="s">"s3:DeleteObject"</span>,
+      <span class="s">"Resource"</span>: <span class="s">"arn:aws:s3:::iac-lab-tfstate-123456789012/iac-lab/dev/*.tflock"</span> }
+  ]
+}</pre>
+  <div class="prose"><p><code>use_lockfile</code>을 쓰면 잠금 파일을 만들고(Put) 지워야(Delete) 하므로, 기존 DynamoDB 방식용 정책에 <code>.tflock</code> 객체 권한을 추가해야 합니다. 경로(prefix) 단위로 권한을 나누면 “개발팀은 dev 경로만, 운영 담당은 prd 경로만” 같은 분리가 가능합니다. state를 <em>읽을</em> 권한만으로도 그 안의 비밀이 보인다는 점을 잊지 마세요. 읽기 권한도 쓰기만큼 귀합니다.</p></div>
+  <h3>key 설계</h3>
+  <div class="prose"><p>key는 state의 주소입니다. 한번 정하면 옮기기 번거로우므로 처음에 규칙을 정합니다. 이 강의는 <code>&lt;프로젝트 또는 고객&gt;/&lt;환경&gt;/&lt;구성 요소&gt;/terraform.tfstate</code>를 씁니다.</p></div>
+<div class="tree"><span class="d">s3://iac-lab-tfstate-123456789012/</span>
+├── <span class="d">bootstrap/</span>terraform.tfstate                 <span class="c"># 이 버킷 자체 (선택)</span>
+├── <span class="d">iac-lab/dev/04-playground/</span>terraform.tfstate
+├── <span class="d">iac-lab/dev/04-aws-vars/</span>terraform.tfstate
+│                                  <span class="w">.tflock</span>  <span class="c"># 실행 중에만 잠깐 존재</span>
+└── <span class="d">custA/prd/network/</span>terraform.tfstate       <span class="c"># MSP 예: 고객/환경/구성요소 (8·25편)</span></div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section class="unit" id="u7">
+  <h2><span class="no">7</span>Azure Blob·GCS·기타</h2>
+  <p class="lead">클라우드마다 그 클라우드의 객체 저장소가 표준 백엔드</p>
+  <div class="grid2">
+    <div>
+      <div class="codehead"><span>Azure Blob Storage (azurerm 백엔드)</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="k">backend</span> <span class="s">"azurerm"</span> {
+    <span class="f">resource_group_name</span>  = <span class="s">"rg-tfstate"</span>
+    <span class="f">storage_account_name</span> = <span class="s">"sttfstate1a2b3c"</span>
+    <span class="f">container_name</span>       = <span class="s">"tfstate"</span>
+    <span class="f">key</span>                  = <span class="s">"iac-lab/dev/app.tfstate"</span>
+    <span class="f">use_azuread_auth</span>     = <span class="n">true</span> <span class="c"># 저장소 키 대신 Entra ID 인증</span>
+  }
+}</pre>
+      <p class="note">잠금은 Blob 임대(lease)로 기본 제공됩니다. 저장소 계정에 Blob 버전 관리·일시 삭제(soft delete)를 켜고, 저장소 키(공유 키) 접근을 끈 뒤 <code>Storage Blob Data Contributor</code> 역할로 권한을 줍니다.</p>
+    </div>
+    <div>
+      <div class="codehead"><span>Google Cloud Storage (gcs 백엔드)</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="k">backend</span> <span class="s">"gcs"</span> {
+    <span class="f">bucket</span> = <span class="s">"iac-lab-tfstate"</span>
+    <span class="f">prefix</span> = <span class="s">"iac-lab/dev/app"</span> <span class="c"># 이 경로 아래 default.tfstate</span>
+  }
+}</pre>
+      <p class="note">잠금은 기본 제공됩니다. 버킷에 객체 버전 관리와 균일한 버킷 수준 접근(uniform bucket-level access)을 켭니다. 고객 관리형 암호화 키는 <code>kms_encryption_key</code>로 지정합니다.</p>
+    </div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>백엔드</th><th>잠금</th><th>언제</th></tr>
+    <tr><td><code>s3</code></td><td><code>use_lockfile</code></td><td>AWS 중심 환경. S3 호환 저장소(MinIO, Ceph RGW 등)에서도 쓰지만 조건부 쓰기 지원 여부 확인 필요</td></tr>
+    <tr><td><code>azurerm</code></td><td>Blob lease (기본)</td><td>Azure 중심 환경</td></tr>
+    <tr><td><code>gcs</code></td><td>기본</td><td>GCP 중심 환경</td></tr>
+    <tr><td><code>cloud</code> 블록 (HCP Terraform / Terraform Enterprise)</td><td>플랫폼이 관리</td><td>state 저장·잠금·이력·실행·정책을 한 곳에서. 12편</td></tr>
+    <tr><td><code>pg</code>, <code>consul</code>, <code>kubernetes</code>, <code>http</code></td><td>방식별</td><td>온프레미스·특수 환경. 클라우드 객체 저장소를 쓸 수 없는 폐쇄망 등</td></tr>
+    <tr><td><code>local</code> (기본값)</td><td>파일 시스템 잠금</td><td>개인 실습, 일회용</td></tr>
+  </table></div>
+  <div class="callout tf prose"><div class="ct">OpenTofu의 state 암호화</div>
+  <p>OpenTofu는 1.7부터 클라이언트 측 state·plan 암호화를 제공합니다. 저장소의 서버 측 암호화와 달리, 저장소 관리자나 state를 읽을 권한을 가진 사람도 키 없이는 내용을 볼 수 없습니다. Terraform에는 같은 기능이 없으므로, Terraform에서는 저장소 암호화 + 접근 통제 + 애초에 비밀을 넣지 않기(10장)의 조합으로 보호합니다.</p></div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section class="unit" id="u8">
+  <h2><span class="no">8</span>백엔드 설정과 이전</h2>
+  <p class="lead">backend 블록의 특별한 규칙과 state를 옮기는 방법</p>
+  <h3>backend 블록에는 변수를 쓸 수 없다</h3>
+  <div class="prose"><p>백엔드는 <code>terraform init</code> 때, 즉 변수를 읽기도 전에 결정되므로 <code>var.</code>·<code>local.</code>을 쓸 수 없습니다(4편 오류 “Variables not allowed”). 환경마다 다른 값은 <strong>부분 설정(partial configuration)</strong>으로 바깥에서 넣습니다.</p></div>
+  <div class="grid2">
+    <div>
+      <div class="codehead"><span>backend.tf — 비워 둔다</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="k">backend</span> <span class="s">"s3"</span> {}
+}</pre>
+    </div>
+    <div>
+      <div class="codehead"><span>backend/dev.s3.tfbackend — 환경별 파일</span></div>
+<pre class="code"><span class="f">bucket</span>       = <span class="s">"iac-lab-tfstate-123456789012"</span>
+<span class="f">key</span>          = <span class="s">"iac-lab/dev/04-aws-vars/terraform.tfstate"</span>
+<span class="f">region</span>       = <span class="s">"ap-northeast-2"</span>
+<span class="f">encrypt</span>      = <span class="n">true</span>
+<span class="f">use_lockfile</span> = <span class="n">true</span></pre>
+    </div>
+  </div>
+<pre class="code">terraform init -backend-config=backend/dev.s3.tfbackend
+<span class="c"># 값 하나만 덮어쓰기도 가능: -backend-config="key=iac-lab/stg/04-aws-vars/terraform.tfstate"</span></pre>
+  <div class="prose"><p><code>.tfbackend</code> 확장자는 HashiCorp가 권장하는 관례입니다. 이 파일에는 비밀이 없으므로 커밋해도 됩니다(버킷 이름에 계정 ID가 들어간다면 공개 저장소 여부만 주의). 같은 디렉터리를 환경마다 다른 state로 쓰는 전략과 그 함정은 8편에서 다룹니다.</p></div>
+  <h3>init의 세 가지 모드</h3>
+  <div class="tablewrap"><table>
+    <tr><th>명령</th><th>상황</th><th>동작</th></tr>
+    <tr><td><code>terraform init</code></td><td>처음, 또는 백엔드 설정이 그대로</td><td>저장된 백엔드 설정으로 연결. 설정이 바뀌었으면 아래 둘 중 하나를 요구</td></tr>
+    <tr><td><code>terraform init -migrate-state</code></td><td>백엔드를 바꾸면서 <b>state를 가져가고 싶을 때</b> (로컬 → S3, S3 key 변경)</td><td>기존 위치의 state를 새 위치로 복사. 대상에 이미 state가 있으면 어떻게 할지 묻는다</td></tr>
+    <tr><td><code>terraform init -reconfigure</code></td><td>백엔드 설정을 바꾸되 <b>state는 옮기지 않을 때</b> (이미 새 위치에 있거나, 잠금 방식만 변경)</td><td>기존 설정을 무시하고 새로 연결. 옮겨야 할 것을 이 옵션으로 하면 빈 state로 시작하게 되므로 주의</td></tr>
+  </table></div>
+  <div class="callout warn prose"><div class="ct">이전 작업의 안전 순서</div>
+  <p>① <code>terraform state pull &gt; before-migrate.tfstate</code>로 백업 ② 다른 사람·CI가 실행하지 않도록 공지 ③ <code>init -migrate-state</code> ④ <code>terraform state list</code>가 이전과 같은지 비교 ⑤ <code>terraform plan</code>이 “No changes”인지 확인 ⑥ 로컬 <code>terraform.tfstate</code>가 비워졌거나 남아 있다면 혼동을 막기 위해 보관 위치로 옮김. ⑤에서 변경이 보이면 무언가 잘못된 것이므로 apply하지 않습니다.</p></div>
+</section>
+
+<!-- ================= 9 ================= -->
+<section class="unit" id="u9">
+  <h2><span class="no">9</span>state 명령과 코드 블록</h2>
+  <p class="lead">state를 고치는 방법은 두 가지 — 명령으로 즉시, 또는 코드로 리뷰를 거쳐</p>
+  <div class="tablewrap"><table>
+    <tr><th>명령</th><th>하는 일</th><th>코드 기반 대안 (권장)</th></tr>
+    <tr><td><code>state list</code></td><td>관리 중인 주소 목록</td><td>—</td></tr>
+    <tr><td><code>state show 주소</code></td><td>한 리소스의 기록 (1.16: <code>-json</code>)</td><td>—</td></tr>
+    <tr><td><code>state mv A B</code></td><td>주소 변경(이름 바꾸기, 모듈로 옮기기), 다른 state로 이동</td><td><code>moved</code> 블록 (1.1+)</td></tr>
+    <tr><td><code>state rm 주소</code></td><td>state에서만 지움 (실물은 남김) = 관리 중단</td><td><code>removed</code> 블록 + <code>destroy = false</code> (1.7+)</td></tr>
+    <tr><td><code>import</code> 명령</td><td>기존 실물을 state에 연결</td><td><code>import</code> 블록 (1.5+, 1.16 모듈 안 지원) — 9편</td></tr>
+    <tr><td><code>state pull</code> / <code>push</code></td><td>state 전체 내려받기 / 올리기</td><td>—</td></tr>
+    <tr><td><code>state replace-provider A B</code></td><td>프로바이더 주소 일괄 변경 (예: 레지스트리 이전, 포크 전환)</td><td>—</td></tr>
+    <tr><td><code>force-unlock ID</code></td><td>남은 잠금 강제 해제</td><td>—</td></tr>
+  </table></div>
+  <div class="callout tf prose"><div class="ct">왜 코드 블록이 더 나은가</div>
+  <p><code>state mv</code>·<code>state rm</code>은 실행하는 순간 공유 state가 바뀝니다. 리뷰도 기록도 없고, 다른 사람이 아직 옛 코드로 plan하면 엉뚱한 결과가 나옵니다. <code>moved</code>·<code>removed</code> 블록은 PR로 리뷰되고, plan에 “무엇이 어디로 옮겨진다/관리에서 빠진다”가 표시되며, 모든 환경(dev·stg·prd)에서 같은 코드로 같은 변경이 재현됩니다. 명령은 일회성 긴급 조치나 다른 state 사이 이동처럼 코드로 표현할 수 없는 경우에 씁니다.</p></div>
+  <h3>실측: state mv만 하고 코드를 안 바꾸면</h3>
+<pre class="code">$ terraform state mv terraform_data.after terraform_data.later
+Successfully moved 1 object(s).
+
+$ terraform plan          <span class="c"># 코드에는 여전히 "after"가 있다</span>
+  <span class="g"># terraform_data.after will be created</span>
+  <span class="r"># terraform_data.later will be destroyed</span>
+  <span class="r"># (because terraform_data.later is not in configuration)</span>
+Plan: 1 to add, 0 to change, 1 to destroy.</pre>
+  <div class="prose"><p>state의 주소와 코드의 주소는 항상 함께 움직여야 합니다. 이것이 서버였다면 “이름만 바꾸려다 서버를 지우고 새로 만드는” 계획입니다.</p></div>
+  <h3>실측: moved 블록으로 이름 바꾸기</h3>
+<pre class="code"><span class="c"># 코드의 리소스 이름을 after → renamed 로 바꾸고, 아래 블록 추가</span>
+<span class="k">moved</span> {
+  <span class="f">from</span> = terraform_data.after
+  <span class="f">to</span>   = terraform_data.renamed
+}
+
+$ terraform plan
+  <span class="b"># terraform_data.after has moved to terraform_data.renamed</span>
+Plan: 0 to add, 0 to change, 0 to destroy.</pre>
+  <h3>실측: removed 블록으로 관리만 중단</h3>
+<pre class="code"><span class="k">removed</span> {
+  <span class="f">from</span> = terraform_data.renamed
+  <span class="k">lifecycle</span> {
+    <span class="f">destroy</span> = <span class="n">false</span>       <span class="c"># 실물은 그대로 두고 state에서만 뺀다</span>
+  }
+}
+
+$ terraform plan
+  <span class="b"># terraform_data.renamed will be removed from the state but will not be destroyed</span>
+Plan: 0 to add, 0 to change, 0 to destroy, 1 to forget.</pre>
+  <div class="prose"><p class="note">removed를 apply한 뒤에는 블록을 지워도 됩니다. MSP에서는 “고객이 직접 관리하기로 한 리소스를 우리 코드에서 넘겨줄 때”, “다른 팀의 state로 리소스를 옮길 때(이쪽은 removed, 저쪽은 import)”에 씁니다.</p></div>
+
+  <div class="panel">
+    <h4>상황별 선택기 — 하고 싶은 일을 고르세요</h4>
+    <div class="grid2">
+      <div class="scen" id="scen"></div>
+      <div class="tile" id="scenInfo"><h4>상황을 선택하세요</h4><p>대부분의 상황에 “명령”과 “코드 블록” 두 가지 답이 있습니다. 공유 state라면 코드 블록이 우선입니다.</p></div>
+    </div>
+  </div>
+</section>
+<!-- ================= 10 ================= -->
+<section class="unit" id="u10">
+  <h2><span class="no">10</span>민감 값 처리의 진화</h2>
+  <p class="lead">“화면에서 가리기”에서 “아예 저장하지 않기”로, 그리고 “필요할 때만 의도적으로 저장하기”로</p>
+  <div class="evo">
+    <div class="st2"><div class="ver">0.14~</div><h4>sensitive</h4><p class="note" style="margin:0">출력에서 가림</p>
+      <div class="dots"><span class="dot n"></span><span>화면: 가림</span><span class="dot y"></span><span>plan 파일: 저장</span><span class="dot y"></span><span>state: 평문 저장</span></div></div>
+    <div class="st2"><div class="ver">1.10~</div><h4>ephemeral</h4><p class="note" style="margin:0">변수·출력·ephemeral 리소스</p>
+      <div class="dots"><span class="dot n"></span><span>화면: 표시 안 됨</span><span class="dot n"></span><span>plan 파일: 저장 안 함</span><span class="dot n"></span><span>state: 저장 안 함</span></div></div>
+    <div class="st2"><div class="ver">1.11~</div><h4>write-only 인자</h4><p class="note" style="margin:0"><code>password_wo</code> 등</p>
+      <div class="dots"><span class="dot n"></span><span>리소스에 전달됨</span><span class="dot n"></span><span>plan·state: 저장 안 함</span><span class="dot m"></span><span>변경 감지: <code>_version</code>으로</span></div></div>
+    <div class="st2"><div class="ver">1.16~</div><h4>store 블록</h4><p class="note" style="margin:0"><code>terraform_data</code></p>
+      <div class="dots"><span class="dot m"></span><span>ephemeral 값을 <b>의도적으로</b> 보관</span><span class="dot y"></span><span>state: sensitive_output에 저장</span><span class="dot m"></span><span>갱신: <code>version</code>으로 통제</span></div></div>
+  </div>
+
+  <h3>① sensitive — 커튼 (4편 복습)</h3>
+  <div class="prose"><p>실습 A에서 본 그대로입니다. 화면에는 <code>(sensitive value)</code>로 나오지만 state에는 평문으로, 그것도 <code>input</code>과 <code>output</code> 두 곳에 저장됩니다. <code>sensitive_attributes</code>는 “이 경로의 값은 민감하다”는 표시일 뿐 값을 숨기지 않습니다.</p></div>
+
+  <h3>② ephemeral — 저장하지 않는 값 (1.10)</h3>
+<pre class="code"><span class="c"># 변수: CI가 넣어 주는 일회용 토큰</span>
+<span class="k">variable</span> <span class="s">"vault_token"</span> {
+  <span class="f">type</span>      = string
+  <span class="f">ephemeral</span> = <span class="n">true</span>
+}
+
+<span class="c"># ephemeral 리소스: 매 실행마다 새로 만들어지고 어디에도 기록되지 않는다</span>
+<span class="k">ephemeral</span> <span class="s">"random_password"</span> <span class="s">"db"</span> {
+  <span class="f">length</span>  = <span class="n">20</span>
+  <span class="f">special</span> = <span class="n">true</span>
+}
+<span class="c"># 비밀 저장소에서 읽기만 하는 ephemeral 리소스도 있다:</span>
+<span class="c"># ephemeral "aws_secretsmanager_secret_version" "db" { secret_id = "..." }</span></pre>
+  <div class="prose"><p>ephemeral 값은 쓸 수 있는 곳이 제한됩니다: 다른 ephemeral 변수·출력·리소스, provider 설정(인증 토큰 등), provisioner·connection, 그리고 ③의 write-only 인자. 일반 리소스 인자에 넣으면 <code>Ephemeral value not allowed</code> 오류가 납니다. 또 ephemeral 리소스는 실행할 때마다 값이 다시 만들어지므로(위 random_password는 매번 새 비밀번호), “한 번 정해지면 유지”가 필요할 때는 ③이나 ④와 조합합니다.</p></div>
+
+  <h3>③ write-only 인자 — 보내고 잊는다 (1.11)</h3>
+<pre class="code"><span class="k">ephemeral</span> <span class="s">"random_password"</span> <span class="s">"db"</span> {
+  <span class="f">length</span> = <span class="n">20</span>
+}
+
+<span class="c"># 1) 비밀번호를 Secrets Manager에 저장 (write-only 인자라 state에 남지 않음)</span>
+<span class="k">resource</span> <span class="s">"aws_secretsmanager_secret"</span> <span class="s">"db"</span> {
+  <span class="f">name</span> = <span class="s">"iac-lab/dev/db-password"</span>
+}
+<span class="k">resource</span> <span class="s">"aws_secretsmanager_secret_version"</span> <span class="s">"db"</span> {
+  <span class="f">secret_id</span>                = aws_secretsmanager_secret.db.id
+  <span class="f">secret_string_wo</span>         = ephemeral.random_password.db.result
+  <span class="f">secret_string_wo_version</span> = <span class="n">1</span> <span class="c"># 비밀번호를 바꾸고 싶을 때 2로 올린다</span>
+}
+
+<span class="c"># 2) 같은 값을 DB에 설정 (역시 write-only)</span>
+<span class="k">resource</span> <span class="s">"aws_db_instance"</span> <span class="s">"app"</span> {
+  <span class="c"># ... engine, instance_class 등 ...</span>
+  <span class="f">username</span>            = <span class="s">"app"</span>
+  <span class="f">password_wo</span>         = ephemeral.random_password.db.result
+  <span class="f">password_wo_version</span> = aws_secretsmanager_secret_version.db.secret_string_wo_version
+}</pre>
+  <div class="prose">
+  <p>write-only 인자(<code>_wo</code>로 끝나는 이름이 관례)는 apply 때 리소스에 값을 넘기지만 plan·state 어디에도 저장하지 않습니다. 그래서 Terraform은 값이 바뀌었는지 알 수 없고, 대신 짝이 되는 <code>_wo_version</code> 숫자를 state에 저장해 “버전이 올랐으면 다시 보낸다”로 변경을 표현합니다. 위 예처럼 ephemeral 비밀번호는 매번 새로 만들어지지만, 버전이 그대로면 리소스로 다시 보내지 않으므로 DB 비밀번호가 실행마다 바뀌지 않습니다.</p>
+  <p>모든 리소스가 write-only 인자를 지원하는 것은 아닙니다. 프로바이더 문서에서 <em>Write-Only</em> 표시를 확인하세요. 그리고 가장 좋은 방법은 비밀번호를 Terraform이 아예 다루지 않는 것입니다. RDS의 <code>manage_master_user_password = true</code>는 AWS가 비밀번호를 만들어 Secrets Manager에 넣고 순환까지 해 주므로, Terraform state에는 비밀의 위치(ARN)만 남습니다.</p>
+  </div>
+
+  <h3>④ store 블록 — 의도적으로, 통제하며 보관한다 (1.16)</h3>
+<pre class="code"><span class="k">ephemeral</span> <span class="s">"random_password"</span> <span class="s">"initial"</span> {
+  <span class="f">length</span> = <span class="n">20</span>
+}
+
+<span class="k">resource</span> <span class="s">"terraform_data"</span> <span class="s">"initial_password"</span> {
+  <span class="k">store</span> {
+    <span class="f">input</span>     = ephemeral.random_password.initial.result <span class="c"># write-only: ephemeral 값을 받을 수 있다</span>
+    <span class="f">sensitive</span> = <span class="n">true</span>                                     <span class="c"># → store.sensitive_output 에 저장 (false면 store.output)</span>
+    <span class="f">version</span>   = <span class="n">1</span>                                        <span class="c"># 이 숫자가 바뀔 때만 저장 값을 갱신</span>
+    <span class="c"># replace = true  ← 저장 값이 바뀔 때 리소스를 교체로 처리</span>
+  }
+}
+
+<span class="k">output</span> <span class="s">"initial_password"</span> {
+  <span class="f">value</span>     = terraform_data.initial_password.store.sensitive_output
+  <span class="f">sensitive</span> = <span class="n">true</span>
+}</pre>
+  <div class="prose">
+  <p>store 블록은 ①~③과 방향이 반대입니다. ephemeral 값을 <strong>state에 저장</strong>합니다. 왜 필요할까요? ephemeral 리소스는 매번 새 값을 만들기 때문에, “최초 1회 생성한 값을 계속 같은 값으로 써야 하는” 경우(초기 관리자 비밀번호를 다른 리소스 여러 곳에 쓰고, 출력으로 운영자에게 한 번 전달하는 등)에 그 값을 붙잡아 둘 곳이 없었습니다. store는 그 보관을 <strong>명시적인 선택</strong>으로 만들고, <code>sensitive</code>로 표시하고, <code>version</code>으로 언제 바뀌는지 통제합니다.</p>
+  <p>즉 store를 쓰면 그 값은 다시 state 보안(11장)에 의존하게 됩니다. 판단 기준은 이렇습니다: 비밀을 외부 비밀 저장소로 보낼 수 있다면 ③, 저장소가 대신 관리해 준다면 그것(RDS 관리형 비밀번호 등), 정말 Terraform이 기억해야만 한다면 ④.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>방법</th><th>화면</th><th>plan 파일</th><th>state</th><th>값 유지</th><th>쓰는 곳</th></tr>
+    <tr><td><code>sensitive</code></td><td>가림</td><td>저장</td><td><b style="color:var(--red)">평문</b></td><td>유지</td><td>기본값. 모든 민감 출력·변수</td></tr>
+    <tr><td><code>ephemeral</code></td><td>안 보임</td><td>없음</td><td>없음</td><td>매 실행 새로</td><td>토큰, 일회용 자격증명, provider 인증</td></tr>
+    <tr><td>write-only (<code>_wo</code>)</td><td>안 보임</td><td>없음</td><td>버전 번호만</td><td>버전으로 통제</td><td>비밀번호를 리소스·비밀 저장소에 전달</td></tr>
+    <tr><td><code>store</code> 블록</td><td>가림</td><td>—</td><td><b style="color:var(--amber)">sensitive_output에 저장</b></td><td>버전으로 통제</td><td>ephemeral 값을 의도적으로 유지해야 할 때</td></tr>
+    <tr><td>외부 관리 (RDS 관리형 비밀번호, Vault 동적 비밀)</td><td>—</td><td>없음</td><td>ARN·경로만</td><td>저장소가 관리</td><td><b>가능하면 이것이 최선</b></td></tr>
+  </table></div>
+</section>
+
+<!-- ================= 11 ================= -->
+<section class="unit" id="u11">
+  <h2><span class="no">11</span>state 보안과 유출 사고</h2>
+  <p class="lead">state가 새는 경로는 생각보다 단순하고, 반복된다</p>
+  <div class="prose"><p>보안 연구와 버그 바운티 보고에서 공개된 <code>.tfstate</code> 파일은 반복해서 등장하는 단골 항목입니다. 아래는 특정 회사의 사건이 아니라, 반복적으로 보고되는 유형을 재구성한 시나리오입니다. 각 유형의 “막는 장치”가 이 강의의 어느 부분에 있는지 함께 표시했습니다.</p></div>
+  <div class="case"><h4><span>유형 1. Git 저장소에 커밋된 state</span><span class="tag am">가장 흔함</span></h4>
+    <p style="margin:0;color:var(--muted);font-size:.93rem">초기에 로컬 state로 시작한 프로젝트를 Git에 올리면서 <code>terraform.tfstate</code>까지 커밋. 나중에 파일을 지워도 <b>커밋 이력에 영원히</b> 남는다. 저장소가 공개로 바뀌거나 외주사에 공유되는 순간 노출.</p>
+    <div class="vs"><div class="bad"><b>결과</b>DB 비밀번호, IAM 액세스 키(코드로 키를 만든 경우), 내부 IP·도메인 구조 전부</div><div class="good"><b>막는 장치</b>2편 .gitignore, gitleaks pre-commit, 처음부터 원격 백엔드. 이미 커밋했다면 이력 정리보다 <b>비밀 교체가 먼저</b></div></div></div>
+  <div class="case"><h4><span>유형 2. 공개 설정된 state 버킷</span><span class="tag am">설정 실수</span></h4>
+    <p style="margin:0;color:var(--muted);font-size:.93rem">정적 웹사이트용으로 공개한 버킷에 state도 함께 두거나, 디버깅 중 버킷 정책을 넓게 열어 두고 잊음. 자동 스캐너가 흔한 이름(<code>*-tfstate</code>, <code>*-terraform</code>)의 버킷을 끊임없이 찾는다.</p>
+    <div class="vs"><div class="bad"><b>결과</b>익명으로 state 다운로드</div><div class="good"><b>막는 장치</b>state 전용 버킷, 퍼블릭 접근 차단(계정 수준까지), TLS 강제 정책, 실습 B의 버킷 구성</div></div></div>
+  <div class="case"><h4><span>유형 3. 웹 서버·CDN 경로에 함께 배포된 state</span><span class="tag am">배포 실수</span></h4>
+    <p style="margin:0;color:var(--muted);font-size:.93rem">배포 스크립트가 작업 디렉터리를 통째로 웹 루트나 CDN 원본 버킷에 동기화. <code>/terraform.tfstate</code>, <code>/terraform.tfstate.backup</code>이 URL로 열린다.</p>
+    <div class="vs"><div class="bad"><b>결과</b>누구나 브라우저로 다운로드</div><div class="good"><b>막는 장치</b>로컬 state 사용 금지, 배포 대상 디렉터리와 IaC 디렉터리 분리, 동기화 제외 규칙</div></div></div>
+  <div class="case"><h4><span>유형 4. 과도한 읽기 권한과 CI 로그</span><span class="tag am">내부 노출</span></h4>
+    <p style="margin:0;color:var(--muted);font-size:.93rem">“읽기만 하니까 괜찮다”며 개발자 전원에게 state 버킷 읽기 권한을 주거나, CI 로그에 <code>terraform show</code>·<code>output -json</code> 결과를 그대로 남김. <code>terraform_remote_state</code>로 다른 팀 state를 읽게 하면서 그 state 전체 읽기 권한을 줌.</p>
+    <div class="vs"><div class="bad"><b>결과</b>내부자·외주 인력·로그 보관 시스템으로 비밀 확산</div><div class="good"><b>막는 장치</b>경로 단위 최소 권한, CloudTrail 데이터 이벤트, 출력 sensitive 표시, 12장의 remote_state 대안, 10장의 비밀 미저장</div></div></div>
+
+  <h3>유출이 의심될 때의 대응 순서</h3>
+  <ol class="prose">
+    <li><b>차단</b>: 공개 경로 제거(버킷 정책 복구, 파일 삭제, 저장소 비공개 전환). 단, 이미 복사되었다고 가정한다.</li>
+    <li><b>비밀 교체가 최우선</b>: state 안의 모든 비밀(DB 비밀번호, 액세스 키, 토큰, 개인키)을 새로 발급하고 옛 것을 폐기. Git 이력 정리는 그다음이다.</li>
+    <li><b>악용 흔적 조사</b>: CloudTrail에서 노출된 키의 사용 기록, 낯선 리전·IP의 API 호출, 새 IAM 사용자·키 생성 여부. 공개 저장소에 노출된 AWS 키는 자동 스캐너에 매우 빨리 발견되는 것으로 널리 알려져 있으며, AWS도 노출을 탐지하면 해당 키에 격리 정책을 붙이고 알려 줍니다.</li>
+    <li><b>고객 보고</b>: MSP라면 계약상 보안 사고 통지 의무를 확인하고 고객 보안 담당과 즉시 공유.</li>
+    <li><b>재발 방지</b>: 원인 유형에 맞는 장치를 추가하고 회고 문서화.</li>
+  </ol>
+  <div class="callout prose"><div class="ct">state 보안 체크리스트 (복사해서 쓰세요)</div>
+  <p>□ state는 원격 백엔드에만 (로컬·Git 금지) □ 버킷 퍼블릭 차단·TLS 강제·기본 암호화 □ 버전닝 + 수명 주기 □ 경로 단위 최소 권한, 읽기 권한도 통제 □ 접근 기록(CloudTrail 데이터 이벤트) □ state에 비밀을 넣지 않는 설계(ephemeral·write-only·외부 관리) □ 출력은 sensitive 표시 □ CI 로그에 state·plan 내용을 남기지 않음 □ plan 파일 커밋 금지 □ 유출 시 비밀 교체 절차 문서화</p></div>
+</section>
+
+<!-- ================= 12 ================= -->
+<section class="unit" id="u12">
+  <h2><span class="no">12</span>다른 state의 값 읽기</h2>
+  <p class="lead">네트워크 state의 VPC ID를 애플리케이션 state에서 쓰고 싶을 때</p>
+<pre class="code"><span class="k">data</span> <span class="s">"terraform_remote_state"</span> <span class="s">"network"</span> {
+  <span class="f">backend</span> = <span class="s">"s3"</span>
+  <span class="f">config</span> = {
+    bucket = <span class="s">"iac-lab-tfstate-123456789012"</span>
+    key    = <span class="s">"iac-lab/dev/network/terraform.tfstate"</span>
+    region = <span class="s">"ap-northeast-2"</span>
+  }
+}
+<span class="c"># 상대 state의 루트 output만 읽을 수 있다</span>
+<span class="c"># vpc_id = data.terraform_remote_state.network.outputs.vpc_id</span></pre>
+  <div class="tablewrap"><table>
+    <tr><th>방법</th><th>장점</th><th>단점</th></tr>
+    <tr><td><code>terraform_remote_state</code></td><td>설정이 간단, 출력이 곧 계약</td><td>읽는 쪽에 상대 state <b>전체</b> 읽기 권한이 필요(출력만 읽어도 파일은 통째로 내려받음). 두 state가 강하게 묶임</td></tr>
+    <tr><td>클라우드 data 소스 (<code>data "aws_vpc"</code> + 태그 필터)</td><td>state 접근 권한 불필요, 실제 클라우드 값을 읽음</td><td>태그·이름 규칙이 일관되어야 함</td></tr>
+    <tr><td>공유 저장소 (SSM Parameter Store, 출력 전용 S3 객체)</td><td>공개할 값만 골라 공개, 권한 분리 명확</td><td>값을 써 넣는 리소스를 따로 관리</td></tr>
+  </table></div>
+  <div class="prose"><p>MSP에서 네트워크와 애플리케이션을 다른 팀·다른 state로 나누는 것은 흔합니다(8편). 이때는 <strong>SSM 파라미터나 data 소스</strong> 방식을 권장합니다. state 전체를 읽을 권한을 다른 팀에게 주지 않아도 되기 때문입니다.</p></div>
+</section>
+<!-- ================= 13 ================= -->
+<section class="unit" id="u13">
+  <h2><span class="no">13</span>실습 A: state 해부 (0원)</h2>
+  <p class="lead">내장 리소스만으로 state의 구조·보호장치·함정을 직접 확인한다</p>
+  <div class="codehead"><span>~/iac-lab/terraform/05-state-anatomy/main.tf</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="f">required_version</span> = <span class="s">"~&gt; 1.16.0"</span>
+}
+
+<span class="k">variable</span> <span class="s">"db_password"</span> {
+  <span class="f">type</span>      = string
+  <span class="f">sensitive</span> = <span class="n">true</span>
+  <span class="f">default</span>   = <span class="s">"S3cr3t-Example!"</span> <span class="c"># 실습용 가짜 값. 실제 비밀을 default에 쓰지 않는다</span>
+}
+
+<span class="k">resource</span> <span class="s">"terraform_data"</span> <span class="s">"app"</span> {
+  <span class="f">input</span> = { name = <span class="s">"web1"</span>, password = var.db_password }
+}
+
+<span class="k">resource</span> <span class="s">"terraform_data"</span> <span class="s">"after"</span> {
+  <span class="f">input</span> = terraform_data.app.id
+}
+
+<span class="k">output</span> <span class="s">"app_id"</span> {
+  <span class="f">value</span> = terraform_data.app.id
+}</pre>
+  <h3>1단계: 구조와 평문 비밀 확인</h3>
+<pre class="code">cd ~/iac-lab/terraform/05-state-anatomy
+terraform init &amp;&amp; terraform apply -auto-approve
+jq '{version, terraform_version, serial, lineage}' terraform.tfstate
+jq '.resources[] | {mode, type, name, deps: .instances[0].dependencies}' terraform.tfstate
+grep -c 'S3cr3t-Example!' terraform.tfstate        <span class="c"># → 2 (input과 output에 한 번씩)</span>
+terraform state show terraform_data.app             <span class="c"># input.password는 (sensitive value)로 가려짐</span></pre>
+  <div class="prose"><p class="note">실측에서는 <code>state show</code>가 <code>input.password</code>는 가렸지만 <code>output.password</code>는 그대로 보여 주었습니다. 민감 표시가 파생된 속성까지 항상 전파되는 것은 아니라는 뜻이며, 화면 가림에 기대지 말아야 하는 또 하나의 이유입니다. 여러분의 버전에서는 어떻게 나오는지 확인해 보세요.</p></div>
+
+  <h3>2단계: serial·lineage 보호장치</h3>
+<pre class="code">terraform state pull &gt; backup.tfstate                <span class="c"># 현재 판 (serial 1)</span>
+terraform state mv terraform_data.after terraform_data.later   <span class="c"># state 변경 → serial 2</span>
+ls terraform.tfstate*.backup                         <span class="c"># 타임스탬프 백업 파일 생성 확인</span>
+terraform state push backup.tfstate                  <span class="c"># → serial 1 over newer state with serial 2 거부</span>
+jq '.lineage="00000000-aaaa-bbbb-cccc-000000000000" | .serial=99' backup.tfstate &gt; other.tfstate
+terraform state push other.tfstate                   <span class="c"># → unrelated state with lineage 거부</span></pre>
+
+  <h3>3단계: state mv의 함정과 moved 블록</h3>
+<pre class="code">terraform plan                                       <span class="c"># 코드는 "after" → 1 to add, 1 to destroy (9장 실측)</span>
+terraform state mv terraform_data.later terraform_data.after   <span class="c"># 원상 복구</span>
+<span class="c"># 이제 코드에서 resource "terraform_data" "after" 를 "renamed"로 바꾸고 moved 블록 추가 (9장)</span>
+terraform plan                                       <span class="c"># → has moved to … 0 to add, 0 to change, 0 to destroy</span>
+terraform apply -auto-approve</pre>
+
+  <h3>4단계: removed 블록으로 관리 중단</h3>
+<pre class="code"><span class="c"># "renamed" 리소스 블록과 moved 블록을 지우고 removed 블록(destroy = false) 추가 (9장)</span>
+terraform plan                                       <span class="c"># → 삭제하지 않고 state에서만 제거 / 1 to forget</span>
+terraform apply -auto-approve
+terraform state list                                 <span class="c"># terraform_data.app 만 남음</span></pre>
+
+  <h3>5단계 (선택): ephemeral과 store 블록 비교</h3>
+  <div class="prose"><p>random 프로바이더가 필요합니다(3.7 이상에 ephemeral <code>random_password</code>가 있음). <code>terraform</code> 블록에 <code>required_providers { random = { source = "hashicorp/random", version = "~&gt; 3.7" } }</code>를 추가하고 아래를 <code>ephemeral.tf</code>로 저장한 뒤 다시 init하세요.</p></div>
+<pre class="code"><span class="k">ephemeral</span> <span class="s">"random_password"</span> <span class="s">"pw"</span> {
+  <span class="f">length</span> = <span class="n">20</span>
+}
+
+<span class="k">resource</span> <span class="s">"terraform_data"</span> <span class="s">"kept"</span> {
+  <span class="k">store</span> {
+    <span class="f">input</span>     = ephemeral.random_password.pw.result
+    <span class="f">sensitive</span> = <span class="n">true</span>
+    <span class="f">version</span>   = <span class="n">1</span>
+  }
+}</pre>
+<pre class="code">terraform init &amp;&amp; terraform apply -auto-approve
+jq '.resources[] | select(.name=="kept") | .instances[0].attributes.store' terraform.tfstate
+<span class="c"># → sensitive_output에 비밀번호가 들어 있다: store는 "의도적으로 저장"하는 기능</span>
+terraform apply -auto-approve      <span class="c"># 다시 실행: ephemeral 값은 새로 만들어지지만 version이 같으므로 저장 값은 그대로</span>
+<span class="c"># version = 2 로 올리고 apply → 저장 값이 새 비밀번호로 바뀐다</span>
+<span class="c"># 마지막으로 terraform_data.kept 블록을 지우고 apply → state에서 비밀이 사라짐 확인</span></pre>
+<pre class="code">terraform destroy -auto-approve</pre>
+</section>
+
+<!-- ================= 14 ================= -->
+<section class="unit" id="u14">
+  <h2><span class="no">14</span>실습 B: S3 원격 백엔드</h2>
+  <p class="lead">state 버킷을 만들고, 4편 놀이터의 state를 옮기고, 잠금 충돌과 버전 복구를 직접 겪어 본다</p>
+  <div class="callout prose"><div class="ct">닭과 달걀 문제</div>
+  <p>state를 저장할 버킷도 Terraform으로 만들고 싶은데, 그 버킷을 만드는 코드의 state는 어디에 둘까요? 표준 해법은 <strong>부트스트랩</strong>입니다. ① 버킷 코드를 로컬 state로 apply ② 버킷이 생기면 그 코드에 backend 블록을 추가해 자기 자신의 state를 방금 만든 버킷으로 옮김(선택). 이 버킷은 이후 모든 편에서 계속 씁니다.</p></div>
+  <div class="codehead"><span>~/iac-lab/terraform/05-state-bootstrap/main.tf</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="f">required_version</span> = <span class="s">"~&gt; 1.16.0"</span>
+  <span class="f">required_providers</span> {
+    aws = { source = <span class="s">"hashicorp/aws"</span>, version = <span class="s">"~&gt; 6.0"</span> }
+  }
+}
+
+<span class="k">provider</span> <span class="s">"aws"</span> {
+  <span class="f">region</span> = <span class="s">"ap-northeast-2"</span>
+  <span class="k">default_tags</span> {
+    <span class="f">tags</span> = { Project = <span class="s">"iac-lab"</span>, ManagedBy = <span class="s">"terraform"</span>, Purpose = <span class="s">"tfstate"</span> }
+  }
+}
+
+<span class="k">data</span> <span class="s">"aws_caller_identity"</span> <span class="s">"me"</span> {}
+
+<span class="k">locals</span> {
+  <span class="c"># 계정 ID를 붙여 전 세계에서 유일한 이름을 만든다</span>
+  <span class="f">bucket_name</span> = <span class="s">"iac-lab-tfstate-${data.aws_caller_identity.me.account_id}"</span>
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span> = local.bucket_name
+
+  <span class="c"># state 버킷은 terraform destroy로 지워지면 안 된다 (11편)</span>
+  <span class="k">lifecycle</span> {
+    <span class="f">prevent_destroy</span> = <span class="n">true</span>
+  }
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_versioning"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.state.id
+  <span class="k">versioning_configuration</span> {
+    <span class="f">status</span> = <span class="s">"Enabled"</span>
+  }
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_server_side_encryption_configuration"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.state.id
+  <span class="k">rule</span> {
+    <span class="k">apply_server_side_encryption_by_default</span> {
+      <span class="f">sse_algorithm</span> = <span class="s">"AES256"</span> <span class="c"># 고객사 운영이라면 aws:kms + 고객 관리형 키 검토</span>
+    }
+  }
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_public_access_block"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span>                  = aws_s3_bucket.state.id
+  <span class="f">block_public_acls</span>       = <span class="n">true</span>
+  <span class="f">block_public_policy</span>     = <span class="n">true</span>
+  <span class="f">ignore_public_acls</span>      = <span class="n">true</span>
+  <span class="f">restrict_public_buckets</span> = <span class="n">true</span>
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_ownership_controls"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.state.id
+  <span class="k">rule</span> {
+    <span class="f">object_ownership</span> = <span class="s">"BucketOwnerEnforced"</span>
+  }
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_policy"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.state.id
+  <span class="f">policy</span> = jsonencode({
+    Version = <span class="s">"2012-10-17"</span>
+    Statement = [{
+      Sid       = <span class="s">"DenyInsecureTransport"</span>
+      Effect    = <span class="s">"Deny"</span>
+      Principal = <span class="s">"*"</span>
+      Action    = <span class="s">"s3:*"</span>
+      Resource  = [aws_s3_bucket.state.arn, <span class="s">"${aws_s3_bucket.state.arn}/*"</span>]
+      Condition = { Bool = { <span class="s">"aws:SecureTransport"</span> = <span class="s">"false"</span> } }
+    }]
+  })
+  <span class="c"># 퍼블릭 차단 설정이 먼저 적용된 뒤 정책을 건다</span>
+  <span class="f">depends_on</span> = [aws_s3_bucket_public_access_block.state]
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_lifecycle_configuration"</span> <span class="s">"state"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.state.id
+  <span class="k">rule</span> {
+    <span class="f">id</span>     = <span class="s">"expire-old-state-versions"</span>
+    <span class="f">status</span> = <span class="s">"Enabled"</span>
+    <span class="k">filter</span> {}
+    <span class="k">noncurrent_version_expiration</span> {
+      <span class="f">noncurrent_days</span> = <span class="n">90</span> <span class="c"># 이전 판은 90일 보관</span>
+    }
+    <span class="k">abort_incomplete_multipart_upload</span> {
+      <span class="f">days_after_initiation</span> = <span class="n">7</span>
+    }
+  }
+  <span class="c"># 버전닝이 켜진 뒤에 수명 주기 규칙을 건다</span>
+  <span class="f">depends_on</span> = [aws_s3_bucket_versioning.state]
+}
+
+<span class="k">output</span> <span class="s">"state_bucket"</span> {
+  <span class="f">value</span> = aws_s3_bucket.state.bucket
+}</pre>
+  <h3>1단계: 버킷 만들기</h3>
+<pre class="code">cd ~/iac-lab/terraform/05-state-bootstrap
+export AWS_PROFILE=iac-lab
+aws sts get-caller-identity --query Account --output text   <span class="c"># 버킷 이름에 들어갈 계정 번호 확인</span>
+terraform init &amp;&amp; terraform plan     <span class="c"># 7 to add</span>
+terraform apply
+BUCKET=$(terraform output -raw state_bucket); echo "$BUCKET"
+aws s3api get-bucket-versioning --bucket "$BUCKET"       <span class="c"># "Status": "Enabled"</span>
+aws s3api get-bucket-encryption --bucket "$BUCKET"</pre>
+
+  <h3>2단계: 4편 놀이터의 state를 S3로 옮기기</h3>
+  <div class="prose"><p>4편 실습 A(<code>04-playground</code>)는 비용이 없는 <code>terraform_data</code>만 쓰므로 이전·잠금·복구 연습에 안성맞춤입니다. destroy했다면 먼저 다시 만들어 두세요.</p></div>
+<pre class="code">cd ~/iac-lab/terraform/04-playground
+terraform apply -auto-approve                 <span class="c"># 로컬 state에 6개 리소스</span>
+terraform state list | tee /tmp/before.txt
+terraform state pull &gt; /tmp/before-migrate.tfstate
+
+mkdir -p backend
+printf 'terraform {\n  backend "s3" {}\n}\n' &gt; backend.tf
+cat &gt; backend/dev.s3.tfbackend &lt;&lt;CFG
+bucket       = "$BUCKET"
+key          = "iac-lab/dev/04-playground/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
+CFG
+
+terraform init -migrate-state -backend-config=backend/dev.s3.tfbackend
+<span class="c"># "Do you want to copy existing state to the new backend?" → yes</span>
+
+terraform state list | diff - /tmp/before.txt &amp;&amp; echo "목록 동일"
+terraform plan                                <span class="c"># No changes 여야 한다</span>
+aws s3 ls "s3://$BUCKET/iac-lab/dev/04-playground/"</pre>
+
+  <h3>3단계: 잠금 충돌 재현 (터미널 두 개)</h3>
+<pre class="code"><span class="c"># 터미널 1 — 항목을 하나 추가하는 apply를 시작하고, "Enter a value:" 에서 멈춘 채로 둔다</span>
+terraform apply -var='names=["web","api","batch","cache"]'
+
+<span class="c"># 터미널 2 — 같은 디렉터리에서 (BUCKET 변수를 다시 설정)</span>
+terraform plan                                <span class="c"># → Error acquiring the state lock (Who·Created 확인)</span>
+aws s3 ls "s3://$BUCKET/iac-lab/dev/04-playground/"    <span class="c"># terraform.tfstate.tflock 이 보인다</span>
+terraform plan -lock-timeout=60s              <span class="c"># 기다리는 동안 터미널 1에서 no 입력 → 잠금이 풀리면 이어서 진행</span></pre>
+
+  <h3>4단계: 이전 판으로 복구</h3>
+<pre class="code"><span class="c"># 판을 몇 개 더 만든다</span>
+terraform apply -auto-approve -var='names=["web","api"]'
+terraform apply -auto-approve                 <span class="c"># 기본값(web, api, batch)으로 되돌림</span>
+
+<span class="c"># 버전 목록 확인 (IsLatest: true 가 현재 판)</span>
+aws s3api list-object-versions --bucket "$BUCKET" \
+  --prefix iac-lab/dev/04-playground/terraform.tfstate \
+  --query 'Versions[].{id:VersionId,latest:IsLatest,time:LastModified,size:Size}' --output table
+
+<span class="c"># web, api 두 개만 있던 시점의 판을 내려받아 내용 확인</span>
+aws s3api get-object --bucket "$BUCKET" --key iac-lab/dev/04-playground/terraform.tfstate \
+  --version-id 버전ID /tmp/older.tfstate
+jq '.serial, [.resources[].instances[].index_key]' /tmp/older.tfstate
+
+<span class="c"># 옛 판을 현재로 올린다: serial이 낮으므로 -force가 필요 (3장)</span>
+terraform state push -force /tmp/older.tfstate
+terraform plan                                <span class="c"># state에는 없지만 코드에는 있는 batch를 다시 "create"하겠다고 나온다</span>
+<span class="c"># 실제 클라우드 리소스였다면 batch의 실물이 남아 있으므로 이름 충돌이나 중복 생성 위험.</span>
+<span class="c"># 복구 후에는 반드시 plan -refresh-only 와 plan으로 실제와 맞춰 보고, 필요하면 import(9편)</span>
+terraform apply -auto-approve                 <span class="c"># 놀이터는 실물이 없으므로 다시 만들어 정상화</span></pre>
+  <div class="callout warn prose"><div class="ct">복구는 “장부를 되돌리는 것”이지 “인프라를 되돌리는 것”이 아니다</div>
+  <p>S3 버전 복구는 state를 예전 판으로 바꿀 뿐 클라우드는 그대로입니다. 장부와 실물이 어긋난 상태가 되므로, 복구 직후의 plan은 매우 신중하게 읽어야 합니다. 복구가 필요한 상황은 대개 “state가 깨졌거나 잘못 덮어써진 경우”이고, 그때는 가장 최근의 <em>정상</em> 판을 고르는 것이 핵심입니다.</p></div>
+
+  <h3>5단계 (선택): 부트스트랩 자신의 state도 버킷으로</h3>
+<pre class="code">cd ~/iac-lab/terraform/05-state-bootstrap
+cat &gt; backend.tf &lt;&lt;CFG
+terraform {
+  backend "s3" {
+    bucket       = "$BUCKET"
+    key          = "bootstrap/terraform.tfstate"
+    region       = "ap-northeast-2"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
+CFG
+terraform init -migrate-state                 <span class="c"># 자기가 만든 버킷으로 자기 state를 옮긴다</span>
+terraform plan                                <span class="c"># No changes</span></pre>
+  <div class="callout prose"><div class="ct">이 버킷은 지우지 않습니다</div>
+  <p>6편 이후의 실습 state는 이 버킷에 둡니다. 저장되는 데이터가 KB 단위라 비용은 사실상 0입니다. 강의를 모두 마친 뒤 정리할 때는 <code>prevent_destroy</code>를 false로 바꾸고, 버킷 안의 모든 객체 <b>버전</b>까지 지운 다음(버전닝 버킷은 객체만 지워서는 비워지지 않음) destroy합니다. 이 절차는 강의 마지막에 다시 안내합니다.</p></div>
+</section>
+<!-- ================= 15 ================= -->
+<section class="unit" id="u15">
+  <h2><span class="no">15</span>흔한 오류와 해결</h2>
+  <p class="lead">state·백엔드에서 실제로 만나는 오류 15가지</p>
+  <input class="gsearch faq-filter" id="faqSearch" type="search" placeholder="오류 메시지로 검색 (예: lock, AccessDenied, serial, errored)" aria-label="오류 검색">
+  <div id="faq"></div>
+</section>
+
+<!-- ================= 16 ================= -->
+<section class="unit" id="u16">
+  <h2><span class="no">16</span>MSP 현장 팁</h2>
+  <p class="lead">고객사 state를 맡는다는 것의 무게</p>
+  <div class="grid2">
+    <div class="tile"><h4>state 버킷을 어느 계정에 둘까</h4><p><b>고객 계정 안</b>: 데이터 주권이 명확하고 계약 종료 시 그대로 인계. 대신 고객마다 버킷·권한 설정을 반복. <b>MSP 중앙 계정</b>: 관리가 한곳에 모이지만 고객 비밀이 MSP 계정에 쌓이고, 계약 종료 시 이전 작업이 필요. 많은 MSP가 “고객 계정 안 + 표준 부트스트랩 모듈”을 택합니다(25편).</p></div>
+    <div class="tile"><h4>state는 고객 데이터다</h4><p>고객 DB 비밀번호와 네트워크 구조가 들어 있을 수 있으므로 계약서의 고객 정보 보호 조항이 그대로 적용됩니다. 접근자 목록, 접근 기록 보관 기간, 퇴사자 권한 회수 절차를 문서화하세요. 보안 인증 심사에서 자주 묻는 항목입니다.</p></div>
+    <div class="tile"><h4>접근 기록 켜 두기</h4><p>CloudTrail의 S3 데이터 이벤트를 state 버킷에만 켜면 누가 언제 state를 읽고 썼는지 남습니다. 버킷 하나에 한정하면 비용 부담도 작습니다. 이상 접근(업무 시간 외, 낯선 주체) 알림까지 걸면 유출을 조기에 잡을 수 있습니다.</p></div>
+    <div class="tile"><h4>잠금 해제는 절차로</h4><p>force-unlock은 “누가, 왜, 누구 확인을 받고” 했는지 티켓에 남기는 절차로 만드세요. 새벽 장애 대응 중 남의 apply 잠금을 풀어 state를 깨뜨리는 사고는 실제로 자주 일어납니다.</p></div>
+    <div class="tile"><h4>key 규칙과 권한 경계를 일치</h4><p><code>&lt;고객&gt;/&lt;환경&gt;/&lt;구성요소&gt;</code> key 규칙을 정하면 IAM 정책도 같은 경로 단위로 쓸 수 있습니다. 운영(prd) 경로는 CI 역할만 쓰기 가능, 사람은 읽기도 제한하는 식으로 운영계를 보호합니다.</p></div>
+    <div class="tile"><h4>인수인계·종료 체크리스트</h4><p>고객 계약 종료 시: state 최신본과 버전 이력 인계 범위 합의, MSP 측 사본·로컬 백업 폐기 확인, state 안 비밀 교체 권고, MSP 계정의 접근 권한 회수. state를 넘기지 않으면 고객은 import로 처음부터 다시 흡수해야 합니다.</p></div>
+  </div>
+</section>
+
+<!-- ================= 17 ================= -->
+<section class="unit" id="u17">
+  <h2><span class="no">17</span>용어 사전</h2>
+  <p class="lead">이번 편에 나온 용어</p>
+  <input class="gsearch" id="gSearch" type="search" placeholder="용어 검색 (예: lineage, 부분 설정, write-only)" aria-label="용어 검색">
+  <dl class="gloss" id="gloss"></dl>
+  <p class="note" id="gCount"></p>
+</section>
+
+<!-- ================= 18 ================= -->
+<section class="unit" id="u18">
+  <h2><span class="no">18</span>확인 퀴즈</h2>
+  <p class="lead">보기를 누르면 바로 채점과 해설이 나옵니다</p>
+  <div id="quiz"></div>
+  <div class="panel"><span>점수: </span><span class="score" id="qScore">0 / 0</span> <button class="btn" id="qReset" style="margin-left:10px">다시 풀기</button></div>
+</section>
+
+<!-- ================= 19 ================= -->
+<section class="unit" id="u19">
+  <h2><span class="no">19</span>과제</h2>
+  <p class="lead">실습 A·B를 마친 뒤에 풀어 보세요</p>
+  <details><summary>과제 1. 4편 실습 B를 원격 백엔드로</summary><div>
+    <p><code>04-aws-vars</code>에 부분 설정 방식의 S3 백엔드를 붙이세요. key는 <code>iac-lab/dev/04-aws-vars/terraform.tfstate</code>. 리소스를 apply했다면 <code>-migrate-state</code>로, destroy한 상태라면 그냥 init하면 됩니다. 이후 6편부터는 모든 실습이 이 방식으로 시작합니다.</p>
+  </div></details>
+  <details><summary>과제 2. 최소 권한 정책 작성</summary><div>
+    <p>“<code>iac-lab/dev/</code> 아래 state는 읽고 쓸 수 있지만 <code>iac-lab/prd/</code>는 읽기도 못 하는” IAM 정책을 6장의 예시를 바탕으로 작성하고, IAM 정책 시뮬레이터나 별도 역할로 시험해 보세요.</p>
+    <details><summary>힌트</summary><div><p>ListBucket은 버킷 단위 권한이라 경로를 리소스로 제한할 수 없습니다. 대신 조건 <code>"Condition": {"StringLike": {"s3:prefix": ["iac-lab/dev/*"]}}</code>으로 목록 조회 범위를 좁힙니다. 객체 권한은 Resource에 <code>.../iac-lab/dev/*</code>만 넣으면 prd는 자동으로 거부됩니다(명시적 허용이 없으면 거부).</p></div></details>
+  </div></details>
+  <details><summary>과제 3. 비밀이 state에 남는지 감사하기</summary><div>
+    <p>원격 state를 내려받아(<code>terraform state pull</code>) 비밀로 보이는 값이 있는지 찾는 한 줄 명령을 만들어 보세요. 예: 속성 이름에 password, secret, token, private_key가 들어간 값.</p>
+    <details><summary>예시</summary><div>
+<pre class="code">terraform state pull | jq -r '
+  .resources[] | . as $r | .instances[] |
+  .attributes | paths(scalars) as $p |
+  select(($p | index("type")) == null) |
+  select(($p | map(tostring) | join(".")) | test("password|secret|token|private_key"; "i")) |
+  "\($r.type).\($r.name): \($p | map(tostring) | join("."))"'</pre>
+    <p>실습 A의 state에 실행하면 <code>terraform_data.app: input.value.password</code>와 <code>output.value.password</code> 두 줄이 나옵니다(<code>index("type")</code> 줄은 타입 정보 경로를 걸러 냅니다). 값 자체가 아니라 “어느 리소스의 어느 속성”인지만 출력하는 것이 요점입니다. 감사 결과를 보고서에 붙일 때 비밀을 다시 퍼뜨리지 않기 위해서입니다. 찾은 항목은 10장의 방법(write-only, 외부 관리)으로 옮길 후보입니다.</p></div></details>
+  </div></details>
+  <details><summary>과제 4. 유출 대응 모의 훈련</summary><div>
+    <p>“실습 A의 terraform.tfstate가 공개 저장소에 커밋되었다”고 가정하고 11장의 대응 순서대로 해야 할 일을 시간 순서로 적어 보세요. 각 단계의 책임자와 증적(무엇을 기록으로 남길지)도 함께.</p>
+    <details><summary>모범 답안 요지</summary><div><p>0분: 저장소 비공개 전환·파일 삭제 커밋(이력은 남는다는 전제). 즉시: state 안 비밀 목록 작성(과제 3 명령) → 각 비밀 교체·폐기, 교체 시각 기록. 1시간 내: 노출된 자격증명의 CloudTrail 사용 내역 조사, 결과 저장. 당일: 고객 보안 담당 통지(계약 조항 확인), 이력 정리 도구로 저장소 이력 제거, 원격 백엔드 전환. 1주 내: 회고 문서, gitleaks 훅·.gitignore 강제 적용 여부 전 저장소 점검.</p></div></details>
+  </div></details>
+  <details><summary>과제 5. 리팩터링을 코드로</summary><div>
+    <p><code>04-playground</code>(이제 S3 백엔드)에서 <code>terraform_data.by_each</code>를 <code>terraform_data.services</code>로 이름을 바꾸세요. 단, <code>state mv</code>는 쓰지 말고 <code>moved</code> 블록만으로. plan이 “0 to add, 0 to change, 0 to destroy”이고 “has moved to”가 3개 나오면 성공입니다.</p>
+    <details><summary>힌트</summary><div><p>for_each 리소스 전체를 옮길 때는 인덱스 없이 <code>moved { from = terraform_data.by_each  to = terraform_data.services }</code> 한 블록이면 모든 인스턴스가 함께 옮겨집니다. 출력 블록의 참조 이름도 바꾸는 것을 잊지 마세요.</p></div></details>
+  </div></details>
+</section>
+
+<!-- ================= 20 ================= -->
+<section class="unit" id="u20">
+  <h2><span class="no">20</span>정리와 다음 편</h2>
+  <p class="lead">한 장으로 다시 보기</p>
+  <div class="grid2">
+    <div class="tile"><h4>state의 세 역할</h4><p>코드↔실물 대응, 코드에서 사라진 것과 의존성의 기억, 조회 캐시. 잃으면 기억상실, 새면 금고 개방.</p></div>
+    <div class="tile"><h4>구조와 보호장치</h4><p>version·serial·lineage·resources·sensitive_attributes. 낮은 serial·다른 lineage는 push 거부. errored.tfstate는 지우지 말 것.</p></div>
+    <div class="tile"><h4>원격 백엔드와 잠금</h4><p>S3 + use_lockfile(1.11 GA, DynamoDB 방식은 지원 중단), 버전닝·암호화·TLS 강제·수명 주기·퍼블릭 차단. Azure Blob·GCS는 잠금 기본 제공.</p></div>
+    <div class="tile"><h4>설정과 이전</h4><p>backend에는 변수 불가 → .tfbackend 부분 설정. 옮길 땐 -migrate-state, 연결만 바꿀 땐 -reconfigure. 이전 후 plan은 No changes여야.</p></div>
+    <div class="tile"><h4>명령보다 코드</h4><p>state mv/rm 대신 moved/removed 블록. state 주소와 코드 주소는 함께 움직인다. force-unlock은 확인 후에만.</p></div>
+    <div class="tile"><h4>비밀을 남기지 않는 설계</h4><p>sensitive는 커튼, ephemeral은 저장 안 함, write-only는 보내고 잊음(_version으로 갱신), store는 의도적 보관. 최선은 외부 관리.</p></div>
+  </div>
+  <div class="panel">
+    <h4>이번 편 커리큘럼 대비 점검</h4>
+    <div class="tablewrap" style="margin:0"><table>
+      <tr><th>커리큘럼 항목</th><th>다룬 곳</th><th>상태</th></tr>
+      <tr><td>state 파일 구조와 왜 진실의 원천인지</td><td>1장 세 역할, 2장 실측 JSON 해부(인터랙티브), 3장 serial·lineage·백업 파일(실측 오류 메시지), 실습 A 1~2단계</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>원격 백엔드 (S3+잠금·Azure Blob·GCS)</td><td>4장 필요성, 5장 잠금(시뮬레이터, force-unlock, DynamoDB → use_lockfile), 6장 S3(버킷 요건 8가지, IAM, key 설계), 7장 Azure·GCS·기타, 8장 부분 설정·이전, 실습 B 전체</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>state list/show/mv/rm</td><td>9장 명령 표·코드 대안·상황별 선택기, 실측 3종(mv 함정, moved, removed), 실습 A 2~4단계, 실습 B 복구(pull/push -force), 과제 5</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>민감 값 처리의 진화 (sensitive → ephemeral → write-only → 1.16 store)</td><td>10장 4단계 비교 그림·코드·표, RDS 관리형 비밀번호, 실습 A 5단계, 과제 3</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>state 유출 사고 사례</td><td>11장 유출 유형 4가지(재구성 시나리오)·대응 순서·체크리스트, 12장 remote_state 권한 문제, 과제 4</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>추가 보강</td><td>OpenTofu state 암호화 비교, 12장 다른 state 읽기 대안, 15장 오류 15, 16장 MSP 팁, 용어·퀴즈·과제</td><td style="color:var(--teal)">보강</td></tr>
+    </table></div>
+  </div>
+  <div class="callout tl prose" style="border-left-color:var(--teal)"><div class="ct">다음 편 — 6편. 모듈 설계</div>
+  <p>4편까지 만든 코드는 한 디렉터리에 모든 것이 들어 있었습니다. 6편에서는 이것을 입력(변수)과 출력이라는 계약을 가진 재사용 단위, 즉 모듈로 나눕니다. 루트 모듈과 자식 모듈, 로컬·레지스트리·Git 소스와 버전 고정, 1.15의 const 변수로 만드는 동적 모듈 소스, 모듈 크기 정하기(너무 큰 모듈과 너무 잘게 쪼갠 모듈의 폐해), 그리고 VPC 모듈을 직접 작성합니다. state는 이번에 만든 S3 백엔드를 그대로 씁니다.</p></div>
+  <footer>
+    Terraform &amp; Ansible 강의 5편 · 기준: Terraform 1.16.x (store 블록·state show -json은 1.16, write-only는 1.11, ephemeral은 1.10, S3 use_lockfile 정식은 1.11 이상), AWS 프로바이더 6.x (2026년 10월). 유출 사례는 특정 기업이 아닌 반복 보고되는 유형을 재구성한 것입니다. state 버킷은 이후 편에서 계속 사용하므로 지우지 마세요.
+  </footer>
+</section>
+</main>
+</div>
+<script>
+(function(){
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+
+/* theme / toc / progress */
+const root=document.documentElement, tbtn=$('#themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마':'다크 테마';store.set('iac-theme',t);}
+setTheme(store.get('iac-theme')==='light'?'light':'dark');
+tbtn.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+const toc=$('#toc'), tocBtn=$('#tocBtn');
+tocBtn.addEventListener('click',()=>{const o=toc.classList.toggle('open');tocBtn.setAttribute('aria-expanded',o)});
+$$('#toc a').forEach(a=>a.addEventListener('click',()=>{toc.classList.remove('open');tocBtn.setAttribute('aria-expanded','false')}));
+const links=$$('#toc a');
+const obs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+e.target.id))}})},{rootMargin:'-30% 0px -60% 0px'});
+$$('section.unit').forEach(s=>obs.observe(s));
+window.addEventListener('scroll',()=>{const h=document.documentElement;$('#progress').style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%'},{passive:true});
+
+/* copy buttons */
+$$('pre.code').forEach(pre=>{const b=document.createElement('button');b.className='cbtn';b.type='button';b.textContent='복사';
+ b.addEventListener('click',()=>{const t=Array.from(pre.childNodes).filter(n=>n!==b).map(n=>n.textContent).join('');
+  const done=()=>{b.textContent='복사됨';b.classList.add('done');setTimeout(()=>{b.textContent='복사';b.classList.remove('done')},1400)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,()=>fb(t,done));}else fb(t,done);});
+ pre.appendChild(b);});
+function fb(t,done){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){}ta.remove();}
+
+/* state JSON explorer */
+const sk={
+ version:['version — 파일 형식 버전','state 파일 자체의 형식 번호. Terraform 0.12부터 4를 씁니다. Terraform 버전과는 별개입니다.'],
+ tfver:['terraform_version — 마지막으로 쓴 Terraform 버전','이 state를 마지막으로 기록한 CLI 버전. 더 낮은 버전의 Terraform은 이 state를 읽지 못할 수 있습니다(“state snapshot was created by Terraform vX, which is newer…”). 팀 전체가 같은 버전을 써야 하는 이유이며, 2편의 .terraform-version이 이것을 지킵니다.'],
+ serial:['serial — 판 번호','state가 바뀔 때마다 1씩 증가합니다. 더 낮은 serial로 덮어쓰기를 거부하는 근거입니다(3장).'],
+ lineage:['lineage — 족보','state가 처음 만들어질 때 정해지는 고유 ID. 평생 바뀌지 않으며, 다른 lineage의 state로 덮어쓰기를 거부하는 근거입니다. 개발계 state를 운영계 위치에 올리는 사고를 막습니다.'],
+ outputs:['outputs — 루트 모듈 출력','terraform output과 terraform_remote_state가 읽는 값. sensitive 출력도 여기에는 값이 그대로 저장됩니다.'],
+ resources:['resources — 관리 대상 목록','resource와 data 블록마다 하나의 항목. 코드 주소(type + name, 모듈이면 module 경로)와 실제 인스턴스 기록을 담습니다.'],
+ mode:['mode — managed / data','managed는 resource 블록(Terraform이 생애를 관리), data는 data 블록(조회 결과 캐시). destroy는 managed만 지웁니다.'],
+ provider:['provider — 어느 프로바이더가 관리하나','프로바이더 전체 주소. 레지스트리 이전이나 포크 전환 시 terraform state replace-provider로 일괄 변경합니다. terraform_data는 내장 프로바이더 terraform.io/builtin/terraform.'],
+ instances:['instances — 실제 인스턴스들','count/for_each가 없으면 하나, 있으면 여러 개. 각 인스턴스에 index_key(0, 1 또는 "web1" 같은 키)가 붙습니다. 4편의 주소 aws_instance.web["web1"]이 여기서 옵니다.'],
+ schema:['schema_version — 리소스 스키마 버전','프로바이더가 리소스 형식을 바꾸면 이 번호가 올라가고, 프로바이더가 옛 형식을 새 형식으로 자동 변환(upgrade)합니다. 프로바이더 버전을 내렸을 때 문제가 되는 지점입니다.'],
+ attributes:['attributes — 기록된 속성 전체','인자와 계산된 속성(id, arn, public_ip…) 전부. 빨간 값처럼 비밀이 평문으로 들어갑니다. plan의 refresh는 이 값과 클라우드 현재 값을 비교합니다.'],
+ sensattr:['sensitive_attributes — 민감 표시 경로','“input.password 경로의 값은 민감하다”는 표시. 화면 출력에서 가리기 위한 메타데이터일 뿐, 값을 암호화하거나 숨기지 않습니다. 바로 위에 평문이 있는 것이 그 증거입니다.'],
+ deps:['dependencies — 기록된 의존 관계','이 리소스가 의존하는 주소 목록. 코드에서 블록이 사라져도 이 기록 덕분에 destroy 순서를 정할 수 있습니다(1장 ②). 실습 A의 after 리소스에는 ["terraform_data.app"]이 들어갑니다.'],
+ checks:['check_results — 검사 결과','precondition·postcondition·check 블록의 마지막 결과(11편). 없으면 null.']
+};
+$$('#stjson .k').forEach(k=>k.addEventListener('click',()=>{$$('#stjson .k').forEach(x=>x.classList.remove('sel'));k.classList.add('sel');const v=sk[k.dataset.k];$('#stInfo').innerHTML='<h4>'+v[0]+'</h4><p>'+v[1]+'</p>';}));
+
+/* lock simulator */
+let lkT=[];
+function lkClear(){lkT.forEach(clearTimeout);lkT=[];['#laneA','#laneS','#laneB'].forEach(i=>$(i).innerHTML='');}
+function ev(lane,txt,cls,delay){lkT.push(setTimeout(()=>{const d=document.createElement('div');d.className='ev '+(cls||'');d.innerHTML=txt;$(lane).appendChild(d);requestAnimationFrame(()=>d.classList.add('show'));},delay));}
+function runLock(withLock){lkClear();const s=550;let t=0;
+ $('#lkSum').innerHTML='<p>진행 중…</p>';
+ if(!withLock){
+  ev('#laneS','serial 7 · 리소스 12개',null,t);
+  ev('#laneA','state 읽기 (serial 7)',null,t+=s);
+  ev('#laneB','state 읽기 (serial 7)',null,t+=s/2);
+  ev('#laneA','규칙 생성 API 호출… 완료',null,t+=s);
+  ev('#laneB','인스턴스 유형 변경 API 호출…',null,t+=s/2);
+  ev('#laneA','state 저장: 리소스 13개',null,t+=s);
+  ev('#laneS','serial 8 · 13개 (A의 규칙 포함)','ok',t+=s/3);
+  ev('#laneB','…완료. state 저장: 리소스 12개 (B가 읽었던 판 기준)',null,t+=s);
+  ev('#laneS','serial 8 · 12개 ← A의 기록을 덮어씀','bad',t+=s/3);
+  ev('#laneA','다음 plan: 규칙을 “새로 만들겠다”','bad',t+=s);
+  lkT.push(setTimeout(()=>{$('#lkSum').className='callout bad';$('#lkSum').innerHTML='<div class="ct">결과: 고아 리소스와 중복 생성</div><p>A가 만든 보안 그룹 규칙은 클라우드에 있지만 state에서 사라졌습니다. 다음 plan은 같은 규칙을 다시 만들려다 “이미 존재함” 오류를 내거나 중복을 만듭니다. 원격 백엔드는 같은 serial의 동시 기록을 항상 막아 주지 않으므로, 잠금이 없으면 이런 덮어쓰기가 조용히 일어날 수 있습니다.</p>';},t+200));
+ } else {
+  ev('#laneS','serial 7 · 리소스 12개',null,t);
+  ev('#laneA','잠금 획득 → .tflock 생성','ok',t+=s);
+  ev('#laneS','🔒 terraform.tfstate.tflock (A)','wait',t+=s/3);
+  ev('#laneB','잠금 시도 → 실패','bad',t+=s/2);
+  ev('#laneB','Error acquiring the state lock (Who: A)','bad',t+=s/2);
+  ev('#laneA','state 읽기 → 규칙 생성 → 저장',null,t+=s);
+  ev('#laneS','serial 8 · 13개','ok',t+=s/3);
+  ev('#laneA','잠금 해제 → .tflock 삭제','ok',t+=s/2);
+  ev('#laneB','-lock-timeout 으로 기다렸다가 잠금 획득','ok',t+=s);
+  ev('#laneB','state 읽기 (serial 8, 규칙 포함) → 변경 → 저장',null,t+=s);
+  ev('#laneS','serial 9 · 13개 (둘 다 반영)','ok',t+=s/3);
+  lkT.push(setTimeout(()=>{$('#lkSum').className='callout';$('#lkSum').innerHTML='<div class="ct">결과: 두 변경 모두 안전하게 반영</div><p>B는 A가 끝난 뒤의 최신 state를 읽고 시작하므로 덮어쓸 일이 없습니다. 잠금이 주는 것은 “순서”입니다.</p>';},t+200));
+ }}
+$('#lkNo').addEventListener('click',()=>runLock(false));
+$('#lkYes').addEventListener('click',()=>runLock(true));
+
+/* scenario selector */
+const sc=[
+ ['리소스 이름(코드의 로컬 이름)을 바꾸고 싶다','<b>코드</b>: 이름 변경 + <code>moved { from = 옛주소  to = 새주소 }</code>. plan에 “has moved to”가 나오고 변경 0이어야 합니다.<br><b>명령</b>: <code>terraform state mv 옛주소 새주소</code> (코드 변경과 반드시 동시에). 공유 state에서는 코드 방식을 쓰세요.'],
+ ['리소스를 모듈 안으로 옮기고 싶다','<b>코드</b>: <code>moved { from = aws_vpc.main  to = module.network.aws_vpc.this }</code>. 6편에서 실제로 합니다.'],
+ ['count로 만든 것을 for_each로 바꾸고 싶다','<b>코드</b>: 인스턴스마다 <code>moved { from = aws_instance.web[0]  to = aws_instance.web["web1"] }</code>. 4편 과제 3의 해답.'],
+ ['Terraform 관리에서 빼되 실물은 남기고 싶다','<b>코드</b>: 블록을 지우고 <code>removed { from = 주소  lifecycle { destroy = false } }</code> (1.7+). plan에 “1 to forget”.<br><b>명령</b>: <code>terraform state rm 주소</code> + 코드에서 블록 삭제.'],
+ ['이 리소스를 다른 state(다른 디렉터리)로 옮기고 싶다','원래 쪽: <code>removed</code>(destroy = false). 새 쪽: <code>import</code> 블록으로 흡수(9편). 두 PR을 순서대로 적용합니다. 실물은 한 번도 지워지지 않습니다.'],
+ ['콘솔에서 만든 기존 리소스를 관리하고 싶다','<b>코드</b>: <code>import { to = 주소  id = "실제 ID" }</code> + 해당 resource 블록 (1.5+). 9편의 주제.'],
+ ['리소스가 망가져서 다시 만들고 싶다','<b>명령</b>: <code>terraform apply -replace=주소</code>. 예전의 <code>terraform taint</code>를 대체하는 방법으로, plan에서 교체를 미리 보여 줍니다.'],
+ ['잠금이 풀리지 않는다','Lock Info의 Who에게 확인 → CI 실행 목록 확인 → 비정상 종료가 확실하면 <code>terraform force-unlock 잠금ID</code>. 기다려도 되는 상황이면 <code>-lock-timeout</code>.'],
+ ['프로바이더 주소가 바뀌었다 (포크·사설 레지스트리)','<b>명령</b>: <code>terraform state replace-provider 옛주소 새주소</code>. 예: registry.terraform.io/hashicorp/aws → registry.example.com/hashicorp/aws.'],
+ ['apply 중 네트워크가 끊겨 errored.tfstate가 생겼다','<b>지우지 마세요.</b> 원인 해결 후 <code>terraform state push errored.tfstate</code>. 이 파일에는 방금 만든 리소스의 기록이 있습니다.']
+];
+const sbox=$('#scen');
+sc.forEach(s=>{const b=document.createElement('button');b.textContent=s[0];b.addEventListener('click',()=>{$$('#scen button').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');$('#scenInfo').innerHTML='<h4>'+esc(s[0])+'</h4><p>'+s[1]+'</p>';});sbox.appendChild(b);});
+
+/* FAQ */
+const faq=[
+ ['Error acquiring the state lock','Error: Error acquiring the state lock … Lock Info: ID, Path, Operation, Who, Created','다른 실행(동료, CI, 다른 터미널, 확인 프롬프트에 멈춘 apply)이 잠금을 쥐고 있거나, 비정상 종료로 잠금이 남았습니다.','Who에게 확인 → 기다릴 수 있으면 <code>-lock-timeout=120s</code> → 남은 잠금이 확실할 때만 <code>terraform force-unlock ID</code> (5장).'],
+ ['Backend initialization required / Backend configuration changed','Error: Backend initialization required, please run "terraform init" / Backend configuration changed','backend 블록이나 -backend-config 값이 이전 init 때와 다릅니다.','state를 옮겨야 하면 <code>init -migrate-state</code>, 연결만 바꾸면 <code>init -reconfigure</code> (8장).'],
+ ['AccessDenied (S3 백엔드)','Error: Failed to get existing workspaces … AccessDenied / error loading state: AccessDenied','버킷 ListBucket 또는 state 객체 Get/Put 권한이 없거나, 잘못된 프로필로 실행 중입니다. use_lockfile을 새로 켰다면 .tflock 객체의 Put/Delete 권한이 빠졌을 수 있습니다.','<code>aws sts get-caller-identity</code>로 주체 확인, 6장 정책과 비교. KMS 암호화라면 키 사용 권한(kms:Decrypt, GenerateDataKey)도 필요.'],
+ ['state가 더 새 Terraform으로 저장됨','state snapshot was created by Terraform v1.16.5, which is newer than current v1.15.x','누군가 더 새 버전으로 apply해서 state의 terraform_version이 올라갔습니다.','팀 전체 버전을 맞춥니다(.terraform-version, required_version). 낮은 버전으로 되돌리는 것은 지원되지 않습니다.'],
+ ['state push 거부 (serial / lineage)','cannot import state with serial 1 over newer state with serial 2 / … over unrelated state with lineage','더 오래된 판이나 다른 족보의 state를 올리려 했습니다.','정말 의도한 복구라면 <code>-force</code> (3장). 아니라면 올리려던 파일이 맞는지 다시 확인하세요. 보호장치가 제 역할을 한 것입니다.'],
+ ['Variables not allowed (backend)','Error: Variables not allowed … Variables may not be used here.','backend 블록에 var.·local.을 썼습니다.','빈 backend 블록 + <code>-backend-config=파일.tfbackend</code> 부분 설정 (8장).'],
+ ['버킷 리전 불일치·버킷 없음','NoSuchBucket / … the bucket you are attempting to access must be addressed using the specified endpoint / 301 Moved Permanently','backend의 region이 버킷의 실제 리전과 다르거나 버킷 이름 오타.','<code>aws s3api get-bucket-location --bucket 이름</code>으로 리전 확인 후 맞춥니다.'],
+ ['Failed to persist state / errored.tfstate','Failed to persist state to backend … The error shown above has prevented Terraform from writing the updated state … saved to errored.tfstate','apply는 성공했지만 원격 저장 중 네트워크·권한 문제로 실패했습니다.','<b>errored.tfstate를 지우지 말고</b> 원인 해결 후 <code>terraform state push errored.tfstate</code>.'],
+ ['state rm·mv 후 다음 plan에서 생성/삭제가 보임','# … will be created / # … will be destroyed (because … is not in configuration)','state 주소만 바꾸고 코드 주소를 바꾸지 않았거나(mv), 코드에 블록을 남긴 채 state에서만 지웠습니다(rm).','코드와 state 주소를 맞추거나 moved/removed 블록으로 다시 합니다 (9장 실측).'],
+ ['Ephemeral value not allowed','Error: Ephemeral value not allowed … can only be used in ephemeral contexts','ephemeral 값을 일반 리소스 인자·일반 출력에 넣었습니다.','write-only 인자(<code>_wo</code>), ephemeral 출력, provider 설정에만 씁니다. 꼭 보관해야 하면 1.16 store 블록 (10장).'],
+ ['write-only 값을 바꿨는데 반영되지 않음','(plan에 변경 없음)','write-only 값은 state에 없어 Terraform이 변경을 알 수 없습니다.','짝이 되는 <code>_wo_version</code> 숫자를 올립니다 (10장).'],
+ ['Deprecated parameter: dynamodb_table','Warning: Deprecated Parameter … dynamodb_table','S3 백엔드의 DynamoDB 잠금은 1.11부터 지원 중단입니다.','<code>use_lockfile = true</code>를 추가해 init -reconfigure → 모두 전환 후 dynamodb_table 제거 (5장).'],
+ ['state 내용이 DynamoDB 기록과 다름 (구식 설정)','state data in S3 does not have the expected content … checksum calculated … does not match','DynamoDB 잠금 시절 저장된 체크섬과 S3 객체가 다릅니다(수동 업로드, 다른 도구로 수정, 버전 복구 직후 등).','올바른 판인지 확인한 뒤 오류 메시지가 안내하는 대로 DynamoDB의 Digest 값을 갱신하거나, use_lockfile로 전환하면 이 검사 자체가 사라집니다.'],
+ ['복구 후 예상치 못한 대량 변경','Plan: 5 to add …','이전 판으로 state를 되돌려 실물과 장부가 어긋났습니다.','<code>plan -refresh-only</code>로 차이 파악, 실물이 있는 것은 import로 연결. apply 전에 plan을 한 줄씩 확인 (14장 4단계).'],
+ ['prevent_destroy 오류','Error: Instance cannot be destroyed … lifecycle.prevent_destroy is set to true','state 버킷처럼 삭제 방지를 건 리소스를 지우려 했습니다.','의도한 삭제라면 prevent_destroy를 false로 바꾸는 별도 변경으로 리뷰를 거친 뒤 진행 (11편).']
+];
+$('#faq').innerHTML=faq.map((f,i)=>'<details class="faqi" data-k="'+esc((f[0]+' '+f[1]+' '+f[2]).toLowerCase())+'"><summary>'+(i+1)+'. '+esc(f[0])+'</summary><div><p><b>메시지</b>: <code>'+esc(f[1])+'</code></p><p><b>원인</b>: '+f[2]+'</p><p><b>해결</b>: '+f[3]+'</p></div></details>').join('');
+$('#faqSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('.faqi').forEach(d=>{const m=!q||d.dataset.k.includes(q);d.style.display=m?'':'none';if(q&&m)d.open=true;});});
+
+/* glossary */
+const gl=[
+ ['state','terraform.tfstate','Terraform이 관리하는 리소스와 실제 ID·속성을 기록한 JSON 장부.'],
+ ['serial','—','state가 바뀔 때마다 증가하는 판 번호. 낮은 판으로 덮어쓰기 거부.'],
+ ['lineage','—','state 최초 생성 시 정해지는 고유 ID. 다른 족보로 덮어쓰기 거부.'],
+ ['sensitive_attributes','—','민감한 속성 경로 표시. 값을 숨기지 않는다.'],
+ ['schema_version','—','리소스 스키마 버전. 프로바이더가 형식을 바꿀 때 자동 변환에 쓰임.'],
+ ['백엔드','backend','state를 저장하고 잠금을 제공하는 위치·방식. local, s3, azurerm, gcs 등.'],
+ ['원격 백엔드','remote backend','팀이 공유하는 저장소에 state를 두는 백엔드.'],
+ ['잠금','state locking','한 번에 한 실행만 state를 쓰도록 막는 장치.'],
+ ['use_lockfile','S3 backend','S3 조건부 쓰기로 .tflock 파일을 만들어 잠그는 방식. 1.11 정식.'],
+ ['.tflock','—','S3 네이티브 잠금 파일. 실행 중에만 state 옆에 존재.'],
+ ['force-unlock','—','남은 잠금을 강제로 해제하는 명령. 확인 절차 후에만.'],
+ ['부분 설정','partial configuration','backend 값을 -backend-config로 바깥에서 넣는 방식.'],
+ ['.tfbackend','—','부분 설정 값을 담는 파일의 권장 확장자.'],
+ ['-migrate-state','init 옵션','백엔드를 바꾸며 기존 state를 새 위치로 복사.'],
+ ['-reconfigure','init 옵션','기존 백엔드 설정을 무시하고 새로 연결(state 이동 없음).'],
+ ['부트스트랩','bootstrap','state 저장소 자체를 로컬 state로 먼저 만드는 절차.'],
+ ['버전닝','versioning','S3 객체의 모든 판을 보관하는 기능. state 복구의 근거.'],
+ ['SSE-S3 / SSE-KMS','—','S3 서버 측 암호화. S3 관리 키(무료) / KMS 키(접근 통제·기록, 비용).'],
+ ['state pull / push','—','state 전체 내려받기 / 올리기. push는 serial·lineage 검사.'],
+ ['state mv','—','state 안의 주소 변경. 코드 주소와 함께 바꿔야 함.'],
+ ['state rm','—','state에서만 제거(실물 유지).'],
+ ['moved 블록','moved','주소 변경을 코드로 선언(1.1+). 리뷰·재현 가능.'],
+ ['removed 블록','removed','관리 중단을 코드로 선언(1.7+). destroy = false면 실물 유지.'],
+ ['-replace','apply 옵션','특정 리소스를 강제로 교체. 예전 taint 대체.'],
+ ['errored.tfstate','—','원격 저장 실패 시 로컬에 남는 state. 지우지 말고 push.'],
+ ['sensitive','—','화면 가림. state에는 평문.'],
+ ['ephemeral','1.10','plan·state에 저장하지 않는 변수·출력·리소스.'],
+ ['ephemeral 리소스','ephemeral block','실행 중에만 존재하는 리소스. 예: ephemeral random_password.'],
+ ['write-only 인자','_wo, 1.11','리소스에 값을 보내되 plan·state에 저장하지 않는 인자.'],
+ ['_wo_version','—','write-only 값의 갱신을 알리는 버전 번호. 이것만 state에 저장.'],
+ ['store 블록','terraform_data, 1.16','ephemeral 값을 의도적으로 state에 보관. sensitive·version으로 통제.'],
+ ['terraform_remote_state','data source','다른 state의 루트 출력을 읽는 data 소스. 상대 state 전체 읽기 권한 필요.'],
+ ['prevent_destroy','lifecycle','삭제 계획을 오류로 막는 설정(11편).'],
+ ['state 암호화','OpenTofu','OpenTofu의 클라이언트 측 state·plan 암호화(1.7+). Terraform에는 없음.']
+];
+$('#gloss').innerHTML=gl.map(g=>'<dt data-k="'+esc((g[0]+' '+g[1]+' '+g[2]).toLowerCase())+'">'+esc(g[0])+'<small>'+esc(g[1])+'</small></dt><dd>'+esc(g[2])+'</dd>').join('');
+function gfilter(){const q=$('#gSearch').value.trim().toLowerCase();let n=0;$$('#gloss dt').forEach(dt=>{const m=!q||dt.dataset.k.includes(q);dt.classList.toggle('hide',!m);dt.nextElementSibling.classList.toggle('hide',!m);if(m)n++;});$('#gCount').textContent=n+' / '+gl.length+'개 용어';}
+$('#gSearch').addEventListener('input',gfilter);gfilter();
+
+/* quiz */
+const qs=[
+ {q:'sensitive = true로 선언한 변수 값이 들어간 리소스 속성은 state 파일에 어떻게 저장되는가?',o:['저장되지 않는다','암호화되어 저장된다','평문으로 저장되고, 민감 경로 표시만 붙는다','해시로 저장된다'],a:2,e:'실습 A에서 같은 값이 input과 output에 평문으로 두 번 저장되는 것을 확인했습니다. sensitive_attributes는 표시일 뿐입니다.'},
+ {q:'serial 5인 현재 state 위에 serial 3인 백업을 state push하면?',o:['정상 반영','거부된다','serial이 6이 된다','lineage가 바뀐다'],a:1,e:'낮은 판으로 덮어쓰기를 거부합니다. 의도한 복구라면 -force를 쓰고 이후 plan을 신중히 확인합니다.'},
+ {q:'Terraform 1.11 이후 S3 백엔드의 권장 잠금 방식은?',o:['DynamoDB 테이블','use_lockfile = true','S3 Object Lock','잠금 불필요'],a:1,e:'S3 조건부 쓰기로 .tflock 파일을 만드는 네이티브 잠금이 정식입니다. DynamoDB 방식은 지원 중단(deprecated)입니다.'},
+ {q:'backend 블록의 bucket 값을 환경마다 다르게 하려면?',o:['var.bucket을 쓴다','local 값을 쓴다','빈 backend 블록 + -backend-config 부분 설정','불가능하다'],a:2,e:'backend는 변수 평가 전에 정해지므로 변수를 쓸 수 없습니다. .tfbackend 파일로 넣습니다.'},
+ {q:'로컬 state를 S3로 옮기면서 state도 함께 가져가려면?',o:['terraform init -reconfigure','terraform init -migrate-state','terraform state push만','terraform apply'],a:1,e:'-reconfigure는 state를 옮기지 않고 새로 연결합니다. 옮긴 뒤 plan이 No changes인지 확인합니다.'},
+ {q:'state mv로 주소만 바꾸고 코드의 리소스 이름은 그대로 두면 다음 plan은?',o:['변경 없음','옛 이름으로 생성 + 새 주소 삭제','오류','자동으로 코드가 바뀐다'],a:1,e:'실측에서 “after will be created / later will be destroyed”가 나왔습니다. 코드와 state 주소는 함께 움직여야 하며, moved 블록이 안전합니다.'},
+ {q:'Terraform 관리에서만 빼고 실물은 남기는 코드 방식은?',o:['moved 블록','removed 블록 + lifecycle { destroy = false }','prevent_destroy','import 블록'],a:1,e:'plan에 “1 to forget”이 표시되고 실물은 그대로 남습니다.'},
+ {q:'write-only 인자(password_wo)에 대해 옳은 것은?',o:['state에 평문 저장된다','값이 바뀌면 자동 감지된다','plan·state에 저장되지 않고, 갱신은 _wo_version으로 알린다','ephemeral 값은 넣을 수 없다'],a:2,e:'Terraform은 값을 모르므로 버전 번호로 변경을 표현합니다. ephemeral 값을 넣는 것이 주 용도입니다.'},
+ {q:'1.16 terraform_data의 store 블록이 하는 일은?',o:['state를 암호화한다','ephemeral 값을 의도적으로 state에 보관한다(sensitive·version으로 통제)','state를 원격에 저장한다','비밀을 Secrets Manager에 넣는다'],a:1,e:'ephemeral 값은 매번 새로 만들어지므로, 유지해야 할 때 명시적으로 붙잡아 두는 기능입니다. 그만큼 state 보안에 다시 의존합니다.'},
+ {q:'state 유출이 의심될 때 가장 먼저 해야 할 실질적 조치는?',o:['Git 이력 정리','state 안 모든 비밀의 교체·폐기','버킷 이름 변경','Terraform 버전 업그레이드'],a:1,e:'노출 경로 차단과 함께 비밀 교체가 최우선입니다. 이미 복사되었다고 가정해야 하며, 이력 정리는 그다음입니다.'}
+];
+let answered=0, correct=0;
+function buildQuiz(){answered=0;correct=0;$('#quiz').innerHTML=qs.map((x,i)=>'<div class="q" data-i="'+i+'"><div class="qt">Q'+(i+1)+'. '+esc(x.q)+'</div><div class="opts">'+x.o.map((o,j)=>'<button class="opt" data-j="'+j+'">'+esc(o)+'</button>').join('')+'</div><div class="exp">'+esc(x.e)+'</div></div>').join('');
+ $$('#quiz .q').forEach(q=>{q.querySelectorAll('.opt').forEach(b=>b.addEventListener('click',()=>{if(q.classList.contains('done'))return;const i=+q.dataset.i,j=+b.dataset.j;q.classList.add('done');answered++;if(j===qs[i].a){correct++;b.classList.add('right');}else{b.classList.add('wrong');q.querySelectorAll('.opt')[qs[i].a].classList.add('right');}$('#qScore').textContent=correct+' / '+answered+(answered===qs.length?(correct>=8?'  — 훌륭합니다':'  — 틀린 문항의 장을 다시 보세요'):'');}));});
+ $('#qScore').textContent='0 / 0';}
+$('#qReset').addEventListener('click',buildQuiz);buildQuiz();
+})();
+</script>
+</body>
+</html>

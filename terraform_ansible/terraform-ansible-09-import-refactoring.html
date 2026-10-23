@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terraform & Ansible 강의 9편 — 기존 인프라 가져오기와 리팩터링</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0D1B2A; --bg-grid:rgba(120,170,225,.07); --surface:#132639; --surface2:#1A3249; --line:#26435F;
+  --ink:#E6EEF6; --muted:#9DB2C7; --faint:#6F8AA5;
+  --tf:#9A8CFF; --tf-soft:rgba(154,140,255,.14);
+  --ans:#FF7A72; --ans-soft:rgba(255,122,114,.14);
+  --teal:#3DD6C4; --teal-soft:rgba(61,214,196,.13);
+  --amber:#F5B841; --amber-soft:rgba(245,184,65,.14);
+  --green:#5BD68A; --red:#FF5C5C;
+  --code-bg:#0A1622; --shadow:0 10px 30px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --bg:#F2F6FB; --bg-grid:rgba(40,90,150,.07); --surface:#FFFFFF; --surface2:#E7EFF8; --line:#C6D6E7;
+  --ink:#10233A; --muted:#47617D; --faint:#6E869F;
+  --tf:#5B47D6; --tf-soft:rgba(91,71,214,.10);
+  --ans:#C9352E; --ans-soft:rgba(201,53,46,.09);
+  --teal:#0B8A7C; --teal-soft:rgba(11,138,124,.10);
+  --amber:#A86A06; --amber-soft:rgba(168,106,6,.11);
+  --green:#1C8F4A; --red:#C62828;
+  --code-bg:#0F1E2E; --shadow:0 8px 24px rgba(16,35,58,.10);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:calc(70px + env(safe-area-inset-top,0px))}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;font-size:17px;line-height:1.75;
+  background-image:linear-gradient(var(--bg-grid) 1px,transparent 1px),linear-gradient(90deg,var(--bg-grid) 1px,transparent 1px);background-size:28px 28px;background-attachment:fixed}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--surface)}
+a{color:var(--teal)}
+code,pre,.mono{font-family:"JetBrains Mono","D2Coding",Consolas,monospace}
+:not(pre)>code{background:var(--surface2);border:1px solid var(--line);padding:.05em .4em;border-radius:5px;font-size:.86em}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:14px;padding:10px 20px}
+.topbar .title{font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .title small{color:var(--muted);font-weight:400;margin-left:8px}
+.topbar .spacer{flex:1}
+.themebtn{border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:999px;padding:6px 14px;font:inherit;font-size:.85rem;cursor:pointer}
+.progress{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:linear-gradient(90deg,var(--tf),var(--teal),var(--ans))}
+.tocbtn{display:none;border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer}
+
+/* layout */
+.layout{display:grid;grid-template-columns:260px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 24px}
+nav.toc{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:24px 0 40px;font-size:.88rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li a{display:flex;gap:10px;padding:5px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45;border-left:2px solid transparent}
+nav.toc li a span.n{color:var(--faint);font-family:"JetBrains Mono",monospace;font-size:.8rem;min-width:1.6em;padding-top:.1em}
+nav.toc li a:hover{background:var(--surface2);color:var(--ink)}
+nav.toc li a.active{color:var(--ink);background:var(--surface2);border-left-color:var(--teal)}
+main{min-width:0;padding-bottom:120px}
+section.unit{padding-top:56px;max-width:860px}
+.prose{max-width:760px}
+h1,h2,h3,h4{line-height:1.3;letter-spacing:-.01em}
+h2{font-size:1.75rem;margin:0 0 6px;display:flex;align-items:baseline;gap:14px}
+h2 .no{font-family:"JetBrains Mono",monospace;font-size:1rem;color:var(--teal);border:1px solid var(--teal);border-radius:6px;padding:1px 8px;flex:none}
+h3{font-size:1.22rem;margin:34px 0 8px}
+h4{font-size:1.02rem;margin:22px 0 6px}
+.lead{color:var(--muted);margin:0 0 18px;font-size:1.02rem}
+p{margin:12px 0}
+ul,ol{padding-left:1.3em}
+li{margin:4px 0}
+strong{color:var(--ink)}
+.tf{color:var(--tf)} .ans{color:var(--ans)} .tl{color:var(--teal)} .am{color:var(--amber)}
+
+/* hero */
+.hero{padding:52px 0 18px;max-width:900px}
+.hero .series{color:var(--muted);font-size:.92rem;margin-bottom:12px}
+.hero h1{font-size:clamp(2rem,4.6vw,3.2rem);margin:0 0 14px;font-weight:700;letter-spacing:-.02em}
+.hero h1 .sub{display:block;font-size:.5em;font-weight:500;color:var(--muted);margin-top:10px;letter-spacing:0}
+.hero p{max-width:720px;color:var(--muted)}
+.blueprint{margin:28px 0 10px;display:grid;grid-template-columns:1fr 70px 1fr;gap:0;align-items:stretch;border:1px dashed var(--line);border-radius:14px;padding:18px;background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.bp-col h4{margin:0 0 10px;font-size:.92rem;color:var(--muted);font-weight:500}
+.bp-code{background:var(--code-bg);color:#DCE6F2;border-radius:10px;padding:14px 16px;font-size:.84rem;line-height:1.7;font-family:"JetBrains Mono",monospace;margin:0;white-space:pre;overflow:auto}
+.bp-mid{display:flex;align-items:center;justify-content:center;font-size:1.6rem;color:var(--teal)}
+.bp-real{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.bp-box{border:1.5px solid var(--teal);border-radius:10px;padding:10px 8px;text-align:center;font-size:.8rem;background:var(--teal-soft);transition:all .35s}
+.bp-box b{display:block;font-family:"JetBrains Mono",monospace;font-size:.82rem}
+.bp-box.drift{border-color:var(--red);background:rgba(255,92,92,.15);transform:rotate(-2deg)}
+.bp-status{margin-top:12px;font-size:.88rem;padding:10px 12px;border-radius:8px;background:var(--surface2);border-left:3px solid var(--teal)}
+.bp-status.bad{border-left-color:var(--red)}
+.bp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* buttons */
+.btn{border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:7px 14px;font:inherit;font-size:.88rem;cursor:pointer}
+.btn:hover{border-color:var(--teal)}
+.btn.tf{border-color:var(--tf);color:var(--tf)}
+.btn.ans{border-color:var(--ans);color:var(--ans)}
+.btn.primary{background:var(--teal);color:#062320;border-color:var(--teal);font-weight:600}
+.btn.warn{border-color:var(--amber);color:var(--amber)}
+.btn.on{background:var(--teal);color:#062320;border-color:var(--teal)}
+
+/* callouts */
+.callout{border:1px solid var(--line);border-left:4px solid var(--teal);background:var(--surface);border-radius:10px;padding:14px 18px;margin:18px 0}
+.callout.tf{border-left-color:var(--tf)} .callout.ans{border-left-color:var(--ans)} .callout.warn{border-left-color:var(--amber)} .callout.bad{border-left-color:var(--red)}
+.callout .ct{font-weight:600;margin-bottom:4px}
+.callout p:first-of-type{margin-top:4px}
+
+/* panels & grids */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;margin:20px 0;box-shadow:var(--shadow)}
+.panel h4{margin-top:0}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.tile h4{margin:0 0 6px}
+.tile p{margin:6px 0;font-size:.93rem;color:var(--muted)}
+.tag{display:inline-block;font-size:.75rem;padding:1px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin:2px 4px 2px 0}
+.tag.tf{border-color:var(--tf);color:var(--tf);background:var(--tf-soft)}
+.tag.ans{border-color:var(--ans);color:var(--ans);background:var(--ans-soft)}
+.tag.tl{border-color:var(--teal);color:var(--teal);background:var(--teal-soft)}
+.tag.am{border-color:var(--amber);color:var(--amber);background:var(--amber-soft)}
+
+/* code */
+pre.code{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:16px 18px;overflow-x:auto;font-size:.84rem;line-height:1.65;margin:12px 0;border:1px solid #1F3650}
+pre.code .c{color:#7E95AE} pre.code .k{color:#C3A6FF} pre.code .s{color:#9FE3A4} pre.code .n{color:#FFC777} pre.code .f{color:#7FD4FF} pre.code .r{color:#FF9A93}
+.codehead{display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:var(--muted);margin-top:16px;margin-bottom:-6px}
+
+/* tables */
+.tablewrap{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem;min-width:640px}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--surface2);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+
+/* timeline */
+.timeline{position:relative;margin:20px 0;padding-left:26px;border-left:2px solid var(--line)}
+.tl-item{position:relative;margin:0 0 16px}
+.tl-item::before{content:"";position:absolute;left:-33px;top:7px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--teal)}
+.tl-item.tf::before{border-color:var(--tf)} .tl-item.ans::before{border-color:var(--ans)} .tl-item.am::before{border-color:var(--amber)}
+.tl-item .y{font-family:"JetBrains Mono",monospace;font-size:.82rem;color:var(--muted)}
+.tl-item p{margin:2px 0;font-size:.94rem}
+
+/* calculator */
+.calc{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.field{margin:10px 0}
+.field label{display:flex;justify-content:space-between;font-size:.88rem;color:var(--muted)}
+.field label b{color:var(--ink);font-family:"JetBrains Mono",monospace}
+input[type=range]{width:100%;accent-color:var(--teal)}
+.meter{margin:10px 0}
+.meter .lbl{display:flex;justify-content:space-between;font-size:.86rem}
+.meter .bar{height:12px;background:var(--surface2);border-radius:6px;overflow:hidden;margin-top:4px}
+.meter .bar i{display:block;height:100%;border-radius:6px;transition:width .3s}
+.bignum{font-size:1.6rem;font-weight:700;font-family:"JetBrains Mono",monospace}
+.note{font-size:.82rem;color:var(--faint)}
+
+/* layer map */
+.layers{display:flex;flex-direction:column;gap:6px}
+.layer{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:var(--surface);cursor:pointer;text-align:left;color:var(--ink);font:inherit;font-size:.93rem}
+.layer .ln{font-family:"JetBrains Mono",monospace;color:var(--faint);font-size:.8rem}
+.layer.sel{outline:2px solid var(--teal)}
+.layer.t-tf{border-left:5px solid var(--tf)} .layer.t-ans{border-left:5px solid var(--ans)} .layer.t-git{border-left:5px solid var(--teal)} .layer.t-mix{border-left:5px solid var(--amber)}
+.layerinfo{min-height:150px}
+
+/* simulator */
+.servers{display:flex;flex-wrap:wrap;gap:8px;min-height:62px;padding:12px;border:1px dashed var(--line);border-radius:10px;background:var(--surface2);margin:10px 0}
+.srv{width:50px;height:38px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-family:"JetBrains Mono",monospace;border:1.5px solid var(--teal);background:var(--teal-soft)}
+.srv.extra{border-color:var(--red);background:rgba(255,92,92,.16)}
+.srv.new{animation:pop .35s}
+@keyframes pop{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+.log{background:var(--code-bg);color:#CFE0F0;border-radius:10px;padding:10px 14px;font-family:"JetBrains Mono",monospace;font-size:.8rem;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:8px}
+.log .ok{color:#7EE2A0} .log .ch{color:#FFC777} .log .er{color:#FF8A84} .log .dim{color:#7E95AE}
+
+/* states */
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+.st{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface2);text-align:center}
+.st .h{font-size:.82rem;color:var(--muted)}
+.st .v{font-family:"JetBrains Mono",monospace;font-size:1.02rem;margin-top:6px;font-weight:600}
+.st.diff{border-color:var(--red);background:rgba(255,92,92,.12)}
+.st.missing .v{color:var(--red)}
+
+/* tabs/filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.filters .btn{font-size:.82rem;padding:5px 12px;border-radius:999px}
+
+/* glossary */
+.gsearch{width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:14px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+dl.gloss dt,dl.gloss dd{margin:0;padding:10px 14px;border-bottom:1px solid var(--line)}
+dl.gloss dt{font-weight:600;background:var(--surface2)}
+dl.gloss dt small{display:block;font-weight:400;color:var(--muted);font-size:.78rem;font-family:"JetBrains Mono",monospace}
+dl.gloss dd{font-size:.92rem}
+dl.gloss .hide{display:none}
+
+/* quiz */
+.q{border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0;background:var(--surface)}
+.q .qt{font-weight:600}
+.q .opts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.q .opt{text-align:left;border:1px solid var(--line);background:var(--surface2);color:var(--ink);border-radius:8px;padding:8px 12px;font:inherit;font-size:.92rem;cursor:pointer}
+.q .opt.right{border-color:var(--green);background:rgba(91,214,138,.15)}
+.q .opt.wrong{border-color:var(--red);background:rgba(255,92,92,.12)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:10px}
+.q.done .exp{display:block}
+.score{font-weight:600;font-family:"JetBrains Mono",monospace}
+
+/* details */
+details{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:10px 0;padding:0 16px}
+details summary{cursor:pointer;padding:12px 0;font-weight:600}
+details[open] summary{border-bottom:1px dashed var(--line);margin-bottom:8px}
+details > div{padding-bottom:12px}
+
+/* checklist */
+.check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed var(--line);font-size:.93rem}
+.check input{margin-top:6px;accent-color:var(--teal);width:18px;height:18px;flex:none}
+.levels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px}
+.levels div{padding:8px;border-radius:8px;border:1px solid var(--line);font-size:.78rem;text-align:center;color:var(--muted)}
+.levels div.cur{border-color:var(--teal);background:var(--teal-soft);color:var(--ink);font-weight:600}
+
+/* series map */
+.smap{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:14px 0}
+.smap .lv{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface);font-size:.78rem}
+.smap .lv b{display:block;font-size:.82rem;margin-bottom:6px}
+.smap .ep{display:block;padding:2px 6px;border-radius:5px;color:var(--muted);line-height:1.45}
+.smap .ep.now{background:var(--teal);color:#062320;font-weight:600}
+
+/* cases */
+.case{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px;margin:12px 0}
+.case h4{margin:0 0 8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.case .vs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.case .vs div{font-size:.88rem;padding:10px 12px;border-radius:8px;background:var(--surface2)}
+.case .vs div b{display:block;font-size:.8rem;margin-bottom:3px}
+.case .vs .bad b{color:var(--red)} .case .vs .good b{color:var(--green)}
+
+.anti{display:grid;grid-template-columns:40px 1fr;gap:12px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.anti .num{font-family:"JetBrains Mono",monospace;color:var(--red);font-weight:600}
+.anti p{margin:3px 0;font-size:.92rem}
+
+
+/* flow diagrams */
+.flow{display:flex;flex-direction:column;gap:6px}
+.frow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}
+.frow>.fbox{flex:1;min-width:120px}
+.fbox{border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface2)}
+.fbox .fh{font-weight:600;font-size:.92rem}
+.fbox p{margin:6px 0 0;font-size:.85rem;color:var(--muted)}
+.fbox.ftf{border-color:var(--tf);background:var(--tf-soft)} .fbox.fam{border-color:var(--amber);background:var(--amber-soft)}
+.fbox.ftl{border-color:var(--teal);background:var(--teal-soft)} .fbox.fans{border-color:var(--ans);background:var(--ans-soft)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.farrow{text-align:center;font-size:.8rem;color:var(--muted)}
+.farrow::before{content:"↓";display:block;font-size:1.2rem;color:var(--teal);line-height:1}
+.fside{display:flex;align-items:center;justify-content:center;text-align:center;font-size:.8rem;color:var(--muted);min-width:60px}
+ol.steps{margin:8px 0 0;padding-left:1.4em;font-size:.88rem}
+ol.steps.big{font-size:.92rem;border:1px dashed var(--line);border-radius:12px;padding:12px 14px 12px 2.2em;margin:0;background:var(--surface)}
+ul.mini{margin:8px 0 0;padding-left:1.1em;font-size:.86rem}
+.ansflow{display:grid;grid-template-columns:1fr 1.6fr 1fr;gap:12px;align-items:center}
+#toolTable{min-width:1080px}
+body{word-break:keep-all;overflow-wrap:anywhere}
+@media (max-width:980px){.ansflow{grid-template-columns:1fr}.fside{min-width:100%;padding:4px 0}}
+.btn,.themebtn,.tocbtn{white-space:nowrap}
+.bp-col{min-width:0}
+.blueprint{grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr)}
+@media (max-width:980px){.blueprint{grid-template-columns:minmax(0,1fr)}.bp-actions .btn{white-space:normal;text-align:left}}
+footer{max-width:760px;margin-top:60px;color:var(--faint);font-size:.85rem;border-top:1px solid var(--line);padding-top:20px}
+
+@media (max-width:980px){
+  .layout{grid-template-columns:1fr;padding:0 16px}
+  nav.toc{display:none;position:fixed;top:calc(52px + env(safe-area-inset-top,0px));left:0;right:0;bottom:0;max-height:none;background:var(--surface);z-index:40;padding:16px}
+  nav.toc.open{display:block}
+  .tocbtn{display:inline-block}
+  .grid2,.grid3,.calc,.case .vs{grid-template-columns:minmax(0,1fr)}
+  .smap{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .blueprint{grid-template-columns:1fr}
+  .bp-mid{transform:rotate(90deg);padding:6px 0}
+  .three{grid-template-columns:1fr}
+  dl.gloss{grid-template-columns:1fr}
+  dl.gloss dt{border-bottom:none}
+  .levels{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ---- 2편 추가 ---- */
+.ostabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px}
+.ostabs .btn{border-radius:999px}
+.osnote{font-size:.85rem;color:var(--muted)}
+.os{display:none} .os.show{display:block}
+pre.code{position:relative}
+.cbtn{position:absolute;top:8px;right:8px;font:inherit;font-size:.72rem;padding:3px 9px;border-radius:6px;border:1px solid #2E4A66;background:#132639;color:#BFD3E6;cursor:pointer;opacity:.8}
+.cbtn:hover{opacity:1}
+.cbtn.done{background:#1C6B4A;color:#fff;border-color:#1C6B4A}
+pre.code .p{color:#7E95AE;user-select:none}
+.tree{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:16px 18px;font-family:"JetBrains Mono",monospace;font-size:.82rem;line-height:1.7;overflow-x:auto;white-space:pre;border:1px solid #1F3650}
+.tree .d{color:#7FD4FF} .tree .c{color:#7E95AE} .tree .g{color:#9FE3A4} .tree .w{color:#FFC777}
+.cp{display:inline-flex;align-items:center;gap:8px;margin:18px 0 6px;padding:6px 12px;border-radius:999px;border:1px solid var(--green);color:var(--green);font-size:.85rem;font-weight:600;background:rgba(91,214,138,.10)}
+.cp input{accent-color:var(--green);width:16px;height:16px}
+.hprog{margin-top:18px;max-width:560px}
+.hprog .bar{height:10px;border-radius:6px;background:var(--surface2);overflow:hidden;border:1px solid var(--line)}
+.hprog .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--tf),var(--teal),var(--ans));transition:width .4s}
+.hprog .lbl{display:flex;justify-content:space-between;font-size:.85rem;color:var(--muted);margin-bottom:6px}
+.labmap{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;margin-top:24px}
+.labmap .zone{border:1.5px dashed var(--line);border-radius:14px;padding:14px;background:color-mix(in srgb,var(--surface) 75%,transparent)}
+.labmap .zone h4{margin:0 0 8px;font-size:.95rem}
+.labmap .zone.ctl{grid-row:span 2;border-color:var(--teal)}
+.labmap .zone.loc{border-color:var(--ans)}
+.labmap .zone.cld{border-color:var(--tf)}
+.chiprow{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:.8rem;padding:3px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--line)}
+.chip.tf{border-color:var(--tf);color:var(--tf)} .chip.ans{border-color:var(--ans);color:var(--ans)} .chip.tl{border-color:var(--teal);color:var(--teal)} .chip.am{border-color:var(--amber);color:var(--amber)}
+.zone .sub{font-size:.82rem;color:var(--muted);margin:8px 0 0}
+.stack{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+.stack button{display:grid;grid-template-columns:30px 1fr;gap:10px;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.9rem;padding:10px 12px;cursor:pointer}
+.stack button .k{font-family:"JetBrains Mono",monospace;color:var(--teal)}
+.stack button.sel{outline:2px solid var(--teal)}
+.costrow{display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);font-size:.9rem}
+.costrow input{accent-color:var(--red);width:17px;height:17px}
+.costrow .r{font-family:"JetBrains Mono",monospace;color:var(--muted);font-size:.82rem}
+.faq-filter{margin-bottom:10px}
+.timebox{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+.timebox div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface)}
+.timebox b{display:block;font-size:1.25rem;font-family:"JetBrains Mono",monospace}
+.timebox span{font-size:.82rem;color:var(--muted)}
+@media (max-width:980px){.labmap{grid-template-columns:minmax(0,1fr)}.labmap .zone.ctl{grid-row:auto}.timebox{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---- 3편 추가 ---- */
+.anat{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+.anat pre.code .t{cursor:pointer;border-radius:4px;padding:0 2px;outline:1px dashed rgba(127,212,255,.35)}
+.anat pre.code .t:hover{background:rgba(127,212,255,.15)}
+.anat pre.code .t.sel{background:rgba(61,214,196,.28);outline:1px solid #3DD6C4}
+.anat .tile{position:sticky;top:76px;min-height:220px}
+.steps-nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.steps-nav .btn{border-radius:999px}
+.stepbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.stepbox .tile p{color:var(--ink)}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:.9rem}
+.kv b{color:var(--muted);font-weight:500}
+.plines{display:flex;flex-direction:column;gap:4px}
+.pline{text-align:left;font-family:"JetBrains Mono",monospace;font-size:.82rem;background:var(--code-bg);color:#DCE6F2;border:1px solid #1F3650;border-radius:8px;padding:8px 12px;cursor:pointer;white-space:pre-wrap}
+.pline.sel{outline:2px solid var(--teal)}
+.pline .g{color:#7EE2A0} .pline .y{color:#FFC777} .pline .r{color:#FF8A84} .pline .b{color:#7FD4FF} .pline .m{color:#7E95AE}
+.dagwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface2);padding:10px}
+.dag{display:block;min-width:820px;width:100%;height:auto}
+.dag .node rect{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:fill .3s,stroke .3s}
+.dag .node text{fill:var(--ink);font-size:12px;font-family:"JetBrains Mono",monospace}
+.dag .node.data rect{stroke-dasharray:5 3}
+.dag .node.doing rect{fill:rgba(245,184,65,.25);stroke:var(--amber)}
+.dag .node.done rect{fill:rgba(91,214,138,.22);stroke:var(--green)}
+.dag .node.gone rect{fill:rgba(255,92,92,.14);stroke:var(--red)}
+.dag .node.warn rect{fill:rgba(255,92,92,.25);stroke:var(--red);stroke-width:2.5}
+.dag .edge{stroke:var(--faint);stroke-width:1.4;fill:none}
+.dag .edge.exp{stroke:var(--amber);stroke-dasharray:6 4;stroke-width:2}
+.dag .wave{fill:var(--muted);font-size:11px;font-family:"IBM Plex Sans KR",sans-serif}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem;color:var(--muted);margin-top:8px}
+.legend span::before{content:"";display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle;border:1.5px solid var(--line)}
+.legend .l1::before{border-style:dashed}
+.legend .l2::before{border-color:var(--amber);background:rgba(245,184,65,.25)}
+.legend .l3::before{border-color:var(--green);background:rgba(91,214,138,.22)}
+.legend .l4::before{border:none;border-top:2px dashed var(--amber);height:0;border-radius:0}
+@media (max-width:980px){.anat,.stepbox{grid-template-columns:minmax(0,1fr)}.anat .tile{position:static}}
+
+/* ---- 4편 추가 ---- */
+.prec{display:flex;flex-direction:column;gap:6px}
+.precrow{display:grid;grid-template-columns:26px 34px minmax(0,1.4fr) minmax(0,1fr);gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--surface)}
+.precrow .rk{font-family:"JetBrains Mono",monospace;color:var(--faint);font-size:.8rem}
+.precrow input[type=checkbox]{accent-color:var(--teal);width:17px;height:17px}
+.precrow input[type=text]{width:100%;padding:6px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface2);color:var(--ink);font:inherit;font-family:"JetBrains Mono",monospace;font-size:.85rem}
+.precrow .src{font-size:.88rem}
+.precrow .src small{display:block;color:var(--muted);font-size:.78rem}
+.precrow.win{border-color:var(--green);background:rgba(91,214,138,.10)}
+.precrow.lose{opacity:.55}
+.cfbox{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.items{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.item{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 6px 3px 12px;background:var(--surface2);font-family:"JetBrains Mono",monospace;font-size:.84rem}
+.item button{border:none;background:var(--surface);color:var(--red);border-radius:999px;width:22px;height:22px;cursor:pointer;font:inherit;line-height:1}
+.addrow{display:flex;gap:6px;flex-wrap:wrap}
+.addrow input{padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;width:140px}
+.vfield{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:8px 0}
+.vfield input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-family:"JetBrains Mono",monospace;font-size:.88rem}
+.vres{font-family:"JetBrains Mono",monospace;font-size:.82rem;white-space:pre-wrap;border-radius:8px;padding:8px 12px;margin:2px 0 8px 160px}
+.vres.ok{background:rgba(91,214,138,.12);color:var(--green)}
+.vres.err{background:rgba(255,92,92,.12);color:var(--red)}
+.ex{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:8px 0;background:var(--surface)}
+.ex .in,.ex .out{font-family:"JetBrains Mono",monospace;font-size:.82rem;padding:10px 12px;white-space:pre-wrap;overflow-x:auto}
+.ex .in{background:var(--code-bg);color:#DCE6F2}
+.ex .out{color:var(--green);background:var(--surface2)}
+.ex .out.err{color:var(--red)}
+.ex .why{grid-column:1/-1;padding:8px 12px;font-size:.86rem;color:var(--muted);border-top:1px dashed var(--line)}
+@media (max-width:980px){.precrow{grid-template-columns:22px 28px minmax(0,1fr)}.precrow input[type=text]{grid-column:1/-1}.cfbox,.ex{grid-template-columns:minmax(0,1fr)}.vfield{grid-template-columns:minmax(0,1fr)}.vres{margin-left:0}}
+
+/* ---- 5편 추가 ---- */
+.json{background:var(--code-bg);color:#DCE6F2;border-radius:12px;padding:14px 16px;font-family:"JetBrains Mono",monospace;font-size:.8rem;line-height:1.6;white-space:pre;overflow:auto;max-height:560px;border:1px solid #1F3650;margin:0}
+.json .k{color:#C3A6FF;cursor:pointer;border-radius:3px;outline:1px dashed rgba(195,166,255,.35)}
+.json .k:hover{background:rgba(195,166,255,.15)}
+.json .k.sel{background:rgba(61,214,196,.3);outline:1px solid #3DD6C4}
+.json .s{color:#9FE3A4} .json .n{color:#FFC777} .json .w{color:#FF8A84;font-weight:600}
+.lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.lane{border:1px solid var(--line);border-radius:10px;background:var(--surface2);padding:10px;min-height:230px}
+.lane h5{margin:0 0 8px;font-size:.88rem}
+.lane .ev{font-size:.8rem;font-family:"JetBrains Mono",monospace;padding:5px 8px;border-radius:6px;margin:4px 0;background:var(--surface);border-left:3px solid var(--line);opacity:0;transform:translateY(4px);transition:all .25s}
+.lane .ev.show{opacity:1;transform:none}
+.lane .ev.ok{border-left-color:var(--green)} .lane .ev.bad{border-left-color:var(--red)} .lane .ev.wait{border-left-color:var(--amber)}
+.evo{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}
+.evo .st2{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface)}
+.evo .st2 .ver{font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--muted)}
+.evo .st2 h4{margin:4px 0 8px}
+.dots{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:.8rem;margin-top:8px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-top:4px}
+.dot.y{background:var(--red)} .dot.n{background:var(--green)} .dot.m{background:var(--amber)}
+.scen{display:flex;flex-direction:column;gap:6px}
+.scen button{text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.9rem;padding:9px 12px;cursor:pointer}
+.scen button.sel{outline:2px solid var(--teal)}
+@media (max-width:980px){.lanes,.evo{grid-template-columns:minmax(0,1fr)}}
+
+#sizeTabs .btn{white-space:normal;text-align:left;border-radius:10px}
+.arch{display:grid;grid-template-columns:120px repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.arch .azone{border:1.5px dashed var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.arch .azone.pub{border-color:var(--teal)} .arch .azone.app{border-color:var(--ans)} .arch .azone.db{border-color:var(--tf)}
+.arch .azone.side{grid-column:2/-1;flex-direction:row;flex-wrap:wrap;border-color:var(--amber)}
+.arch .zl{font-size:.78rem;color:var(--muted);width:100%}
+.arch .ab{border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:.86rem;padding:10px;cursor:pointer;text-align:center;line-height:1.35;white-space:normal}
+.arch .ab small{color:var(--muted);font-size:.75rem}
+.arch .ab:hover{border-color:var(--teal)} .arch .ab.sel{outline:2px solid var(--teal);background:var(--teal-soft)}
+.arch .z-ext{align-self:center}
+@media (max-width:980px){.arch{grid-template-columns:minmax(0,1fr)}.arch .azone.side{grid-column:auto}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="tocbtn" id="tocBtn" aria-controls="toc" aria-expanded="false">목차</button>
+  <div class="title">Terraform &amp; Ansible 9편 <small>가져오기와 리팩터링</small></div>
+  <div class="spacer"></div>
+  <button class="themebtn" id="themeBtn" aria-label="테마 전환">라이트 테마</button>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="layout">
+<nav class="toc" id="toc" aria-label="이 편의 목차">
+  <ol>
+    <li><a href="#u0"><span class="n">0</span>들어가며</a></li>
+    <li><a href="#u1"><span class="n">1</span>import가 하는 일</a></li>
+    <li><a href="#u2"><span class="n">2</span>가져오기 방법의 진화</a></li>
+    <li><a href="#u3"><span class="n">3</span>import 블록과 plan 읽기</a></li>
+    <li><a href="#u4"><span class="n">4</span>코드 초안 생성과 정리</a></li>
+    <li><a href="#u5"><span class="n">5</span>for_each·모듈 안 import</a></li>
+    <li><a href="#u6"><span class="n">6</span>terraform query (1.14)</a></li>
+    <li><a href="#u7"><span class="n">7</span>흡수 실전 절차 8단계</a></li>
+    <li><a href="#u8"><span class="n">8</span>실습 A: import 메커니즘</a></li>
+    <li><a href="#u9"><span class="n">9</span>실습 B: 콘솔 리소스 흡수</a></li>
+    <li><a href="#u10"><span class="n">10</span>드리프트 감지와 처리</a></li>
+    <li><a href="#u11"><span class="n">11</span>리팩터링: moved·removed</a></li>
+    <li><a href="#u12"><span class="n">12</span>정리</a></li>
+    <li><a href="#u13"><span class="n">13</span>흔한 오류와 해결</a></li>
+    <li><a href="#u14"><span class="n">14</span>MSP 현장 팁</a></li>
+    <li><a href="#u15"><span class="n">15</span>용어 사전</a></li>
+    <li><a href="#u16"><span class="n">16</span>확인 퀴즈</a></li>
+    <li><a href="#u17"><span class="n">17</span>과제</a></li>
+    <li><a href="#u18"><span class="n">18</span>정리와 다음 편</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+<div class="hero">
+  <div class="series">Terraform &amp; Ansible 강의 · Level 2 Terraform 심화·운영 · 9편 / 26편 · <a href="terraform-ansible-00-index.html">시리즈 목차</a></div>
+  <h1>이미 있는 것을 코드로
+    <span class="sub">기존 인프라 가져오기와 리팩터링 — import 블록, 코드 생성, terraform query, 드리프트, moved·removed</span></h1>
+  <p>MSP가 새 고객사를 맡을 때, 인프라는 대개 빈 계정이 아니라 몇 년 동안 콘솔로 쌓인 리소스 더미입니다. 그것을 지우고 새로 만들 수는 없습니다. 운영 중인 서비스이기 때문입니다. 이번 편은 <strong>실물은 그대로 두고 장부(state)와 설계도(코드)만 새로 만드는</strong> 방법, 즉 기존 리소스를 Terraform 관리로 흡수하는 실전 절차를 다룹니다. 1편 1장의 “클릭 운영의 하루”를 끝내는 실제 작업입니다.</p>
+  <div class="grid3" style="margin-top:18px">
+    <div class="tile"><h4 class="tf">import</h4><p>실물을 state에 연결. 실물은 바뀌지 않는다.</p></div>
+    <div class="tile"><h4 class="tl">moved · removed</h4><p>실물은 두고 코드 구조·관리 범위를 바꾼다.</p></div>
+    <div class="tile"><h4 class="am">refresh-only</h4><p>실물이 코드 밖에서 바뀐 것(드리프트)을 찾는다.</p></div>
+  </div>
+</div>
+
+<!-- ================= 0 ================= -->
+<section class="unit" id="u0">
+  <h2><span class="no">0</span>들어가며</h2>
+  <p class="lead">이번 편의 목표와 실습 지도</p>
+  <div class="prose">
+  <h3>이번 편을 마치면</h3>
+  <ul>
+    <li><code>import</code> 블록으로 기존 리소스를 state에 연결하고, plan의 “will be imported”, “1 to import” 표시를 해석할 수 있습니다.</li>
+    <li><code>-generate-config-out</code>으로 코드 초안을 만들고, 그대로 쓰면 안 되는 부분을 정리할 수 있습니다.</li>
+    <li><code>for_each</code> import(1.7+)와 1.16의 모듈 안 import 블록을 씁니다.</li>
+    <li>1.14의 <code>terraform query</code>로 관리되지 않는 리소스를 찾고 대량으로 가져오는 흐름을 압니다.</li>
+    <li>콘솔로 만들어진 고객사 리소스를 흡수하는 8단계 절차를 실행하고, 목표인 “가져온 직후 변경 0”을 확인합니다.</li>
+    <li><code>plan -refresh-only</code>와 <code>-detailed-exitcode</code>로 드리프트를 찾고, 수용·되돌림·무시 중 무엇을 할지 판단합니다.</li>
+    <li>가져온 리소스를 <code>moved</code>로 모듈 안에 넣고, <code>removed</code>로 관리 범위에서 넘겨줍니다.</li>
+  </ul>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>실습</th><th>디렉터리</th><th>배우는 것</th><th>비용</th></tr>
+    <tr><td>A. import 메커니즘</td><td><code>terraform/09-basics</code></td><td>import 블록, 코드 생성, for_each import, 불일치 import, 이미 관리 중인 주소</td><td>0원 (내장 리소스)</td></tr>
+    <tr><td>B. 콘솔 리소스 흡수</td><td><code>legacy/</code>, <code>terraform/09-import</code>, <code>modules/legacy-bucket</code></td><td>레거시 생성 → 발견 → 생성·정리 → 변경 0 → 개선 → 드리프트 → 모듈화 → 관리 이관</td><td>0원 (S3 빈 버킷, 보안 그룹, SSM 파라미터)</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">실측 표시</div>
+  <p>import 블록·코드 생성·for_each import·불일치 import·moved와 import가 겹칠 때의 동작은 내장 리소스(<code>terraform_data</code>)로 호환 엔진에서 실제로 실행한 결과입니다. 모듈 안 import 블록은 Terraform 1.16 기능이라 호환 엔진에서는 실행할 수 없었고(오류로 거부됨을 확인), 공식 발표 내용을 기준으로 작성했습니다. AWS 실습 B는 이 강의 제작 환경에서 실행할 수 없었으므로 처음 실행할 때 결과를 확인하세요.</p></div>
+</section>
+
+<!-- ================= 1 ================= -->
+<section class="unit" id="u1">
+  <h2><span class="no">1</span>import가 하는 일</h2>
+  <p class="lead">장부에 한 줄 적는 것 — 실물도 코드도 저절로 생기지 않는다</p>
+  <div class="prose"><p>5편에서 state는 “코드의 주소 ↔ 실물의 ID”를 잇는 장부라고 했습니다. <strong>import는 이 장부에 새 줄을 적는 일</strong>입니다. “코드의 <code>aws_security_group.legacy_web</code>은 클라우드의 <code>sg-0123…</code>이다.” 그 결과로 Terraform은 그 실물을 자기 것으로 인식하고, 이후 plan에서 코드와 비교하기 시작합니다.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th></th><th>import 전</th><th>import 후</th></tr>
+    <tr><td>클라우드의 실물</td><td>있음</td><td><b>그대로</b> (import는 실물을 바꾸지 않는다)</td></tr>
+    <tr><td>state</td><td>없음</td><td>주소 ↔ ID 기록 + 현재 속성</td></tr>
+    <tr><td>코드</td><td>직접 써야 함</td><td>직접 써야 함 (또는 4장의 생성 기능으로 초안)</td></tr>
+    <tr><td>다음 plan</td><td>—</td><td>코드 ↔ 실물 비교. 다르면 <b>코드 쪽으로 바꾸려 한다</b></td></tr>
+  </table></div>
+  <div class="callout bad prose"><div class="ct">가장 위험한 순간은 import 직후의 apply</div>
+  <p>코드가 실물을 정확히 묘사하지 못한 채 import하면, 다음 apply가 실물을 코드대로 “고친다”. 운영 중인 보안 그룹 규칙이 지워지거나 DB가 교체될 수 있습니다. 그래서 흡수 작업의 목표는 <strong>“가져온 직후 plan의 변경이 0”</strong>입니다. 실물을 개선하는 것은 그다음, 별도의 변경으로 합니다. 이 순서를 지키는 것이 이번 편 전체의 핵심입니다.</p></div>
+</section>
+
+<!-- ================= 2 ================= -->
+<section class="unit" id="u2">
+  <h2><span class="no">2</span>가져오기 방법의 진화</h2>
+  <p class="lead">명령 한 줄에서, 리뷰 가능한 코드로, 그리고 대량 발견까지</p>
+  <div class="tablewrap"><table>
+    <tr><th>방법</th><th>도입</th><th>특징</th><th>지금의 쓰임</th></tr>
+    <tr><td><code>terraform import 주소 ID</code> 명령</td><td>초기부터</td><td>실행 즉시 state 변경. plan 미리보기·리뷰 없음. 한 번에 하나</td><td>긴급·일회성. 공유 state에는 비권장</td></tr>
+    <tr><td><code>import</code> 블록</td><td>1.5</td><td>코드로 선언 → plan에서 미리 보고 → apply 때 연결. PR 리뷰 가능</td><td><b>기본 방법</b></td></tr>
+    <tr><td><code>plan -generate-config-out</code></td><td>1.5</td><td>import 블록만 있고 resource 블록이 없으면 코드 초안을 파일로 생성</td><td>초안 작성 (반드시 정리)</td></tr>
+    <tr><td><code>for_each</code> import</td><td>1.7</td><td>import 블록 하나로 여러 개</td><td>같은 종류 대량 (규칙, 버킷, 사용자)</td></tr>
+    <tr><td>식별자(identity) import</td><td>1.12</td><td><code>id</code> 문자열 대신 <code>identity = { … }</code>로 리소스를 구조화된 값으로 지정 (지원 리소스만)</td><td>ID 형식이 복잡한 리소스, query 생성 결과</td></tr>
+    <tr><td><code>terraform query</code> + <code>list</code> 블록</td><td>1.14</td><td>관리되지 않는 리소스를 검색하고 import·resource 블록을 한꺼번에 생성</td><td>발견 + 대량 흡수 (6장)</td></tr>
+    <tr><td>모듈 안 <code>import</code> 블록</td><td>1.16</td><td>재사용 모듈이 자기 리소스의 가져오기 방법을 품는다. 호출자는 ID만 넘김</td><td>공통 모듈로 여러 고객·환경 흡수 (5장)</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">Terraform 밖의 생성 도구</div>
+  <p>Terraformer 같은 오픈소스 생성기, AWS CloudFormation의 IaC 생성기(CloudFormation 템플릿 생성) 등 계정 전체를 훑어 코드를 만들어 주는 도구도 있습니다. 시작점으로는 유용하지만 생성 코드는 대개 리소스마다 하드코딩된 값이 가득한 “사진”이라, 모듈·변수 구조로 다시 짜는 작업이 필요합니다. 도구의 유지보수 상태와 지원 프로바이더 버전도 먼저 확인하세요. 이 강의는 Terraform 자체 기능만으로 진행합니다.</p></div>
+</section>
+
+<!-- ================= 3 ================= -->
+<section class="unit" id="u3">
+  <h2><span class="no">3</span>import 블록과 plan 읽기</h2>
+  <p class="lead">두 줄짜리 블록 하나, 그리고 plan에 새로 생기는 표시들</p>
+<pre class="code"><span class="k">import</span> {
+  <span class="f">to</span> = aws_security_group.legacy_web <span class="c"># 코드의 주소 (resource 블록이 있어야 함, 4장의 생성 기능 제외)</span>
+  <span class="f">id</span> = <span class="s">"sg-0123456789abcdef0"</span>        <span class="c"># 프로바이더가 이해하는 실물 ID (리소스마다 형식이 다름)</span>
+}
+
+<span class="k">resource</span> <span class="s">"aws_security_group"</span> <span class="s">"legacy_web"</span> {
+  <span class="f">name</span>        = <span class="s">"legacy-web"</span>
+  <span class="f">description</span> = <span class="s">"legacy web sg"</span>
+  <span class="f">vpc_id</span>      = <span class="s">"vpc-0abc..."</span>
+}</pre>
+  <div class="tablewrap"><table>
+    <tr><th>인자</th><th>설명</th></tr>
+    <tr><td><code>to</code></td><td>가져올 대상 주소. 모듈 안(<code>module.x.aws_…</code>), 인덱스(<code>[0]</code>, <code>["web"]</code>) 가능</td></tr>
+    <tr><td><code>id</code></td><td>실물 ID. 문자열 또는 plan 시점에 알 수 있는 표현식(변수, local, data 소스 값). 형식은 레지스트리 문서 맨 아래 <b>Import</b> 절에 리소스마다 적혀 있다(3편 5장)</td></tr>
+    <tr><td><code>identity</code></td><td>(1.12+) <code>id</code> 대신 구조화된 식별 값. 리소스가 지원할 때만</td></tr>
+    <tr><td><code>for_each</code></td><td>(1.7+) 여러 개를 한 블록으로 (5장)</td></tr>
+    <tr><td><code>provider</code></td><td>별칭 프로바이더를 쓸 때 (다른 리전·계정의 리소스)</td></tr>
+  </table></div>
+  <h3>plan 출력 해독 — 줄을 눌러 보세요</h3>
+  <div class="grid2">
+    <div class="plines" id="plines"></div>
+    <div class="tile" id="pinfo"><h4>줄을 선택하세요</h4><p>모두 실습 A에서 실제로 얻은 출력입니다.</p></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>ID 형식이 까다로운 예</th><th>import ID</th></tr>
+    <tr><td>S3 버킷 / 버킷 버전닝</td><td>버킷 이름 (둘 다)</td></tr>
+    <tr><td>보안 그룹 / 규칙 (별도 리소스)</td><td><code>sg-…</code> / <code>sgr-…</code> (규칙 ID는 <code>aws ec2 describe-security-group-rules</code>로)</td></tr>
+    <tr><td>SSM 파라미터</td><td>파라미터 이름 (<code>/legacy/app/feature_flag</code>)</td></tr>
+    <tr><td>라우팅 테이블 연결</td><td><code>서브넷ID/라우팅테이블ID</code></td></tr>
+    <tr><td>IAM 정책 연결</td><td><code>역할이름/정책ARN</code></td></tr>
+    <tr><td>RDS 인스턴스</td><td>DB 식별자 (identifier)</td></tr>
+  </table></div>
+</section>
+
+<!-- ================= 4 ================= -->
+<section class="unit" id="u4">
+  <h2><span class="no">4</span>코드 초안 생성과 정리</h2>
+  <p class="lead">생성된 코드는 “사진”이다 — 설계도로 다시 그려야 한다</p>
+  <div class="prose"><p>import 블록만 쓰고 그 대상의 resource 블록을 쓰지 않은 채 <code>-generate-config-out</code>을 붙여 plan하면, Terraform이 실물의 현재 속성을 읽어 resource 블록 초안을 파일로 만들어 줍니다. 아래는 실습 A에서 실제로 생성된 파일입니다.</p></div>
+<pre class="code">$ terraform plan -generate-config-out=generated.tf
+  <span class="c"># terraform_data.legacy will be imported</span>
+  <span class="c"># (config will be generated)</span>
+  <span class="c"># (imported from "legacy-web-sg")</span>
+Plan: 1 to import, 0 to add, 0 to change, 0 to destroy.
+Warning: Config generation is experimental
+
+$ cat generated.tf
+<span class="c"># __generated__ by Terraform</span>
+<span class="c"># Please review these resources and move them into your main configuration files.</span>
+
+<span class="c"># __generated__ by Terraform from "legacy-web-sg"</span>
+resource "terraform_data" "legacy" {
+  input            = null
+  triggers_replace = null
+}</pre>
+  <div class="prose"><p class="note">(호환 엔진에서는 머리말이 “by OpenTofu”로 표시되었습니다.)</p><p>내장 리소스라 짧지만, AWS 리소스라면 수십 줄이 나옵니다. 생성 코드는 “현재 실물의 모든 속성을 그대로 적은 것”이라 다음을 정리해야 합니다.</p></div>
+  <div class="tablewrap"><table>
+    <tr><th>정리 대상</th><th>예</th><th>어떻게</th></tr>
+    <tr><td><code>null</code>·기본값 인자</td><td><code>input = null</code>, <code>force_destroy = false</code>, <code>bucket_prefix = null</code></td><td>지운다 (기본값과 같으면 생략해도 plan 변화 없음)</td></tr>
+    <tr><td>하드코딩된 참조</td><td><code>vpc_id = "vpc-0abc…"</code>, <code>security_group_id = "sg-…"</code></td><td>다른 리소스·data·변수 참조로 바꾼다 (<code>aws_security_group.legacy_web.id</code>)</td></tr>
+    <tr><td>인라인 블록과 별도 리소스 중복</td><td>보안 그룹의 <code>ingress</code>·<code>egress</code> 목록이 생성됨</td><td>별도 규칙 리소스를 쓴다면 인라인 목록을 지운다(지워도 기존 규칙은 그대로 — 지정하지 않으면 관리하지 않음). 두 방식을 섞지 않는다(3편 5장)</td></tr>
+    <tr><td>계산 전용 속성</td><td><code>arn</code>, <code>id</code>, <code>owner_id</code></td><td>생성기가 대부분 빼 주지만, 남아 있으면 “설정할 수 없는 인자” 오류 → 지운다</td></tr>
+    <tr><td>반복 구조</td><td><code>aws_…_rule.r_0</code>, <code>r_1</code>, <code>r_2</code></td><td>for_each 리소스 + for_each import로 다시 쓴다 (5장)</td></tr>
+    <tr><td>태그</td><td>제각각인 태그</td><td>우선 실물 그대로. 표준 태그 적용은 “변경 0” 확인 <b>다음</b> 단계에서</td></tr>
+    <tr><td>파일 위치</td><td><code>generated.tf</code></td><td>내용을 주제별 파일로 옮기고 generated.tf는 삭제. 이미 있으면 생성 명령이 실패하므로 재생성 전 삭제</td></tr>
+  </table></div>
+  <div class="callout warn prose"><div class="ct">생성 기능의 한계</div>
+  <p>Terraform은 생성 기능이 아직 실험적이라는 경고를 냅니다. 프로바이더에 따라 서로 배타적인 인자를 함께 생성해 validate가 실패하기도 하고, API에서 읽을 수 없는 값(비밀번호 등)은 채우지 못합니다. for_each·count 대상과 모듈 안 대상은 생성하지 않습니다. 생성은 “빈 화면에서 시작하지 않게 해 주는 도구”일 뿐입니다.</p></div>
+</section>
+<!-- ================= 5 ================= -->
+<section class="unit" id="u5">
+  <h2><span class="no">5</span>for_each·모듈 안 import</h2>
+  <p class="lead">같은 종류 여러 개, 그리고 재사용 모듈이 품는 가져오기</p>
+  <h3>for_each import (1.7+)</h3>
+<pre class="code"><span class="k">locals</span> {
+  <span class="f">legacy_sgs</span> = { web = <span class="s">"sg-0aaa"</span>, db = <span class="s">"sg-0bbb"</span> } <span class="c"># 키 → 실물 ID</span>
+}
+
+<span class="k">import</span> {
+  <span class="f">for_each</span> = local.legacy_sgs
+  <span class="f">to</span>       = aws_security_group.legacy[each.key] <span class="c"># 리소스의 for_each 키와 같은 키</span>
+  <span class="f">id</span>       = each.value
+}
+
+<span class="k">resource</span> <span class="s">"aws_security_group"</span> <span class="s">"legacy"</span> {
+  <span class="f">for_each</span> = local.legacy_sgs
+  <span class="c"># ...</span>
+}</pre>
+<pre class="code"><span class="c"># 실측 (내장 리소스로 같은 구조)</span>
+  <span class="c"># terraform_data.sg["db"] will be imported</span>
+  <span class="c"># (imported from "sg-0bbb")</span>
+  <span class="c"># terraform_data.sg["web"] will be imported</span>
+  <span class="c"># (imported from "sg-0aaa")</span>
+Plan: 2 to import, 0 to add, 0 to change, 0 to destroy.
+Apply complete! Resources: 2 imported, 0 added, 0 changed, 0 destroyed.</pre>
+  <div class="prose"><p>4편에서 배운 for_each 규칙이 그대로 적용됩니다. import의 <code>for_each</code>에 넣는 맵의 <strong>키는 plan 시점에 알려져야</strong> 하고, 리소스의 for_each 키와 일치해야 합니다. 발견 단계에서 얻은 ID 목록을 맵으로 만들 때, 키는 사람이 읽을 수 있는 이름(역할·용도)으로 짓습니다. 그 키가 영구적인 state 주소가 되기 때문입니다.</p></div>
+
+  <h3>모듈 안 import 블록 (1.16)</h3>
+  <div class="prose"><p>1.15까지 import 블록은 루트 모듈에만 둘 수 있었습니다. 그래서 공통 모듈로 기존 리소스를 흡수하려면, 모듈을 쓰는 모든 루트가 <code>module.x.aws_s3_bucket.this</code> 같은 <strong>모듈 내부 주소를 알고</strong> import 블록을 따로 써야 했습니다. 1.16부터는 모듈 작성자가 리소스 옆에 import 블록을 함께 둘 수 있고, 호출자는 기존 리소스의 이름만 넘기면 됩니다.</p></div>
+  <div class="codehead"><span>modules/legacy-bucket/main.tf (실습 B에서 사용)</span></div>
+<pre class="code"><span class="c"># 이미 존재하는 버킷을 "가져와서" 관리하는 모듈 (1.16: 모듈 안 import 블록)</span>
+<span class="k">variable</span> <span class="s">"existing_bucket_name"</span> {
+  <span class="f">description</span> = <span class="s">"가져올 기존 버킷 이름"</span>
+  <span class="f">type</span>        = string
+}
+
+<span class="k">variable</span> <span class="s">"tags"</span> {
+  <span class="f">description</span> = <span class="s">"버킷 태그"</span>
+  <span class="f">type</span>        = map(string)
+  <span class="f">default</span>     = {}
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket"</span> <span class="s">"this"</span> {
+  <span class="f">bucket</span> = var.existing_bucket_name
+  <span class="f">tags</span>   = var.tags
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_versioning"</span> <span class="s">"this"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.this.id
+
+  <span class="k">versioning_configuration</span> {
+    <span class="f">status</span> = <span class="s">"Enabled"</span>
+  }
+}
+
+<span class="c"># 호출자는 버킷 이름만 넘기면 된다. 모듈 내부 주소를 알 필요가 없다</span>
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_s3_bucket.this
+  <span class="f">id</span> = var.existing_bucket_name
+}
+
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_s3_bucket_versioning.this
+  <span class="f">id</span> = var.existing_bucket_name
+}
+
+<span class="k">output</span> <span class="s">"bucket"</span> {
+  <span class="f">value</span> = aws_s3_bucket.this.bucket
+}</pre>
+<pre class="code"><span class="c"># 호출하는 쪽: 모듈 내부 주소를 몰라도 된다</span>
+<span class="k">module</span> <span class="s">"archive_bucket"</span> {
+  <span class="f">source</span> = <span class="s">"../../modules/legacy-bucket"</span>
+
+  <span class="f">existing_bucket_name</span> = <span class="s">"legacy-archive-123456789012"</span>
+  <span class="f">tags</span>                 = { Owner = <span class="s">"kim-legacy"</span> }
+}</pre>
+  <div class="tablewrap"><table>
+    <tr><th>조건</th><th>설명</th></tr>
+    <tr><td>프로바이더가 import를 지원</td><td>대상 리소스의 문서에 Import 절이 있어야 한다</td></tr>
+    <tr><td>ID가 plan 시점에 알려짐</td><td>변수·고정 값. 같은 apply에서 만들어지는 리소스의 속성은 안 됨</td></tr>
+    <tr><td>설정이 실물을 정확히 묘사</td><td>아니면 import와 동시에 변경이 계획된다(3장 불일치 사례)</td></tr>
+    <tr><td>모듈 인스턴스마다 평가</td><td>count·for_each로 부른 모듈, 중첩 모듈도 인스턴스별로 각자의 ID로 가져온다</td></tr>
+    <tr><td>이미 관리 중이면</td><td>대상이 이미 state에 있으면 import 블록은 무시된다(실측). 그래서 모듈 안에 import 블록을 계속 남겨 두어도, 처음 쓰는 고객에게만 가져오기가 일어난다</td></tr>
+  </table></div>
+  <div class="callout warn prose"><div class="ct">Terraform 1.16 전용 기능</div>
+  <p>OpenTofu(1.13)에서 같은 코드를 실행하면 모듈 안 import 블록을 <code>Invalid import configuration</code> 오류로 거부합니다(실측). 고객사가 OpenTofu를 쓰거나 Terraform 1.15 이하라면, 기존처럼 루트에서 <code>to = module.archive_bucket.aws_s3_bucket.this</code>로 import 블록을 씁니다. 모듈의 <code>required_version</code>을 <code>&gt;= 1.16</code>으로 올려 두면 잘못된 버전에서의 사용을 init 단계에서 막을 수 있습니다.</p></div>
+</section>
+
+<!-- ================= 6 ================= -->
+<section class="unit" id="u6">
+  <h2><span class="no">6</span>terraform query (1.14)</h2>
+  <p class="lead">“무엇이 Terraform 밖에 있는가”를 코드로 검색하고, import 코드를 한 번에 만든다</p>
+  <div class="prose"><p>import 블록을 쓰려면 먼저 ID를 알아야 합니다. 리소스가 수백 개면 콘솔과 CLI로 ID를 모으는 것부터가 일입니다. 1.14에서 추가된 <code>terraform query</code>는 <code>.tfquery.hcl</code> 파일의 <code>list</code> 블록으로 프로바이더에게 리소스 목록을 물어보고, 결과를 바로 import·resource 블록으로 생성할 수 있게 합니다.</p></div>
+  <div class="codehead"><span>discover.tfquery.hcl (일반 .tf 파일에는 provider 설정이 있어야 함)</span></div>
+<pre class="code">list <span class="s">"aws_instance"</span> <span class="s">"legacy_web"</span> {
+  <span class="f">provider</span> = aws
+
+  <span class="k">config</span> {
+    <span class="k">filter</span> {
+      <span class="f">name</span>   = <span class="s">"tag:Owner"</span>
+      <span class="f">values</span> = [<span class="s">"kim-legacy"</span>]
+    }
+    <span class="k">filter</span> {
+      <span class="f">name</span>   = <span class="s">"instance-state-name"</span>
+      <span class="f">values</span> = [<span class="s">"running"</span>]
+    }
+  }
+
+  <span class="f">limit</span> = <span class="n">50</span>
+}</pre>
+<pre class="code">terraform query                                   <span class="c"># 결과를 화면에: 주소, 식별 값(계정·ID·리전), Name 태그</span>
+terraform query -generate-config-out=generated.tf <span class="c"># import 블록(identity 사용) + resource 블록 생성</span>
+<span class="c"># generated.tf 정리 → terraform plan (n to import, 0 to change 목표) → terraform apply</span></pre>
+  <div class="tablewrap"><table>
+    <tr><th>알아둘 점</th><th>설명</th></tr>
+    <tr><td>프로바이더 지원이 필요</td><td><code>list</code>는 프로바이더가 “목록 조회(list resource)”를 구현한 리소스 종류만 가능합니다. 지원하지 않으면 <code>Invalid list resource</code> 오류. AWS 프로바이더는 지원 종류를 늘려 가는 중이므로 쓰려는 버전의 문서에서 List Resources 항목을 확인하세요</td></tr>
+    <tr><td>읽기 전용</td><td>query 자체는 아무것도 바꾸지 않고 state에도 쓰지 않습니다. 발견용 스크립트처럼 안심하고 돌릴 수 있습니다</td></tr>
+    <tr><td>생성 결과는 identity 기반 import</td><td>1.12의 식별자 import 형식으로 생성됩니다. 이름은 <code>legacy_web_0</code>, <code>_1</code>처럼 번호가 붙으므로, 정리 단계에서 의미 있는 이름이나 for_each 구조로 바꿉니다</td></tr>
+    <tr><td>필터가 핵심</td><td>계정 전체를 한 번에 가져오지 말고 태그·상태·VPC 같은 필터로 범위를 좁혀 “이번 PR로 흡수할 묶음”을 만듭니다 (7장 2·3단계)</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">query가 없을 때의 발견 방법</div>
+  <p>태그로: <code>aws resourcegroupstaggingapi get-resources</code>(태그가 붙은 것만). 전 리전: AWS Resource Explorer. 구성 이력과 규정 준수: AWS Config의 리소스 인벤토리. 종류별 CLI: <code>aws ec2 describe-security-groups --filters Name=vpc-id,Values=…</code>. MSP는 고객사 인수 시 이 결과를 스프레드시트로 정리해 “흡수 대상 / 제외 / 폐기” 분류부터 고객과 합의합니다(7장).</p></div>
+</section>
+
+<!-- ================= 7 ================= -->
+<section class="unit" id="u7">
+  <h2><span class="no">7</span>흡수 실전 절차 8단계</h2>
+  <p class="lead">고객사의 콘솔 인프라를 코드로 옮기는 표준 절차 — 단계를 눌러 체크리스트를 확인하세요</p>
+  <div class="panel">
+    <div class="steps-nav" id="stNav"></div>
+    <div class="stepbox"><div class="tile" id="stL"></div><div class="tile" id="stR"></div></div>
+  </div>
+  <div class="callout bad prose"><div class="ct">절대 규칙 세 가지</div>
+  <p>① <b>가져오는 PR과 바꾸는 PR을 섞지 않는다.</b> 가져오는 PR의 plan은 “n to import, 0 to add, 0 to change, 0 to destroy”여야 한다. ② <b>plan에 교체(<code>-/+</code>)나 삭제가 하나라도 있으면 멈춘다.</b> 코드가 실물을 잘못 묘사한 것이다. ③ <b>흡수가 끝나면 콘솔 쓰기 권한을 회수한다.</b> 그러지 않으면 다음 주부터 드리프트가 다시 쌓인다(10장).</p></div>
+</section>
+
+<!-- ================= 8 ================= -->
+<section class="unit" id="u8">
+  <h2><span class="no">8</span>실습 A: import 메커니즘 (0원)</h2>
+  <p class="lead">내장 리소스로 import의 모든 동작을 먼저 손에 익힌다</p>
+  <div class="prose"><p><code>terraform_data</code>도 import를 지원합니다(ID만 가져오고 입력 값은 비어 있음). 클라우드 없이 import 블록의 동작을 확인하기에 충분합니다. 아래 다섯 단계는 모두 실제 실행 결과입니다.</p></div>
+<pre class="code">mkdir -p ~/iac-lab/terraform/09-basics &amp;&amp; cd ~/iac-lab/terraform/09-basics
+
+<span class="c"># 1) 코드 생성: import 블록만 두고 plan</span>
+cat &gt; main.tf &lt;&lt;'TF'
+import {
+  to = terraform_data.legacy
+  id = "legacy-web-sg"
+}
+TF
+terraform init
+terraform plan -generate-config-out=generated.tf     <span class="c"># → 1 to import, generated.tf 생성 (4장 출력)</span>
+cat generated.tf
+rm generated.tf
+
+<span class="c"># 2) for_each import: 5장의 locals·import·resource 구조를 main.tf에 작성 후</span>
+terraform apply -auto-approve                       <span class="c"># → Resources: 2 imported, 0 added, 0 changed</span>
+terraform state list                                <span class="c"># terraform_data.sg["db"], terraform_data.sg["web"]</span>
+terraform plan                                      <span class="c"># → No changes (import 블록이 남아 있어도 무시됨)</span>
+
+<span class="c"># 3) 코드가 실물과 다른 채로 import: 아래를 추가하고 plan</span>
+cat &gt;&gt; main.tf &lt;&lt;'TF'
+
+import {
+  to = terraform_data.cache
+  id = "cache-001"
+}
+
+resource "terraform_data" "cache" {
+  input = "redis"
+}
+TF
+terraform plan                                      <span class="c"># → 1 to import, 0 to add, 1 to change (3장 해독기의 마지막 줄)</span></pre>
+  <div class="grid2">
+    <div class="tile"><h4>관찰 1: “1 to import, 1 to change”</h4><p>가져오면서 동시에 바꾸겠다는 뜻입니다. 실물(입력 없음)과 코드(<code>input = "redis"</code>)가 다르기 때문입니다. 실제 리소스였다면 7장 규칙 ②에 따라 멈추고, 코드를 실물에 맞춘 뒤 다시 plan해야 합니다.</p></div>
+    <div class="tile"><h4>관찰 2: 남아 있는 import 블록</h4><p>apply 후 import 블록을 지우지 않아도 plan은 No changes였습니다. 이미 관리 중인 주소의 import는 무시됩니다(실측: ID를 다른 값으로 바꿔 놓아도 경고 없이 무시). 기록으로 남겨도 되지만, 틀린 ID가 남아 있어도 알려 주지 않으므로 흡수 PR 병합 후 정리하는 편이 깔끔합니다.</p></div>
+  </div>
+<pre class="code">terraform destroy -auto-approve                     <span class="c"># 내장 리소스라 실물 없음, 정리만</span></pre>
+</section>
+
+<!-- ================= 9 ================= -->
+<section class="unit" id="u9">
+  <h2><span class="no">9</span>실습 B: 콘솔로 만든 고객 리소스 흡수</h2>
+  <p class="lead">레거시 생성 → 발견 → 코드 초안 → 정리 → 변경 0 → 개선 (비용 0원)</p>
+  <h3>1단계: “고객사가 콘솔로 만들어 둔” 리소스 준비</h3>
+  <div class="prose"><p>콘솔 클릭 대신 CLI 스크립트로 같은 상황을 만듭니다. 6편 네트워크(<code>06-network</code>)가 남아 있어야 합니다. 일부러 문제(80번이 전 세계에 열린 보안 그룹, 제각각인 태그)를 넣었습니다.</p></div>
+  <div class="codehead"><span>~/iac-lab/legacy/create-legacy.sh</span></div>
+<pre class="code">#!/usr/bin/env bash
+<span class="c"># "고객사가 콘솔로 만들어 둔" 리소스를 흉내 낸다 (모두 비용이 없는 리소스)</span>
+set -euo pipefail
+REGION=ap-northeast-2
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+VPC_ID=$(aws ssm get-parameter --name /iaclab/dev/network/vpc_id --query Parameter.Value --output text)
+
+<span class="c"># 1) S3 버킷 두 개: 버전닝은 켜 두었고 태그는 제각각</span>
+for b in legacy-reports legacy-archive; do
+  aws s3api create-bucket --bucket "$b-$ACCT" --region "$REGION" \
+    --create-bucket-configuration LocationConstraint="$REGION" &gt;/dev/null
+  aws s3api put-bucket-versioning --bucket "$b-$ACCT" --versioning-configuration Status=Enabled
+  aws s3api put-bucket-tagging --bucket "$b-$ACCT" --tagging 'TagSet=[{Key=Owner,Value=kim-legacy}]'
+done
+
+<span class="c"># 2) 보안 그룹: 누군가 80번을 전 세계에 열어 두었다</span>
+SG_ID=$(aws ec2 create-security-group --group-name legacy-web --description "legacy web sg" \
+  --vpc-id "$VPC_ID" --query GroupId --output text)
+aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 80 --cidr 0.0.0.0/0 &gt;/dev/null
+aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol tcp --port 22 --cidr 203.0.113.0/24 &gt;/dev/null
+aws ec2 create-tags --resources "$SG_ID" --tags Key=Name,Value=legacy-web
+
+<span class="c"># 3) SSM 파라미터: 애플리케이션 설정 값</span>
+aws ssm put-parameter --name /legacy/app/feature_flag --type String --value "on" &gt;/dev/null
+
+echo "ACCOUNT=$ACCT"
+echo "SG_ID=$SG_ID"</pre>
+<pre class="code">bash ~/iac-lab/legacy/create-legacy.sh
+<span class="c">#   ACCOUNT=123456789012</span>
+<span class="c">#   SG_ID=sg-0123456789abcdef0</span></pre>
+  <h3>2단계: 발견 — ID 모으기</h3>
+<pre class="code">SG_ID=sg-0123456789abcdef0                         <span class="c"># 1단계 출력 값으로</span>
+aws ec2 describe-security-group-rules --filters Name=group-id,Values=$SG_ID \
+  --query 'SecurityGroupRules[].[SecurityGroupRuleId,IsEgress,FromPort,CidrIpv4]' --output table
+<span class="c">#   sgr-…1  False  80   0.0.0.0/0        → http_any</span>
+<span class="c">#   sgr-…2  False  22   203.0.113.0/24   → ssh_office</span>
+<span class="c">#   sgr-…3  True   -1   0.0.0.0/0        → egress (보안 그룹 생성 시 기본으로 생기는 규칙)</span>
+aws resourcegroupstaggingapi get-resources --tag-filters Key=Owner,Values=kim-legacy \
+  --query 'ResourceTagMappingList[].ResourceARN' --output table</pre>
+  <h3>3단계: import 블록 작성과 코드 초안 생성</h3>
+  <div class="codehead"><span>terraform/09-import/imports.tf (ID를 2단계 결과로 바꾼다)</span></div>
+<pre class="code"><span class="c"># ID는 create-legacy.sh 출력과 aws CLI 조회 결과로 채운다</span>
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_s3_bucket.reports
+  <span class="f">id</span> = <span class="s">"legacy-reports-123456789012"</span>
+}
+
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_s3_bucket_versioning.reports
+  <span class="f">id</span> = <span class="s">"legacy-reports-123456789012"</span>
+}
+
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_security_group.legacy_web
+  <span class="f">id</span> = <span class="s">"sg-0123456789abcdef0"</span>
+}
+
+<span class="c"># 같은 종류 여러 개: for_each import (1.7+), 키는 리소스의 for_each 키와 같게</span>
+<span class="k">import</span> {
+  <span class="f">for_each</span> = {
+    <span class="f">http_any</span>   = <span class="s">"sgr-00000000000000001"</span>
+    <span class="f">ssh_office</span> = <span class="s">"sgr-00000000000000002"</span>
+  }
+  <span class="f">to</span> = aws_vpc_security_group_ingress_rule.legacy_web[each.key]
+  <span class="f">id</span> = each.value
+}
+
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_vpc_security_group_egress_rule.legacy_web_all
+  <span class="f">id</span> = <span class="s">"sgr-00000000000000003"</span>
+}
+
+<span class="k">import</span> {
+  <span class="f">to</span> = aws_ssm_parameter.feature_flag
+  <span class="f">id</span> = <span class="s">"/legacy/app/feature_flag"</span>
+}</pre>
+<pre class="code">cd ~/iac-lab/terraform/09-import
+mkdir -p backend &amp;&amp; printf 'bucket       = "iac-lab-tfstate-%s"\nkey          = "iac-lab/dev/09-import/terraform.tfstate"\nregion       = "ap-northeast-2"\nencrypt      = true\nuse_lockfile = true\n' \
+  "$(aws sts get-caller-identity --query Account --output text)" &gt; backend/dev.s3.tfbackend
+terraform init -backend-config=backend/dev.s3.tfbackend
+
+<span class="c"># for_each 대상(규칙 2개)은 생성되지 않으므로, 그 import 블록을 잠시 주석 처리하고 나머지만 생성</span>
+terraform plan -generate-config-out=generated.tf</pre>
+  <h3>4단계: 정리 — 생성 코드를 설계도로</h3>
+  <div class="prose"><p>generated.tf의 내용을 4장의 규칙대로 정리해 main.tf로 옮긴 최종 모습입니다. 보안 그룹의 인라인 <code>ingress</code>·<code>egress</code> 목록은 지우고 별도 규칙 리소스로, 반복되는 인바운드 규칙은 for_each로, VPC ID 하드코딩은 6편이 공개한 SSM 값 참조로 바꿨습니다. 0.0.0.0/0 같은 문제도 <b>일단 실물 그대로</b> 옮깁니다.</p></div>
+  <div class="codehead"><span>terraform/09-import/main.tf</span></div>
+<pre class="code"><span class="k">data</span> <span class="s">"aws_ssm_parameter"</span> <span class="s">"vpc_id"</span> {
+  <span class="f">name</span> = <span class="s">"/iaclab/dev/network/vpc_id"</span>
+}
+
+<span class="c"># ---------- S3 ----------</span>
+<span class="k">resource</span> <span class="s">"aws_s3_bucket"</span> <span class="s">"reports"</span> {
+  <span class="f">bucket</span> = <span class="s">"legacy-reports-123456789012"</span>
+  <span class="f">tags</span>   = { Owner = <span class="s">"kim-legacy"</span> }
+}
+
+<span class="k">resource</span> <span class="s">"aws_s3_bucket_versioning"</span> <span class="s">"reports"</span> {
+  <span class="f">bucket</span> = aws_s3_bucket.reports.id
+
+  <span class="k">versioning_configuration</span> {
+    <span class="f">status</span> = <span class="s">"Enabled"</span>
+  }
+}
+
+<span class="c"># ---------- 보안 그룹 (규칙은 별도 리소스, 인라인 ingress/egress는 쓰지 않는다) ----------</span>
+<span class="k">resource</span> <span class="s">"aws_security_group"</span> <span class="s">"legacy_web"</span> {
+  <span class="f">name</span>        = <span class="s">"legacy-web"</span>
+  <span class="f">description</span> = <span class="s">"legacy web sg"</span>
+  <span class="f">vpc_id</span>      = data.aws_ssm_parameter.vpc_id.insecure_value
+  <span class="f">tags</span>        = { Name = <span class="s">"legacy-web"</span> }
+}
+
+<span class="k">locals</span> {
+  <span class="c"># 현재 실제 상태를 그대로 옮긴다. 0.0.0.0/0 을 고치는 것은 가져온 "다음" 변경으로</span>
+  <span class="f">legacy_web_ingress</span> = {
+    <span class="f">http_any</span>   = { port = <span class="n">80</span>, cidr = <span class="s">"0.0.0.0/0"</span> }
+    <span class="f">ssh_office</span> = { port = <span class="n">22</span>, cidr = <span class="s">"203.0.113.0/24"</span> }
+  }
+}
+
+<span class="k">resource</span> <span class="s">"aws_vpc_security_group_ingress_rule"</span> <span class="s">"legacy_web"</span> {
+  <span class="f">for_each</span> = local.legacy_web_ingress
+
+  <span class="f">security_group_id</span> = aws_security_group.legacy_web.id
+  <span class="f">ip_protocol</span>       = <span class="s">"tcp"</span>
+  <span class="f">from_port</span>         = each.value.port
+  <span class="f">to_port</span>           = each.value.port
+  <span class="f">cidr_ipv4</span>         = each.value.cidr
+}
+
+<span class="k">resource</span> <span class="s">"aws_vpc_security_group_egress_rule"</span> <span class="s">"legacy_web_all"</span> {
+  <span class="f">security_group_id</span> = aws_security_group.legacy_web.id
+  <span class="f">ip_protocol</span>       = <span class="s">"-1"</span>
+  <span class="f">cidr_ipv4</span>         = <span class="s">"0.0.0.0/0"</span>
+}
+
+<span class="c"># ---------- SSM ----------</span>
+<span class="k">resource</span> <span class="s">"aws_ssm_parameter"</span> <span class="s">"feature_flag"</span> {
+  <span class="f">name</span>  = <span class="s">"/legacy/app/feature_flag"</span>
+  <span class="f">type</span>  = <span class="s">"String"</span>
+  <span class="f">value</span> = <span class="s">"on"</span>
+}</pre>
+  <div class="codehead"><span>terraform/09-import/versions.tf</span></div>
+<pre class="code"><span class="k">terraform</span> {
+  <span class="f">required_version</span> = <span class="s">"~&gt; 1.16.0"</span>
+
+  <span class="k">required_providers</span> {
+    <span class="f">aws</span> = {
+      <span class="f">source</span>  = <span class="s">"hashicorp/aws"</span>
+      <span class="f">version</span> = <span class="s">"~&gt; 6.0"</span>
+    }
+  }
+
+  <span class="k">backend</span> <span class="s">"s3"</span> {}
+}
+
+<span class="k">provider</span> <span class="s">"aws"</span> {
+  <span class="f">region</span> = <span class="s">"ap-northeast-2"</span>
+  <span class="c"># 1단계에서는 default_tags를 두지 않는다: 가져온 직후 plan이 "변경 0"이어야 하므로</span>
+}</pre>
+  <h3>5단계: 변경 0 확인 → 가져오기</h3>
+<pre class="code">rm generated.tf                      <span class="c"># 내용은 main.tf로 옮겼다. 주석 처리했던 for_each import 블록 복원</span>
+terraform validate
+terraform plan
+<span class="c">#   목표: Plan: 7 to import, 0 to add, 0 to change, 0 to destroy.</span>
+<span class="c">#   (버킷, 버킷 버전닝, 보안 그룹, 인바운드 규칙 2, 아웃바운드 규칙 1, SSM 파라미터 1)</span>
+<span class="c">#   ~ 가 보이면 무엇이 다른지 읽고 코드를 실물에 맞춘다. -/+ 나 - 가 보이면 무조건 멈춘다</span>
+terraform apply
+terraform state list</pre>
+  <div class="callout warn prose"><div class="ct">“0 to change”가 안 나올 때 자주 보는 차이</div>
+  <p>API에서 읽을 수 없는 Terraform 전용 인자(예: 버킷의 <code>force_destroy</code>)가 기본값으로 채워지며 <code>~</code>가 뜨는 경우가 있습니다. 실물에 아무 영향이 없는 변경인지 문서로 확인한 뒤 진행합니다. 태그 순서나 대소문자, 설명(description) 문자열의 공백 하나도 차이로 잡힙니다. 보안 그룹 description은 바꾸면 교체(3편)이므로 반드시 실물과 똑같이 씁니다.</p></div>
+  <h3>6단계: 개선 — 이제야 바꾼다 (별도 PR)</h3>
+<pre class="code"><span class="c"># PR 1: 80번을 전 세계 대신 사내 대역으로 (규칙 리소스는 제자리 변경)</span>
+<span class="k">locals</span> {
+  <span class="f">legacy_web_ingress</span> = {
+    <span class="f">http_any</span>   = { port = <span class="n">80</span>, cidr = <span class="s">"198.51.100.0/24"</span> }
+    <span class="f">ssh_office</span> = { port = <span class="n">22</span>, cidr = <span class="s">"203.0.113.0/24"</span> }
+  }
+}
+
+<span class="c"># PR 2: 조직 표준 태그 (versions.tf의 provider에 추가)</span>
+<span class="k">provider</span> <span class="s">"aws"</span> {
+  <span class="f">region</span> = <span class="s">"ap-northeast-2"</span>
+
+  <span class="k">default_tags</span> {
+    <span class="f">tags</span> = { Project = <span class="s">"custa-legacy"</span>, ManagedBy = <span class="s">"terraform"</span>, Env = <span class="s">"dev"</span> }
+  }
+}</pre>
+  <div class="prose"><p>PR 1의 plan은 인바운드 규칙 하나의 <code>~</code>, PR 2의 plan은 태그를 지원하는 리소스들의 <code>~</code>입니다. 각각 고객 변경 요청으로 따로 승인받습니다. “가져오기”와 “개선”을 나눴기 때문에, 문제가 생기면 어느 변경 때문인지 바로 알 수 있습니다. 규칙 키 <code>http_any</code>는 이제 의미가 맞지 않지만, 키를 바꾸면 주소가 바뀌므로 바꾸려면 <code>moved</code>를 함께 씁니다(과제 2).</p></div>
+</section>
+<!-- ================= 10 ================= -->
+<section class="unit" id="u10">
+  <h2><span class="no">10</span>드리프트 감지와 처리</h2>
+  <p class="lead">흡수는 한 번, 드리프트와의 싸움은 계속</p>
+  <div class="prose"><p>흡수가 끝난 뒤에도 누군가 콘솔에서 무언가를 바꿉니다. 1편 6장의 드리프트입니다. Terraform은 plan을 할 때마다 refresh로 실물을 읽으므로 드리프트를 볼 수 있지만, 일반 plan은 “코드 변경”과 “드리프트”를 한 화면에 섞어 보여 줍니다. 드리프트만 따로 보려면 <code>-refresh-only</code>를 씁니다.</p></div>
+<pre class="code"><span class="c"># 누군가 콘솔에서 버킷 태그를 바꿨다고 하자</span>
+aws s3api put-bucket-tagging --bucket legacy-reports-$(aws sts get-caller-identity --query Account --output text) \
+  --tagging 'TagSet=[{Key=Owner,Value=lee-changed}]'
+
+terraform plan -refresh-only          <span class="c"># 코드는 보지 않고, state와 실물의 차이만</span>
+<span class="c">#   Note: Objects have changed outside of Terraform</span>
+<span class="c">#   ~ resource "aws_s3_bucket" "reports" {</span>
+<span class="c">#       ~ tags = { ~ "Owner" = "kim-legacy" -&gt; "lee-changed" }</span>
+<span class="c">#   This is a refresh-only plan, so Terraform will not take any actions to undo these.</span></pre>
+  <div class="tablewrap"><table>
+    <tr><th>명령</th><th>하는 일</th></tr>
+    <tr><td><code>terraform plan -refresh-only</code></td><td>드리프트만 보여 줌. 아무것도 바꾸지 않음</td></tr>
+    <tr><td><code>terraform apply -refresh-only</code></td><td>실물의 현재 값을 <b>state에만</b> 반영(드리프트 수용의 첫 단계). 클라우드는 바꾸지 않음. 예전 <code>terraform refresh</code> 명령의 안전한 대체</td></tr>
+    <tr><td><code>terraform plan -detailed-exitcode</code></td><td>종료 코드로 결과 구분: 0 = 변경 없음, 1 = 오류, 2 = 변경 있음. 스크립트·CI에서 드리프트 알림에 사용</td></tr>
+    <tr><td><code>terraform plan -refresh=false</code></td><td>반대로 refresh를 생략(빠르지만 드리프트를 못 봄). 대규모 환경의 특수 용도</td></tr>
+  </table></div>
+  <h3>드리프트를 발견했을 때의 세 갈래</h3>
+  <div class="panel">
+    <h4>판단 연습 — 상황마다 어떻게 처리할지 고른 뒤 펼쳐 보세요</h4>
+    <div id="driftCards"></div>
+  </div>
+  <div class="tablewrap"><table>
+    <tr><th>처리</th><th>절차</th><th>언제</th></tr>
+    <tr><td><b>수용</b> (실물이 맞다)</td><td>코드를 실물에 맞게 고치는 PR → plan이 변경 0인지 확인 → (필요시 <code>apply -refresh-only</code>)</td><td>장애 대응 중 필요한 변경이었고 앞으로도 유지해야 할 때</td></tr>
+    <tr><td><b>되돌림</b> (코드가 맞다)</td><td>그대로 <code>terraform apply</code> → 실물이 코드대로 복원</td><td>권한 없는 변경, 실수, 보안 기준 위반</td></tr>
+    <tr><td><b>무시</b> (Terraform이 볼 일이 아니다)</td><td><code>lifecycle { ignore_changes = [속성] }</code></td><td>오토스케일링이 바꾸는 개수, 다른 시스템이 관리하는 태그처럼 바뀌는 것이 정상인 속성(11편)</td></tr>
+  </table></div>
+  <h3>정기 드리프트 감시</h3>
+<pre class="code">#!/usr/bin/env bash
+<span class="c"># drift-check.sh — 매일 아침 CI 스케줄로 실행 (12편에서 파이프라인으로)</span>
+set -uo pipefail
+cd "$1"
+terraform init -input=false -backend-config=backend/dev.s3.tfbackend &gt;/dev/null
+terraform plan -refresh-only -detailed-exitcode -input=false -no-color &gt; drift.txt 2&gt;&amp;1
+case $? in
+  0) echo "드리프트 없음: $1" ;;
+  2) echo "드리프트 발견: $1"; cat drift.txt   <span class="c"># 여기서 메신저·티켓으로 알림</span>
+     exit 2 ;;
+  *) echo "점검 실패: $1"; cat drift.txt; exit 1 ;;
+esac</pre>
+  <div class="prose"><p>refresh-only plan은 읽기 전용이므로 운영 환경에도 안심하고 매일 돌릴 수 있습니다(state 잠금은 잡으므로 다른 실행과 겹치지 않게 시간을 정합니다). HCP Terraform 같은 플랫폼은 이 점검을 “상태 평가(health assessment)” 기능으로 제공합니다. 25편 MSP 운영에서 고객사 전체의 드리프트 리포트로 확장합니다.</p></div>
+</section>
+
+<!-- ================= 11 ================= -->
+<section class="unit" id="u11">
+  <h2><span class="no">11</span>리팩터링: moved·removed</h2>
+  <p class="lead">가져온 코드를 모듈 구조로 다듬고, 관리 범위를 조정한다</p>
+  <div class="prose"><p>흡수 직후의 코드는 실물을 그대로 옮긴 평평한 리소스 목록입니다. 이제 5·6편에서 배운 도구로 실물을 건드리지 않고 구조를 바꿉니다.</p></div>
+  <h3>7단계: 가져온 버킷을 모듈로, 두 번째 버킷은 모듈이 직접 가져오기</h3>
+<pre class="code"><span class="c"># main.tf: aws_s3_bucket.reports / aws_s3_bucket_versioning.reports 블록을 지우고 아래로 교체</span>
+<span class="c"># imports.tf: reports 버킷 관련 import 블록 두 개도 지운다 (이미 가져왔으므로)</span>
+
+<span class="k">module</span> <span class="s">"reports_bucket"</span> {
+  <span class="f">source</span> = <span class="s">"../../modules/legacy-bucket"</span>
+
+  <span class="f">existing_bucket_name</span> = <span class="s">"legacy-reports-123456789012"</span>
+  <span class="f">tags</span>                 = { Owner = <span class="s">"kim-legacy"</span> }
+}
+
+<span class="k">moved</span> {
+  <span class="f">from</span> = aws_s3_bucket.reports
+  <span class="f">to</span>   = module.reports_bucket.aws_s3_bucket.this
+}
+
+<span class="k">moved</span> {
+  <span class="f">from</span> = aws_s3_bucket_versioning.reports
+  <span class="f">to</span>   = module.reports_bucket.aws_s3_bucket_versioning.this
+}
+
+<span class="c"># 아직 관리하지 않던 두 번째 버킷: 모듈 안의 import 블록이 가져온다 (1.16)</span>
+<span class="k">module</span> <span class="s">"archive_bucket"</span> {
+  <span class="f">source</span> = <span class="s">"../../modules/legacy-bucket"</span>
+
+  <span class="f">existing_bucket_name</span> = <span class="s">"legacy-archive-123456789012"</span>
+  <span class="f">tags</span>                 = { Owner = <span class="s">"kim-legacy"</span> }
+}</pre>
+<pre class="code">terraform init        <span class="c"># 새 module 블록</span>
+terraform plan
+<span class="c">#   # aws_s3_bucket.reports has moved to module.reports_bucket.aws_s3_bucket.this</span>
+<span class="c">#   # aws_s3_bucket_versioning.reports has moved to module.reports_bucket.aws_s3_bucket_versioning.this</span>
+<span class="c">#   # module.archive_bucket.aws_s3_bucket.this will be imported</span>
+<span class="c">#   # module.archive_bucket.aws_s3_bucket_versioning.this will be imported</span>
+<span class="c">#   Plan: 2 to import, 0 to add, 0 to change, 0 to destroy.   (6단계의 태그 PR을 적용했다면 ~ 가 섞일 수 있음)</span>
+terraform apply</pre>
+  <div class="prose"><p>reports 버킷은 moved로 옮겨졌고, 모듈 안의 import 블록은 이미 관리 중인 대상이므로 무시됩니다. archive 버킷은 모듈 안 import 블록으로 새로 가져와집니다. 같은 구조를 내장 리소스로 재현한 실측에서 “moved 1 + 1 to import, 0 to change”가 나왔습니다(모듈 안 import 대신 루트의 import 블록으로 대체해 확인). 1.16 이전이라면 archive용 import 블록을 루트에 <code>to = module.archive_bucket.aws_s3_bucket.this</code>로 직접 써야 합니다.</p></div>
+
+  <h3>8단계: 관리 이관 — SSM 파라미터를 고객 앱팀에 넘긴다</h3>
+<pre class="code"><span class="c"># main.tf에서 aws_ssm_parameter.feature_flag 블록과 그 import 블록을 지우고:</span>
+<span class="k">removed</span> {
+  <span class="f">from</span> = aws_ssm_parameter.feature_flag
+
+  <span class="k">lifecycle</span> {
+    <span class="f">destroy</span> = <span class="n">false</span> <span class="c"># 실물은 남기고 우리 state에서만 뺀다</span>
+  }
+}</pre>
+<pre class="code">terraform plan     <span class="c"># → 1 to forget (5편 9장). 0 to destroy 인지 반드시 확인</span>
+terraform apply
+aws ssm get-parameter --name /legacy/app/feature_flag --query Parameter.Value   <span class="c"># "on" — 실물은 그대로</span></pre>
+  <div class="tablewrap"><table>
+    <tr><th>도구</th><th>실물</th><th>state</th><th>쓰는 때</th></tr>
+    <tr><td><code>import</code></td><td>그대로</td><td>추가</td><td>콘솔 리소스 흡수, 다른 state에서 넘겨받기</td></tr>
+    <tr><td><code>moved</code></td><td>그대로</td><td>주소 변경</td><td>이름 변경, 모듈 안팎 이동, count ↔ for_each</td></tr>
+    <tr><td><code>removed</code> + <code>destroy = false</code></td><td>그대로</td><td>제거</td><td>관리 이관, 다른 state로 넘기기(받는 쪽은 import)</td></tr>
+    <tr><td><code>removed</code> (destroy 생략·true)</td><td>삭제</td><td>제거</td><td>코드에서 블록을 지우는 것과 같지만 의도를 명시</td></tr>
+  </table></div>
+  <div class="callout prose"><div class="ct">1.16의 새 옵션: 리소스 lifecycle의 destroy = false</div>
+  <p>1.16부터 일반 resource 블록의 <code>lifecycle</code>에도 <code>destroy = false</code>를 쓸 수 있게 되어, 리소스가 Terraform에 의해 삭제되는 것을 막을 수 있습니다. 관리를 계속하면서 삭제만 막는다는 점에서 removed(관리 중단)와 다르고, 기존의 <code>prevent_destroy</code>(삭제 계획 자체를 오류로 막음)와의 차이는 11편에서 비교합니다.</p></div>
+</section>
+
+<!-- ================= 12 ================= -->
+<section class="unit" id="u12">
+  <h2><span class="no">12</span>정리</h2>
+  <p class="lead">실습 B의 리소스는 모두 무료지만, 레거시 흉내는 끝내고 지운다</p>
+<pre class="code">cd ~/iac-lab/terraform/09-import
+terraform destroy                     <span class="c"># 두 버킷(빈 버킷), 보안 그룹과 규칙 → 삭제</span>
+aws ssm delete-parameter --name /legacy/app/feature_flag    <span class="c"># removed로 관리에서 뺐으므로 직접 삭제</span>
+terraform state list                  <span class="c"># 비어 있어야 함</span>
+aws resourcegroupstaggingapi get-resources --tag-filters Key=Owner,Values=kim-legacy \
+  --query 'ResourceTagMappingList[].ResourceARN'         <span class="c"># 비어 있어야 함 (반영에 몇 분 걸릴 수 있음)</span></pre>
+  <div class="prose"><p class="note">버킷에 객체를 올려 보았다면 버전닝 때문에 이전 버전이 남아 destroy가 실패합니다(<code>BucketNotEmpty</code>). 실습용이므로 <code>aws s3api list-object-versions</code>로 확인 후 버전까지 지우거나, 모듈에 <code>force_destroy</code> 변수를 추가해 실습에서만 켜세요. 06-network는 계속 남겨 둡니다.</p></div>
+</section>
+<!-- ================= 13 ================= -->
+<section class="unit" id="u13">
+  <h2><span class="no">13</span>흔한 오류와 해결</h2>
+  <p class="lead">가져오기와 리팩터링에서 실제로 만나는 문제 15가지</p>
+  <input class="gsearch faq-filter" id="faqSearch" type="search" placeholder="검색 (예: Cannot import, generated.tf, Resource already managed, refresh-only)" aria-label="오류 검색">
+  <div id="faq"></div>
+</section>
+
+<!-- ================= 14 ================= -->
+<section class="unit" id="u14">
+  <h2><span class="no">14</span>MSP 현장 팁</h2>
+  <p class="lead">고객사 인프라 인수 프로젝트로서의 흡수 작업</p>
+  <div class="grid2">
+    <div class="tile"><h4>흡수는 견적이 필요한 프로젝트</h4><p>리소스 수, 종류, 문서화 수준, 콘솔 변경 빈도에 따라 공수가 크게 다릅니다. 인벤토리(6장의 발견)를 먼저 하고 “흡수 대상 / 코드화 제외 / 폐기 권고” 분류표로 범위와 일정을 합의하세요. 전부를 코드로 만드는 것이 목표가 아닐 수도 있습니다.</p></div>
+    <div class="tile"><h4>변경 0의 PR이 신뢰를 만든다</h4><p>첫 흡수 PR의 plan이 “n to import, 0 to change”인 것을 고객에게 보여 주면, “Terraform을 도입해도 운영이 흔들리지 않는다”는 가장 강력한 증거가 됩니다. 개선 PR은 그 신뢰 위에서 하나씩 승인받습니다.</p></div>
+    <div class="tile"><h4>계층 순서로 흡수</h4><p>네트워크(VPC·서브넷·라우팅) → 보안(보안 그룹·IAM) → 데이터(RDS·S3) → 컴퓨트(EC2·ALB) 순서가 일반적입니다. 아래 계층을 먼저 코드로 만들어야 위 계층이 참조할 수 있고(7편 SSM 패턴), 영향이 큰 계층일수록 신중하게 다룹니다.</p></div>
+    <div class="tile"><h4>발견한 문제는 기록만, 수정은 나중에</h4><p>흡수 중 0.0.0.0/0 규칙, 암호화되지 않은 볼륨, 주인 없는 리소스를 계속 발견하게 됩니다. 그 자리에서 고치지 말고 “보안 개선 백로그”로 기록해 고객 보고서에 넣습니다. MSP의 가치가 드러나는 결과물입니다.</p></div>
+    <div class="tile"><h4>콘솔 권한 회수와 예외 절차</h4><p>흡수한 범위는 IAM 정책으로 콘솔 쓰기를 막고(읽기는 허용), 긴급 시 예외 절차(브레이크 글래스 역할 + 사후 코드 반영 기한)를 문서화합니다. 이것 없이는 드리프트가 다시 쌓입니다.</p></div>
+    <div class="tile"><h4>공통 모듈에 import를 담기 (1.16)</h4><p>여러 고객사에 같은 종류의 레거시(예: 로그 버킷, 기본 보안 그룹)가 있다면, 모듈 안 import 블록으로 “이 모듈을 쓰면 기존 리소스를 자동으로 가져온다”는 흡수 경로를 표준화할 수 있습니다. 고객마다 import 블록을 다시 쓰지 않아도 됩니다.</p></div>
+  </div>
+</section>
+
+<!-- ================= 15 ================= -->
+<section class="unit" id="u15">
+  <h2><span class="no">15</span>용어 사전</h2>
+  <p class="lead">이번 편에 나온 용어</p>
+  <input class="gsearch" id="gSearch" type="search" placeholder="용어 검색 (예: 브라운필드, identity, 드리프트)" aria-label="용어 검색">
+  <dl class="gloss" id="gloss"></dl>
+  <p class="note" id="gCount"></p>
+</section>
+
+<!-- ================= 16 ================= -->
+<section class="unit" id="u16">
+  <h2><span class="no">16</span>확인 퀴즈</h2>
+  <p class="lead">보기를 누르면 바로 채점과 해설이 나옵니다</p>
+  <div id="quiz"></div>
+  <div class="panel"><span>점수: </span><span class="score" id="qScore">0 / 0</span> <button class="btn" id="qReset" style="margin-left:10px">다시 풀기</button></div>
+</section>
+
+<!-- ================= 17 ================= -->
+<section class="unit" id="u17">
+  <h2><span class="no">17</span>과제</h2>
+  <p class="lead">실습 A·B를 마친 뒤에 풀어 보세요</p>
+  <details><summary>과제 1. 7편 리소스를 콘솔로 만들고 흡수하기</summary><div>
+    <p>7편의 ALB 모듈이 만드는 것 중 보안 그룹과 대상 그룹(비용 없음)만 콘솔로 직접 만든 뒤, 실습 B와 같은 절차로 <code>modules/alb</code>를 쓰는 루트에 흡수해 보세요. 모듈을 수정하지 않고 루트의 import 블록(<code>to = module.alb.aws_security_group.alb</code>)만으로 가능해야 합니다. ALB 본체는 만들지 않습니다(시간당 과금).</p>
+    <details><summary>힌트</summary><div><p>대상 그룹 import ID는 ARN입니다. 모듈이 만드는 이름(<code>${var.name}-tg</code>), 포트, 상태 확인 설정과 콘솔에서 만든 값이 정확히 같아야 “0 to change”가 나옵니다. 이름이 다르면 대상 그룹은 교체(-/+)가 계획됩니다. 계획에 ALB·리스너 생성(+)이 함께 나오는 것은 정상이므로, 그 부분은 <code>-target</code> 없이 plan만 보고 확인한 뒤 실습을 마칩니다.</p></div></details>
+  </div></details>
+  <details><summary>과제 2. 규칙 키 이름 바로잡기</summary><div>
+    <p>실습 B 6단계에서 <code>http_any</code> 규칙이 더는 “any”가 아니게 되었습니다. 키를 <code>http_office</code>로 바꾸되 규칙이 삭제·재생성되지 않게 하세요.</p>
+    <details><summary>해설</summary><div><p>locals의 키를 바꾸고 <code>moved { from = aws_vpc_security_group_ingress_rule.legacy_web["http_any"]  to = aws_vpc_security_group_ingress_rule.legacy_web["http_office"] }</code>. imports.tf의 for_each 맵 키도 함께 바꾸거나, 흡수가 끝났으므로 그 import 블록을 지웁니다. plan은 “has moved to”만 나와야 합니다.</p></div></details>
+  </div></details>
+  <details><summary>과제 3. 드리프트 점검 자동화</summary><div>
+    <p>10장의 <code>drift-check.sh</code>를 06-network, 09-import 두 디렉터리에 대해 반복 실행하는 스크립트로 만들고, 일부러 보안 그룹 태그를 콘솔에서 바꾼 뒤 종료 코드 2가 나오는지 확인하세요. cron이나 GitHub Actions 스케줄로 매일 돌리려면 무엇이 더 필요할까요?</p>
+    <details><summary>생각할 점</summary><div><p>CI에서 돌리려면 장기 키 없이 AWS에 인증하는 방법(OIDC, 12편), 읽기 전용 역할(드리프트 점검은 쓰기 권한 불필요), 결과 알림 채널, 그리고 같은 시간에 사람이 apply하지 않도록 하는 잠금 대기(<code>-lock-timeout</code>)가 필요합니다.</p></div></details>
+  </div></details>
+  <details><summary>과제 4. 대량 흡수 설계 (terraform query)</summary><div>
+    <p>“고객사 dev 계정에 Owner=kim-legacy 태그가 붙은 EC2 30대가 있고, 역할별로 web·batch로 나뉘어 있다”고 가정하고, query 파일과 흡수 후 최종 코드 구조(for_each 맵의 키 설계 포함)를 설계해 보세요. 실제로 EC2를 만들 필요는 없습니다.</p>
+    <details><summary>해설 요지</summary><div><p>list 블록 두 개(필터: <code>tag:Owner=kim-legacy</code> + <code>tag:Role=web</code>/<code>batch</code>)로 나눠 query → 생성된 <code>_0</code>~<code>_n</code> 리소스를 역할별 for_each 리소스(키는 Name 태그)로 재구성 → identity 기반 import 블록도 for_each로 묶음 → “30 to import, 0 to change” 확인. 장기적으로는 7편 과제 1처럼 ASG로 옮길지(불변 인프라) 고객과 논의합니다.</p></div></details>
+  </div></details>
+  <details><summary>과제 5. 다른 state로 리소스 넘기기</summary><div>
+    <p>09-import의 보안 그룹과 규칙을 07-app 쪽 state로 옮기는 상황을 가정하고, 두 PR(보내는 쪽 removed, 받는 쪽 import)의 내용과 적용 순서를 쓰세요. 어느 순간에도 실물이 삭제되거나, 두 state가 동시에 관리하지 않아야 합니다.</p>
+    <details><summary>해설</summary><div><p>순서: ① 받는 쪽 PR을 준비하되 병합하지 않음 → ② 보내는 쪽에서 <code>removed { … destroy = false }</code> 적용(1 to forget, 이제 아무도 관리하지 않음) → ③ 받는 쪽 import 적용(n to import, 0 to change). ②와 ③ 사이에는 관리 공백이 생기므로 짧게 유지합니다. 반대 순서(받는 쪽 먼저)로 하면 두 state가 같은 실물을 관리하는 위험한 상태가 됩니다(5편 소유권 원칙). 5편 9장 상황별 선택기의 “다른 state로 옮기기”와 같은 절차입니다.</p></div></details>
+  </div></details>
+</section>
+
+<!-- ================= 18 ================= -->
+<section class="unit" id="u18">
+  <h2><span class="no">18</span>정리와 다음 편</h2>
+  <p class="lead">한 장으로 다시 보기</p>
+  <div class="grid2">
+    <div class="tile"><h4>import는 장부에 한 줄</h4><p>실물은 바뀌지 않는다. 코드는 직접 쓰거나 생성 초안을 정리한다. 목표는 가져온 직후 “0 to change”.</p></div>
+    <div class="tile"><h4>방법의 진화</h4><p>CLI import → import 블록(1.5) → for_each(1.7) → identity(1.12) → query 대량 발견(1.14) → 모듈 안 import(1.16).</p></div>
+    <div class="tile"><h4>생성 코드는 사진</h4><p>null·기본값 삭제, 하드코딩 참조를 참조로, 인라인 규칙 제거, 반복은 for_each로. 생성은 실험적 기능.</p></div>
+    <div class="tile"><h4>8단계와 세 규칙</h4><p>범위 합의 → 발견 → 묶기 → 코드화 → 변경 0 → 적용 → 개선 → 권한 회수. 가져오기와 바꾸기를 섞지 않고, -/+는 무조건 멈춘다.</p></div>
+    <div class="tile"><h4>드리프트</h4><p>plan -refresh-only로 따로 보고, -detailed-exitcode로 매일 점검. 수용·되돌림·무시(ignore_changes) 중 판단.</p></div>
+    <div class="tile"><h4>리팩터링</h4><p>moved로 모듈 안으로, removed + destroy = false로 관리 이관. 이미 관리 중인 대상의 import 블록은 무시된다.</p></div>
+  </div>
+  <div class="panel">
+    <h4>이번 편 커리큘럼 대비 점검</h4>
+    <div class="tablewrap" style="margin:0"><table>
+      <tr><th>커리큘럼 항목</th><th>다룬 곳</th><th>상태</th></tr>
+      <tr><td>import 블록 (1.16 모듈 내부 지원·for_each 조합)</td><td>1~3장 원리·진화·문법·plan 해독(실측), 4장 코드 생성과 정리(실측), 5장 for_each import(실측)·모듈 안 import(1.16, OpenTofu 거부 실측), 6장 terraform query(1.14), 실습 A·B, 11장 7단계</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>moved·removed 블록</td><td>11장 (모듈로 옮기기 + 모듈 import와 겹칠 때 실측, 관리 이관, 도구 비교표, 1.16 lifecycle destroy = false), 과제 2·5</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>드리프트 감지 (-refresh-only)</td><td>10장 (refresh-only plan·apply, detailed-exitcode, 수용·되돌림·무시 판단 연습, 정기 점검 스크립트), 과제 3</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>클릭으로 만든 고객사 인프라를 코드로 흡수하는 실전 절차</td><td>7장 8단계 절차(인터랙티브)·절대 규칙 3가지, 9장 실습 B 1~6단계, 11장 7~8단계, 14장 MSP 팁, 과제 1·4</td><td style="color:var(--green)">완료</td></tr>
+      <tr><td>추가 보강</td><td>2장 외부 생성 도구, 12장 정리, 13장 오류 15, 용어·퀴즈·과제 5</td><td style="color:var(--teal)">보강</td></tr>
+    </table></div>
+  </div>
+  <div class="callout tl prose" style="border-left-color:var(--teal)"><div class="ct">다음 편 — 10편. 테스트와 코드 품질</div>
+  <p>모듈을 고치고 리소스를 가져올수록 “이 변경이 무언가를 깨뜨리지 않는가”를 사람의 눈으로만 확인하기 어려워집니다. 10편은 <code>terraform test</code>(run 블록, mock 프로바이더, plan·apply 모드), <code>validate</code>·<code>fmt</code>, tflint(AWS 규칙 플러그인), trivy·checkov 보안 스캔, terraform-docs, 그리고 이것들을 pre-commit으로 묶어 모듈 저장소의 품질 관문을 만듭니다. 6편 VPC 모듈과 7편 모듈들에 테스트를 붙입니다.</p></div>
+  <footer>
+    Terraform &amp; Ansible 강의 9편 · 기준: Terraform 1.16.x (모듈 안 import·lifecycle destroy=false는 1.16, terraform query는 1.14, identity import는 1.12, for_each import는 1.7), AWS 프로바이더 6.x (2026년 10월). import 동작은 내장 리소스로 실측했고, AWS 실습 결과는 문서 기준이므로 처음 실행할 때 확인하세요.
+  </footer>
+</section>
+</main>
+</div>
+<script>
+(function(){
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const root=document.documentElement, tbtn=$('#themeBtn');
+function setTheme(t){root.setAttribute('data-theme',t);tbtn.textContent=t==='dark'?'라이트 테마':'다크 테마';store.set('iac-theme',t);}
+setTheme(store.get('iac-theme')==='light'?'light':'dark');
+tbtn.addEventListener('click',()=>setTheme(root.getAttribute('data-theme')==='dark'?'light':'dark'));
+const toc=$('#toc'), tocBtn=$('#tocBtn');
+tocBtn.addEventListener('click',()=>{const o=toc.classList.toggle('open');tocBtn.setAttribute('aria-expanded',o)});
+$$('#toc a').forEach(a=>a.addEventListener('click',()=>{toc.classList.remove('open');tocBtn.setAttribute('aria-expanded','false')}));
+const links=$$('#toc a');
+const obs=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+e.target.id))}})},{rootMargin:'-30% 0px -60% 0px'});
+$$('section.unit').forEach(s=>obs.observe(s));
+window.addEventListener('scroll',()=>{const h=document.documentElement;$('#progress').style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%'},{passive:true});
+$$('pre.code').forEach(pre=>{const b=document.createElement('button');b.className='cbtn';b.type='button';b.textContent='복사';
+ b.addEventListener('click',()=>{const t=Array.from(pre.childNodes).filter(n=>n!==b).map(n=>n.textContent).join('');
+  const done=()=>{b.textContent='복사됨';b.classList.add('done');setTimeout(()=>{b.textContent='복사';b.classList.remove('done')},1400)};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,()=>fb(t,done));}else fb(t,done);});
+ pre.appendChild(b);});
+function fb(t,done){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){}ta.remove();}
+
+/* plan decoder */
+const pl=[
+ ['<span class="b">terraform_data.x: Preparing import... [id=abc-123]</span>','가져오기 준비','plan 초반, refresh와 함께 import 대상의 실물을 읽는 단계입니다. 이 단계에서 ID가 틀리면 “Cannot import non-existent remote object” 오류가 납니다.'],
+ ['<span class="g">  # terraform_data.sg["web"] will be imported</span>','가져오기만','설정이 실물과 일치해 바꿀 것이 없는 이상적인 상태. 흡수 PR의 모든 리소스가 이 줄이어야 합니다.'],
+ ['<span class="m">  # (imported from "sg-0aaa")</span>','어느 실물인가','가져올 실물 ID. 리뷰어가 “이 ID가 맞는 리소스인가”를 확인하는 줄입니다. 다른 계정·다른 리전의 비슷한 ID와 헷갈리지 않았는지 봅니다.'],
+ ['<span class="y">  # terraform_data.cache will be updated in-place</span><br><span class="m">  # (imported from "cache-001")</span>','가져오면서 바꾸기','실물과 설정이 다릅니다. apply하면 가져오는 동시에 실물이 설정대로 바뀝니다. 흡수 PR에서는 멈추고 설정을 실물에 맞추세요(7장 규칙 ②).'],
+ ['<span class="m">  # (config will be generated)</span>','코드가 생성될 대상','-generate-config-out으로 plan했고 resource 블록이 없는 대상입니다. 생성된 파일을 정리해 옮긴 뒤 다시 plan해야 합니다.'],
+ ['<span class="b">  # aws_s3_bucket.reports has moved to module.reports_bucket.aws_s3_bucket.this</span>','이동','moved 블록에 따른 주소 변경. import와 함께 나와도 서로 다른 리소스면 문제없습니다. 같은 대상에 import 블록이 있으면 import는 무시됩니다(실측).'],
+ ['<span class="y">Plan: 1 to import, 0 to add, 1 to change, 0 to destroy.</span>','요약 줄','import 수가 별도로 집계됩니다. 흡수 PR의 목표는 “n to import, 0 to add, 0 to change, 0 to destroy”. change가 있으면 이유를 설명할 수 있어야 하고, destroy가 있으면 즉시 멈춥니다.'],
+ ['<span class="g">Apply complete! Resources: 2 imported, 0 added, 0 changed, 0 destroyed.</span>','적용 결과','이 시점부터 해당 리소스는 Terraform이 관리합니다. 다음 plan이 No changes인지 한 번 더 확인합니다.']
+];
+const plb=$('#plines');
+pl.forEach(p=>{const b=document.createElement('button');b.className='pline';b.innerHTML=p[0];b.addEventListener('click',()=>{$$('.pline').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');$('#pinfo').innerHTML='<h4>'+p[1]+'</h4><p>'+p[2]+'</p>';});plb.appendChild(b);});
+
+/* 8-step procedure */
+const st=[
+ {n:'1. 범위·소유 합의',l:['고객과 “어느 계정·리전·서비스를 코드로 가져올지” 합의','다른 팀·벤더가 관리하는 리소스는 제외(그쪽은 data로 읽기만, 3편)','작업 기간 동안 콘솔 변경 동결 또는 변경 통보 규칙 합의'],r:[['산출물','범위 정의서'],['위험','범위가 모호하면 남의 리소스를 가져와 지우는 사고'],['MSP 관점','계약 범위와 일치하는지 확인']]},
+ {n:'2. 인벤토리',l:['terraform query, Resource Explorer, Config, 태그 조회, 종류별 CLI로 목록화','리소스별 ID·이름·태그·의존 관계 기록','“흡수 / 제외 / 폐기 권고” 분류'],r:[['산출물','인벤토리 표'],['도구','6장의 발견 방법'],['팁','주인 없는 리소스는 폐기 후보로 고객 확인']]},
+ {n:'3. 묶기',l:['state 경계 결정(네트워크 / 보안 / 데이터 / 컴퓨트, 8편 구조)','리소스 묶음을 PR 단위로 나눔 (한 PR에 수십 개 이하)','공통 모듈로 표현할 묶음 찾기'],r:[['산출물','흡수 순서·PR 계획'],['순서','아래 계층(네트워크)부터'],['원칙','6편 모듈 경계 질문']]},
+ {n:'4. 코드화',l:['import 블록 작성 (for_each는 키를 사람이 읽는 이름으로)','-generate-config-out 또는 query로 초안 생성','4장 규칙대로 정리: null 삭제, 참조화, 인라인 규칙 제거, 반복은 for_each'],r:[['산출물','import 블록 + 정리된 resource 블록'],['주의','실물을 그대로 옮긴다. 이 단계에서 고치지 않는다'],['검사','validate, fmt, tflint (10편)']]},
+ {n:'5. 변경 0 검증',l:['plan: n to import, 0 to add, 0 to change, 0 to destroy','~ 가 있으면 원인 분석 (Terraform 전용 인자 등 무해한 것인지)','-/+ 나 - 가 하나라도 있으면 멈추고 4단계로'],r:[['관문','plan 리뷰 (동료 + 고객 담당)'],['절대 규칙','교체·삭제 0'],['증적','plan 전문을 PR에 첨부']]},
+ {n:'6. 적용',l:['state 백업 (state pull) 후 apply','apply 직후 plan이 No changes인지 확인','import 블록은 정리하거나 기록으로 남김 (무시되므로 안전)'],r:[['산출물','관리되는 리소스'],['시간','변경이 없으므로 업무 시간에도 가능'],['기록','변경 관리 티켓에 결과 첨부']]},
+ {n:'7. 개선',l:['보안 백로그(0.0.0.0/0, 암호화, 태그 등)를 별도 PR로 하나씩','표준 태그·모듈화(moved)','각 PR은 고객 변경 요청으로 승인'],r:[['원칙','가져오기와 바꾸기를 섞지 않는다'],['순서','위험 낮은 것(태그)부터'],['효과','문제가 생겨도 원인 PR이 분명']]},
+ {n:'8. 권한 회수·감시',l:['흡수 범위의 콘솔 쓰기 권한 회수 (읽기는 유지)','긴급 예외 절차(브레이크 글래스) 문서화','매일 refresh-only 드리프트 점검(10장) → 알림'],r:[['산출물','IAM 정책, 운영 절차서, 점검 스케줄'],['이게 없으면','다음 주부터 드리프트가 다시 쌓인다'],['다음','12편 CI, 25편 MSP 운영']]}
+];
+const sn=$('#stNav');
+st.forEach((s,i)=>{const b=document.createElement('button');b.className='btn';b.textContent=s.n;b.addEventListener('click',()=>showSt(i));sn.appendChild(b);});
+function showSt(i){const s=st[i];$$('#stNav .btn').forEach((b,j)=>b.classList.toggle('on',i===j));$('#stL').innerHTML='<h4>'+s.n+'</h4>'+s.l.map(x=>'<p>'+x+'</p>').join('');$('#stR').innerHTML='<h4>요점</h4><div class="kv">'+s.r.map(x=>'<b>'+x[0]+'</b><span>'+x[1]+'</span>').join('')+'</div>';}
+showSt(0);
+
+/* drift cards */
+const dc=[
+ ['새벽 장애 대응 중 엔지니어가 RDS 인스턴스 클래스를 db.t4g.medium에서 large로 올렸다. 부하가 계속 높다.','<b>수용.</b> 필요한 변경이었고 유지해야 한다. 코드의 instance_class를 large로 고치는 PR → plan 변경 0 확인. 되돌리면 장애가 재발한다(1편 1장 23:40 사례). “장애 조치 후 24시간 내 코드 반영” 규칙의 대상.'],
+ ['누군가 보안 그룹에 0.0.0.0/0 → 22번 규칙을 추가했다. 누가 왜 했는지 아무도 모른다.','<b>되돌림.</b> 보안 기준 위반이고 승인 근거가 없다. terraform apply로 즉시 제거하고, CloudTrail로 주체를 확인해 보안 사고 절차를 검토한다. 수용하는 순간 위반이 코드로 “정당화”된다.'],
+ ['오토스케일링 그룹의 desired_capacity가 코드는 2인데 실물은 5다.','<b>무시.</b> 오토스케일링 정책이 부하에 따라 바꾸는 것이 정상이다. lifecycle { ignore_changes = [desired_capacity] }. 그대로 apply하면 피크 시간에 서버를 2대로 줄이는 사고가 난다.'],
+ ['보안팀의 자동화 도구가 모든 리소스에 SecurityScan=done 태그를 붙인다. 매일 plan에 태그 변경이 뜬다.','<b>무시 (범위를 좁혀서).</b> 다른 시스템이 소유한 태그다. AWS 프로바이더의 ignore_tags { keys = ["SecurityScan"] } 설정으로 그 키만 무시하면, 우리 태그 표준은 계속 관리하면서 소음만 없앨 수 있다.']
+];
+$('#driftCards').innerHTML=dc.map((d,i)=>'<details><summary>'+(i+1)+'. '+esc(d[0])+'</summary><div><p>'+d[1]+'</p></div></details>').join('');
+
+/* FAQ */
+const faq=[
+ ['Cannot import non-existent remote object','Error: Cannot import non-existent remote object … While attempting to import an existing object to "aws_security_group.legacy_web", the provider detected that no object exists with the given id.','ID가 틀렸거나, 다른 리전·계정의 리소스입니다.','ID 형식(레지스트리 Import 절)과 provider의 region·프로필을 확인. 다른 리전이면 별칭 프로바이더와 import의 <code>provider</code> 인자.'],
+ ['import 대상에 resource 블록이 없음','Error: Configuration for import target does not exist','import 블록의 to에 해당하는 resource 블록이 없습니다.','resource 블록을 쓰거나, <code>plan -generate-config-out=파일</code>로 초안을 생성합니다.'],
+ ['generated.tf가 이미 있음','Error: Target generated file already exists','생성 파일 이름이 이미 존재합니다.','내용을 옮겼다면 파일을 지우고 다시 실행.'],
+ ['생성된 코드가 validate 실패','Error: Conflicting configuration arguments / Invalid combination of arguments','생성기가 서로 배타적인 인자를 함께 적었습니다(실험적 기능의 한계).','오류가 가리키는 인자 중 하나를 지웁니다. 4장 정리 규칙.'],
+ ['for_each 대상은 생성 불가','Error: … config generation is not supported for import blocks with for_each (또는 생성이 되지 않음)','코드 생성은 단일 대상만 지원합니다.','for_each import 블록을 잠시 주석 처리하고 나머지를 생성 → for_each 리소스는 직접 작성 → import 복원.'],
+ ['가져오면서 변경이 계획됨','Plan: 1 to import, 0 to add, 1 to change','설정이 실물과 다릅니다(실측 사례).','~ 가 가리키는 속성을 실물 값으로 고칩니다. Terraform 전용 인자(force_destroy 등)라면 무해한지 확인 후 진행.'],
+ ['가져오면서 교체가 계획됨','# … must be replaced (imported from …)','교체를 유발하는 인자(보안 그룹 description, 버킷 이름 등)가 실물과 다릅니다.','<b>즉시 멈춤.</b> 그 인자를 실물과 똑같이. 이 상태로 apply하면 운영 리소스가 지워진다.'],
+ ['이미 다른 주소로 관리 중','Error: Resource already managed by Terraform … is already managed by Terraform at …','같은 실물을 다른 주소로 이미 가져왔습니다.','중복 import 블록을 지우거나, 주소를 바꾸려면 moved를 씁니다.'],
+ ['모듈 안 import 블록 거부','Error: Invalid import configuration (OpenTofu, Terraform 1.15 이하)','모듈 안 import는 Terraform 1.16 기능입니다.','버전을 올리거나, 루트에서 <code>to = module.x.…</code>로 import 블록을 씁니다.'],
+ ['import ID에 알 수 없는 값','Error: Invalid import id argument … The import block "id" argument depends on resource attributes that cannot be determined until apply','같은 apply에서 만들어지는 리소스의 속성을 ID로 썼습니다.','ID는 변수·고정 값·data 소스처럼 plan 시점에 알 수 있어야 합니다.'],
+ ['terraform query: 지원하지 않는 리소스','Error: Invalid list resource … The provider … does not support list resource','그 프로바이더·버전이 해당 리소스의 목록 조회를 구현하지 않았습니다.','프로바이더 문서의 List Resources 확인. 없으면 CLI·Resource Explorer로 발견.'],
+ ['보안 그룹 가져온 뒤 규칙이 지워지려 함','# aws_security_group.x will be updated in-place … - ingress { … }','인라인 <code>ingress = []</code>나 일부 ingress 블록을 설정에 남겼습니다. 인라인을 지정하면 그 목록이 전체 진실이 됩니다.','별도 규칙 리소스를 쓴다면 인라인 ingress·egress를 완전히 지웁니다(지정하지 않으면 관리하지 않음).'],
+ ['refresh-only 결과를 apply했더니 코드와 다시 어긋남','(다음 일반 plan에서 되돌리기 계획)','apply -refresh-only는 state만 실물에 맞출 뿐 코드는 그대로입니다.','드리프트를 수용하려면 코드도 함께 고칩니다. 그러지 않으면 다음 apply가 실물을 되돌립니다.'],
+ ['drift 점검이 잠금 오류로 실패','Error acquiring the state lock','점검 시간에 다른 apply가 실행 중이었습니다.','<code>-lock-timeout=5m</code>, 점검 시간을 배포 시간과 분리.'],
+ ['removed 적용 후 실물이 지워짐','# … will be destroyed','removed 블록에 <code>lifecycle { destroy = false }</code>를 빠뜨렸습니다(기본은 삭제).','plan에서 “forget”인지 “destroy”인지 반드시 확인. 이미 지워졌다면 백업·재생성.']
+];
+$('#faq').innerHTML=faq.map((f,i)=>'<details class="faqi" data-k="'+esc((f[0]+' '+f[1]+' '+f[2]).toLowerCase())+'"><summary>'+(i+1)+'. '+esc(f[0])+'</summary><div><p><b>메시지</b>: <code>'+esc(f[1])+'</code></p><p><b>원인</b>: '+f[2]+'</p><p><b>해결</b>: '+f[3]+'</p></div></details>').join('');
+$('#faqSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();$$('.faqi').forEach(d=>{const m=!q||d.dataset.k.includes(q);d.style.display=m?'':'none';if(q&&m)d.open=true;});});
+
+/* glossary */
+const gl=[
+ ['브라운필드','brownfield','이미 존재하는 인프라 위에서 시작하는 작업. 반대는 그린필드(빈 상태).'],
+ ['흡수','adoption','기존 리소스를 Terraform 관리로 가져오는 일.'],
+ ['import 블록','import','코드로 선언하는 가져오기 (1.5+). plan에서 미리 보고 apply 때 연결.'],
+ ['terraform import 명령','CLI','즉시 state에 연결하는 구식 명령. 리뷰 불가.'],
+ ['import ID','id','프로바이더가 이해하는 실물 식별자. 리소스마다 형식이 다름.'],
+ ['식별자 import','identity (1.12+)','id 대신 구조화된 값으로 리소스를 지정하는 import.'],
+ ['for_each import','1.7+','import 블록 하나로 여러 개를 가져오기.'],
+ ['모듈 안 import','1.16','재사용 모듈 안에 import 블록을 두는 기능.'],
+ ['-generate-config-out','plan 옵션','import 대상의 resource 블록 초안을 파일로 생성 (실험적).'],
+ ['terraform query','1.14','list 블록으로 관리되지 않는 리소스를 검색하는 명령.'],
+ ['list 블록','.tfquery.hcl','query에서 검색할 리소스 종류와 필터를 정의하는 블록.'],
+ ['List Resources','—','프로바이더가 목록 조회를 지원하는 리소스 종류.'],
+ ['인벤토리','inventory (발견)','흡수 대상 리소스 목록. 발견 단계의 산출물.'],
+ ['변경 0 검증','—','가져온 직후 plan이 0 to add/change/destroy인지 확인하는 관문.'],
+ ['드리프트','drift','실물이 코드 밖에서 바뀌어 코드·state와 달라진 상태.'],
+ ['-refresh-only','plan·apply 옵션','코드는 보지 않고 state와 실물의 차이만 보거나(state에) 반영.'],
+ ['-detailed-exitcode','plan 옵션','종료 코드 0/1/2로 변경 유무를 알려 주는 옵션.'],
+ ['ignore_changes','lifecycle','지정한 속성의 차이를 무시하는 설정.'],
+ ['ignore_tags','AWS provider','특정 태그 키·접두사를 모든 리소스에서 무시하는 provider 설정.'],
+ ['health assessment','HCP Terraform','플랫폼의 정기 드리프트 점검 기능.'],
+ ['moved','—','주소 변경을 코드로 선언. 실물·state 내용은 유지.'],
+ ['removed','—','관리 중단을 코드로 선언. destroy = false면 실물 유지.'],
+ ['forget','plan 요약','state에서만 빠지는 리소스 수 (removed + destroy = false).'],
+ ['lifecycle destroy = false','1.16','resource 블록에서 Terraform에 의한 삭제를 막는 설정.'],
+ ['브레이크 글래스','break glass','긴급 시에만 쓰는 예외 권한과 사후 보고 절차.'],
+ ['콘솔 동결','change freeze','흡수 작업 중 콘솔 변경을 멈추는 합의.'],
+ ['Terraformer','—','기존 인프라에서 코드를 생성하는 외부 오픈소스 도구 중 하나.'],
+ ['CloudFormation IaC 생성기','AWS','기존 리소스로 CloudFormation 템플릿을 만드는 AWS 기능.'],
+ ['보안 백로그','—','흡수 중 발견한 개선 항목 목록. 별도 PR로 처리.'],
+ ['관리 이관','handover','리소스 관리 책임을 다른 팀·state로 넘기는 일.']
+];
+$('#gloss').innerHTML=gl.map(g=>'<dt data-k="'+esc((g[0]+' '+g[1]+' '+g[2]).toLowerCase())+'">'+esc(g[0])+'<small>'+esc(g[1])+'</small></dt><dd>'+esc(g[2])+'</dd>').join('');
+function gfilter(){const q=$('#gSearch').value.trim().toLowerCase();let n=0;$$('#gloss dt').forEach(dt=>{const m=!q||dt.dataset.k.includes(q);dt.classList.toggle('hide',!m);dt.nextElementSibling.classList.toggle('hide',!m);if(m)n++;});$('#gCount').textContent=n+' / '+gl.length+'개 용어';}
+$('#gSearch').addEventListener('input',gfilter);gfilter();
+
+/* quiz */
+const qs=[
+ {q:'import 블록을 apply하면 클라우드의 실물은?',o:['코드대로 다시 만들어진다','바뀌지 않는다 (state에만 연결)','삭제 후 재생성된다','태그가 추가된다'],a:1,e:'import는 장부에 한 줄 적는 일입니다. 단, 설정이 실물과 다르면 같은 apply에서 변경이 함께 일어날 수 있습니다.'},
+ {q:'흡수 PR의 plan으로 가장 바람직한 것은?',o:['3 to import, 2 to change','3 to import, 0 to add, 0 to change, 0 to destroy','3 to add','3 to import, 1 to destroy'],a:1,e:'가져오기와 바꾸기를 섞지 않습니다. 개선은 다음 PR로.'},
+ {q:'plan에 “1 to import, 0 to add, 1 to change”가 나왔다. 흡수 PR이라면?',o:['그대로 apply','설정을 실물에 맞춘 뒤 다시 plan','import 블록 삭제','-target으로 apply'],a:1,e:'실측 사례처럼 설정과 실물이 다르다는 뜻입니다. 무해한 Terraform 전용 인자인지 먼저 확인합니다.'},
+ {q:'-generate-config-out으로 만든 코드를 다루는 올바른 방법은?',o:['그대로 커밋','null·기본값 삭제, 하드코딩을 참조로, 반복은 for_each로 정리','지우고 처음부터','모든 값을 변수로'],a:1,e:'생성 코드는 현재 실물의 “사진”입니다. 설계도로 다시 그려야 합니다.'},
+ {q:'Terraform 1.16에서 새로 가능해진 것은?',o:['import 블록','for_each import','모듈 안에 import 블록 두기','terraform query'],a:2,e:'import 블록 1.5, for_each 1.7, query 1.14, 모듈 안 import 1.16.'},
+ {q:'이미 state에 있는 주소를 가리키는 import 블록은?',o:['오류','다시 가져온다','무시된다','리소스를 교체한다'],a:2,e:'실측에서 다른 ID를 적어도 경고 없이 무시됐습니다. 그래서 모듈 안 import를 남겨 두어도 안전하지만, 틀린 ID도 알려 주지 않습니다.'},
+ {q:'드리프트만 따로 확인하는 명령은?',o:['terraform plan -refresh=false','terraform plan -refresh-only','terraform validate','terraform show'],a:1,e:'코드는 보지 않고 state와 실물의 차이만 보여 주며 아무것도 바꾸지 않습니다.'},
+ {q:'오토스케일링이 바꾸는 desired_capacity 드리프트에 알맞은 처리는?',o:['apply로 되돌리기','코드를 매번 수정','ignore_changes로 무시','리소스 삭제'],a:2,e:'바뀌는 것이 정상인 속성입니다. 되돌리면 피크 시간에 서버가 줄어듭니다.'},
+ {q:'removed 블록으로 관리만 넘기고 실물을 남기려면?',o:['기본값 그대로','lifecycle { destroy = false }','prevent_destroy','moved와 함께'],a:1,e:'removed의 기본 동작은 삭제입니다. plan에서 forget인지 반드시 확인합니다.'},
+ {q:'흡수가 끝난 뒤 드리프트가 다시 쌓이는 것을 막는 가장 근본적인 조치는?',o:['매일 apply','콘솔 쓰기 권한 회수와 예외 절차','태그 추가','state 백업'],a:1,e:'변경 경로를 코드로 일원화해야 합니다. 정기 점검은 그 위의 감시 장치입니다.'}
+];
+let answered=0, correct=0;
+function buildQuiz(){answered=0;correct=0;$('#quiz').innerHTML=qs.map((x,i)=>'<div class="q" data-i="'+i+'"><div class="qt">Q'+(i+1)+'. '+esc(x.q)+'</div><div class="opts">'+x.o.map((o,j)=>'<button class="opt" data-j="'+j+'">'+esc(o)+'</button>').join('')+'</div><div class="exp">'+esc(x.e)+'</div></div>').join('');
+ $$('#quiz .q').forEach(q=>{q.querySelectorAll('.opt').forEach(b=>b.addEventListener('click',()=>{if(q.classList.contains('done'))return;const i=+q.dataset.i,j=+b.dataset.j;q.classList.add('done');answered++;if(j===qs[i].a){correct++;b.classList.add('right');}else{b.classList.add('wrong');q.querySelectorAll('.opt')[qs[i].a].classList.add('right');}$('#qScore').textContent=correct+' / '+answered+(answered===qs.length?(correct>=8?'  — 훌륭합니다':'  — 틀린 문항의 장을 다시 보세요'):'');}));});
+ $('#qScore').textContent='0 / 0';}
+$('#qReset').addEventListener('click',buildQuiz);buildQuiz();
+})();
+</script>
+</body>
+</html>
