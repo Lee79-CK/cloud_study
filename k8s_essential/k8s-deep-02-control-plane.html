@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 2편: 컨트롤 플레인 해부와 벤더별 구현 차이</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">2편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#tracer">요청 경로 추적기</a></li>
+    <li><a href="#s0">이 편의 목표</a></li>
+    <li><a href="#s1">구성 요소와 통신 방향</a></li>
+    <li><a href="#s2">요청 경로 완전 해부</a></li>
+    <li><a href="#s3">APF와 컨트롤 플레인 부하</a></li>
+    <li><a href="#s4">etcd 운영</a></li>
+    <li><a href="#s5">매니지드의 블랙박스</a></li>
+    <li><a href="#s6">배포판의 컨트롤 플레인</a></li>
+    <li><a href="#s7">클러스터 생성 도구 비교</a></li>
+    <li><a href="#s8">1.36·1.37 컨트롤 플레인 변화</a></li>
+    <li><a href="#s9">실습</a></li>
+    <li><a href="#s10">현장 사례</a></li>
+    <li><a href="#s11">점검 퀴즈</a></li>
+    <li><a href="#s12">용어 사전</a></li>
+    <li><a href="#s13">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 0 기준선과 지도, 2편</div>
+    <h1>컨트롤 플레인 해부와 벤더별 구현 차이</h1>
+    <p class="lead">kubectl 한 줄은 API 서버 안에서 열두 개의 관문을 지나 etcd에 닿습니다. 그 관문마다 벤더가 다른 부품을 끼워 넣었고, 매니지드에서는 일부 관문이 아예 보이지 않습니다. 이 편은 요청 하나를 끝까지 따라가며 <strong>어디서 무엇이 실패할 수 있고, 그것을 어떤 벤더에서 어떻게 볼 수 있는지</strong>를 정리합니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37, etcd v3.7</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 120분 + 실습 90분</span>
+      <span class="chip">선행: 1편</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">이 편의 목표</a></li><li><a href="#s1">구성 요소와 통신 방향</a></li><li><a href="#s2">요청 경로 완전 해부</a></li><li><a href="#s3">APF</a></li><li><a href="#s4">etcd 운영</a></li><li><a href="#s5">매니지드의 블랙박스</a></li><li><a href="#s6">배포판의 컨트롤 플레인</a></li><li><a href="#s7">생성 도구 비교</a></li><li><a href="#s8">1.36·1.37 변화</a></li><li><a href="#s9">실습</a></li><li><a href="#s10">현장 사례</a></li><li><a href="#s11">퀴즈</a></li><li><a href="#s12">용어 사전</a></li><li><a href="#s13">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="tracer" id="tracer">
+    <h3>요청 하나를 끝까지 따라가기</h3>
+    <p class="sub">요청 종류를 고르면 그 요청이 실제로 지나는 단계가 켜지고, 건너뛰는 단계는 흐려집니다. 단계를 누르면 그 단계에서 일어나는 일, 실패했을 때의 모습, 벤더별 차이, 지켜볼 지표가 나옵니다.</p>
+    <div class="vtabs" role="tablist" id="scTabs"></div>
+    <div class="stack-grid">
+      <div>
+        <div class="pipe" id="pipe"></div>
+        <div class="tr-nav"><button class="btn" type="button" id="trPrev">이전 단계</button><button class="btn" type="button" id="trNext">다음 단계</button><span id="trPos"></span></div>
+      </div>
+      <div class="detail tr-detail" id="trDetail" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>이 편의 목표</h2>
+    <div class="prose">
+      <p>1편에서 “매니지드에서는 할 수 없는 것” 표를 봤습니다. 이 편은 그 표의 이유를 설명합니다. 컨트롤 플레인이 어떻게 생겼는지 알아야 무엇을 벤더에 맡겼는지, 맡긴 뒤에도 무엇이 여전히 내 책임인지 구분할 수 있습니다.</p>
+      <ul>
+        <li>kube-apiserver의 처리 단계를 순서대로 말할 수 있고, HTTP 상태 코드만 보고 어느 단계에서 실패했는지 짚을 수 있습니다.</li>
+        <li>APF(API Priority and Fairness)가 왜 인가보다 먼저 동작하는지, LIST가 왜 비싼지 설명하고, 컨트롤 플레인 부하의 원인을 찾을 수 있습니다.</li>
+        <li>etcd의 리비전·컴팩션·디프래그·쿼터의 관계를 이해하고, 백업·복구 절차를 kubeadm·RKE2·OpenShift·Talos별로 실행할 수 있습니다.</li>
+        <li>EKS·AKS·GKE의 컨트롤 플레인에서 보이는 것과 보이지 않는 것, 그리고 컨트롤 플레인에서 노드로 가는 네트워크 경로가 왜 웹훅 장애의 원인이 되는지 설명할 수 있습니다.</li>
+        <li>kubeadm·Cluster API·eksctl·openshift-install·RKE2·Talos·Terraform 중 고객 환경에 맞는 생성 도구를 고르고, 생성 도구와 운영 도구가 어긋날 때의 위험을 설명할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>구성 요소와 통신 방향</h2>
+    <div class="prose">
+      <p>컨트롤 플레인은 다섯 개의 프로세스로 요약됩니다. 중요한 것은 개수가 아니라 <strong>누가 누구에게 말하는가</strong>입니다. Kubernetes의 거의 모든 통신은 API 서버를 향하고, etcd와 직접 대화하는 것은 API 서버뿐입니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>구성 요소</th><th>역할</th><th>상태</th><th>HA 방식</th><th>운영상 핵심</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kube-apiserver</td><td>모든 요청의 관문. 인증·인가·어드미션·검증·저장, watch 캐시 제공</td><td>무상태(캐시만 보유)</td><td>여러 대를 LB 뒤에 두는 액티브-액티브</td><td>메모리는 watch 캐시 크기에 비례. 재시작 시 캐시 재적재 부하</td></tr>
+        <tr><td class="k">etcd</td><td>클러스터 상태의 유일한 영속 저장소</td><td>상태 보유(Raft)</td><td>홀수 멤버 쿼럼. 3대는 1대, 5대는 2대 장애 허용</td><td>디스크 fsync 지연에 극도로 민감. 짝수 멤버는 이득 없음</td></tr>
+        <tr><td class="k">kube-scheduler</td><td>nodeName이 빈 Pod에 노드 배정</td><td>무상태</td><td>Lease 기반 리더 선출(액티브 1대)</td><td>스케줄링 처리량은 1.37 기준 매니지드 티어별로도 다름</td></tr>
+        <tr><td class="k">kube-controller-manager</td><td>Deployment·ReplicaSet·Node·Job·SA 토큰 등 수십 개 컨트롤러</td><td>무상태</td><td>Lease 기반 리더 선출</td><td>컨트롤러별 동시성 플래그. 매니지드에선 조정 불가</td></tr>
+        <tr><td class="k">cloud-controller-manager</td><td>노드 주소·존 레이블, LoadBalancer, 라우트</td><td>무상태</td><td>리더 선출</td><td>클라우드 API 호출 한도와 연결됨</td></tr>
+        <tr><td class="k">konnectivity (선택)</td><td>컨트롤 플레인에서 노드 방향 트래픽을 터널로 전달</td><td>무상태</td><td>서버·에이전트 다수</td><td>AKS·GKE 등에서 노드의 kube-system에 agent Pod로 보임</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>통신 방향표: 컨트롤 플레인에서 노드로 가는 길이 문제다</h3>
+    <div class="prose"><p>노드에서 API 서버로 가는 방향은 어디서나 비슷합니다. 차이는 <strong>반대 방향</strong>에서 납니다. API 서버가 먼저 노드 쪽으로 연결을 여는 경우가 네 가지 있고, 매니지드에서는 이 경로가 벤더 고유 구조를 탑니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>방향</th><th>용도</th><th>대상 포트</th><th>kubeadm·RKE2</th><th>EKS</th><th>AKS·GKE</th></tr></thead>
+      <tbody>
+        <tr><td class="k">노드 → API 서버</td><td>kubelet·kube-proxy·컨트롤러·Pod의 API 호출</td><td>443 / 6443</td><td>직접(또는 앞단 LB)</td><td>클러스터 엔드포인트(공개·비공개)</td><td>클러스터 엔드포인트</td></tr>
+        <tr><td class="k">API 서버 → kubelet</td><td>logs, exec, attach, port-forward, 노드 메트릭 프록시</td><td>10250</td><td>직접</td><td>내 서브넷에 생성된 컨트롤 플레인용 ENI 경유</td><td>konnectivity 터널 경유</td></tr>
+        <tr><td class="k">API 서버 → 웹훅</td><td>어드미션 웹훅, CRD 변환 웹훅</td><td>Service 포트(대개 443·8443·9443)</td><td>직접</td><td>ENI 경유. 클러스터 보안 그룹 규칙 필요</td><td>터널 또는 방화벽 규칙. 비공개 GKE에서 포트 제한 사례 많음</td></tr>
+        <tr><td class="k">API 서버 → 집계 API</td><td>metrics-server 같은 APIService 백엔드</td><td>Service 포트</td><td>직접</td><td>ENI 경유</td><td>터널 경유</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: “exec와 웹훅만 안 된다”는 증상의 정체</b>
+    Pod는 잘 뜨고 kubectl get도 되는데 kubectl logs·exec와 어드미션 웹훅만 타임아웃이라면, 거의 항상 <strong>컨트롤 플레인 → 노드 방향 경로</strong> 문제입니다. 노드에서 API 서버로 가는 방향은 멀쩡하기 때문에 클러스터가 정상처럼 보입니다. 보안 그룹·NSG·방화벽 규칙, konnectivity-agent Pod 상태를 먼저 보세요.</div>
+
+    <h3>구성 요소가 어디에 보이는가</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>배포 방식</th><th>컨트롤 플레인 실행 형태</th><th>클러스터 안에서 보이는 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td>컨트롤 플레인 노드의 정적 Pod(<code>/etc/kubernetes/manifests</code>)</td><td><code>kube-system</code>에 <code>kube-apiserver-&lt;노드&gt;</code>, <code>etcd-&lt;노드&gt;</code> 등 미러 Pod</td></tr>
+        <tr><td class="k">RKE2</td><td>rke2 서버 프로세스가 정적 Pod 매니페스트를 생성·관리</td><td>kubeadm과 비슷하게 미러 Pod로 보임. etcd도 Pod</td></tr>
+        <tr><td class="k">OpenShift</td><td>오퍼레이터가 관리하는 정적 Pod + 다수의 컨트롤 플레인 오퍼레이터</td><td><code>openshift-kube-apiserver</code>, <code>openshift-etcd</code> 등 네임스페이스, <code>oc get clusteroperators</code></td></tr>
+        <tr><td class="k">OpenShift HCP</td><td>관리 클러스터의 네임스페이스 안 일반 Pod</td><td>호스팅된 클러스터 안에서는 보이지 않음. 관리 클러스터에서 보임</td></tr>
+        <tr><td class="k">Talos</td><td>Talos가 관리하는 정적 Pod, etcd는 Talos 서비스</td><td>컨트롤 플레인 Pod는 보이지만 노드 셸은 없음. <code>talosctl</code>로 조회</td></tr>
+        <tr><td class="k">EKS·AKS·GKE</td><td>벤더 계정·구독·프로젝트의 관리형 인프라</td><td>보이지 않음. 리더 선출 Lease 일부와 벤더 에이전트만 보일 수 있음</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>etcd 토폴로지: stacked와 external</h3>
+      <p>kubeadm은 두 가지를 지원합니다. <strong>stacked</strong>는 각 컨트롤 플레인 노드에 etcd 멤버를 함께 두는 기본 방식으로 노드 수가 적고 구성이 단순하지만, 노드 하나를 잃으면 API 서버와 etcd 멤버를 동시에 잃습니다. <strong>external</strong>은 etcd를 별도 노드 3·5대로 분리해 장애 영역과 디스크 I/O를 떼어 놓는 방식으로, 대형 클러스터나 디스크 경합이 큰 환경에 맞습니다. kubeadm은 새 멤버를 합류시킬 때 etcd learner 모드를 써서, 아직 데이터를 따라잡지 못한 멤버가 쿼럼 계산에 들어가 쿼럼을 깨는 위험을 줄입니다.</p>
+      <h3>컨트롤러 매니저와 스케줄러: 조정 루프와 리더 선출</h3>
+      <p>컨트롤러와 스케줄러는 모두 같은 패턴으로 움직입니다. informer가 API 서버를 watch해 로컬 캐시를 유지하고, 바뀐 객체의 키를 작업 큐에 넣고, 워커가 큐에서 꺼내 “원하는 상태와 실제 상태의 차이”를 메우는 API 요청을 보냅니다. 이 요청들도 사용자 요청과 똑같이 요청 경로 전체를 지나고 APF 대상이 됩니다.</p>
+      <ul>
+        <li><strong>리더 선출.</strong> 여러 인스턴스 중 하나만 일하도록 <code>kube-system</code>의 Lease 객체(<code>kube-controller-manager</code>, <code>kube-scheduler</code>)를 주기적으로 갱신합니다. 리더가 죽으면 Lease 만료(기본 15초) 뒤 다른 인스턴스가 넘겨받으므로, 그동안 새 Pod 배정과 컨트롤러 동작이 잠시 멈춥니다.</li>
+        <li><strong>자기 자신의 API 호출 한도.</strong> 컨트롤러 매니저는 기본 <code>--kube-api-qps</code> 20, burst 30, 스케줄러는 설정 파일의 clientConnection qps 50, burst 100이 기본입니다. 대형 클러스터에서 Pod 생성이 몰리면 이 한도가 병목이 되어 “스케줄링이 느리다”로 나타납니다.</li>
+        <li><strong>벤더 차이.</strong> Native·RKE2는 이 값과 컨트롤러별 동시성(<code>--concurrent-deployment-syncs</code> 등)을 직접 조정합니다. 매니지드는 조정할 수 없고, EKS는 Provisioned 티어별로 Pod 스케줄링 처리량을 공개해 이 한도를 상품화했습니다.</li>
+      </ul>
+      <p>RKE2·OpenShift·Talos는 모두 stacked 계열이고, 매니지드는 내부 구조를 공개하지 않습니다. 대신 EKS는 컨트롤 플레인 용량을 <strong>티어</strong>로 노출하기 시작했습니다(5장).</p>
+    </div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>요청 경로 완전 해부</h2>
+    <div class="prose">
+      <p>API 서버는 HTTP 핸들러를 양파 껍질처럼 겹쳐 놓은 구조입니다. 바깥 필터부터 차례로 요청을 통과시키고, 가장 안쪽에서 리소스별 핸들러가 어드미션·검증·저장을 수행합니다. 업스트림 코드의 기본 핸들러 체인을 실행 순서대로 펼치면 다음과 같습니다.</p>
+    </div>
+    <div class="flow">
+      <div><b>요청 정보 해석</b>경로를 보고 리소스·동사·네임스페이스를 결정</div>
+      <div><b>타임아웃·CORS</b>롱 러닝(watch·exec)이 아니면 기본 60초 제한</div>
+      <div><b>인증</b>신원 확정, 실패 시 401</div>
+      <div><b>감사</b>신원이 정해진 뒤 기록 시작</div>
+      <div><b>위장</b>Impersonate 헤더 처리</div>
+      <div><b>APF</b>분류·대기, 넘치면 429</div>
+      <div><b>인가</b>RBAC 등, 실패 시 403</div>
+      <div><b>리소스 핸들러</b>디코딩 → 변경 어드미션 → 검증 → 검증 어드미션 → 저장</div>
+    </div>
+    <div class="note trap"><b>함정: APF는 인가보다 먼저다</b>
+    APF는 인증된 신원을 보고 요청을 분류하지만, 인가 검사는 그 뒤에 일어납니다. 그래서 권한이 없는 요청도 일단 seat를 점유했다가 403을 받습니다. 권한 없는 클라이언트가 재시도를 폭주시키면 403 로그만 쌓이는 게 아니라 같은 우선순위 수준의 정상 요청까지 밀려납니다. 잘못 설정된 CI 러너가 매니지드 클러스터 전체를 느리게 만드는 흔한 경로입니다.</div>
+
+    <h3>상태 코드로 실패 단계 짚기</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>코드</th><th>단계</th><th>대표 메시지</th><th>먼저 볼 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">401</td><td>인증</td><td>Unauthorized, the server has asked for the client to provide credentials</td><td>토큰 만료, kubeconfig exec 플러그인, 시계 오차</td></tr>
+        <tr><td class="k">403</td><td>위장·인가·검증 어드미션</td><td>User "x" cannot list resource "pods" … / admission webhook "…" denied</td><td>메시지에 ‘cannot’이 있으면 인가, 웹훅·정책 이름이 있으면 어드미션</td></tr>
+        <tr><td class="k">429</td><td>APF</td><td>Too many requests, please try again later</td><td>apiserver_flowcontrol_rejected_requests_total, 클라이언트의 재시도 패턴</td></tr>
+        <tr><td class="k">400</td><td>디코딩·어드미션</td><td>error decoding / admission webhook denied</td><td>매니페스트 문법, 웹훅 응답</td></tr>
+        <tr><td class="k">409</td><td>저장</td><td>the object has been modified; please apply your changes to the latest version</td><td>낙관적 동시성 충돌. 컨트롤러끼리 같은 객체를 다툼</td></tr>
+        <tr><td class="k">422</td><td>검증</td><td>Invalid value / Unsupported value</td><td>필드 값, CRD 스키마</td></tr>
+        <tr><td class="k">500·504</td><td>어드미션 웹훅·저장</td><td>failed calling webhook … context deadline exceeded / etcdserver: request timed out</td><td>웹훅 도달성, etcd 지연·쿼터</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>어드미션 단계를 더 자세히</h3>
+    <div class="prose">
+      <p>어드미션은 변경(mutating)과 검증(validating) 두 단계로 나뉘고, 각 단계 안에서 내장 플러그인 → CEL 정책 → 웹훅 순으로 실행됩니다. 기본 순서에서 ResourceQuota는 가장 마지막 검증 플러그인입니다. 앞의 모든 단계가 통과한 최종 객체에 대해서만 쿼터를 차감하기 위해서입니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>단계</th><th>내장 플러그인 예</th><th>CEL 정책</th><th>웹훅</th><th>특징</th></tr></thead>
+      <tbody>
+        <tr><td class="k">변경</td><td>NamespaceLifecycle, LimitRanger, ServiceAccount, DefaultStorageClass, DefaultTolerationSeconds</td><td>MutatingAdmissionPolicy</td><td>MutatingAdmissionWebhook</td><td>객체를 고칠 수 있음. 웹훅은 reinvocationPolicy에 따라 재호출</td></tr>
+        <tr><td class="k">검증</td><td>PodSecurity, NodeRestriction, ResourceQuota(마지막)</td><td>ValidatingAdmissionPolicy</td><td>ValidatingAdmissionWebhook</td><td>허용·거부만 가능. 순서와 무관하게 모두 통과해야 함</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <p>EKS는 활성화된 어드미션 플러그인 목록을 플랫폼 버전마다 고정해 공개합니다. 사용자는 이 목록을 바꿀 수 없지만, VAP와 웹훅은 얼마든지 추가할 수 있습니다. 즉 매니지드에서 <strong>어드미션을 확장하는 유일한 손잡이가 CEL 정책과 웹훅</strong>이고, 그래서 웹훅의 가용성이 매니지드 클러스터 가용성과 직결됩니다. 1.36에서 Alpha로 들어와 1.37에서 Beta가 된 매니페스트 기반 어드미션 구성은 API로 지울 수 없는 정책을 파일로 두는 기능이라, 주로 API 서버 파일 시스템에 접근할 수 있는 Native·배포판에서 의미가 큽니다.</p>
+    </div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>APF와 컨트롤 플레인 부하</h2>
+    <div class="prose">
+      <p>API Priority and Fairness는 API 서버의 동시 처리 용량을 <strong>seat</strong>라는 단위로 나누고, 요청을 우선순위 수준별로 격리하는 장치입니다. 1.29에서 GA가 됐고 모든 배포 방식에서 켜져 있습니다.</p>
+      <h3>세 가지 개념</h3>
+      <ul>
+        <li><strong>전체 seat.</strong> 업스트림 기본값은 <code>--max-requests-inflight</code>(400)와 <code>--max-mutating-requests-inflight</code>(200)의 합인 600 seat이며, API 서버 인스턴스마다 따로 계산됩니다.</li>
+        <li><strong>PriorityLevelConfiguration.</strong> 전체 seat를 수준별로 나눈 몫입니다. 기본으로 exempt, system, node-high, leader-election, workload-high, workload-low, global-default, catch-all이 있습니다. 한 수준이 넘쳐도 다른 수준은 영향을 받지 않는 것이 핵심입니다.</li>
+        <li><strong>FlowSchema.</strong> 요청자·동사·리소스를 보고 어느 수준으로 보낼지 정하는 규칙입니다. 같은 수준 안에서는 flow(대개 사용자 단위)별로 공정 큐잉을 해, 한 사용자가 수준 전체를 독점하지 못하게 합니다.</li>
+      </ul>
+      <h3>LIST가 비싼 이유</h3>
+      <p>APF는 요청마다 비용을 추정합니다. 단일 GET은 1 seat지만, LIST는 반환할 것으로 예상되는 객체 수에 비례해 <strong>최대 10 seat</strong>까지 차지하고, watch는 시작할 때 초기 이벤트 전송 비용을 따로 계산합니다. 네임스페이스 구분 없이 전체 Pod를 주기적으로 LIST하는 컨트롤러나 모니터링 에이전트가 컨트롤 플레인 부하의 가장 흔한 원인인 이유입니다. 정석은 informer(watch + 로컬 캐시)를 쓰는 것이고, 1.33부터는 스트리밍 LIST 응답, 1.37에서는 etcd RangeStream이 대형 LIST의 메모리 비용을 더 낮췄습니다.</p>
+      <h3>watch 캐시와 일관 읽기</h3>
+      <p>API 서버는 리소스별로 etcd를 watch하며 메모리 캐시를 유지하고, 대부분의 LIST·watch를 여기서 응답합니다. 최신 버전에서는 resourceVersion을 지정하지 않은 ‘최신 상태’ LIST도 캐시가 최신임을 확인한 뒤 캐시에서 응답할 수 있습니다. 이 캐시가 API 서버 재시작 때 한꺼번에 다시 채워지면서 etcd에 부하 폭주를 일으키던 문제를, 1.37에서 Stable로 마무리된 watch 캐시 초기화 안정화 작업과 RangeStream이 함께 줄입니다.</p>
+    </div>
+    <div class="code"><div class="bar"><span>APF 상태 보기 (어느 배포 방식이든 동작)</span><button class="copy" type="button">복사</button></div><pre>kubectl get flowschemas
+kubectl get prioritylevelconfigurations
+<span class="c"># 수준별 현재 seat 사용·대기열 덤프 (권한 필요)</span>
+kubectl get --raw /debug/api_priority_and_fairness/dump_priority_levels
+<span class="c"># 거부·대기 지표</span>
+kubectl get --raw /metrics | grep -E 'apiserver_flowcontrol_(rejected_requests_total|current_inqueue_requests)' | head -20
+<span class="c"># 내 요청이 어느 FlowSchema로 분류됐는지: 응답 헤더 X-Kubernetes-PF-FlowSchema-UID</span>
+kubectl get pods -v=8 2&gt;&amp;1 | grep -i 'X-Kubernetes-PF'</pre></div>
+
+    <h3>벤더별로 다른 것: 용량을 누가 정하나</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>배포 방식</th><th>seat 용량</th><th>FlowSchema 추가</th><th>용량 확장</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm·RKE2</td><td>플래그로 직접 지정</td><td>가능</td><td>API 서버 증설·플래그 조정</td></tr>
+        <tr><td class="k">OpenShift</td><td>플랫폼이 관리</td><td>가능</td><td>컨트롤 플레인 노드 사양</td></tr>
+        <tr><td class="k">EKS Standard</td><td>비공개, 부하에 따라 반응형 확장</td><td>가능</td><td>자동(확장까지 시간차 존재)</td></tr>
+        <tr><td class="k">EKS Provisioned</td><td>티어별 보장(1.34 이상 기준 XL 2,000 seat ~ 8XL 16,000 seat, 버전별 상이)</td><td>가능</td><td>티어 수동 변경, 시간당 추가 요금</td></tr>
+        <tr><td class="k">AKS·GKE</td><td>비공개, 자동 확장</td><td>가능</td><td>자동. GKE zonal 클러스터는 컨트롤 플레인 변경 중 API가 잠시 끊길 수 있음</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note field"><b>현장 메모: EKS Provisioned Control Plane이 해결하는 것과 못 하는 것</b>
+    Provisioned 티어는 대규모 배치·AI 학습 작업처럼 예고된 부하 폭주 때 <strong>컨트롤 플레인 확장 지연을 없애 줍니다</strong>. 티어별로 seat 수, Pod 스케줄링 처리량, 클러스터 DB 크기(16GB), SLA(99.99%)가 정해져 있습니다. 하지만 비효율적인 LIST를 날리는 컨트롤러나 느린 웹훅은 티어를 올려도 그대로입니다. 먼저 APF 지표로 누가 seat를 쓰는지 확인하고, 그다음에 티어를 고민하세요.</div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>etcd 운영: 리비전·컴팩션·디프래그·쿼터·백업</h2>
+    <div class="prose">
+      <h3>데이터는 이렇게 저장된다</h3>
+      <p>Kubernetes 객체는 <code>/registry/&lt;리소스&gt;/&lt;네임스페이스&gt;/&lt;이름&gt;</code> 형태의 키에 protobuf로 직렬화되어 들어갑니다(CRD는 JSON). etcd는 MVCC 저장소라 키를 고칠 때마다 덮어쓰지 않고 새 <strong>리비전</strong>을 쌓습니다. 객체의 <code>resourceVersion</code>은 사실상 이 리비전입니다.</p>
+      <h3>네 가지 개념의 관계</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>개념</th><th>무엇인가</th><th>누가 하나</th><th>빠뜨리면</th></tr></thead>
+      <tbody>
+        <tr><td class="k">리비전</td><td>모든 쓰기마다 1씩 오르는 전역 번호. 과거 버전이 함께 남음</td><td>etcd</td><td>—</td></tr>
+        <tr><td class="k">컴팩션</td><td>특정 리비전 이전의 과거 버전을 논리적으로 버림</td><td>API 서버가 기본 5분마다(<code>--etcd-compaction-interval</code>)</td><td>과거 버전이 무한히 쌓여 DB가 커짐</td></tr>
+        <tr><td class="k">디프래그</td><td>컴팩션으로 빈 공간을 실제 파일 크기에서 회수</td><td>운영자(멤버별로 순차 실행)</td><td>논리 크기는 작은데 파일은 큰 상태가 지속. 쿼터 판정은 파일 크기 기준</td></tr>
+        <tr><td class="k">쿼터</td><td>백엔드 DB 최대 크기. etcd 기본 2GiB, 실무 권장 상한 8GiB</td><td>설치 시 설정</td><td>초과 시 NOSPACE 알람. 쓰기가 막혀 사실상 읽기 전용 클러스터가 됨</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>NOSPACE 알람에서 복구하는 순서 (Native·배포판)</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 공통 옵션 (kubeadm 기본 경로 기준)</span>
+TLS="--cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
+E="--endpoints=https://127.0.0.1:2379 $TLS"
+
+<span class="c"># 1) 상태와 알람 확인</span>
+etcdctl $E endpoint status --cluster -w table
+etcdctl $E alarm list
+
+<span class="c"># 2) 현재 리비전까지 컴팩션 (API 서버가 하던 일을 즉시 수행)</span>
+rev=$(etcdctl $E endpoint status -w json | jq -r '.[0].Status.header.revision')
+etcdctl $E compact "$rev"
+
+<span class="c"># 3) 멤버별로 하나씩 디프래그 (실행 중 해당 멤버는 응답이 멈춤)</span>
+etcdctl --endpoints=https://10.0.0.11:2379 $TLS defrag
+<span class="c">#    … 나머지 멤버도 한 대씩</span>
+
+<span class="c"># 4) 알람 해제</span>
+etcdctl $E alarm disarm
+
+<span class="c"># 5) 원인 제거: 무엇이 공간을 먹는지 키 수로 확인</span>
+etcdctl $E get /registry --prefix --keys-only | awk -F/ 'NF&gt;2{print $3}' | sort | uniq -c | sort -rn | head</pre></div>
+    <div class="note trap"><b>함정: 디프래그를 모든 멤버에 동시에</b>
+    디프래그 중인 멤버는 요청을 처리하지 못합니다. <code>--cluster</code>로 모든 멤버를 한 번에 디프래그하면 쿼럼이 사라진 것과 같은 효과가 납니다. 반드시 한 대씩, 리더는 마지막에 하세요.</div>
+
+    <h3>공간을 먹는 주범들</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>주범</th><th>왜 커지나</th><th>대응</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Helm 릴리스 Secret</td><td>Helm 3은 릴리스 이력마다 차트 전체를 압축해 Secret으로 보관. 큰 차트는 개당 수십~수백 KB</td><td><code>--history-max</code> 설정, 오래된 이력 정리</td></tr>
+        <tr><td class="k">Event</td><td>쓰기 빈도가 가장 높은 객체. 기본 TTL 1시간이지만 폭주하면 리비전이 급증</td><td>대형 클러스터는 Event를 별도 etcd로 분리(<code>--etcd-servers-overrides</code>, Native 한정)</td></tr>
+        <tr><td class="k">오래된 ReplicaSet</td><td>Deployment마다 기본 10개 이력 보관</td><td><code>revisionHistoryLimit</code> 축소</td></tr>
+        <tr><td class="k">CR 폭증</td><td>워크플로 엔진·CI 도구·정책 리포트 등이 실행마다 CR 생성</td><td>TTL·정리 정책, 결과를 외부 저장소로</td></tr>
+        <tr><td class="k">managedFields</td><td>서버 측 적용의 필드 소유 이력이 객체 크기를 키움</td><td>객체 수가 많은 리소스에서 특히 주의</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="calc" id="est">
+      <h4 style="margin-top:0">etcd 크기 어림 계산기</h4>
+      <p style="margin:.2em 0 12px;color:var(--muted);font-size:.9rem">객체 수와 평균 크기, 쓰기 빈도, 디프래그 전 단편화 비율을 넣으면 DB 파일 크기를 어림합니다. 대략적인 감을 잡는 도구이며, 실제 값은 <code>apiserver_storage_size_bytes</code>나 <code>etcdctl endpoint status</code>로 확인하세요. 막대는 제곱근 눈금입니다.</p>
+      <div class="est-grid" id="estGrid"></div>
+      <div class="gauge" id="gauge"><div class="fill" id="gFill"></div></div>
+      <div class="est-out" id="estOut"></div>
+    </div>
+
+    <h3>백업과 복구: 배포 방식별 실제 명령</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>배포 방식</th><th>백업</th><th>복구</th><th>책임</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td><code>etcdctl snapshot save</code> (+ <code>/etc/kubernetes/pki</code> 인증서 별도 보관)</td><td><code>etcdutl snapshot restore</code>로 새 데이터 디렉터리 생성 후 etcd 매니페스트가 그 경로를 보게 변경. 3.6부터 restore는 etcdutl 쪽</td><td>전부 내 몫</td></tr>
+        <tr><td class="k">RKE2</td><td>기본 12시간마다 자동 스냅샷, 5개 보관(<code>/var/lib/rancher/rke2/server/db/snapshots</code>). S3 업로드 설정 가능. 수동은 <code>rke2 etcd-snapshot save</code></td><td><code>rke2 server --cluster-reset --cluster-reset-restore-path=&lt;스냅샷&gt;</code> 후 다른 서버 노드 재합류</td><td>스케줄은 기본 제공, 외부 보관·리허설은 내 몫</td></tr>
+        <tr><td class="k">OpenShift</td><td>컨트롤 플레인 노드에서 <code>cluster-backup.sh</code>(etcd 스냅샷 + 정적 Pod 리소스)</td><td>문서화된 재해 복구 절차로 이전 클러스터 상태 복원(한 노드에서 복원 후 나머지 재구성)</td><td>실행·보관은 내 몫</td></tr>
+        <tr><td class="k">Talos</td><td><code>talosctl etcd snapshot db.snapshot</code></td><td><code>talosctl bootstrap --recover-from=db.snapshot</code></td><td>내 몫</td></tr>
+        <tr><td class="k">EKS·AKS·GKE</td><td>벤더가 내부적으로 수행. 고객이 꺼낼 수 없음</td><td>고객이 etcd 수준으로 되돌릴 수 없음</td><td>애플리케이션·리소스 단위 백업(Velero, 벤더 백업 서비스)은 내 몫. 15편</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: etcd 스냅샷만으로는 복구가 안 된다</b>
+    Native 클러스터를 etcd 스냅샷으로 되살리려면 그 클러스터의 <strong>CA와 서비스 계정 서명 키</strong>가 함께 있어야 합니다. 스냅샷만 있고 <code>/etc/kubernetes/pki</code>가 없으면 복원된 상태 안의 모든 ServiceAccount 토큰과 인증서가 쓸모없어집니다. 저장 시 암호화를 켰다면 암호화 키(또는 KMS 접근)도 같은 급의 백업 대상입니다.</div>
+
+    <h3>저장 시 암호화(encryption at rest)</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>배포 방식</th><th>기본 상태</th><th>설정 방법</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td>꺼짐. etcd에 Secret이 평문 protobuf로 저장</td><td><code>EncryptionConfiguration</code>(aescbc·aesgcm·secretbox·KMS v2) 직접 작성</td></tr>
+        <tr><td class="k">RKE2</td><td>Secret 암호화 기본 켜짐</td><td><code>rke2 secrets-encrypt</code> 명령으로 상태 확인·키 교체</td></tr>
+        <tr><td class="k">OpenShift</td><td>etcd 데이터 암호화는 옵트인</td><td>APIServer CR의 encryption 타입 지정</td></tr>
+        <tr><td class="k">EKS</td><td>1.28 이상 클러스터는 Kubernetes API 데이터에 기본 봉투 암호화 적용</td><td>고객 관리 KMS 키 지정 가능</td></tr>
+        <tr><td class="k">AKS·GKE</td><td>플랫폼 수준 디스크 암호화는 기본</td><td>애플리케이션 계층 암호화는 Key Vault·Cloud KMS 키로 별도 활성화</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><p>암호화 키를 바꾼 뒤 기존 객체를 새 키로 다시 써야 하는데, 이 일을 하는 Storage Version Migration이 1.37에서 기본 활성화됐습니다. 키 교체 절차의 상세는 22편에서 다룹니다.</p>
+      <h3>etcd 3.7에서 달라진 것</h3>
+      <ul>
+        <li><strong>RangeStream RPC.</strong> 대형 범위 읽기를 바이트 기준 청크로 나눠 스트리밍합니다. Kubernetes 1.37의 <code>EtcdRangeStream</code> 기능 게이트(Beta, 기본 켜짐)와 짝을 이루며, 둘 다 갖춰졌을 때만 동작합니다. API 서버가 etcd 지원 여부를 감지해 없으면 기존 방식으로 돌아갑니다. 동작 여부는 <code>etcd_request_duration_seconds_count{operation="listStream"}</code>이 0보다 큰지로 확인합니다.</li>
+        <li><strong>v2 저장소 제거.</strong> v3 전환 이후 남아 있던 레거시 v2 저장소가 사라졌습니다. 아주 오래된 클러스터를 업그레이드할 때 확인 대상입니다.</li>
+        <li><strong>keys-only 최적화.</strong> 키만 조회할 때 값을 디스크에서 읽지 않고 인메모리 인덱스만 봅니다. 위 진단 명령이 더 가벼워졌습니다.</li>
+      </ul>
+      <p>RKE2 v1.37.0+rke2r1은 etcd v3.7.1을 번들합니다. kubeadm은 버전별 기본 etcd 이미지를 따르므로 <code>kubeadm upgrade plan</code> 출력에서 etcd 버전을 확인하세요.</p>
+    </div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>매니지드의 블랙박스: 무엇이 보이고 무엇이 안 보이나</h2>
+    <div class="prose">
+      <p>매니지드 컨트롤 플레인을 운영한다는 것은 <strong>보이지 않는 것을 지표와 로그로 간접 관찰</strong>하는 일입니다. 세 벤더가 무엇을 열어 주는지 비교해 두면, 장애 때 어디부터 봐야 할지가 정해집니다. 이 표의 항목은 기본 꺼짐인 것이 많으니 고객 클러스터 인수 시점에 켜 두는 것이 좋습니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>항목</th><th>EKS</th><th>AKS</th><th>GKE</th></tr></thead>
+      <tbody>
+        <tr><td class="k">컨트롤 플레인 위치</td><td>AWS 관리 VPC. 내 서브넷에 컨트롤 플레인용 ENI 생성</td><td>Microsoft 관리 구독. 선택적으로 API Server VNet Integration</td><td>Google 관리 프로젝트. 비공개 엔드포인트·DNS 기반 엔드포인트 선택</td></tr>
+        <tr><td class="k">CP → 노드 경로</td><td>ENI 경유. 클러스터 보안 그룹이 웹훅·kubelet 포트를 허용해야 함</td><td>konnectivity-agent 터널(<code>kube-system</code>에서 보임)</td><td>konnectivity-agent 터널. 비공개 클러스터 구성에 따라 방화벽 규칙 필요</td></tr>
+        <tr><td class="k">컨트롤 플레인 로그</td><td>api, audit, authenticator, controllerManager, scheduler 다섯 유형을 골라 CloudWatch Logs로</td><td>진단 설정 카테고리(kube-apiserver, kube-audit, kube-audit-admin, kube-controller-manager, kube-scheduler, cluster-autoscaler, guard)를 Log Analytics 등으로</td><td>Cloud Audit Logs는 기본, API 서버·스케줄러·컨트롤러 매니저 로그는 선택 활성화해 Cloud Logging으로</td></tr>
+        <tr><td class="k">컨트롤 플레인 메트릭</td><td>API 서버 <code>/metrics</code> 조회 가능, 스케줄러·컨트롤러 매니저 메트릭은 EKS 전용 경로, 콘솔 컨트롤 플레인 모니터링 탭</td><td>관리형 Prometheus로 컨트롤 플레인 메트릭 수집 기능</td><td>API 서버·스케줄러·컨트롤러 매니저 메트릭을 Cloud Monitoring으로 선택 활성화</td></tr>
+        <tr><td class="k">etcd 관찰</td><td><code>apiserver_storage_size_bytes</code>로 간접 관찰. Standard 모드 DB 한도 8GB, Provisioned 16GB</td><td>직접 관찰 불가, API 서버 지표로 간접</td><td>직접 관찰 불가, API 서버 지표로 간접</td></tr>
+        <tr><td class="k">용량 확장</td><td>Standard: 반응형 자동. Provisioned: 티어 고정(XL·2XL·4XL·8XL)</td><td>자동</td><td>자동. 크기 조정 중 클러스터 상태가 RECONCILING으로 표시될 수 있음</td></tr>
+        <tr><td class="k">SLA</td><td>Standard 99.95%, Provisioned 티어 99.99%</td><td>Free 티어는 SLA 없음, Standard·Premium은 가용성 영역 구성에 따라 99.95%·99.9%</td><td>Regional 99.95%, Zonal 99.5%</td></tr>
+        <tr><td class="k">업그레이드 중 API</td><td>무중단 지향(다중 인스턴스)</td><td>무중단 지향</td><td>Regional은 무중단 지향, <strong>Zonal은 컨트롤 플레인 업그레이드 중 API가 수 분 끊길 수 있음</strong></td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>인수 시점에 켜 둘 것: 벤더별 명령</span><button class="copy" type="button">복사</button></div><pre><span class="c"># EKS: 컨트롤 플레인 로그 다섯 유형 활성화</span>
+aws eks update-cluster-config --name CLUSTER \
+  --logging '{"clusterLogging":[{"types":["api","audit","authenticator","controllerManager","scheduler"],"enabled":true}]}'
+
+<span class="c"># AKS: 감사·API 서버 로그를 Log Analytics로</span>
+az monitor diagnostic-settings create --name cp-logs \
+  --resource "$(az aks show -g RG -n CLUSTER --query id -o tsv)" \
+  --workspace "$LAW_ID" \
+  --logs '[{"category":"kube-audit-admin","enabled":true},{"category":"kube-apiserver","enabled":true},{"category":"guard","enabled":true}]'
+
+<span class="c"># GKE: 컨트롤 플레인 로그·메트릭 활성화</span>
+gcloud container clusters update CLUSTER --location LOCATION \
+  --logging=SYSTEM,WORKLOAD,API_SERVER,SCHEDULER,CONTROLLER_MANAGER \
+  --monitoring=SYSTEM,API_SERVER,SCHEDULER,CONTROLLER_MANAGER
+
+<span class="c"># 어디서든: etcd에 저장된 리소스별 크기(간접 관찰)</span>
+kubectl get --raw /metrics | grep apiserver_storage_size_bytes</pre></div>
+    <div class="note trap"><b>함정: 감사 로그를 전부 켰더니 로그 요금이 클러스터 요금보다 크다</b>
+    감사 로그는 요청마다 남습니다. EKS의 audit 유형이나 AKS의 kube-audit 카테고리를 무심코 켜면 대형 클러스터에서는 로그 수집·보관 비용이 컨트롤 플레인 요금을 넘기도 합니다. AKS는 이 때문에 읽기 요청 대부분을 뺀 kube-audit-admin 카테고리를 따로 둡니다. 보존 기간과 필터를 정한 뒤 켜고, 22편에서 탐지 규칙과 함께 다시 설계합니다.</div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>배포판의 컨트롤 플레인</h2>
+    <div class="prose">
+      <h3>OpenShift: 오퍼레이터가 운영하는 컨트롤 플레인</h3>
+      <p>OpenShift 컨트롤 플레인은 업스트림 구성 요소에 OpenShift 고유 API 서버들이 더해진 구조입니다. kube-apiserver 옆에 Route·Project 같은 OpenShift API를 제공하는 openshift-apiserver, OAuth 관련 API를 제공하는 oauth-apiserver가 집계 API로 붙습니다. 그리고 각 구성 요소마다 전담 오퍼레이터(kube-apiserver-operator, etcd-operator 등)가 있어서 인증서 교체, 설정 반영, 버전 교체를 스스로 수행합니다. 전체를 지휘하는 것이 Cluster Version Operator입니다.</p>
+      <ul>
+        <li><strong>설정은 CR로만.</strong> API 서버 플래그를 직접 고치지 않고 <code>APIServer</code>, <code>Authentication</code>, <code>OAuth</code> 같은 클러스터 설정 CR을 바꾸면 오퍼레이터가 정적 Pod를 다시 굴립니다. 노출되지 않은 설정은 바꿀 수 없습니다.</li>
+        <li><strong>상태는 ClusterOperator로.</strong> <code>oc get clusteroperators</code>에서 Available·Progressing·Degraded를 보는 것이 OpenShift 컨트롤 플레인 점검의 첫 단계입니다.</li>
+        <li><strong>etcd는 오퍼레이터가 멤버를 관리.</strong> 멤버 교체·인증서·디프래그 일부를 오퍼레이터가 처리하지만, 백업 실행과 외부 보관은 여전히 운영자 몫입니다.</li>
+      </ul>
+      <h3>OpenShift Hosted Control Planes (HyperShift)</h3>
+      <p>Hosted Control Planes는 컨트롤 플레인을 별도의 <strong>관리 클러스터</strong> 안 네임스페이스에 일반 Pod로 띄웁니다. 호스팅된 클러스터는 워커 노드만 가집니다. <code>HostedCluster</code>와 <code>NodePool</code> CR로 선언하고, 워커와 컨트롤 플레인 사이는 konnectivity로 연결됩니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>관점</th><th>기존(자체 컨트롤 플레인 노드)</th><th>Hosted Control Planes</th></tr></thead>
+      <tbody>
+        <tr><td class="k">컨트롤 플레인 노드</td><td>클러스터마다 3대</td><td>없음. 관리 클러스터의 Pod</td></tr>
+        <tr><td class="k">클러스터 생성 시간</td><td>노드 프로비저닝 포함</td><td>짧음(Pod 기동)</td></tr>
+        <tr><td class="k">자원 효율</td><td>소형 클러스터가 많을수록 낭비</td><td>여러 컨트롤 플레인이 관리 클러스터 자원 공유</td></tr>
+        <tr><td class="k">장애 영역</td><td>클러스터별 독립</td><td>관리 클러스터 장애가 여러 클러스터에 전파 가능</td></tr>
+        <tr><td class="k">업그레이드</td><td>컨트롤 플레인과 노드가 함께 움직임</td><td>컨트롤 플레인과 NodePool을 분리해 업그레이드</td></tr>
+        <tr><td class="k">잘 맞는 곳</td><td>소수의 대형 클러스터</td><td>다수의 고객·팀 클러스터를 운영하는 MSP, 엣지</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: HCP는 “매니지드 서비스를 직접 운영하는 것”</b>
+    EKS·AKS·GKE가 내부적으로 하는 일이 바로 이 구조입니다. HCP를 도입하는 순간 MSP는 고객에게 매니지드 컨트롤 플레인을 제공하는 쪽이 되고, 관리 클러스터의 etcd·용량·업그레이드가 수십 개 고객 클러스터의 SLA가 됩니다. 오픈소스 쪽에서는 Kamaji가 비슷한 모델을 제공합니다.</div>
+
+    <div class="prose">
+      <h3>RKE2: 단일 바이너리와 내장 etcd</h3>
+      <p>RKE2는 하나의 <code>rke2</code> 바이너리가 서버(컨트롤 플레인) 또는 에이전트(워커) 역할을 합니다. 서버 노드는 etcd·API 서버·스케줄러·컨트롤러 매니저를 정적 Pod로 띄우고, 노드 합류를 위한 <strong>supervisor API(9345 포트)</strong>를 따로 엽니다. 새 노드는 토큰으로 9345에 접속해 인증서와 설정을 받은 뒤 6443을 씁니다.</p>
+      <ul>
+        <li><strong>설정 파일 하나.</strong> <code>/etc/rancher/rke2/config.yaml</code>에 CNI, TLS SAN, CIS 프로파일, etcd 스냅샷 정책, 컴포넌트 추가 인자(<code>kube-apiserver-arg</code> 등)를 선언합니다. 매니지드와 달리 API 서버 플래그를 바꿀 수 있습니다.</li>
+        <li><strong>etcd 스냅샷 기본 제공.</strong> 12시간마다·5개 보관이 기본이고 S3 업로드를 붙일 수 있습니다. 스냅샷 기록은 클러스터 안의 ETCDSnapshotFile 리소스로도 보입니다.</li>
+        <li><strong>토큰이 곧 복구 키.</strong> 서버 토큰은 노드 합류뿐 아니라 데이터스토어 안의 부트스트랩 데이터를 암호화하는 데도 쓰여, 스냅샷 복구 때 필요합니다. 토큰을 잃으면 스냅샷이 있어도 복구가 어려워집니다.</li>
+      </ul>
+      <h3>Talos Linux: API로만 다루는 노드</h3>
+      <p>Talos에는 SSH도 셸도 패키지 관리자도 없습니다. 노드 OS와 Kubernetes 구성 전체가 하나의 머신 설정 YAML로 선언되고, <code>talosctl</code>이 mTLS로 노드 API를 호출해 적용합니다.</p>
+      <ul>
+        <li><code>talosctl gen config</code>로 설정 생성 → <code>apply-config</code>로 노드에 적용 → 첫 컨트롤 플레인 노드에서 한 번만 <code>talosctl bootstrap</code>으로 etcd를 시작합니다.</li>
+        <li>etcd 멤버십은 Talos가 관리합니다. 노드를 리셋하면 멤버에서 빠지고, 진단은 <code>talosctl etcd members</code>, <code>talosctl logs etcd</code>로 합니다.</li>
+        <li>OS 업그레이드(<code>talosctl upgrade</code>)와 Kubernetes 업그레이드(<code>talosctl upgrade-k8s</code>)가 분리되어 있습니다.</li>
+        <li>운영자 습관이 가장 크게 바뀌는 배포판입니다. “노드에 들어가서 확인한다”가 불가능하므로 관측 체계가 먼저 갖춰져 있어야 합니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>클러스터 생성 도구 비교</h2>
+    <div class="prose"><p>생성 도구는 “처음 한 번”만 쓰는 도구가 아닙니다. 그 도구가 무엇을 기억하고(상태), 이후 변경을 어떻게 반영하는지(day-2)가 운영 방식 전체를 정합니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>도구</th><th>대상</th><th>방식</th><th>만드는 범위</th><th>상태를 기억하는 곳</th><th>day-2</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td>임의 Linux</td><td>명령형 단계(init·join)</td><td>컨트롤 플레인 부트스트랩, 인증서</td><td>노드 디스크(<code>/etc/kubernetes</code>)</td><td><code>kubeadm upgrade</code>, <code>certs renew</code>. 인프라·CNI는 범위 밖</td></tr>
+        <tr><td class="k">Cluster API</td><td>AWS·Azure·GCP·vSphere·베어메탈 등(프로바이더)</td><td>선언형 CRD, 관리 클러스터의 컨트롤러가 조정</td><td>인프라 + 컨트롤 플레인 + 노드</td><td>관리 클러스터의 etcd</td><td>버전 필드만 바꾸면 롤링 교체. v1.12에서 in-place 업데이트와 연쇄 업그레이드 도입</td></tr>
+        <tr><td class="k">eksctl</td><td>EKS</td><td>CLI + ClusterConfig YAML → CloudFormation</td><td>VPC, 클러스터, 노드 그룹, 애드온</td><td>CloudFormation 스택</td><td>일부 변경 지원. 콘솔 변경과 섞이면 드리프트</td></tr>
+        <tr><td class="k">az aks / gcloud</td><td>AKS / GKE</td><td>명령형 CLI</td><td>클러스터, 노드 풀</td><td>클라우드 리소스 자체</td><td>CLI로 변경. 이력은 스크립트·활동 로그에만</td></tr>
+        <tr><td class="k">openshift-install</td><td>OpenShift</td><td>install-config.yaml → IPI·UPI·Agent 기반 설치</td><td>(IPI면) 인프라 + 전체 플랫폼</td><td>설치 디렉터리(초기 kubeconfig·메타데이터)와 클러스터 자신</td><td>설치 후에는 CVO·MCO가 담당. 설치 도구로 되돌아가지 않음</td></tr>
+        <tr><td class="k">RKE2</td><td>임의 Linux</td><td>설치 스크립트 + config.yaml</td><td>컨트롤 플레인 + 노드 + 번들 애드온</td><td>노드 디스크</td><td>system-upgrade-controller, Rancher</td></tr>
+        <tr><td class="k">Talos</td><td>베어메탈·VM·클라우드</td><td>선언형 머신 설정</td><td>OS + Kubernetes</td><td>머신 설정 파일</td><td><code>talosctl apply-config</code>, <code>upgrade-k8s</code></td></tr>
+        <tr><td class="k">Terraform</td><td>프로바이더가 있는 모든 곳</td><td>선언형 HCL + plan/apply</td><td>클라우드 리소스(EKS·AKS·GKE 클러스터, 노드 그룹, 네트워크)</td><td>state 파일</td><td>plan으로 변경 미리보기. 클러스터 안 리소스까지 Terraform으로 관리하면 경계가 흐려짐</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note trap"><b>함정: 만든 도구와 고치는 도구가 다르다</b>
+    Terraform으로 만든 EKS 클러스터를 누군가 콘솔에서 업그레이드하거나, eksctl로 만든 노드 그룹을 CLI로 고치면 상태 파일·스택과 실제가 어긋납니다. 다음 <code>apply</code>가 버전을 되돌리려 하거나 노드 그룹을 교체하려 들 수 있습니다. MSP라면 고객사마다 <strong>“이 클러스터의 진실 공급원은 무엇인가”</strong>를 한 줄로 문서화해 두세요. 23편에서 업그레이드 절차와 함께 다룹니다.</div>
+    <div class="prose">
+      <h3>고르는 기준</h3>
+      <ul>
+        <li><strong>퍼블릭 클라우드 매니지드, 클러스터 몇 개:</strong> 조직의 IaC 표준(대개 Terraform)으로 만들고, 클러스터 안 구성은 GitOps(24편)로 분리합니다.</li>
+        <li><strong>온프렘, 벤더 지원 필요:</strong> OpenShift(openshift-install) 또는 RKE2(Rancher Prime). 설치 도구보다 지원 계약이 결정 요인입니다.</li>
+        <li><strong>여러 인프라에 걸친 다수 클러스터:</strong> Cluster API나 그것을 감싼 관리 평면(Rancher 프로비저닝, OpenShift HCP 등). 클러스터를 ‘가축’처럼 다룰 수 있어야 의미가 있습니다.</li>
+        <li><strong>학습·검증:</strong> kubeadm. 다른 도구가 대신 해 주는 일이 무엇인지 보려면 한 번은 직접 해야 합니다. 3편에서 이 기준선 클러스터를 만듭니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>1.36·1.37의 컨트롤 플레인 변화</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>변화</th><th>버전·단계</th><th>운영 영향</th></tr></thead>
+      <tbody>
+        <tr><td class="k">etcd RangeStream</td><td>1.37 Beta, 기본 켜짐(etcd 3.7 필요)</td><td>대형 LIST와 watch 캐시 초기화의 메모리 급증 완화. API 서버 재시작 때 OOM 위험 감소</td></tr>
+        <tr><td class="k">Watch 캐시 초기화 안정화</td><td>1.37 Stable(관련 게이트 잠김)</td><td>시작·복구 시 etcd로 몰리는 트래픽 급증 감소</td></tr>
+        <tr><td class="k">Storage Version Migration</td><td>1.37 기본 활성</td><td>암호화 키 교체, API 버전 이전 후 저장 객체 재작성</td></tr>
+        <tr><td class="k">매니페스트 기반 어드미션 구성</td><td>1.36 Alpha → 1.37 Beta</td><td>API로 지울 수 없는 기준 정책. Native·배포판에서 주로 활용</td></tr>
+        <tr><td class="k">Mixed Version Proxy</td><td>1.36 Beta</td><td>업그레이드 중 버전이 다른 API 서버 사이에서 요청을 알맞은 쪽으로 전달해 롤링 업그레이드 중 404 감소</td></tr>
+        <tr><td class="k">서버 측 샤딩 LIST·watch</td><td>1.36 도입</td><td>대규모 컨트롤러가 객체를 나눠 지켜보는 기반</td></tr>
+        <tr><td class="k">선언적 검증</td><td>1.36 GA</td><td>내장 API 검증 규칙이 선언적으로 정리. 동작상 차이는 거의 없음</td></tr>
+        <tr><td class="k">세분화된 kubelet API 인가</td><td>1.36 GA</td><td>모니터링 에이전트의 kubelet 접근 권한 최소화(18편)</td></tr>
+        <tr><td class="k">etcd 3.7</td><td>2026-07 릴리스</td><td>RangeStream, v2 저장소 제거, keys-only 최적화</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>실습: 요청을 해부하고 etcd를 열어 보기</h2>
+    <div class="prose">
+      <p>kind로 감사 로그가 켜진 1.37 클러스터를 만들고, 요청 하나를 단계별로 관찰한 뒤 어드미션 장애를 일부러 일으키고 etcd 내부를 들여다봅니다. 모든 실습은 버려도 되는 클러스터에서만 하세요. 마지막 실습만 매니지드 클러스터가 필요합니다.</p>
+      <h3>실습 0. 감사 로그가 켜진 kind 클러스터</h3>
+    </div>
+    <div class="code"><div class="bar"><span>audit-policy.yaml</span><button class="copy" type="button">복사</button></div><pre>apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+<span class="c"># 헬스 체크와 kube-proxy watch는 기록하지 않음</span>
+- level: None
+  nonResourceURLs: ["/livez*", "/readyz*", "/healthz*"]
+- level: None
+  users: ["system:kube-proxy"]
+  verbs: ["watch"]
+<span class="c"># Secret·ConfigMap은 본문 없이 메타데이터만</span>
+- level: Metadata
+  resources:
+  - group: ""
+    resources: ["secrets", "configmaps"]
+<span class="c"># 변경 요청은 요청·응답 본문까지</span>
+- level: RequestResponse
+  verbs: ["create", "update", "patch", "delete"]
+<span class="c"># 나머지는 메타데이터</span>
+- level: Metadata</pre></div>
+    <div class="code"><div class="bar"><span>kind-audit.yaml (kubeadm v1beta4 형식)</span><button class="copy" type="button">복사</button></div><pre>kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraMounts:
+  - hostPath: ./audit-policy.yaml
+    containerPath: /etc/kubernetes/policies/audit-policy.yaml
+    readOnly: true
+  kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    apiServer:
+      extraArgs:
+      - name: audit-log-path
+        value: /var/log/kubernetes/audit.log
+      - name: audit-policy-file
+        value: /etc/kubernetes/policies/audit-policy.yaml
+      extraVolumes:
+      - name: audit-policies
+        hostPath: /etc/kubernetes/policies
+        mountPath: /etc/kubernetes/policies
+        readOnly: true
+        pathType: DirectoryOrCreate
+      - name: audit-logs
+        hostPath: /var/log/kubernetes
+        mountPath: /var/log/kubernetes
+        readOnly: false
+        pathType: DirectoryOrCreate
+- role: worker</pre></div>
+    <div class="code"><div class="bar"><span>클러스터 생성</span><button class="copy" type="button">복사</button></div><pre>kind create cluster --name cp2 --config kind-audit.yaml --image kindest/node:v1.37.0
+kubectl config use-context kind-cp2
+<span class="c"># 컨트롤 플레인 정적 Pod 확인 (kubeadm 계열에서만 보이는 풍경)</span>
+kubectl -n kube-system get pods -o wide | grep -E 'apiserver|etcd|scheduler|controller'
+kubectl -n kube-system get lease</pre></div>
+    <div class="note"><b>버전 메모</b>
+    kind가 쓰는 kubeadm 설정 형식이 노드 이미지 버전에 따라 다를 수 있습니다. <code>extraArgs</code>를 이름·값 목록으로 쓰는 위 형식은 kubeadm v1beta4 기준입니다. 클러스터 생성이 설정 오류로 실패하면 kind 문서의 감사 예제 형식(<code>extraArgs</code>를 키·값 맵으로 쓰는 v1beta3)으로 바꿔 보세요.</div>
+
+    <div class="prose"><h3>실습 1. 요청 하나를 단계별로 관찰</h3></div>
+    <div class="code"><div class="bar"><span>인증·인가·APF·어드미션을 각각 드러내기</span><button class="copy" type="button">복사</button></div><pre><span class="c"># (1) 인증: 나는 누구인가</span>
+kubectl auth whoami
+
+<span class="c"># (2) HTTP 수준 추적: URL, 응답 코드, APF 헤더</span>
+kubectl get pods -A -v=8 2&gt;&amp;1 | grep -E 'GET https|Response Status|X-Kubernetes-PF' | head
+
+<span class="c"># (3) 인가: 권한 목록과 위장한 신원으로 확인</span>
+kubectl auth can-i --list | head -20
+kubectl auth can-i create pods/exec --as=system:serviceaccount:default:default
+
+<span class="c"># (4) 어드미션의 변경 효과: 저장하지 않고 서버 측 처리만 받아 보기</span>
+kubectl create deployment web --image=nginx --dry-run=client -o yaml &gt; client.yaml
+kubectl create deployment web --image=nginx --dry-run=server -o yaml &gt; server.yaml
+diff client.yaml server.yaml   <span class="c"># 기본값·어드미션이 채운 필드가 보임</span>
+
+<span class="c"># (5) 감사 로그에서 방금 요청의 단계 보기</span>
+kubectl create deployment web --image=nginx
+docker exec cp2-control-plane tail -n 200 /var/log/kubernetes/audit.log \
+  | jq -c 'select(.objectRef.resource=="deployments") | {stage, verb, user: .user.username, code: .responseStatus.code}'</pre></div>
+    <div class="prose">
+      <p><strong>관찰 포인트.</strong> (2)에서 응답 헤더의 FlowSchema UID를 <code>kubectl get flowschemas -o custom-columns=NAME:.metadata.name,UID:.metadata.uid</code>와 맞춰 보세요. (4)의 diff에서 <code>strategy</code>, <code>terminationGracePeriodSeconds</code> 같은 필드가 서버에서 생깁니다. (5)에서는 같은 요청이 RequestReceived와 ResponseComplete 두 단계로 기록되는 것을 확인합니다.</p>
+      <h3>실습 2. APF 관찰</h3>
+    </div>
+    <div class="code"><div class="bar"><span>우선순위 수준과 대기열</span><button class="copy" type="button">복사</button></div><pre>kubectl get prioritylevelconfigurations -o custom-columns=NAME:.metadata.name,TYPE:.spec.type,SHARES:.spec.limited.nominalConcurrencyShares
+kubectl get flowschemas -o custom-columns=NAME:.metadata.name,PL:.spec.priorityLevelConfiguration.name,PREC:.spec.matchingPrecedence | sort -k3 -n
+kubectl get --raw /debug/api_priority_and_fairness/dump_priority_levels
+
+<span class="c"># 부하를 만들어 보기: 별도 터미널에서 LIST를 반복</span>
+for i in $(seq 1 300); do kubectl get pods -A -o name &gt;/dev/null &amp; done; wait
+kubectl get --raw /metrics | grep -E 'apiserver_flowcontrol_(dispatched|rejected)_requests_total' | grep -v ' 0$' | head</pre></div>
+
+    <div class="prose"><h3>실습 3. 어드미션 웹훅 장애를 일부러 만들기</h3>
+      <p>존재하지 않는 서비스를 가리키는 웹훅을 만들고, failurePolicy에 따라 결과가 어떻게 달라지는지 봅니다. 범위를 레이블 붙은 네임스페이스로 좁혀 두었으니 다른 작업에는 영향이 없습니다.</p></div>
+    <div class="code"><div class="bar"><span>broken-webhook.yaml</span><button class="copy" type="button">복사</button></div><pre>apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: broken-demo
+webhooks:
+- name: broken.demo.example.com
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: Fail
+  timeoutSeconds: 5
+  namespaceSelector:
+    matchLabels:
+      webhook-demo: "on"
+  rules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE"]
+    resources: ["configmaps"]
+  clientConfig:
+    service:
+      namespace: default
+      name: does-not-exist
+      port: 443</pre></div>
+    <div class="code"><div class="bar"><span>재현과 비교</span><button class="copy" type="button">복사</button></div><pre>kubectl create ns wh-demo &amp;&amp; kubectl label ns wh-demo webhook-demo=on
+kubectl apply -f broken-webhook.yaml
+kubectl -n wh-demo create configmap a --from-literal=k=v     <span class="c"># 실패: failed calling webhook …</span>
+
+kubectl patch validatingwebhookconfiguration broken-demo --type=json \
+  -p='[{"op":"replace","path":"/webhooks/0/failurePolicy","value":"Ignore"}]'
+kubectl -n wh-demo create configmap b --from-literal=k=v     <span class="c"># 성공: 웹훅을 건너뜀</span>
+
+kubectl get --raw /metrics | grep apiserver_admission_webhook | grep broken | head
+kubectl delete validatingwebhookconfiguration broken-demo</pre></div>
+    <div class="prose"><p>같은 정책을 웹훅 없이 CEL로 쓰면 API 서버 안에서 평가되므로 네트워크 경로도, 웹훅 Pod의 가용성도 필요 없습니다.</p></div>
+    <div class="code"><div class="bar"><span>vap-owner-label.yaml</span><button class="copy" type="button">복사</button></div><pre>apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cm-must-have-owner
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["configmaps"]
+  validations:
+  - expression: "has(object.metadata.labels) &amp;&amp; 'owner' in object.metadata.labels"
+    message: "ConfigMap에는 owner 레이블이 필요합니다"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cm-must-have-owner
+spec:
+  policyName: cm-must-have-owner
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        webhook-demo: "on"</pre></div>
+    <div class="code"><div class="bar"><span>VAP 확인</span><button class="copy" type="button">복사</button></div><pre>kubectl apply -f vap-owner-label.yaml
+kubectl -n wh-demo create configmap c --from-literal=k=v                 <span class="c"># 거부</span>
+kubectl -n wh-demo create configmap d --from-literal=k=v -o yaml --dry-run=client \
+  | kubectl label --local -f - owner=team-a -o yaml | kubectl apply -f -  <span class="c"># 허용</span></pre></div>
+
+    <div class="prose"><h3>실습 4. etcd 들여다보기</h3></div>
+    <div class="code"><div class="bar"><span>etcd 상태·키 구조·리비전·평문 Secret 확인</span><button class="copy" type="button">복사</button></div><pre>ETCD=etcd-cp2-control-plane
+TLS="--cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
+ec(){ kubectl -n kube-system exec "$ETCD" -- etcdctl --endpoints=https://127.0.0.1:2379 $TLS "$@"; }
+
+<span class="c"># 상태: 버전, DB 크기, 리더, 리비전</span>
+ec endpoint status -w table
+ec version
+
+<span class="c"># 키 구조: 리소스별 키 수</span>
+ec get /registry --prefix --keys-only | awk -F/ 'NF&gt;2{print $3}' | sort | uniq -c | sort -rn | head -15
+
+<span class="c"># 리비전이 쓰기마다 오르는 것 확인</span>
+ec endpoint status -w json | jq '.[0].Status.header.revision'
+kubectl create configmap rev-test --from-literal=a=1
+ec endpoint status -w json | jq '.[0].Status.header.revision'
+
+<span class="c"># 암호화가 없으면 Secret 값이 그대로 보인다</span>
+kubectl create secret generic demo --from-literal=password=s3cr3t-value
+ec get /registry/secrets/default/demo | strings | grep s3cr3t
+
+<span class="c"># 스냅샷 백업 (컨테이너 안에 저장 후 꺼내기)</span>
+ec snapshot save /var/lib/etcd/snap.db
+docker cp cp2-control-plane:/var/lib/etcd/snap.db ./snap.db &amp;&amp; ls -lh snap.db</pre></div>
+    <div class="note trap"><b>함정: 실습 4의 grep 결과가 보안 감사 결과다</b>
+    마지막에서 두 번째 명령이 비밀번호를 출력했다면, 그 클러스터의 etcd 디스크나 백업 파일을 손에 넣은 사람은 모든 Secret을 읽을 수 있습니다. 고객사 Native 클러스터를 인수할 때 이 확인을 체크리스트에 넣으세요. etcd 스냅샷 파일 자체도 같은 등급의 기밀 자료입니다.</div>
+
+    <div class="prose"><h3>실습 5. 매니지드에서 같은 것을 보기 (선택)</h3>
+      <ol>
+        <li>5장의 명령으로 컨트롤 플레인 로그를 켜고, 실습 1의 <code>kubectl create deployment</code>를 다시 실행해 벤더 로그 서비스에서 같은 감사 이벤트를 찾으세요.</li>
+        <li><code>kubectl get --raw /metrics | grep apiserver_storage_size_bytes</code>로 리소스별 저장 크기를 확인하고, 가장 큰 세 리소스를 적으세요.</li>
+        <li>실습 3을 매니지드 클러스터에서 반복하되, 웹훅 서비스를 실제로 띄우고 노드 보안 그룹(또는 방화벽)에서 웹훅 포트를 막았을 때의 증상을 기록하세요.</li>
+      </ol>
+      <h3>과제</h3>
+      <ol>
+        <li>요청 경로 추적기의 다섯 시나리오 각각에 대해, 실습 클러스터에서 그 단계의 실패를 재현할 수 있는 명령을 하나씩 만드세요(예: 401은 만료된 토큰, 429는 실습 2).</li>
+        <li>담당 고객사 클러스터 하나의 etcd 현황을 조사해 <strong>현재 DB 크기, 쿼터, 가장 큰 리소스 세 개, 마지막 백업 시각과 위치, 복구 리허설 날짜</strong>를 표로 정리하세요. 매니지드라면 etcd 대신 <code>apiserver_storage_size_bytes</code>와 애플리케이션 백업 현황을 적습니다.</li>
+        <li>그 클러스터에 설치된 모든 어드미션 웹훅을 나열하고, 각각의 failurePolicy, namespaceSelector, 레플리카 수, PDB 유무를 확인해 10장 두 번째 사례의 위험이 있는지 판정하세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>GKE 비공개 클러스터에서 웹훅만 타임아웃</summary><div class="body">
+      <p><strong>상황.</strong> 비공개 GKE 클러스터에 정책 엔진을 설치했더니 Pod 생성이 전부 <code>context deadline exceeded</code>로 실패했습니다. 정책 엔진 Pod는 Running이었습니다.</p>
+      <p><strong>원인.</strong> 웹훅 서버가 9443 포트에서 대기했는데, 컨트롤 플레인에서 노드로 허용된 포트는 기본적으로 443과 10250 정도뿐이었습니다. 노드 → API 서버 방향은 멀쩡해 다른 모든 것이 정상으로 보였습니다.</p>
+      <p><strong>대응.</strong> 컨트롤 플레인 대역에서 노드의 웹훅 포트로 가는 방화벽 규칙을 추가하거나, 웹훅을 443으로 노출했습니다. 같은 문제가 EKS에서는 클러스터 보안 그룹 규칙, AKS에서는 konnectivity 경로 이상으로 나타납니다.</p>
+      <p><strong>교훈.</strong> 웹훅을 도입할 때는 “Pod가 떴는가”가 아니라 <strong>“API 서버가 그 포트에 닿는가”</strong>를 검증 항목으로 넣으세요.</p>
+    </div></details>
+    <details class="case"><summary>웹훅 Pod 하나가 죽자 클러스터 전체 배포가 멈췄다</summary><div class="body">
+      <p><strong>상황.</strong> 모든 네임스페이스의 Pod 생성을 검사하는 웹훅(failurePolicy: Fail, 레플리카 1)의 노드가 다운되자, 어떤 Pod도 만들 수 없게 됐습니다. 웹훅 자신의 Deployment가 새 Pod를 만들려 해도 그 생성 요청이 같은 웹훅을 거쳐야 해서 영원히 실패했습니다.</p>
+      <p><strong>원인.</strong> namespaceSelector가 웹훅 자신의 네임스페이스와 kube-system을 제외하지 않았고, 레플리카와 PDB가 없었습니다. 교착 상태입니다.</p>
+      <p><strong>대응.</strong> 웹훅 설정을 지워 우선 복구한 뒤, 웹훅 네임스페이스와 kube-system을 제외하고, 레플리카 3 + PDB + 토폴로지 분산, timeoutSeconds 축소를 적용했습니다. 단순한 필드 규칙은 VAP로 옮겼습니다.</p>
+      <p><strong>교훈.</strong> Fail 정책의 웹훅은 <strong>컨트롤 플레인의 일부</strong>로 취급해야 합니다. 매니지드에서는 이 웹훅이 사실상 내가 운영하는 유일한 컨트롤 플레인 구성 요소입니다.</p>
+    </div></details>
+    <details class="case"><summary>EKS Standard 클러스터의 DB가 8GB에 다가간다</summary><div class="body">
+      <p><strong>상황.</strong> 데이터 파이프라인 고객의 EKS 클러스터에서 <code>apiserver_storage_size_bytes</code> 합계가 꾸준히 늘었습니다. 상위 리소스는 워크플로 엔진의 CR, Helm 릴리스 Secret, Event였습니다.</p>
+      <p><strong>원인.</strong> 실행마다 CR이 생기고 지워지지 않았고, 수백 개 릴리스가 Helm 이력을 기본값으로 쌓고 있었습니다. Standard 모드 DB 한도는 8GB입니다.</p>
+      <p><strong>대응.</strong> 워크플로 CR에 TTL 정리를 걸고, Helm <code>--history-max</code>를 낮추고, 오래된 ReplicaSet 이력을 줄였습니다. 성장 추세가 계속되자 Provisioned 티어(DB 16GB)를 비용과 함께 검토했습니다. 티어로 올리면 다시 Standard로 내려가기 전 크기를 줄여야 한다는 점도 함께 기록했습니다.</p>
+      <p><strong>교훈.</strong> 매니지드에서도 etcd 크기는 <strong>내 워크로드가 만드는 내 문제</strong>입니다. 저장 크기 지표에 경보를 거세요.</p>
+    </div></details>
+    <details class="case"><summary>어느 날 아침 kubeadm 클러스터에 kubectl이 안 붙는다</summary><div class="body">
+      <p><strong>상황.</strong> 1년 넘게 업그레이드 없이 운영한 온프렘 kubeadm 클러스터에서 <code>x509: certificate has expired</code>가 나며 API 접근이 끊겼습니다.</p>
+      <p><strong>원인.</strong> kubeadm이 발급하는 컨트롤 플레인 인증서의 유효 기간은 1년입니다. <code>kubeadm upgrade</code> 때 자동 갱신되지만, 업그레이드를 하지 않으면 그대로 만료됩니다. kubelet 클라이언트 인증서는 자동 회전되므로 노드는 멀쩡해 보이는 경우가 많습니다.</p>
+      <p><strong>대응.</strong> <code>kubeadm certs check-expiration</code>으로 확인 후 <code>kubeadm certs renew all</code>, 컨트롤 플레인 정적 Pod 재시작, admin.conf 재배포.</p>
+      <p><strong>교훈.</strong> 업그레이드는 버전 문제가 아니라 <strong>인증서 수명 관리</strong>이기도 합니다. 만료 30일 전 경보를 모든 Native·배포판 클러스터에 거세요. RKE2도 인증서 수명과 자동 교체 조건을 확인해야 합니다.</p>
+    </div></details>
+    <details class="case"><summary>RKE2 스냅샷은 있었는데 복구할 수 없었다</summary><div class="body">
+      <p><strong>상황.</strong> 단일 서버 노드 RKE2 클러스터의 디스크가 손상됐습니다. 자동 스냅샷은 정상적으로 돌고 있었습니다.</p>
+      <p><strong>원인.</strong> 스냅샷이 같은 노드의 같은 디스크에만 저장되어 있었고, 서버 토큰도 그 노드에만 있었습니다.</p>
+      <p><strong>대응.</strong> 다른 백업 시스템의 오래된 VM 이미지로 부분 복구했습니다. 이후 S3 업로드, 토큰의 비밀 저장소 보관, 분기별 복구 리허설을 표준화했습니다.</p>
+      <p><strong>교훈.</strong> “기본 제공 스냅샷”은 공동 책임 칸입니다(1편). 백업은 <strong>다른 장애 영역에 있고, 복구 리허설을 해 본 것</strong>만 백업입니다.</p>
+    </div></details>
+    <details class="case"><summary>GKE zonal 클러스터 업그레이드 시간에 CI/CD가 줄줄이 실패</summary><div class="body">
+      <p><strong>상황.</strong> 매주 같은 시간대에 배포 파이프라인이 API 연결 실패로 깨졌습니다.</p>
+      <p><strong>원인.</strong> 비용 때문에 zonal로 만든 GKE 클러스터에 유지보수 창이 업무 시간으로 잡혀 있었고, 컨트롤 플레인 업그레이드·크기 조정 동안 API가 몇 분씩 끊겼습니다.</p>
+      <p><strong>대응.</strong> 운영 클러스터를 regional로 재구성하고, 남은 zonal 클러스터는 유지보수 창을 야간으로 옮기고 파이프라인에 재시도를 넣었습니다.</p>
+      <p><strong>교훈.</strong> 매니지드라도 <strong>컨트롤 플레인의 이중화 여부는 내가 고른 옵션</strong>입니다. 견적 단계에서 SLA와 함께 설명해야 할 항목입니다.</p>
+    </div></details>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>용어 사전</h2>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: APF, 디프래그, HCP)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S13 -->
+  <section class="chap" id="s13">
+    <div class="chap-num">13</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>API 서버의 처리 순서는 인증 → 감사 → 위장 → APF → 인가 → 디코딩 → 변경 어드미션 → 검증 → 검증 어드미션 → 저장이며, 상태 코드로 실패 단계를 짚을 수 있습니다.</li>
+        <li>APF는 인가보다 먼저 seat를 점유하고, LIST는 최대 10 seat를 쓰므로 컨트롤 플레인 부하의 주범은 대개 내 클라이언트입니다.</li>
+        <li>etcd는 컴팩션(논리)과 디프래그(물리)를 구분해야 하고, 쿼터 초과는 쓰기 정지로 이어지며, 스냅샷은 CA·키와 함께여야 복구됩니다.</li>
+        <li>매니지드의 핵심 차이는 컨트롤 플레인에서 노드로 가는 경로(ENI·konnectivity)와 관찰 수단이며, 웹훅이 이 경로의 가장 흔한 피해자입니다.</li>
+        <li>생성 도구는 상태를 어디에 기억하는지와 day-2 방식으로 고르고, 만든 도구와 고치는 도구를 일치시켜야 합니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 3편 실습 랩 구축</h3>
+      <p style="margin:.3em 0 0">이 시리즈 전체의 기준선이 될 kubeadm 3노드 클러스터(컨트롤 플레인 1 + 워커 2)를 처음부터 만들고, 이번 편의 감사 정책·etcd 백업·인증서 점검을 기본 구성으로 넣습니다. 이어서 EKS·AKS·GKE 최소 비용 클러스터, OpenShift Local, RKE2 단일 VM을 준비하고 공통 관측 도구(k9s, stern, Hubble·Calico 도구, kubectl 플러그인)를 세팅해 1편의 지문 스크립트로 여섯 환경을 비교합니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Kubernetes v1.37: etcd RangeStream — https://kubernetes.io/blog/2026/09/01/kubernetes-v1-37-etcd-range-stream/</li>
+        <li>KEP-5966 etcd RangeStream — https://www.kubernetes.dev/resources/keps/5966/</li>
+        <li>Kubernetes v1.37 릴리스 블로그 — https://kubernetes.io/blog/2026/08/26/kubernetes-v1-37-release/</li>
+        <li>API Priority and Fairness, Controlling Access to the Kubernetes API, Admission Controllers, Auditing, Encrypting Confidential Data at Rest — kubernetes.io 문서</li>
+        <li>Operating etcd clusters for Kubernetes, etcd 운영 가이드(maintenance: compaction·defrag·space quota) — kubernetes.io·etcd.io 문서</li>
+        <li>Amazon EKS Provisioned Control Plane — https://docs.aws.amazon.com/eks/latest/userguide/eks-provisioned-control-plane.html</li>
+        <li>AKS 리소스 로그 카테고리, GKE 컨트롤 플레인 로그·메트릭 — 각 벤더 문서</li>
+        <li>OpenShift Hosted Control Planes, etcd 백업·재해 복구 — Red Hat 문서</li>
+        <li>RKE2 etcd 스냅샷·복구, 서버 구성 옵션 — SUSE RKE2 문서</li>
+        <li>Talos Linux 재해 복구(etcd snapshot, bootstrap --recover-from) — Sidero Labs 문서</li>
+        <li>Cluster API v1.12: In-place Updates and Chained Upgrades — kubernetes.io 블로그(2026-01)</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 2편. 작성 기준일 2026-10-23, Kubernetes v1.37·etcd v3.7 기준.
+      벤더의 한도·SLA·로그 카테고리는 자주 바뀌므로 고객 보고서에 인용하기 전 각 벤더 공식 문서로 다시 확인하세요.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- request tracer ---------- */
+const ST=[
+ {id:"conn",n:"접속 경로·TLS",code:"",what:"클라이언트가 API 엔드포인트에 TLS로 접속합니다. 서버 인증서 검증과, x509 인증을 쓴다면 클라이언트 인증서 제출이 여기서 일어납니다.",fail:"연결 거부·타임아웃, x509: certificate signed by unknown authority",vendor:"kubeadm: 컨트롤 플레인 노드나 앞단 LB(kube-vip·HAProxy)의 6443. RKE2: 6443(API)과 9345(노드 합류용 supervisor). OpenShift: api.<클러스터>.<도메인>:6443. EKS: 공개·비공개 엔드포인트와 허용 CIDR. AKS: 공개·비공개 클러스터, 허용 IP 범위, API Server VNet Integration. GKE: 공개·비공개 엔드포인트, DNS 기반 엔드포인트.",metric:"apiserver_tls_handshake_errors_total"},
+ {id:"authn",n:"인증",code:"401",what:"인증기 체인이 차례로 시도해 처음 성공한 인증기가 사용자·그룹을 정합니다. x509 클라이언트 인증서, ServiceAccount 토큰, OIDC·Structured Authentication, 웹훅 토큰 인증, 인증 프록시 헤더가 있습니다. 모두 실패하면 익명(허용된 경우)이 되거나 401입니다.",fail:"401 Unauthorized",vendor:"EKS: IAM 서명 토큰을 검증하고 access entry로 사용자명·그룹을 매핑. AKS: Entra ID 토큰(kubelogin). GKE: Google 신원 토큰. OpenShift: 내장 OAuth 서버가 발급한 토큰 또는 외부 OIDC 직접 연동. kubeadm·RKE2: 직접 구성. 17편에서 해부합니다.",metric:"authentication_attempts, authentication_duration_seconds"},
+ {id:"audit",n:"감사 기록 시작",code:"",what:"감사 정책을 평가해 이 요청을 어느 수준(None·Metadata·Request·RequestResponse)으로 기록할지 정하고 RequestReceived 이벤트를 만듭니다. 인증 뒤에 오므로 ‘누가’가 기록됩니다.",fail:"감사 백엔드가 막히면 블로킹 모드에서 요청 지연",vendor:"kubeadm: 정책·백엔드를 직접 구성. RKE2: 감사 로그 경로가 정해져 있고 정책 파일로 조정. OpenShift: 감사 프로파일 선택. EKS: audit 로그 유형을 켜면 CloudWatch Logs. AKS: kube-audit·kube-audit-admin 카테고리. GKE: Cloud Audit Logs(정책은 Google이 정함).",metric:"apiserver_audit_event_total, apiserver_audit_error_total"},
+ {id:"imp",n:"위장 (Impersonation)",code:"403",what:"Impersonate-User·Impersonate-Group 헤더가 있으면 요청자에게 impersonate 권한이 있는지 먼저 인가 검사를 하고, 이후 단계는 바뀐 신원으로 진행합니다.",fail:"403 (impersonate 권한 없음)",vendor:"모든 배포 방식 공통. Rancher 인증 프록시, 여러 대시보드·콘솔이 이 기능으로 사용자 신원을 대신 전달합니다. 권한 상승 경로로 18·22편에서 다시 다룹니다.",metric:"감사 로그의 impersonatedUser 필드"},
+ {id:"apf",n:"APF 대기열",code:"429",what:"FlowSchema가 요청을 분류해 PriorityLevel에 보내고, 남은 seat가 없으면 공정 큐잉으로 기다립니다. 큐가 넘치면 429입니다. 인가보다 먼저 일어납니다.",fail:"429 Too Many Requests (Retry-After 헤더)",vendor:"kubeadm·RKE2: 동시성 플래그와 FlowSchema 조정 가능. OpenShift: FlowSchema 추가 가능. EKS Standard: 반응형 자동 확장, Provisioned 티어는 seat 수 보장. AKS·GKE: 용량 비공개·자동 확장. FlowSchema 객체는 어디서나 추가할 수 있습니다.",metric:"apiserver_flowcontrol_rejected_requests_total, apiserver_flowcontrol_current_inqueue_requests"},
+ {id:"authz",n:"인가",code:"403",what:"인가기 체인(Node, RBAC, 웹훅 등)이 ‘이 신원이 이 동사로 이 리소스에 접근해도 되는가’를 판단합니다. 어느 하나가 허용하면 허용되고, 명시적 거부를 돌려주는 인가기가 먼저 나오면 거부됩니다.",fail:"403 Forbidden: User \"…\" cannot <동사> resource \"…\"",vendor:"kubeadm·RKE2: Node + RBAC. EKS: RBAC + EKS access policy 인가기. AKS: RBAC 또는 Azure RBAC 인가 웹훅. GKE: Google IAM과 RBAC을 함께 평가. OpenShift: RBAC + OpenShift 추가 인가 로직.",metric:"apiserver_authorization_decisions_total"},
+ {id:"decode",n:"디코딩·변환·기본값",code:"400",what:"본문을 디코딩하고, 요청한 API 버전에서 내부 버전으로 변환한 뒤 기본값을 채웁니다. CRD라면 conversion 웹훅이 이 단계에서 불릴 수 있습니다.",fail:"400 Bad Request, 415 Unsupported Media Type",vendor:"동작은 공통. 차이는 설치된 CRD와 conversion 웹훅의 수에서 납니다. OpenShift처럼 CRD가 수백 개인 플랫폼은 conversion 경로도 많습니다.",metric:"apiserver_request_duration_seconds"},
+ {id:"madm",n:"변경 어드미션",code:"400·500",what:"내장 변경 플러그인 → MutatingAdmissionPolicy(CEL) → MutatingAdmissionWebhook 순으로 객체를 고칩니다. 웹훅이 객체를 바꾸면 reinvocationPolicy에 따라 앞선 웹훅이 다시 불릴 수 있습니다.",fail:"웹훅이 거부하면 400·403, 웹훅 타임아웃·실패면 failurePolicy에 따라 500 계열 또는 통과",vendor:"웹훅 호출은 API 서버에서 노드 위 Pod로 가는 방향이라 매니지드에서는 컨트롤 플레인 → 노드 경로(EKS ENI·보안 그룹, AKS·GKE konnectivity·방화벽)에 좌우됩니다. 벤더가 미리 넣어 둔 웹훅(워크로드 아이덴티티 주입 등)도 이미 여기 있습니다.",metric:"apiserver_admission_webhook_admission_duration_seconds, apiserver_admission_webhook_rejection_count"},
+ {id:"valid",n:"스키마·필드 검증",code:"422",what:"OpenAPI 스키마, 리소스별 검증 규칙(1.36에서 선언적 검증 GA), CRD 스키마와 CEL 검증 규칙이 실행됩니다. 알 수 없는 필드는 서버 측 필드 검증 모드(Strict·Warn·Ignore)에 따라 처리됩니다.",fail:"422 Unprocessable Entity",vendor:"공통",metric:"apiserver_request_total{code=\"422\"}"},
+ {id:"vadm",n:"검증 어드미션",code:"403",what:"ValidatingAdmissionPolicy(CEL) → ValidatingAdmissionWebhook → ResourceQuota 같은 내장 검증 플러그인이 최종 객체를 봅니다. 객체를 바꿀 수 없고 허용·거부만 합니다. 모두 통과해야 합니다.",fail:"403 또는 400, 메시지에 정책·웹훅 이름 포함",vendor:"OpenShift: SCC 검사가 항상 있음. GKE Autopilot·EKS Auto Mode: 벤더 정책이 특권 설정 등을 거부. AKS: Azure Policy 애드온(Gatekeeper 웹훅). EKS: 내장 플러그인 목록은 고정이지만 VAP·웹훅은 추가 가능.",metric:"apiserver_validating_admission_policy_check_total"},
+ {id:"store",n:"저장소",code:"409·500",what:"쓰기: 저장 버전으로 변환하고, 설정돼 있으면 암호화한 뒤 resourceVersion 기반 낙관적 동시성으로 etcd에 씁니다. 읽기: 대부분 watch 캐시에서, 필요하면 etcd에서 직접 읽습니다(1.37은 RangeStream).",fail:"409 Conflict, 500·504, etcdserver: mvcc: database space exceeded",vendor:"kubeadm·RKE2: 내가 운영하는 etcd. OpenShift: etcd 오퍼레이터. EKS: Standard DB 한도 8GB, Provisioned 16GB. AKS·GKE: 비공개. 저장 시 암호화는 RKE2 기본 켜짐, EKS 1.28 이상 기본 봉투 암호화, OpenShift 옵트인, AKS·GKE는 KMS 옵션.",metric:"etcd_request_duration_seconds, apiserver_storage_size_bytes"},
+ {id:"resp",n:"응답·watch 전파",code:"",what:"응답을 직렬화하고 감사 ResponseComplete 이벤트를 남깁니다. 쓰기였다면 etcd watch로 watch 캐시가 갱신되고, 그 리소스를 지켜보던 컨트롤러·kubelet에게 이벤트가 퍼집니다.",fail:"",vendor:"공통. 여기서부터 컨트롤러 매니저와 스케줄러의 일이 시작되고, 그들의 요청이 다시 이 경로 전체를 지납니다.",metric:"apiserver_request_total(code별), apiserver_watch_events_total"}
+];
+const SC=[
+ {n:"kubectl apply (Deployment 생성)",skip:["imp"],o:{imp:"위장 헤더가 없어 건너뜁니다.",resp:"Deployment가 저장되면 deployment 컨트롤러가 ReplicaSet을, ReplicaSet 컨트롤러가 Pod를 만들고, 스케줄러가 Pod의 nodeName을 채우고, kubelet이 상태를 보고합니다. 그 하나하나가 다시 이 열두 단계를 지나는 별도의 API 요청입니다."}},
+ {n:"kubectl get pods -A (LIST)",skip:["imp","decode","madm","valid","vadm"],o:{apf:"LIST는 예상 반환 객체 수에 비례해 최대 10 seat를 점유합니다. 전체 네임스페이스 Pod LIST를 주기적으로 반복하는 클라이언트가 위험한 이유입니다. informer(watch + 로컬 캐시)를 쓰는 것이 정석입니다.",authz:"동사는 list, 리소스는 pods. -A이므로 클러스터 범위 list 권한이 필요합니다. 네임스페이스 Role만 있으면 403입니다.",store:"최신 상태 LIST라도 watch 캐시가 최신임을 확인한 뒤 캐시에서 응답할 수 있습니다. limit·continue 페이지 요청 일부나 캐시를 쓸 수 없는 경로는 etcd로 가며, 1.37에서는 이 경로가 RangeStream으로 청크 단위 스트리밍됩니다."}},
+ {n:"kubectl exec",skip:["imp","valid"],o:{authz:"동사는 create, 리소스는 pods/exec 서브리소스입니다. get pods 권한만으로는 exec가 거부됩니다. 18편에서 다룰 대표적인 서브리소스 함정입니다.",decode:"본문이 없고 명령은 쿼리 파라미터로 전달됩니다. 연결 업그레이드(WebSocket, 1.31부터 SPDY에서 전환)를 준비합니다.",madm:"CONNECT 작업도 어드미션 대상입니다. 웹훅이나 정책으로 특정 네임스페이스에서 exec를 막을 수 있습니다.",vadm:"CONNECT 작업에 대한 검증 정책이 여기서 실행됩니다.",store:"etcd에는 아무것도 쓰지 않습니다. API 서버가 노드의 kubelet(10250)으로 연결을 열어 스트림을 프록시합니다. 매니지드에서는 이 연결이 EKS ENI나 AKS·GKE konnectivity를 지나므로, 보안 그룹·방화벽이 10250을 막으면 exec·logs만 실패합니다.",resp:"연결이 열린 동안 롱 러닝 요청으로 취급되어 일반 타임아웃이 적용되지 않습니다."}},
+ {n:"익명 /livez 헬스 체크",skip:["imp","decode","madm","valid","vadm"],o:{authn:"자격 증명이 없으므로 익명 인증이 허용된 경우 system:anonymous(그룹 system:unauthenticated)가 됩니다. 최근 버전은 익명 인증을 헬스 엔드포인트로만 제한하는 설정을 지원합니다.",audit:"보통 감사 정책에서 헬스 경로를 제외합니다. 실습 0의 정책도 그렇게 합니다.",apf:"기본 FlowSchema ‘probes’가 헬스 엔드포인트를 exempt 수준으로 보내 대기열을 건너뜁니다. 그래서 API 서버가 과부하여도 헬스 체크는 응답합니다.",authz:"기본 ClusterRole system:public-info-viewer가 /livez·/readyz·/healthz·/version을 익명 사용자에게도 허용합니다.",store:"저장소에 가지 않고 API 서버 내부 헬스 체커가 응답합니다. ?verbose를 붙이면 etcd 연결을 포함한 개별 체크 결과가 보입니다."}},
+ {n:"대시보드를 통한 요청 (위장)",skip:[],o:{authn:"인증되는 것은 사용자가 아니라 대시보드·프록시의 ServiceAccount입니다.",imp:"프록시가 Impersonate-User·Impersonate-Group 헤더로 실제 사용자 신원을 전달합니다. 프록시 SA에 impersonate 권한이 있어야 하며, 이 권한은 사실상 클러스터 관리자급이라 SA 토큰 유출이 곧 클러스터 장악입니다.",audit:"감사 로그에는 user(프록시 SA)와 impersonatedUser(실제 사용자)가 함께 남습니다. 탐지 규칙은 이 두 필드를 모두 봐야 합니다.",authz:"이후 인가는 위장된 사용자 기준으로 평가됩니다."}}
+];
+const scTabs=$("#scTabs"),pipe=$("#pipe"),trD=$("#trDetail"),trPos=$("#trPos");
+let curSc=0,curSt=0;
+function activeIdx(){return ST.map((s,i)=>SC[curSc].skip.includes(s.id)?-1:i).filter(i=>i>=0);}
+function renderTr(){
+  scTabs.innerHTML="";
+  SC.forEach((s,i)=>{const b=el("button",{class:"vtab",role:"tab",type:"button","aria-selected":String(i===curSc)},s.n);b.addEventListener("click",()=>{curSc=i;curSt=activeIdx()[0];renderTr();});scTabs.appendChild(b);});
+  pipe.innerHTML="";
+  ST.forEach((s,i)=>{
+    const skip=SC[curSc].skip.includes(s.id);
+    const b=el("button",{class:"stg "+(skip?"skip":"on"),type:"button","aria-pressed":String(i===curSt)},`<span>${s.n}</span>${s.code&&!skip?`<span class="code-tag">${s.code}</span>`:""}`);
+    b.addEventListener("click",()=>{curSt=i;renderTr();});pipe.appendChild(b);
+  });
+  const s=ST[curSt],skip=SC[curSc].skip.includes(s.id),ov=SC[curSc].o[s.id];
+  trD.innerHTML=`<h4>${curSt+1}. ${s.n}</h4><div class="tag" style="color:var(--${skip?"muted":"info"})">${SC[curSc].n} · ${skip?"이 요청은 이 단계를 건너뜀":"이 요청이 지나는 단계"}</div>`+
+   (ov?`<div class="row"><b>이 요청에서는</b>${ov}</div>`:"")+
+   `<div class="row"><b>일반적으로 하는 일</b>${s.what}</div>`+
+   (s.fail?`<div class="row"><b>실패하면</b><span class="fail">${s.fail}</span></div>`:"")+
+   `<div class="row"><b>벤더별 차이</b>${s.vendor}</div><div class="row"><b>지켜볼 지표</b><code>${s.metric}</code></div>`;
+  const act=activeIdx(),k=act.indexOf(curSt);
+  trPos.textContent=k>=0?`지나는 단계 ${act.length}개 중 ${k+1}번째`:"건너뛰는 단계";
+}
+$("#trNext").addEventListener("click",()=>{const a=activeIdx();const nx=a.find(i=>i>curSt);if(nx!==undefined){curSt=nx;renderTr();}});
+$("#trPrev").addEventListener("click",()=>{const a=activeIdx().slice().reverse();const pv=a.find(i=>i<curSt);if(pv!==undefined){curSt=pv;renderTr();}});
+renderTr();
+
+/* ---------- etcd estimator ---------- */
+const ROWS=[["pods","Pod",3000,8],["helm","Helm 릴리스 Secret",1500,80],["secrets","일반 Secret",2000,4],["cm","ConfigMap",1500,4],["events","Event",20000,1.5],["rs","ReplicaSet(이력 포함)",6000,5],["cr","커스텀 리소스",10000,10]];
+const grid=$("#estGrid");
+ROWS.forEach(([id,n,c,kb])=>{grid.appendChild(el("div",{class:"cell"},`<label>${n}: 개수 / 평균 KB</label><div class="pair"><input type="number" min="0" id="c_${id}" value="${c}" aria-label="${n} 개수"><input type="number" min="0" step="0.5" id="k_${id}" value="${kb}" aria-label="${n} 평균 KB"></div>`));});
+grid.appendChild(el("div",{class:"cell"},`<label>분당 쓰기 수 / 평균 KB</label><div class="pair"><input type="number" min="0" id="w_n" value="300" aria-label="분당 쓰기 수"><input type="number" min="0" step="0.5" id="w_kb" value="6" aria-label="쓰기 평균 KB"></div>`));
+grid.appendChild(el("div",{class:"cell"},`<label>컴팩션 주기(분) / 단편화 %</label><div class="pair"><input type="number" min="1" id="cint" value="5" aria-label="컴팩션 주기"><input type="number" min="0" max="300" id="frag" value="50" aria-label="단편화 비율"></div>`));
+const MAXGB=20, sc=v=>Math.sqrt(Math.min(v,MAXGB)/MAXGB)*100;
+const gauge=$("#gauge");
+[[2,"etcd 기본 쿼터 2GiB"],[8,"권장 상한·EKS Standard 8GB"],[16,"EKS Provisioned 16GB"]].forEach(([g,l])=>{const m=el("div",{class:"mk"},`<span>${l}</span>`);m.style.left=sc(g)+"%";gauge.appendChild(m);});
+function est(){
+  const v=id=>Math.max(0,+$("#"+id).value||0);
+  let live=0,parts=[];
+  ROWS.forEach(([id,n])=>{const mb=v("c_"+id)*v("k_"+id)/1024;live+=mb;parts.push([n,mb]);});
+  const hist=v("w_n")*v("cint")*v("w_kb")/1024;
+  const db=(live+hist)*(1+v("frag")/100);
+  const gb=db/1024;
+  $("#gFill").style.width=sc(gb)+"%";
+  $("#gFill").style.background=gb>=8?"var(--warn)":gb>=2?"var(--you)":"var(--vendor)";
+  parts.sort((a,b)=>b[1]-a[1]);
+  const fmt=mb=>mb>=1024?(mb/1024).toFixed(2)+" GB":mb.toFixed(0)+" MB";
+  let msg=`살아 있는 객체 약 <b>${fmt(live)}</b> + 컴팩션 전 과거 버전 약 <b>${fmt(hist)}</b> → 단편화 포함 DB 파일 약 <b>${fmt(db)}</b>. 가장 큰 항목: ${parts.slice(0,3).map(p=>`${p[0]} ${fmt(p[1])}`).join(", ")}.`;
+  if(gb>=16) msg+=` <span style="color:var(--warn)">EKS Provisioned 한도도 넘습니다. 객체 정리 없이는 어떤 매니지드 티어에도 맞지 않습니다.</span>`;
+  else if(gb>=8) msg+=` <span style="color:var(--warn)">권장 상한·EKS Standard 한도를 넘습니다. 정리하거나 Provisioned 티어를 검토해야 합니다.</span>`;
+  else if(gb>=2) msg+=` <span style="color:var(--you)">etcd 기본 쿼터(2GiB)를 넘습니다. Native·배포판이라면 quota-backend-bytes 설정을 확인하세요.</span>`;
+  else msg+=` 여유 있는 수준입니다. 증가 추세에 경보를 걸어 두세요.`;
+  $("#estOut").innerHTML=msg;
+}
+grid.querySelectorAll("input").forEach(i=>i.addEventListener("input",est));est();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["API 서버 핸들러 체인에서 APF와 인가의 순서는?",["인가가 먼저, 허용된 요청만 APF 대기열에 들어간다","APF가 먼저, 권한 없는 요청도 seat를 점유한 뒤 403을 받는다","둘은 병렬로 실행된다","APF는 쓰기 요청에만 적용된다"],1,"APF는 인증된 신원으로 분류한 뒤 인가 전에 동작합니다. 권한 없는 클라이언트의 재시도 폭주가 정상 요청을 밀어낼 수 있는 이유입니다."],
+ ["kubectl get pods는 되는데 kubectl exec가 403입니다. 필요한 권한은?",["pods에 대한 update","pods/exec에 대한 create","nodes에 대한 get","pods/log에 대한 get"],1,"exec는 pods/exec 서브리소스에 대한 create 동사로 인가됩니다."],
+ ["etcd에 NOSPACE 알람이 떴습니다. 올바른 복구 순서는?",["알람 해제 → 디프래그 → 컴팩션","디프래그(모든 멤버 동시) → 알람 해제","컴팩션 → 멤버별 순차 디프래그 → 알람 해제","etcd 재시작만 하면 된다"],2,"컴팩션은 과거 버전을 논리적으로 버리고, 디프래그는 파일 공간을 회수합니다. 디프래그는 한 멤버씩, 알람 해제는 마지막입니다."],
+ ["EKS Standard 모드 클러스터 데이터베이스의 크기 한도는?",["2GB","8GB","16GB","제한 없음"],1,"Standard 모드는 8GB, Provisioned 티어는 16GB입니다. 저장 크기는 apiserver_storage_size_bytes로 간접 관찰합니다."],
+ ["Pod는 정상인데 어드미션 웹훅과 kubectl logs만 타임아웃입니다. 가장 먼저 의심할 것은?",["etcd 쿼터","노드 → API 서버 방향 네트워크","컨트롤 플레인 → 노드 방향 경로(보안 그룹·방화벽·konnectivity)","RBAC"],2,"웹훅·logs·exec는 API 서버가 노드 쪽으로 연결을 여는 몇 안 되는 경로입니다."],
+ ["failurePolicy: Fail 웹훅이 모든 네임스페이스의 Pod 생성을 검사합니다. 교착을 막는 설정으로 가장 적절한 것은?",["timeoutSeconds를 30으로 늘린다","웹훅 네임스페이스와 kube-system을 namespaceSelector로 제외하고 레플리카·PDB를 둔다","failurePolicy를 지정하지 않는다","웹훅을 DaemonSet으로 바꾼다"],1,"웹훅 자신의 재기동이 그 웹훅에 막히지 않게 하고 가용성을 높이는 것이 핵심입니다. 단순 규칙은 VAP로 옮기면 웹훅 자체가 필요 없습니다."],
+ ["RKE2에서 새 노드가 클러스터에 합류할 때 먼저 접속하는 포트는?",["6443","2379","9345","10250"],2,"RKE2 supervisor API가 9345에서 인증서와 설정을 내주고, 그 뒤 6443을 씁니다."],
+ ["1.37에서 etcd RangeStream이 실제로 동작하는지 확인하는 방법은?",["kubectl version에 표시된다","etcd_request_duration_seconds_count{operation=\"listStream\"}이 0보다 큰지 본다","etcdctl alarm list를 본다","FlowSchema에 RangeStream 항목이 생긴다"],1,"Kubernetes 1.37과 etcd 3.7이 모두 갖춰져야 하며, 위 지표로 사용 여부를 확인합니다."],
+ ["kubeadm 클러스터를 1년 넘게 업그레이드하지 않았을 때 가장 먼저 닥칠 위험은?",["etcd v2 저장소 제거","컨트롤 플레인 인증서 만료","APF 비활성화","CNI 제거"],1,"kubeadm 컨트롤 플레인 인증서는 1년짜리이며 업그레이드 때 자동 갱신됩니다. check-expiration으로 정기 점검하세요."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{
+  const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;
+  const o=el("div",{class:"opts"});
+  opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+  box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);
+});
+
+/* ---------- glossary ---------- */
+const GL=[
+ ["핸들러 체인","API 서버가 요청을 통과시키는 필터의 순서. 인증·감사·위장·APF·인가가 리소스 핸들러 앞에 놓임."],
+ ["APF (API Priority and Fairness)","API 서버 동시 처리 용량을 seat로 나누고 우선순위 수준별로 격리·공정 큐잉하는 장치. 1.29 GA."],
+ ["seat","APF의 동시 처리 단위. 단일 요청은 1 seat, LIST는 예상 객체 수에 따라 최대 10 seat."],
+ ["FlowSchema","요청자·동사·리소스로 요청을 분류해 PriorityLevel에 배정하는 규칙."],
+ ["PriorityLevelConfiguration","전체 seat 중 한 수준이 쓸 몫과 대기열 설정."],
+ ["watch 캐시","API 서버가 리소스별로 유지하는 메모리 캐시. 대부분의 LIST·watch를 여기서 응답."],
+ ["위장 (Impersonation)","Impersonate-* 헤더로 다른 사용자·그룹 행세를 하는 기능. impersonate 권한 필요."],
+ ["변경·검증 어드미션","객체를 고칠 수 있는 단계와 허용·거부만 하는 단계. 각 단계는 내장 플러그인 → CEL 정책 → 웹훅 순."],
+ ["failurePolicy","웹훅 호출 실패 시 요청을 거부(Fail)할지 통과(Ignore)할지."],
+ ["리비전","etcd의 전역 쓰기 번호. 객체의 resourceVersion이 사실상 이 값."],
+ ["컴팩션","특정 리비전 이전의 과거 버전을 논리적으로 버리는 작업. API 서버가 기본 5분마다 수행."],
+ ["디프래그","컴팩션으로 생긴 빈 공간을 DB 파일에서 실제로 회수. 멤버별로 순차 실행."],
+ ["쿼터 (quota-backend-bytes)","etcd DB 최대 크기. 기본 2GiB, 초과 시 NOSPACE 알람으로 쓰기 정지."],
+ ["learner","쿼럼 계산에 들어가지 않고 데이터를 따라잡는 etcd 멤버 상태. kubeadm이 멤버 합류 때 사용."],
+ ["RangeStream","etcd 3.7의 스트리밍 범위 읽기. Kubernetes 1.37 EtcdRangeStream 게이트(Beta)와 함께 동작."],
+ ["저장 시 암호화","EncryptionConfiguration이나 KMS로 etcd에 쓰기 전 객체를 암호화하는 기능."],
+ ["Storage Version Migration","저장된 객체를 새 저장 버전·새 키로 다시 쓰는 기능. 1.37 기본 활성."],
+ ["konnectivity","컨트롤 플레인에서 노드 방향 트래픽을 터널로 전달하는 프록시. AKS·GKE에서 agent Pod로 보임."],
+ ["Provisioned Control Plane (EKS)","XL·2XL·4XL·8XL 티어로 컨트롤 플레인 용량(seat, 스케줄링 처리량, DB 16GB)을 고정 보장하는 옵션."],
+ ["Hosted Control Planes","컨트롤 플레인을 관리 클러스터의 Pod로 띄우는 OpenShift 구조(HyperShift). HostedCluster·NodePool CR."],
+ ["ClusterOperator","OpenShift에서 각 플랫폼 구성 요소의 상태(Available·Progressing·Degraded)를 나타내는 리소스."],
+ ["supervisor API (RKE2)","9345 포트. 새 노드가 토큰으로 인증서와 설정을 받는 RKE2 전용 API."],
+ ["talosctl","Talos 노드를 mTLS API로 다루는 CLI. SSH를 대신함."],
+ ["Cluster API","클러스터를 CRD로 선언하고 관리 클러스터의 컨트롤러가 인프라·노드까지 조정하는 프로젝트."],
+ ["진실 공급원","클러스터의 원하는 상태를 결정하는 단 하나의 출처(Terraform state, Git 등)."]
+];
+const gloss=$("#gloss");
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();GL.filter(([t,d])=>!s||(t+d).toLowerCase().includes(s)).forEach(([t,d])=>{gloss.appendChild(el("dt",{},t));gloss.appendChild(el("dd",{},d));});if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

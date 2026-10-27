@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 11편: 스토리지 모델: Volume → PV·PVC·StorageClass → CSI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 7편 추가 ---- */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.chain .nd{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:.82rem;line-height:1.35}
+.chain .nd b{display:block;font-size:.86rem;color:var(--strong)}
+.chain .nd.lb{border-color:var(--you)}
+.chain .nd.pod{border-color:var(--vendor)}
+.chain .nd.snat{border-color:var(--warn)}
+.chain .ar{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.opt-row .btn{margin:2px 0}
+.grp{font-size:.74rem;color:var(--muted);margin:6px 0 2px;width:100%}
+
+/* ---- 8편 추가 ---- */
+.nsgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.nsgrid{grid-template-columns:1fr}}
+.ns{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.ns h5{margin:0 0 6px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.res b{display:block;color:var(--strong);font-size:.84rem}
+.res.ok{border-color:var(--ok)}
+.res.bad{border-color:var(--warn)}
+.res.dim{opacity:.5;border-style:dashed}
+.cond{display:grid;gap:6px;margin-top:10px}
+.cond div{padding:7px 12px;border-radius:8px;font-size:.88rem}
+.cond .t1{background:var(--ok-bg)}
+.cond .t0{background:var(--warn-bg)}
+.split{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0;font-size:.78rem;font-weight:700}
+.split div{display:flex;align-items:center;justify-content:center;color:#0b1020;white-space:nowrap;overflow:hidden;transition:width .3s}
+.split .v1{background:var(--vendor)}
+.split .v2{background:var(--you)}
+:root[data-theme="light"] .split div{color:#fff}
+.rng{width:100%;accent-color:var(--you)}
+
+/* ---- 9편 추가 ---- */
+.trace{display:grid;gap:6px;margin:12px 0}
+.tier{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.tier .nm{font-weight:700;color:var(--strong);font-size:.84rem}
+.tier.hit-acc{border-color:var(--ok);background:var(--ok-bg)}
+.tier.hit-deny{border-color:var(--warn);background:var(--warn-bg)}
+.tier.skip{opacity:.5}
+.verdict{font-family:var(--serif);font-size:1.3rem;font-weight:900;margin:6px 0}
+.verdict.ok{color:var(--ok)}.verdict.no{color:var(--warn)}
+.chk{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 10px;font-size:.88rem}
+.chk label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chk input{accent-color:var(--vendor)}
+@media (max-width:640px){.tier{grid-template-columns:1fr}}
+.opt-row>span{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.opt-row .btn{white-space:normal;text-align:left;max-width:100%}
+
+/* ---- 10편 추가 ---- */
+.alert{border:1px solid var(--warn);background:var(--warn-bg);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:.92rem}
+.alert b{color:var(--warn)}
+.clock{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.88rem}
+.clock .bar2{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.clock .bar2 i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.clock .bar2 i.over{background:var(--warn)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acts .btn[disabled]{opacity:.45}
+.glog{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.6;max-height:300px;overflow:auto;margin:8px 0}
+.glog div{margin:0 0 6px}
+.glog .u{color:var(--you)}
+.glog .k{color:var(--ok)}
+.qlist{display:grid;gap:4px;margin:10px 0}
+.qlist div{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;font-family:var(--mono);font-size:.8rem;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}
+.qlist .ok{border-color:var(--ok)}
+.qlist .nx{color:var(--muted)}
+.rank{display:grid;gap:6px;margin-top:10px}
+.rank div{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.rank div:first-child{border-color:var(--vendor)}
+
+/* ---- 11편 추가 ---- */
+.zones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.zones{grid-template-columns:1fr}}
+.zn{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.zn h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.zn.hl{border-color:var(--vendor)}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.box b{display:block;color:var(--strong);font-size:.84rem}
+.box.pod{border-color:var(--vendor)}
+.box.disk{border-color:var(--you)}
+.box.bad{border-color:var(--warn)}
+.box.dim{opacity:.5;border-style:dashed}
+.lc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:640px){.lc{grid-template-columns:1fr}}
+.lc div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.lc b{display:block;font-size:1.05rem;color:var(--strong);margin:2px 0}
+.lc small{color:var(--muted);display:block;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">11편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#bind">바인딩·토폴로지 시뮬레이터</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">볼륨의 세 층</a></li>
+    <li><a href="#s2">PV·PVC 수명 주기와 리클레임</a></li>
+    <li><a href="#s3">접근 모드와 볼륨 모드</a></li>
+    <li><a href="#s4">바인딩 모드와 토폴로지</a></li>
+    <li><a href="#s5">볼륨 확장</a></li>
+    <li><a href="#s6">임시 볼륨과 프로젝티드 볼륨</a></li>
+    <li><a href="#s7">in-tree 제거와 CSI Migration의 흔적</a></li>
+    <li><a href="#s8">벤더 기본 StorageClass 비교</a></li>
+    <li><a href="#s9">실습</a></li>
+    <li><a href="#s10">현장 사례</a></li>
+    <li><a href="#s11">점검 퀴즈</a></li>
+    <li><a href="#s12">용어·약어 사전</a></li>
+    <li><a href="#s13">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 2 스토리지, 11편 (시작)</div>
+    <h1>스토리지 모델: Volume → PV·PVC·StorageClass → CSI</h1>
+    <p class="lead">네트워크는 장애가 나도 고치면 그만이지만, 스토리지는 장애가 나면 데이터가 사라질 수 있습니다. 그래서 스토리지 운영의 대부분은 <strong>“언제, 어디에 디스크가 생기고, 언제 사라지는가”</strong>를 정확히 아는 일입니다. 이 편은 Kubernetes 스토리지 모델의 규칙을 바인딩 모드와 토폴로지, 리클레임, 접근 모드, 확장, 임시 볼륨까지 정리하고, in-tree 시대가 남긴 흔적과 v1.37의 새 기능(PVC 미사용 추적, 용량 스코어링, CSI 인지 오토스케일링)을 다룹니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 120분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">볼륨의 세 층</a></li><li><a href="#s2">수명 주기·리클레임</a></li><li><a href="#s3">접근 모드</a></li><li><a href="#s4">바인딩·토폴로지</a></li><li><a href="#s5">볼륨 확장</a></li><li><a href="#s6">임시·프로젝티드</a></li><li><a href="#s7">CSI Migration</a></li><li><a href="#s8">벤더 기본 SC</a></li><li><a href="#s9">실습</a></li><li><a href="#s10">현장 사례</a></li><li><a href="#s11">퀴즈</a></li><li><a href="#s12">용어 사전</a></li><li><a href="#s13">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="bind">
+    <h3>디스크는 어느 존에, Pod는 어느 노드에?</h3>
+    <p class="sub">존 세 개에 노드가 하나씩 있는 클러스터입니다. 바인딩 모드, 스토리지 종류, Pod 제약, StorageClass의 허용 토폴로지를 바꿔 보면, 디스크가 생기는 곳과 Pod가 배치되는 곳, 그리고 실패할 때 실제로 보게 될 이벤트 메시지가 나옵니다. 9장 실습 1이 이 시뮬레이터의 첫 실패를 EKS에서 재현합니다.</p>
+    <div class="opt-row"><span class="lbl">바인딩 모드</span><span id="bMode"></span></div>
+    <div class="opt-row"><span class="lbl">스토리지</span><span id="bSt"></span></div>
+    <div class="opt-row"><span class="lbl">Pod 제약</span><span id="bPod"></span></div>
+    <div class="opt-row"><span class="lbl">allowedTopologies</span><span id="bAt"></span></div>
+    <div class="zones" id="bZones"></div>
+    <div class="verdict" id="bVerdict"></div>
+    <div class="calc-msg" id="bMsg"></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Pod는 이사를 자주 다니는 세입자입니다. 세입자의 짐을 어디에 둘지가 스토리지 문제입니다. 방 안에 두면(emptyDir) 이사할 때 버려지고, 창고를 빌리면(PV) 이사해도 남습니다. PVC는 “창고 10GB 빌려 주세요”라는 신청서, StorageClass는 창고 회사의 상품 목록(빠른 창고·싼 창고), CSI는 창고 회사들이 Kubernetes와 같은 방식으로 일하게 만든 표준 계약서입니다. 문제는 창고가 특정 동네(존)에만 있다는 것입니다. 세입자가 다른 동네로 이사 가면 창고에 갈 수 없습니다.</div>
+    <div class="prose">
+      <p>Level 2는 스토리지 6편입니다. 이 편은 모델과 규칙, 12편은 CSI 드라이버 내부와 벤더 드라이버, 13편은 성능과 선택, 14편은 온프렘 분산 스토리지, 15편은 스냅샷·백업·DR, 16편은 스테이트풀 워크로드 운영입니다.</p>
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>PV·PVC·StorageClass의 상태 변화와 보호 파이널라이저, 리클레임 정책을 보고 데이터가 언제 사라지는지 예측할 수 있습니다.</li>
+        <li>접근 모드(RWO·ROX·RWX·RWOP)의 실제 의미와 흔한 오해(RWO는 “Pod 하나”가 아님)를 설명할 수 있습니다.</li>
+        <li>Immediate와 WaitForFirstConsumer의 차이로 멀티 AZ 스케줄링 실패를 진단하고 고칠 수 있습니다.</li>
+        <li>볼륨 확장, 임시 볼륨, 프로젝티드 볼륨을 용도에 맞게 쓸 수 있습니다.</li>
+        <li>in-tree 플러그인 시대의 흔적을 고객 클러스터에서 찾고, v1.37 새 기능으로 미사용 PVC와 용량 문제를 관리할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>볼륨의 세 층</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>층</th><th>무엇</th><th>수명</th><th>예</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Pod 볼륨</td><td>Pod 스펙의 <code>volumes</code>에 직접 정의</td><td>Pod와 같음(일부는 노드에 남음)</td><td>emptyDir, configMap, secret, projected, hostPath, 임시 볼륨</td></tr>
+        <tr><td class="k">추상화(PV·PVC·StorageClass)</td><td>“무엇이 필요한가”(PVC)와 “무엇을 제공하나”(PV)를 분리, 동적 생성 규칙은 StorageClass</td><td>Pod와 독립</td><td>persistentVolumeClaim 볼륨</td></tr>
+        <tr><td class="k">구현(<span class="t" data-k="CSI">CSI</span>)</td><td>실제 디스크를 만들고 노드에 붙이고 마운트하는 드라이버</td><td>—</td><td>ebs.csi.aws.com, disk.csi.azure.com, pd.csi.storage.gke.io, rook-ceph, driver.longhorn.io</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>디스크가 Pod에 닿기까지 (12편에서 깊게)</h3>
+      <ol>
+        <li><strong>프로비저닝.</strong> PVC가 StorageClass를 가리키면 CSI 컨트롤러 쪽의 provisioner가 클라우드 API로 디스크를 만들고 PV를 생성합니다(동적 프로비저닝). 관리자가 PV를 미리 만들어 두는 정적 프로비저닝도 있습니다.</li>
+        <li><strong>바인딩.</strong> PV와 PVC가 1:1로 묶입니다. 한 번 묶이면 PVC가 지워질 때까지 다른 PVC가 쓸 수 없습니다.</li>
+        <li><strong>어태치.</strong> 블록 디스크라면 Pod가 배치된 노드(VM)에 디스크를 붙입니다(VolumeAttachment 객체). 파일 공유(NFS 등)는 이 단계가 없습니다.</li>
+        <li><strong>마운트.</strong> 노드의 kubelet이 CSI 노드 플러그인을 불러 포맷·마운트하고, 컨테이너 경로에 연결합니다.</li>
+      </ol>
+      <p>장애는 이 네 단계 중 어디서 멈췄는지로 쪼갭니다. PVC가 Pending이면 1·2단계, Pod가 ContainerCreating에서 “FailedAttachVolume”이면 3단계, “FailedMount”면 4단계입니다.</p>
+    </div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>PV·PVC 수명 주기와 리클레임</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    창고 계약이 끝났을 때(PVC 삭제) 창고를 어떻게 할지가 리클레임 정책입니다. Delete는 짐째 창고를 철거하고, Retain은 창고와 짐을 그대로 두고 “계약 해지됨” 딱지만 붙입니다. 딱지가 붙은 창고는 누가 직접 정리하기 전까지 아무에게도 다시 빌려주지 않습니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>객체</th><th>상태(phase)</th><th>의미</th></tr></thead>
+      <tbody>
+        <tr><td class="k">PVC</td><td>Pending → Bound (→ Lost)</td><td>Pending은 맞는 PV 없음 또는 WaitForFirstConsumer 대기. Lost는 묶였던 PV가 사라짐</td></tr>
+        <tr><td class="k">PV</td><td>Available → Bound → Released → (삭제 또는 수동 정리) / Failed</td><td>Released는 PVC가 지워졌지만 데이터가 남은 상태. 그대로는 재사용 안 됨</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tbl"><table>
+      <thead><tr><th>보호 장치</th><th>동작</th><th>운영에서 보이는 모습</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><code>kubernetes.io/pvc-protection</code></td><td>Pod가 쓰는 PVC는 지워도 즉시 사라지지 않음</td><td>PVC가 Terminating에 멈춤 → 쓰는 Pod를 찾아야 함</td></tr>
+        <tr><td class="k"><code>kubernetes.io/pv-protection</code></td><td>PVC에 묶인 PV는 즉시 삭제되지 않음</td><td>PV Terminating</td></tr>
+        <tr><td class="k">provisioner 파이널라이저</td><td>PV를 먼저 지워도 Delete 정책이면 백엔드 디스크 삭제를 보장(<span class="t" data-k="HonorPVReclaimPolicy">HonorPVReclaimPolicy</span>, 1.33 GA)</td><td>예전에는 PV를 먼저 지우면 디스크가 고아로 남았음</td></tr>
+        <tr><td class="k">Unused 조건(1.37 Beta, 기본 켜짐)</td><td>PVC를 쓰는 Pod가 모두 사라지면 <code>Unused=True</code>(reason NoPodsUsingPVC)와 그 시각</td><td>오래 안 쓰인 PVC를 찾아 비용 정리(16편)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><h3>수명 주기 따라가기</h3><p>WaitForFirstConsumer StorageClass를 가정합니다. 동작 버튼을 순서대로 누르며 PVC·PV·백엔드 디스크의 상태를 보세요. 리클레임 정책을 바꾸고 다시 해 보면 데이터가 사라지는 시점이 달라집니다.</p></div>
+    <div class="calc" id="life">
+      <div class="opt-row"><span class="lbl">리클레임</span><span id="lRp"></span></div>
+      <div class="acts" id="lActs"></div>
+      <div class="lc" id="lState"></div>
+      <div class="glog" id="lLog"></div>
+    </div>
+    <div class="code"><div class="bar"><span>Retain으로 남은 PV를 다시 쓰는 법</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 1) PV가 Released 상태이고 백엔드 디스크가 남아 있는지 확인</span>
+kubectl get pv pvc-1a2b... -o jsonpath='{.status.phase} {.spec.csi.volumeHandle}'; echo
+<span class="c"># 2) 이전 PVC 연결 정보(claimRef) 제거 → Available</span>
+kubectl patch pv pvc-1a2b... --type json -p '[{"op":"remove","path":"/spec/claimRef"}]'
+<span class="c"># 3) 새 PVC가 이 PV만 잡도록 이름으로 지정 (정적 바인딩)</span>
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: restored-data, namespace: shop}
+spec:
+  storageClassName: gp3-retain
+  volumeName: pvc-1a2b...
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 20Gi}}
+EOF</pre></div>
+    <div class="note trap"><b>함정: 네임스페이스 삭제는 PVC 삭제다</b>
+    네임스페이스를 지우면 그 안의 PVC가 모두 지워지고, Delete 정책 StorageClass라면 백엔드 디스크까지 사라집니다. 대부분의 벤더 기본 StorageClass는 Delete입니다(8장). 운영 데이터베이스용은 Retain StorageClass를 따로 두거나, 15편의 백업을 전제로 하세요.</div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>접근 모드와 볼륨 모드</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>모드</th><th>약어</th><th>정확한 의미</th><th>흔한 백엔드</th></tr></thead>
+      <tbody>
+        <tr><td class="k">ReadWriteOnce</td><td>RWO</td><td><strong>노드 하나</strong>에서 읽기·쓰기 마운트. 같은 노드의 여러 Pod는 동시에 쓸 수 있음</td><td>EBS, Azure Disk, GCE PD, Ceph RBD, Longhorn</td></tr>
+        <tr><td class="k">ReadOnlyMany</td><td>ROX</td><td>여러 노드에서 읽기 전용</td><td>파일 공유, 일부 블록 디스크(다중 연결 읽기)</td></tr>
+        <tr><td class="k">ReadWriteMany</td><td>RWX</td><td>여러 노드에서 읽기·쓰기</td><td>EFS, Azure Files, Filestore, CephFS, NFS</td></tr>
+        <tr><td class="k">ReadWriteOncePod</td><td><span class="t" data-k="RWOP">RWOP</span></td><td>클러스터 전체에서 <strong>Pod 하나</strong>만 마운트(1.29 GA, CSI 전용)</td><td>CSI 블록 드라이버 대부분</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <ul>
+        <li><strong>접근 모드는 약속이지 잠금이 아닙니다.</strong> RWO는 노드 단위로만 강제됩니다. 같은 노드의 두 Pod가 같은 RWO 볼륨에 동시에 쓰면 파일 시스템이 망가질 수 있습니다. 정말 하나만 써야 한다면 RWOP를 쓰세요.</li>
+        <li><strong>RWO + Deployment 롤링 업데이트.</strong> 새 Pod가 다른 노드에 뜨면 디스크가 아직 옛 노드에 붙어 있어 “Multi-Attach error”로 멈춥니다. Recreate 전략이나 StatefulSet이 맞습니다(10장 사례).</li>
+        <li><strong>볼륨 모드.</strong> <code>volumeMode: Filesystem</code>(기본)은 포맷·마운트된 디렉터리, <code>Block</code>은 포맷 없는 장치 파일입니다. 데이터베이스가 직접 장치를 다루거나 가상 머신 디스크(KubeVirt)일 때 Block을 씁니다.</li>
+        <li><strong>권한(fsGroup).</strong> Pod에 <code>fsGroup</code>을 주면 kubelet이 볼륨 전체의 소유 그룹을 바꿉니다. 파일이 수백만 개면 Pod 시작이 수십 분 걸릴 수 있으니 <code>fsGroupChangePolicy: OnRootMismatch</code>를 쓰세요. SELinux 환경에서 마운트 옵션으로 레이블을 붙이는 방식(SELinuxMount)은 1.37에서 GA가 되어, 재레이블링으로 인한 시작 지연이 줄었습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>바인딩 모드와 토폴로지</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Immediate는 “세입자가 어느 동네로 이사 올지 모르지만 일단 창고부터 아무 동네에 지어 두는” 방식입니다. WaitForFirstConsumer는 “세입자가 어느 집에 들어갈지 정해지면 그 동네에 창고를 짓는” 방식입니다. 블록 디스크처럼 동네(존)에 묶이는 창고라면 뒤의 방식이 맞습니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>모드</th><th>디스크를 만드는 시점</th><th>위치를 정하는 근거</th><th>잘 맞는 경우</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Immediate</td><td>PVC를 만들자마자</td><td>StorageClass의 allowedTopologies와 드라이버 기본값(대개 임의 존)</td><td>어디서나 닿는 스토리지(RWX 파일 공유, 리전 범위 스토리지), 단일 존 클러스터</td></tr>
+        <tr><td class="k"><span class="t" data-k="WaitForFirstConsumer">WaitForFirstConsumer</span></td><td>PVC를 쓰는 Pod가 스케줄될 때</td><td>스케줄러가 고른 노드의 토폴로지(Pod의 nodeSelector·친화성·분산 제약·자원·용량을 모두 반영)</td><td>존에 묶인 블록 디스크, 로컬 디스크(필수), 용량이 제한된 스토리지</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>WaitForFirstConsumer의 실제 순서</h3>
+      <ol>
+        <li>PVC는 Pending(이벤트: “waiting for first consumer to be created before binding”). 이것은 오류가 아닙니다.</li>
+        <li>Pod가 만들어지면 스케줄러의 볼륨 바인딩 플러그인이 노드 후보를 거릅니다: StorageClass의 허용 토폴로지, CSI 드라이버가 노드별로 알리는 토폴로지(CSINode), 남은 용량(<span class="t" data-k="CSIStorageCapacity">CSIStorageCapacity</span>), 노드당 어태치 한도.</li>
+        <li>노드가 정해지면 PVC에 <code>volume.kubernetes.io/selected-node</code> 어노테이션이 붙고, provisioner가 그 노드의 존에 디스크를 만듭니다.</li>
+        <li>생성된 PV에는 <code>nodeAffinity</code>(예: <code>topology.kubernetes.io/zone</code> 또는 드라이버 고유 키)가 기록됩니다. 이후 이 PVC를 쓰는 Pod는 <strong>영원히 그 존에만</strong> 뜰 수 있습니다.</li>
+      </ol>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>이벤트 메시지</th><th>뜻</th><th>먼저 볼 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">N node(s) had volume node affinity conflict</td><td>PV가 묶인 존에 Pod가 갈 수 있는 노드가 없음</td><td>PV의 nodeAffinity와 Pod 제약·노드 존 레이블·노드 그룹 구성</td></tr>
+        <tr><td class="k">waiting for first consumer to be created before binding</td><td>정상 대기(WFC)</td><td>PVC를 쓰는 Pod가 실제로 있는지</td></tr>
+        <tr><td class="k">didn't find available persistent volumes to bind</td><td>정적 PV 중 맞는 것이 없음, 또는 토폴로지 조건 불충족</td><td>StorageClass 이름·용량·접근 모드·allowedTopologies</td></tr>
+        <tr><td class="k">node(s) did not have enough free storage</td><td>용량 추적 결과 노드에 공간 부족</td><td>CSIStorageCapacity 객체</td></tr>
+        <tr><td class="k">node(s) exceed max volume count</td><td>노드당 어태치 한도 초과</td><td>CSINode의 allocatable count(12편)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>v1.37: 용량을 보고 노드를 고르고, 디스크 한도를 보고 노드를 늘린다</h3>
+      <ul>
+        <li><strong>스토리지 용량 스코어링(Beta, StorageCapacityScoring).</strong> 지금까지 용량 추적은 “공간이 모자란 노드를 거르는” 데만 쓰였습니다. 1.37부터는 남은 용량으로 노드에 점수를 매겨, 동적 프로비저닝 때 용량 기준으로 노드를 고를 수 있습니다. 노드 로컬 스토리지(LVM, 로컬 NVMe)를 쓰는 클러스터에서 한 노드만 가득 차는 현상을 줄이는 기능입니다. 기본 활성 여부와 점수 방향 설정은 사용하는 버전의 문서를 확인하세요.</li>
+        <li><strong>CSI 인지 오토스케일링(Beta, VolumeLimitScaling).</strong> Cluster Autoscaler가 새로 만들 노드의 CSI 어태치 한도를 템플릿 CSINode로 계산합니다. 예전에는 볼륨을 많이 쓰는 Pod가 대기 중일 때 노드를 너무 적게 늘려, 새 노드가 생기고도 Pod가 Pending으로 남는 일이 있었습니다. CSI 드라이버 정보를 아직 알리지 않은 새 노드에 Pod가 먼저 배치되는 것을 막는 옵션도 함께 들어왔습니다.</li>
+      </ul>
+    </div>
+    <div class="note senior"><b>시니어 포인트: 노드 그룹 변경은 스토리지 변경이다</b>
+    존에 묶인 PV를 가진 StatefulSet이 있는 클러스터에서 노드 그룹을 단일 존으로 줄이거나, 특정 존의 노드를 모두 교체하면 그 존의 PV를 쓰는 Pod는 갈 곳이 없어집니다. 노드 그룹 변경 계획서에 “존별 PV 수”를 항상 포함하세요(9장 실습 1의 명령으로 셉니다).</div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>볼륨 확장</h2>
+    <div class="prose">
+      <ol>
+        <li><strong>조건.</strong> StorageClass에 <code>allowVolumeExpansion: true</code>, 드라이버가 확장 기능을 지원해야 합니다.</li>
+        <li><strong>요청.</strong> PVC의 <code>spec.resources.requests.storage</code>를 키웁니다. 줄이기는 지원하지 않습니다.</li>
+        <li><strong>백엔드 확장.</strong> CSI 컨트롤러(resizer)가 클라우드 디스크 크기를 바꿉니다.</li>
+        <li><strong>파일 시스템 확장.</strong> 노드의 kubelet이 파일 시스템을 늘립니다. 대부분의 드라이버는 Pod를 띄운 채로 가능(온라인 확장)하고, 일부는 Pod 재시작 때 적용되며 그동안 <code>FileSystemResizePending</code> 조건이 보입니다.</li>
+      </ol>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>알아 둘 것</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td class="k">확장 실패에서 복구</td><td>너무 큰 값을 요청해 백엔드가 거부하면, 예전에는 되돌릴 수 없었습니다. 1.34에서 GA가 된 기능으로 원래 크기보다 큰 범위 안에서 요청을 다시 낮춰 재시도할 수 있습니다.</td></tr>
+        <tr><td class="k">클라우드 제한</td><td>AWS EBS는 한 볼륨을 수정한 뒤 다음 수정까지 대기 시간(수 시간)이 있습니다. 확장을 여러 번 나눠 하면 두 번째가 막힙니다.</td></tr>
+        <tr><td class="k">StatefulSet</td><td><code>volumeClaimTemplates</code>를 고쳐도 기존 PVC는 바뀌지 않습니다. PVC를 하나씩 패치하고, 템플릿은 새로 만들어질 PVC용으로 맞춥니다(16편).</td></tr>
+        <tr><td class="k">성능 변경</td><td>크기 말고 IOPS·처리량을 바꾸는 표준은 VolumeAttributesClass(1.34 GA)입니다. 13편에서 다룹니다.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>임시 볼륨과 프로젝티드 볼륨</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>종류</th><th>저장 위치</th><th>수명</th><th>용도</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k">emptyDir</td><td>노드 디스크 또는 메모리(<code>medium: Memory</code>)</td><td>Pod</td><td>캐시, 컨테이너 간 공유</td><td><code>sizeLimit</code>와 ephemeral-storage 한도. 메모리 모드는 메모리 한도에 포함</td></tr>
+        <tr><td class="k"><span class="t" data-k="일반 임시 볼륨">일반 임시 볼륨</span>(generic ephemeral)</td><td>StorageClass로 만든 실제 디스크</td><td>Pod(Pod가 소유한 PVC로 생성·삭제)</td><td>노드 디스크보다 큰 임시 공간, 빠른 스크래치</td><td>PVC 이름이 <code>&lt;Pod&gt;-&lt;볼륨&gt;</code>. 프로비저닝 시간만큼 Pod 시작이 늦어짐</td></tr>
+        <tr><td class="k">CSI 인라인 임시 볼륨</td><td>드라이버가 정함</td><td>Pod</td><td>Secrets Store CSI(키 볼트의 비밀을 파일로)</td><td>드라이버별 허용 여부를 관리자가 통제해야 함(보안)</td></tr>
+        <tr><td class="k">이미지 볼륨</td><td>OCI 이미지 내용</td><td>Pod</td><td>모델 가중치·정적 데이터를 이미지로 배포</td><td>읽기 전용. 지원 단계와 런타임 버전 확인</td></tr>
+        <tr><td class="k"><span class="t" data-k="프로젝티드 볼륨">프로젝티드 볼륨</span></td><td>API 객체를 파일로 투영</td><td>Pod</td><td>ServiceAccount 토큰, ConfigMap·Secret·Downward API, 신뢰 번들, Pod 인증서를 한 디렉터리에</td><td>모든 Pod의 <code>kube-api-access-*</code>가 바로 이것(토큰+CA+네임스페이스)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>일반 임시 볼륨과 프로젝티드 토큰 예</span><button class="copy" type="button">복사</button></div><pre>apiVersion: v1
+kind: Pod
+metadata: {name: scratch-demo}
+spec:
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["sh", "-c", "df -h /scratch; cat /var/run/token/api | cut -c1-40; sleep 3600"]
+    volumeMounts:
+    - {name: scratch, mountPath: /scratch}
+    - {name: token, mountPath: /var/run/token}
+  volumes:
+  - name: scratch
+    ephemeral:                                   <span class="c"># Pod와 함께 생기고 사라지는 PVC</span>
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          storageClassName: local-path           <span class="c"># 실습 0에서 설치</span>
+          resources: {requests: {storage: 1Gi}}
+  - name: token
+    projected:
+      sources:
+      - serviceAccountToken:
+          audience: vault.example                <span class="c"># 받는 쪽(대상) 지정</span>
+          expirationSeconds: 3600                <span class="c"># kubelet이 자동 갱신</span>
+          path: api</pre></div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>in-tree 제거와 CSI Migration의 흔적</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    예전에는 창고 회사들의 업무 규칙이 Kubernetes 본사 건물 안에 같이 들어 있었습니다(in-tree). 회사가 늘수록 본사가 무거워져서, 각 회사가 자기 사무실(CSI 드라이버)을 따로 차리게 하고 본사의 옛 규칙은 철거했습니다. 다만 옛 계약서(StorageClass·PV)에 적힌 옛 회사 이름은 그대로라, 본사가 그 이름을 새 사무실로 연결해 주는 안내판(<span class="t" data-k="CSI Migration">CSI Migration</span>)을 남겨 두었습니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>옛 in-tree 이름</th><th>CSI 드라이버</th><th>마이그레이션 GA</th><th>현재</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubernetes.io/aws-ebs</td><td>ebs.csi.aws.com</td><td>1.25</td><td>in-tree 코드 제거(1.27). 옛 이름은 번역되어 동작하지만 <strong>EBS CSI 드라이버가 설치돼 있어야</strong> 함</td></tr>
+        <tr><td class="k">kubernetes.io/gce-pd</td><td>pd.csi.storage.gke.io</td><td>1.25</td><td>in-tree 제거(1.28)</td></tr>
+        <tr><td class="k">kubernetes.io/azure-disk · azure-file</td><td>disk.csi.azure.com · file.csi.azure.com</td><td>1.24 · 1.26</td><td>in-tree 제거 완료</td></tr>
+        <tr><td class="k">kubernetes.io/vsphere-volume</td><td>csi.vsphere.vmware.com</td><td>1.26</td><td>in-tree 제거 완료</td></tr>
+        <tr><td class="k">kubernetes.io/cinder</td><td>cinder.csi.openstack.org</td><td>1.24</td><td>in-tree 제거 완료</td></tr>
+        <tr><td class="k">cephfs · rbd(in-tree)</td><td>Ceph CSI(Rook)</td><td>마이그레이션 없음</td><td>1.31에서 제거. 남은 PV는 수동 이전 필요(14편)</td></tr>
+        <tr><td class="k">glusterfs 등</td><td>—</td><td>—</td><td>제거됨</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>고객 클러스터에 남은 흔적</h3>
+      <ul>
+        <li><strong>옛 이름의 StorageClass.</strong> EKS의 <code>gp2</code>(provisioner <code>kubernetes.io/aws-ebs</code>)처럼 여전히 옛 이름을 쓰는 StorageClass가 많습니다. 동작은 하지만 gp2는 gp3보다 비싸고 느린 세대이며, 새 StorageClass로 옮기면 파라미터(IOPS·처리량·암호화 키)를 명시할 수 있습니다.</li>
+        <li><strong>번역된 PV.</strong> 옛 PV에는 <code>pv.kubernetes.io/migrated-to</code> 어노테이션이 붙고 스펙은 옛 형식(<code>awsElasticBlockStore</code> 등)일 수 있습니다. 백업·복원 도구가 이를 다르게 다루는 경우가 있어 15편에서 확인합니다.</li>
+        <li><strong>드라이버 미설치.</strong> 마이그레이션은 “번역”일 뿐이라 CSI 드라이버가 없으면 옛 이름의 StorageClass도 동작하지 않습니다. EKS에서 EBS CSI 애드온을 빼먹어 PVC가 Pending인 사례가 대표적입니다.</li>
+        <li><strong>gitRepo 볼륨.</strong> 오래 전에 폐기되었고 최근 버전에서는 기본으로 막혀 있습니다. 오래된 매니페스트에서 보이면 초기화 컨테이너 방식으로 바꾸세요.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>벤더 기본 StorageClass 비교</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>환경</th><th>기본 StorageClass</th><th>프로비저너</th><th>바인딩</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td class="n">없음</td><td>—</td><td>—</td><td>PVC는 영원히 Pending. 3편 스모크 테스트의 PVC 항목. 실습에서는 local-path 사용</td></tr>
+        <tr><td class="k">RKE2</td><td class="n">없음</td><td>—</td><td>—</td><td>Rancher 환경에서는 Longhorn(14편)이 일반적. local-path는 K3s 기본이며 RKE2에는 기본 포함 아님</td></tr>
+        <tr><td class="k">OpenShift</td><td class="m">설치 플랫폼의 CSI(예: AWS <code>gp3-csi</code>, vSphere <code>thin-csi</code>), 베어메탈은 없음</td><td>플랫폼 CSI, ODF(Ceph), LVM Storage</td><td>대개 WFC</td><td>RWX가 필요하면 ODF CephFS 등 별도 구성</td></tr>
+        <tr><td class="k">EKS</td><td class="m"><code>gp2</code>가 있으나 1.30 이후 생성 클러스터는 기본 지정 없음</td><td>옛 이름 <code>kubernetes.io/aws-ebs</code> → EBS CSI 애드온 필요</td><td>WFC</td><td>gp3 StorageClass를 새로 만들어 기본으로 지정하는 것이 정석. Auto Mode는 <code>ebs.csi.eks.amazonaws.com</code> 프로비저너로 직접 생성</td></tr>
+        <tr><td class="k">AKS</td><td class="y"><code>managed-csi</code></td><td>disk.csi.azure.com (StandardSSD)</td><td>WFC</td><td><code>managed-csi-premium</code>, <code>azurefile-csi</code> 등 여러 개 기본 제공. 기본 리클레임 Delete</td></tr>
+        <tr><td class="k">GKE</td><td class="y"><code>standard-rwo</code></td><td>pd.csi.storage.gke.io (pd-balanced)</td><td>WFC</td><td><code>premium-rwo</code>(pd-ssd). Hyperdisk만 지원하는 최신 머신 계열은 Hyperdisk용 StorageClass 필요(13편)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note field"><b>현장 메모: Helm 차트는 기본 StorageClass를 가정한다</b>
+    많은 Helm 차트가 <code>storageClassName</code>을 비워 두고 클러스터 기본값을 기대합니다. 기본이 없는 클러스터(kubeadm, RKE2, 최근 EKS)에서는 PVC가 조용히 Pending으로 남고, 기본이 둘 이상이면 어느 쪽이 쓰일지 헷갈립니다. 고객 온보딩 때 “기본 StorageClass 정확히 하나, 리클레임 정책과 바인딩 모드 명시”를 점검표에 넣으세요.</div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>실습</h2>
+    <div class="prose">
+      <p>실습 0은 lab-native(baseline)에서 노드 로컬 프로비저너로 수명 주기 전체를 관찰하고, 실습 1·2는 lab-eks에서 멀티 AZ 실패를 재현·해결하고 확장을 해 봅니다. 실습 3은 모든 랩 컨텍스트에서 StorageClass와 CSI Migration 흔적을 조사합니다.</p>
+      <h3>실습 0. lab-native: WaitForFirstConsumer, 노드 고정, 보호 장치, Unused 조건</h3>
+    </div>
+    <div class="code"><div class="bar"><span>(1) local-path 프로비저너 설치와 PVC 대기</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-native
+LPP=v0.0.32                                              <span class="c"># 릴리스 페이지에서 최신 버전 확인 후 고정</span>
+kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/$LPP/deploy/local-path-storage.yaml
+kubectl get sc local-path -o custom-columns=NAME:.metadata.name,PROV:.provisioner,BIND:.volumeBindingMode,RECLAIM:.reclaimPolicy
+
+kubectl create ns stor-lab
+cat &gt; data-pvc.yaml &lt;&lt;'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data}
+spec:
+  storageClassName: local-path
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 1Gi}}
+EOF
+kubectl -n stor-lab apply -f data-pvc.yaml
+kubectl -n stor-lab get pvc data                          <span class="c"># Pending</span>
+kubectl -n stor-lab describe pvc data | tail -3            <span class="c"># waiting for first consumer ...</span></pre></div>
+    <div class="code"><div class="bar"><span>(2) 첫 소비자가 생기면: 노드 선택, PV 생성, 노드 고정</span><button class="copy" type="button">복사</button></div><pre>cat &gt; writer.yaml &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: {name: writer}
+spec:
+  containers:
+  - name: c
+    image: busybox:1.36
+    command: ["sh", "-c", "while true; do date &gt;&gt; /data/log; sleep 5; done"]
+    volumeMounts: [{name: d, mountPath: /data}]
+  volumes: [{name: d, persistentVolumeClaim: {claimName: data}}]
+EOF
+kubectl -n stor-lab apply -f writer.yaml
+kubectl -n stor-lab wait pod/writer --for=condition=Ready --timeout=120s
+kubectl -n stor-lab get pvc data -o jsonpath='{.metadata.annotations.volume\.kubernetes\.io/selected-node}'; echo
+PV=$(kubectl -n stor-lab get pvc data -o jsonpath='{.spec.volumeName}')
+kubectl get pv $PV -o jsonpath='{.spec.nodeAffinity}'; echo           <span class="c"># 이 노드에만 갈 수 있음</span>
+
+NODE=$(kubectl -n stor-lab get pod writer -o jsonpath='{.spec.nodeName}')
+kubectl cordon $NODE
+kubectl -n stor-lab delete pod writer --wait
+kubectl -n stor-lab apply -f writer.yaml
+kubectl -n stor-lab describe pod writer | grep -A3 Events                 <span class="c"># unschedulable + volume node affinity conflict</span>
+kubectl uncordon $NODE                                                     <span class="c"># 같은 노드로 돌아가야만 뜸</span></pre></div>
+    <div class="code"><div class="bar"><span>(3) 보호 장치와 Unused 조건(1.37)</span><button class="copy" type="button">복사</button></div><pre>kubectl -n stor-lab get pvc data -o jsonpath='{.status.conditions}' | jq    <span class="c"># Unused=False</span>
+kubectl -n stor-lab delete pvc data --wait=false
+kubectl -n stor-lab get pvc data                                             <span class="c"># Terminating: pvc-protection</span>
+kubectl -n stor-lab get pvc data -o jsonpath='{.metadata.finalizers}'; echo
+kubectl -n stor-lab delete pod writer                                        <span class="c"># Pod가 사라지면 PVC도 사라짐</span>
+kubectl get pv $PV 2&gt;&amp;1                                                      <span class="c"># Delete 정책: PV와 노드의 디렉터리까지 삭제</span>
+
+<span class="c"># Unused 조건만 따로 보기: PVC를 다시 만들고 Pod를 붙였다 떼기</span>
+kubectl -n stor-lab apply -f data-pvc.yaml -f writer.yaml
+kubectl -n stor-lab wait pod/writer --for=condition=Ready --timeout=120s &amp;&amp; kubectl -n stor-lab delete pod writer
+sleep 5; kubectl -n stor-lab get pvc data -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason} {.lastTransitionTime}{"\n"}{end}'</pre></div>
+    <div class="code"><div class="bar"><span>(4) 일반 임시 볼륨과 프로젝티드 토큰</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 6장의 scratch-demo YAML을 scratch-demo.yaml로 저장해 적용</span>
+kubectl -n stor-lab apply -f scratch-demo.yaml
+kubectl -n stor-lab get pvc                                   <span class="c"># scratch-demo-scratch 가 자동 생성</span>
+kubectl -n stor-lab get pvc scratch-demo-scratch -o jsonpath='{.metadata.ownerReferences[0].kind}'; echo   <span class="c"># Pod 소유</span>
+kubectl -n stor-lab logs scratch-demo                         <span class="c"># df 결과와 토큰 앞부분</span>
+kubectl -n stor-lab delete pod scratch-demo; sleep 5; kubectl -n stor-lab get pvc   <span class="c"># 함께 사라짐</span></pre></div>
+
+    <div class="prose"><h3>실습 1. lab-eks: Immediate로 멀티 AZ 실패를 재현하고 WaitForFirstConsumer로 해결</h3></div>
+    <div class="code"><div class="bar"><span>(1) 존과 StorageClass 확인, Immediate StorageClass 만들기</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-eks
+kubectl get nodes -L topology.kubernetes.io/zone            <span class="c"># 노드가 두 존 이상에 있어야 재현됨</span>
+kubectl get sc
+kubectl get csidriver ebs.csi.aws.com                        <span class="c"># 3편에서 설치한 EBS CSI 애드온</span>
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata: {name: gp3-immediate}
+provisioner: ebs.csi.aws.com
+volumeBindingMode: Immediate
+parameters: {type: gp3}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata: {name: gp3-wfc}
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters: {type: gp3}
+EOF</pre></div>
+    <div class="code"><div class="bar"><span>(2) 실패 재현</span><button class="copy" type="button">복사</button></div><pre>kubectl create ns stor-lab
+kubectl -n stor-lab apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data-imm}
+spec:
+  storageClassName: gp3-immediate
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 10Gi}}
+EOF
+kubectl -n stor-lab get pvc data-imm -w                      <span class="c"># Pod 없이 바로 Bound</span>
+PV=$(kubectl -n stor-lab get pvc data-imm -o jsonpath='{.spec.volumeName}')
+VZ=$(kubectl get pv $PV -o jsonpath='{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}'); echo "디스크 존: $VZ"
+OTHER=$(kubectl get nodes -o jsonpath='{.items[*].metadata.labels.topology\.kubernetes\.io/zone}' | tr ' ' '\n' | sort -u | grep -v "$VZ" | head -1); echo "다른 존: $OTHER"
+
+cat &gt; pod-zone.sh &lt;&lt;'EOF'
+kubectl -n stor-lab apply -f - &lt;&lt;YAML
+apiVersion: v1
+kind: Pod
+metadata: {name: $1}
+spec:
+  nodeSelector: {topology.kubernetes.io/zone: $2}
+  containers: [{name: c, image: busybox:1.36, command: ["sleep", "3600"], volumeMounts: [{name: d, mountPath: /data}]}]
+  volumes: [{name: d, persistentVolumeClaim: {claimName: $3}}]
+YAML
+EOF
+bash pod-zone.sh app-imm "$OTHER" data-imm
+sleep 15; kubectl -n stor-lab describe pod app-imm | sed -n '/Events/,$p'   <span class="c"># volume node affinity conflict</span></pre></div>
+    <div class="code"><div class="bar"><span>(3) 해결과 확인</span><button class="copy" type="button">복사</button></div><pre>kubectl -n stor-lab apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data-wfc}
+spec:
+  storageClassName: gp3-wfc
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 10Gi}}
+EOF
+bash pod-zone.sh app-wfc "$OTHER" data-wfc
+kubectl -n stor-lab wait pod/app-wfc --for=condition=Ready --timeout=180s
+PV2=$(kubectl -n stor-lab get pvc data-wfc -o jsonpath='{.spec.volumeName}')
+kubectl get pv $PV2 -o jsonpath='{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}'; echo   <span class="c"># = $OTHER</span>
+
+<span class="c"># 존별 PV 수 세기 (노드 그룹 변경 전 점검 명령)</span>
+kubectl get pv -o custom-columns=PV:.metadata.name,ZONE:.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0],CLAIM:.spec.claimRef.name,SC:.spec.storageClassName</pre></div>
+    <div class="note"><b>추가 실험</b>
+    app-imm을 고치는 다른 방법도 시도해 보세요: ① Pod의 nodeSelector를 디스크 존으로 바꾸기(증상 치료), ② <code>allowedTopologies</code>로 Immediate StorageClass를 특정 존에 고정하기(단일 존 워크로드), ③ StatefulSet + 존 분산 제약 + gp3-wfc로 레플리카를 존마다 하나씩 배치하고 PV가 존별로 나뉘는지 확인하기.</div>
+
+    <div class="prose"><h3>실습 2. lab-eks: 온라인 확장과 클라우드 제한</h3></div>
+    <div class="code"><div class="bar"><span>Pod를 띄운 채로 10Gi → 20Gi</span><button class="copy" type="button">복사</button></div><pre>kubectl -n stor-lab exec app-wfc -- df -h /data
+kubectl -n stor-lab patch pvc data-wfc -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+kubectl -n stor-lab get pvc data-wfc -w                       <span class="c"># CAPACITY 변화</span>
+kubectl -n stor-lab get pvc data-wfc -o jsonpath='{.status.conditions}'; echo
+kubectl -n stor-lab exec app-wfc -- df -h /data               <span class="c"># 재시작 없이 늘어남</span>
+
+<span class="c"># 곧바로 한 번 더: EBS의 볼륨 수정 간격 제한에 걸리는지 이벤트로 확인</span>
+kubectl -n stor-lab patch pvc data-wfc -p '{"spec":{"resources":{"requests":{"storage":"30Gi"}}}}'
+sleep 30; kubectl -n stor-lab describe pvc data-wfc | sed -n '/Events/,$p'
+<span class="c"># 제한 메시지가 보이면, 요청을 20Gi보다 큰 범위에서 조정하거나 대기 후 재시도하는 복구 절차를 기록</span></pre></div>
+    <div class="code"><div class="bar"><span>정리 (EBS 비용 방지)</span><button class="copy" type="button">복사</button></div><pre>kubectl delete ns stor-lab                                    <span class="c"># Delete 정책이므로 EBS 볼륨도 삭제됨</span>
+aws ec2 describe-volumes --filters Name=tag:kubernetes.io/created-for/pvc/namespace,Values=stor-lab --query 'Volumes[].VolumeId'</pre></div>
+
+    <div class="prose"><h3>실습 3. 모든 랩: StorageClass·CSI Migration·미사용 PVC 조사</h3></div>
+    <div class="code"><div class="bar"><span>storage-inventory.sh</span><button class="copy" type="button">복사</button></div><pre>#!/usr/bin/env bash
+for c in lab-native lab-rke2 lab-ocp lab-eks lab-aks lab-gke; do
+  kubectl config get-contexts "$c" &gt;/dev/null 2&gt;&amp;1 || continue
+  echo "===== $c"
+  kubectl --context "$c" get sc -o custom-columns=NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class,PROVISIONER:.provisioner,BIND:.volumeBindingMode,RECLAIM:.reclaimPolicy,EXPAND:.allowVolumeExpansion
+  kubectl --context "$c" get csidriver -o custom-columns=DRIVER:.metadata.name,ATTACH:.spec.attachRequired,MODES:.spec.volumeLifecycleModes
+  kubectl --context "$c" get pv -o json | jq -r '.items[] | select(.metadata.annotations["pv.kubernetes.io/migrated-to"]) | "  migrated PV: \(.metadata.name) → \(.metadata.annotations["pv.kubernetes.io/migrated-to"])"'
+  kubectl --context "$c" get pvc -A -o json | jq -r '.items[] | . as $p | (.status.conditions // [])[] | select(.type=="Unused" and .status=="True") | "  unused since \(.lastTransitionTime): \($p.metadata.namespace)/\($p.metadata.name) \($p.spec.resources.requests.storage)"'
+done</pre></div>
+    <div class="prose">
+      <h3>과제</h3>
+      <ol>
+        <li>실습 3 결과로 8장 표를 실제 값으로 채우고, 기본 StorageClass가 없거나 둘 이상인 컨텍스트를 표시하세요.</li>
+        <li>맨 위 시뮬레이터에서 “Immediate + zone-b 고정 Pod”의 결과를 예측한 뒤 실습 1 (2)와 비교하세요. 리전 디스크와 파일 공유로 바꾸면 결과가 어떻게 달라지는지도 적으세요.</li>
+        <li>담당 고객사의 운영 데이터베이스 PVC 목록을 뽑아 StorageClass·리클레임 정책·존·확장 가능 여부를 표로 정리하고, Delete 정책인 것에 대해 백업 여부를 확인하세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>노드 그룹을 정리했더니 StatefulSet 일부가 영영 Pending</summary><div class="body">
+      <p><strong>원인.</strong> 비용 절감을 위해 세 존에 있던 노드 그룹을 두 존으로 줄였습니다. 사라진 존에 PV가 있던 StatefulSet 레플리카는 “volume node affinity conflict”로 갈 곳이 없어졌습니다.</p>
+      <p><strong>대응.</strong> 해당 존에 작은 노드 그룹을 다시 만들어 Pod를 살린 뒤, 스냅샷으로 다른 존에 볼륨을 복제해 옮겼습니다(15편).</p>
+      <p><strong>교훈.</strong> 존에 묶인 블록 볼륨은 <strong>존 단위 의존성</strong>입니다. 노드 그룹 변경 전에 실습 1의 존별 PV 집계를 돌리세요.</p>
+    </div></details>
+    <details class="case"><summary>새 StatefulSet의 Pod가 존마다 랜덤하게 실패한다</summary><div class="body">
+      <p><strong>원인.</strong> 직접 만든 StorageClass가 Immediate였습니다. PVC가 먼저 임의의 존에 디스크를 만들고, 스케줄러는 존 분산 제약에 따라 다른 존을 골라 충돌했습니다.</p>
+      <p><strong>교훈.</strong> 존에 묶인 스토리지의 StorageClass는 <strong>WaitForFirstConsumer가 기본</strong>입니다. 사내 StorageClass 템플릿에서 바인딩 모드를 필수 항목으로 두세요.</p>
+    </div></details>
+    <details class="case"><summary>네임스페이스 정리 스크립트가 운영 데이터를 지웠다</summary><div class="body">
+      <p><strong>원인.</strong> 오래된 테스트 네임스페이스를 지우는 스크립트의 필터가 잘못되어 운영 네임스페이스까지 지웠습니다. 기본 StorageClass가 Delete 정책이라 디스크까지 사라졌습니다.</p>
+      <p><strong>대응.</strong> 클라우드 스냅샷에서 복구했지만 마지막 스냅샷 이후 데이터는 잃었습니다.</p>
+      <p><strong>교훈.</strong> 운영 데이터는 <strong>Retain StorageClass + 정기 스냅샷 + 네임스페이스 삭제 보호</strong>(어드미션 정책, 21편)를 겹쳐 지키세요. 반대로 Retain만 쓰면 고아 디스크가 쌓이므로 Unused 조건으로 정기 점검합니다.</p>
+    </div></details>
+    <details class="case"><summary>대용량 볼륨을 쓰는 Pod가 시작에 20분 걸린다</summary><div class="body">
+      <p><strong>원인.</strong> Pod에 fsGroup이 설정되어 있어 kubelet이 시작할 때마다 수백만 개 파일의 소유 그룹을 다시 바꿨습니다.</p>
+      <p><strong>교훈.</strong> <code>fsGroupChangePolicy: OnRootMismatch</code>로 최상위 디렉터리 권한이 맞으면 건너뛰게 하세요. SELinux 환경이라면 1.37 GA인 SELinux 마운트 방식도 확인합니다.</p>
+    </div></details>
+    <details class="case"><summary>새 EKS 클러스터에서 Helm 차트의 PVC가 Pending</summary><div class="body">
+      <p><strong>원인.</strong> 1.30 이후 만든 EKS 클러스터라 gp2에 기본 지정이 없었고, 차트는 기본 StorageClass를 기대했습니다. 다른 클러스터에서는 EBS CSI 애드온이 빠져 있어 옛 이름 gp2조차 동작하지 않았습니다.</p>
+      <p><strong>교훈.</strong> 클러스터 생성 IaC에 <strong>CSI 드라이버 설치 + gp3 기본 StorageClass 지정</strong>을 포함하세요.</p>
+    </div></details>
+    <details class="case"><summary>Deployment 롤링 업데이트가 Multi-Attach 오류로 멈춘다</summary><div class="body">
+      <p><strong>원인.</strong> RWO PVC를 쓰는 Deployment가 RollingUpdate 전략이라, 새 Pod가 다른 노드에 뜨면서 디스크가 아직 옛 노드에 붙어 있었습니다.</p>
+      <p><strong>교훈.</strong> 단일 RWO 볼륨을 쓰는 워크로드는 <strong>Recreate 전략이나 StatefulSet</strong>을 쓰고, 정말 하나의 Pod만 써야 한다면 RWOP로 의도를 명시하세요.</p>
+    </div></details>
+    <details class="case"><summary>확장이 끝났다는데 디스크가 그대로다</summary><div class="body">
+      <p><strong>원인.</strong> 백엔드 디스크는 늘었지만 드라이버가 오프라인 파일 시스템 확장만 지원해, PVC에 FileSystemResizePending 조건이 걸린 채 Pod 재시작을 기다리고 있었습니다.</p>
+      <p><strong>교훈.</strong> 확장 후에는 <strong>PVC 조건과 컨테이너 안의 df</strong> 둘 다 확인하세요. 드라이버별 온라인 확장 지원은 12편 표에 정리합니다.</p>
+    </div></details>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: RWOP, 리클레임, CSIStorageCapacity)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S13 -->
+  <section class="chap" id="s13">
+    <div class="chap-num">13</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>스토리지는 Pod 볼륨, PV·PVC·StorageClass 추상화, CSI 구현의 세 층이며, 장애는 프로비저닝·바인딩·어태치·마운트 중 어디서 멈췄는지로 쪼갭니다.</li>
+        <li>데이터가 사라지는 시점은 리클레임 정책이 정합니다. 보호 파이널라이저와 HonorPVReclaimPolicy(1.33 GA), 1.37의 Unused 조건이 운영을 돕습니다.</li>
+        <li>RWO는 노드 단위이며 Pod 하나를 보장하지 않습니다. 단일 Pod는 RWOP, 여러 노드 쓰기는 RWX 백엔드가 필요합니다.</li>
+        <li>존에 묶인 블록 디스크는 WaitForFirstConsumer가 기본이며, PV가 생기는 순간 Pod는 그 존에 묶입니다. 1.37은 용량 스코어링과 CSI 인지 오토스케일링을 Beta로 올렸습니다.</li>
+        <li>in-tree 플러그인은 제거됐지만 옛 이름의 StorageClass와 번역된 PV가 남아 있으며, CSI 드라이버 설치와 기본 StorageClass 정리가 온보딩 점검 항목입니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 12편 CSI 드라이버 해부와 벤더 드라이버 비교</h3>
+      <p style="margin:.3em 0 0">CSI 컨트롤러·노드 플러그인과 사이드카(provisioner, attacher, resizer, snapshotter, health monitor)의 역할을 로그로 따라가고, EBS·EFS·FSx, Azure Disk·Files·Blob, GCE PD(Hyperdisk)·Filestore, OpenShift Data Foundation, Longhorn, vSphere CSI를 비교합니다. 노드당 어태치 한도, 어태치·디태치 타이밍, 노드 장애 때 볼륨 분리 지연과 Non-graceful node shutdown까지 다루고, PVC Pending과 어태치 실패를 단계별로 추적하는 실습을 합니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Volumes, Persistent Volumes, Storage Classes, Ephemeral Volumes, Projected Volumes, Storage Capacity — kubernetes.io 문서</li>
+        <li>Kubernetes v1.37 릴리스 블로그(용량 스코어링·CSI 인지 오토스케일링·PVC 미사용 추적 Beta), PVC 마지막 사용 시각 추적 블로그(2026-09)</li>
+        <li>KEP-5541(PVC 미사용 시각), KEP-5030(CSI 어태치 한도와 Cluster Autoscaler), KEP-4049(용량 스코어링), KEP-2644(HonorPVReclaimPolicy)</li>
+        <li>CSI Migration 상태와 in-tree 플러그인 제거 공지 — kubernetes.io 블로그</li>
+        <li>EKS 스토리지(EBS CSI 애드온, 기본 StorageClass 변경), AKS 스토리지 클래스, GKE 기본 StorageClass와 Hyperdisk, OpenShift 영구 스토리지 문서</li>
+        <li>Rancher local-path-provisioner — github.com/rancher/local-path-provisioner</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 11편(Level 2 시작). 작성 기준일 2026-10-23, Kubernetes v1.37 기준.
+      클라우드 디스크의 수정 제한·기본 StorageClass 구성은 바뀔 수 있으므로 실습 전 각 벤더 문서를 확인하세요.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "Volume":["Kubernetes Volume","Pod 스펙에 정의하는 저장 공간. 종류에 따라 Pod와 함께 사라지기도 하고 남기도 한다."],
+ "PV":["PersistentVolume","클러스터에 실제로 존재하는 저장 공간 한 덩어리. 창고 하나."],
+ "PVC":["PersistentVolumeClaim","‘이만큼, 이런 방식으로 쓸 저장 공간을 주세요’라는 신청서. PV와 1:1로 묶인다."],
+ "StorageClass":["StorageClass","동적으로 만들 저장 공간의 종류·파라미터·바인딩 모드·리클레임 정책을 정한 상품 목록."],
+ "CSI":["Container Storage Interface","스토리지 업체가 Kubernetes와 같은 방식으로 디스크를 만들고 붙이게 하는 표준 드라이버 규격."],
+ "동적 프로비저닝":["Dynamic provisioning","PVC가 생기면 StorageClass에 따라 디스크와 PV를 자동으로 만드는 것."],
+ "정적 프로비저닝":["Static provisioning","관리자가 PV를 미리 만들어 두고 PVC가 골라 쓰게 하는 것."],
+ "바인딩":["Binding","PV와 PVC를 1:1로 묶는 것. 묶인 PV는 다른 PVC가 쓸 수 없다."],
+ "WaitForFirstConsumer":["volumeBindingMode: WaitForFirstConsumer","PVC를 쓰는 Pod가 스케줄될 때까지 디스크 생성을 미루는 모드. 존에 묶인 디스크의 기본."],
+ "Immediate":["volumeBindingMode: Immediate","PVC를 만들자마자 디스크를 만드는 모드. Pod 위치를 모르고 만든다."],
+ "allowedTopologies":["StorageClass allowedTopologies","디스크를 만들 수 있는 존·지역을 제한하는 필드."],
+ "토폴로지":["Topology","존·지역·노드처럼 스토리지가 닿을 수 있는 범위를 나타내는 레이블 체계."],
+ "nodeAffinity":["PV nodeAffinity","이 PV를 쓸 수 있는 노드 조건. 존에 묶인 디스크는 그 존 노드만 허용."],
+ "리클레임":["Reclaim policy","PVC가 지워졌을 때 PV와 디스크를 지울지(Delete) 남길지(Retain) 정하는 정책."],
+ "Released":["PV phase Released","PVC는 지워졌지만 데이터가 남은 PV 상태. 그대로는 재사용되지 않는다."],
+ "파이널라이저":["Finalizer","리소스 삭제 전에 정리 작업이 끝나기를 기다리게 하는 표시. pvc-protection 등."],
+ "HonorPVReclaimPolicy":["HonorPVReclaimPolicy","PV를 PVC보다 먼저 지워도 Delete 정책이면 디스크 삭제를 보장하는 기능(1.33 GA)."],
+ "Unused 조건":["PVC Unused condition","PVC를 쓰는 Pod가 모두 사라지면 True가 되고 그 시각을 남기는 조건(1.37 Beta, 기본 켜짐)."],
+ "RWO":["ReadWriteOnce","노드 하나에서 읽기·쓰기. 같은 노드의 여러 Pod는 동시에 쓸 수 있다."],
+ "ROX":["ReadOnlyMany","여러 노드에서 읽기 전용."],
+ "RWX":["ReadWriteMany","여러 노드에서 읽기·쓰기. 파일 공유 스토리지가 필요."],
+ "RWOP":["ReadWriteOncePod","클러스터 전체에서 Pod 하나만 마운트(1.29 GA)."],
+ "volumeMode":["volumeMode","Filesystem(포맷된 디렉터리) 또는 Block(포맷 없는 장치 파일)."],
+ "fsGroup":["Pod securityContext fsGroup","볼륨 파일의 소유 그룹을 지정 값으로 바꾸게 하는 설정. 파일이 많으면 시작이 느려진다."],
+ "어태치":["Attach","블록 디스크를 노드(VM)에 연결하는 단계. VolumeAttachment 객체로 보인다."],
+ "마운트":["Mount","노드에서 디스크를 포맷·마운트해 컨테이너 경로에 연결하는 단계."],
+ "CSIStorageCapacity":["CSIStorageCapacity","드라이버가 토폴로지별 남은 용량을 알리는 객체. 스케줄러가 용량 부족 노드를 거른다."],
+ "CSINode":["CSINode","노드별로 설치된 CSI 드라이버와 토폴로지 키, 어태치 한도를 담은 객체."],
+ "어태치 한도":["Volume attach limit","노드 하나에 붙일 수 있는 디스크 수 상한. 인스턴스 종류마다 다르다."],
+ "용량 스코어링":["Storage capacity scoring","남은 용량으로 노드 점수를 매겨 프로비저닝 위치를 고르는 기능(1.37 Beta)."],
+ "Cluster Autoscaler":["Cluster Autoscaler","대기 중인 Pod를 보고 노드를 늘리고 줄이는 컴포넌트. 1.37에서 CSI 어태치 한도를 고려(Beta)."],
+ "볼륨 확장":["Volume expansion","PVC 요청 크기를 늘려 디스크와 파일 시스템을 키우는 것. 줄이기는 불가."],
+ "온라인 확장":["Online expansion","Pod를 띄운 채로 파일 시스템까지 확장하는 것."],
+ "FileSystemResizePending":["FileSystemResizePending","백엔드는 늘었고 파일 시스템 확장이 Pod 재시작을 기다리는 PVC 조건."],
+ "VolumeAttributesClass":["VolumeAttributesClass","디스크 IOPS·처리량 같은 속성을 바꾸는 표준(1.34 GA). 13편."],
+ "emptyDir":["emptyDir","Pod와 함께 생기고 사라지는 빈 디렉터리. 노드 디스크나 메모리를 쓴다."],
+ "일반 임시 볼륨":["Generic ephemeral volume","Pod 안에 PVC 템플릿을 넣어 Pod 수명 동안만 쓰는 실제 디스크를 만드는 방식(1.23 GA)."],
+ "CSI 인라인 임시 볼륨":["CSI ephemeral inline volume","드라이버가 Pod 수명 동안만 제공하는 볼륨. Secrets Store CSI가 대표."],
+ "이미지 볼륨":["Image volume","OCI 이미지 내용을 읽기 전용 볼륨으로 마운트하는 기능."],
+ "프로젝티드 볼륨":["Projected volume","ServiceAccount 토큰·ConfigMap·Secret·Downward API 등을 한 디렉터리에 투영하는 볼륨."],
+ "serviceAccountToken":["Projected ServiceAccount token","대상(audience)과 만료가 있는 토큰. kubelet이 자동 갱신한다(17편)."],
+ "in-tree":["In-tree volume plugin","Kubernetes 본체 코드 안에 들어 있던 옛 스토리지 플러그인. 대부분 제거됨."],
+ "CSI Migration":["CSI Migration","옛 in-tree 이름으로 된 StorageClass·PV를 CSI 드라이버 호출로 번역해 주는 기능."],
+ "provisioner":["StorageClass provisioner","디스크를 만들 드라이버 이름(예: ebs.csi.aws.com)."],
+ "Multi-Attach":["Multi-Attach error","RWO 디스크가 다른 노드에 붙어 있는데 새 노드에 붙이려 할 때 나는 오류."],
+ "SELinuxMount":["SELinux mount option","볼륨을 마운트할 때 SELinux 레이블을 붙여 파일별 재레이블링을 피하는 방식(1.37 GA)."],
+ "리전 디스크":["Regional disk","두 존에 복제되는 블록 디스크(GCE Regional PD, Azure ZRS 등). 존 장애에 대비."],
+ "로컬 PV":["Local PersistentVolume","노드에 붙은 디스크를 PV로 쓰는 것. 그 노드에 영원히 묶인다."],
+ "local-path":["Rancher local-path-provisioner","노드 디렉터리를 PV로 동적 생성하는 단순 프로비저너. 실습용."],
+ "Retain":["Reclaim policy Retain","PVC가 지워져도 PV와 디스크를 남기는 정책. 사람이 정리해야 한다."],
+ "Delete":["Reclaim policy Delete","PVC가 지워지면 PV와 백엔드 디스크를 함께 지우는 정책. 대부분의 기본값."]
+};
+const AUTO=["WaitForFirstConsumer","HonorPVReclaimPolicy","CSIStorageCapacity","allowedTopologies","VolumeAttributesClass","FileSystemResizePending","Cluster Autoscaler","StorageClass","CSI Migration","SELinuxMount","Multi-Attach","serviceAccountToken","local-path","CSINode","nodeAffinity","provisioner","volumeMode","fsGroup","emptyDir","Immediate","in-tree","Released","Retain","PVC","PV","CSI","RWO","ROX","RWX","RWOP","동적 프로비저닝","정적 프로비저닝","리클레임","파이널라이저","Unused 조건","어태치 한도","용량 스코어링","볼륨 확장","온라인 확장","CSI 인라인 임시 볼륨","이미지 볼륨","리전 디스크","로컬 PV","토폴로지"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s12")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- binding simulator ---------- */
+const B={mode:"Immediate",st:"zonal",pod:"zoneb",at:"none"};
+const BO={bMode:["mode",[["Immediate","Immediate"],["WFC","WaitForFirstConsumer"]]],
+ bSt:["st",[["zonal","존 블록 디스크(EBS·PD·Azure Disk)"],["regional","리전 디스크(두 존 복제)"],["file","파일 공유 RWX(EFS·Azure Files)"],["local","노드 로컬 디스크(local PV)"]]],
+ bPod:["pod",[["none","제약 없음"],["zoneb","nodeSelector: zone-b"],["afull","zone-a 노드 자원 부족"]]],
+ bAt:["at",[["none","없음"],["a","zone-a만 허용"]]]};
+const Z=["a","b","c"];
+function simBind(){
+  const feasible=B.pod==="none"?["a","b","c"]:B.pod==="zoneb"?["b"]:["b","c"];
+  let disk=null,node=null,ok=false,ev="",why="";
+  const access=(dz)=>B.st==="file"?["a","b","c"]:B.st==="regional"?(dz==="a"?["a","b"]:dz==="b"?["b","c"]:["c","a"]):[dz];
+  if(B.st==="local"&&B.mode==="Immediate"){
+    disk="?";ev="PVC가 바인딩되지 않거나, 미리 만든 로컬 PV가 Pod와 무관한 노드에 묶임";why="노드 로컬 디스크는 Pod가 갈 노드를 알아야만 고를 수 있습니다. 로컬 PV용 StorageClass는 WaitForFirstConsumer여야 합니다.";
+    return {disk:null,node:null,ok:false,ev,why,acc:[]};}
+  if(B.mode==="Immediate"){
+    const dz=B.at==="a"?"a":"a";disk=dz;const acc=access(dz);
+    const cand=feasible.filter(z=>acc.includes(z));
+    if(cand.length){node=cand[0];ok=true;why=B.st==="file"?"파일 공유는 모든 존에서 닿으므로 Immediate여도 문제가 없습니다.":B.st==="regional"?`리전 디스크는 zone-${acc.join("·zone-")}에서 닿으므로 Pod가 갈 수 있는 노드가 남았습니다.`:"우연히 디스크와 같은 존에 Pod가 갈 수 있었습니다. Pod 제약을 바꾸면 깨지는 운에 기댄 구성입니다.";}
+    else{ok=false;const cnt={};Z.forEach(z=>{let r;if(B.pod==="zoneb"&&z!=="b")r="node(s) didn't match Pod's node affinity/selector";else if(B.pod==="afull"&&z==="a")r="Insufficient cpu";else r="node(s) had volume node affinity conflict";cnt[r]=(cnt[r]||0)+1;});
+      ev="0/3 nodes are available: "+Object.entries(cnt).map(([r,n])=>`${n} ${r}`).join(", ");why=`디스크는 Pod 위치를 모른 채 zone-${dz}${B.at==="a"?"(allowedTopologies)":"(임의 선택)"}에 먼저 만들어졌고, Pod는 그 존에 갈 수 없습니다.`;}
+    return {disk:dz,node,ok,ev,why,acc};
+  }
+  // WFC
+  let cand=feasible.slice();
+  if(B.at==="a"&&B.st!=="file")cand=cand.filter(z=>z==="a");
+  if(!cand.length){ev="0/3 nodes are available: node(s) didn't find available persistent volumes to bind";why="Pod가 갈 수 있는 노드와 StorageClass가 허용한 토폴로지(zone-a)가 겹치지 않습니다. 스케줄러가 처음부터 실패를 알리고 디스크는 만들지 않습니다.";return {disk:null,node:null,ok:false,ev,why,acc:[]};}
+  node=cand[0];disk=node;const acc=access(node);
+  why=B.st==="local"?`스케줄러가 node-${node}를 고른 뒤 그 노드의 로컬 디스크로 PV를 만들었습니다. 이 Pod는 이제 node-${node}에만 뜰 수 있습니다.`:B.st==="file"?"파일 공유는 위치 제약이 없어 WFC의 이점이 크지 않지만 해가 되지도 않습니다.":`스케줄러가 먼저 node-${node}를 고르고(selected-node), 그 존에 디스크를 만들었습니다. 이후 이 PVC는 zone-${node}에 묶입니다.`;
+  return {disk,node,ok:true,ev:"",why,acc};
+}
+function renderBind(){
+  for(const id in BO){const [k,vals]=BO[id],box=$("#"+id);box.innerHTML="";vals.forEach(([v,l])=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String(B[k]===v)},l);b.addEventListener("click",()=>{B[k]=v;renderBind();});box.appendChild(b);});}
+  const r=simBind();
+  $("#bZones").innerHTML=Z.map(z=>{
+    const nodeFull=B.pod==="afull"&&z==="a";
+    const pod=r.node===z?`<div class="box pod"><b>Pod</b>Running</div>`:"";
+    let disk="";
+    if(r.acc.includes(z)){const lbl=B.st==="file"?"파일 공유 마운트 지점":B.st==="regional"?(r.disk===z?"리전 디스크(기본 복제본)":"리전 디스크(복제본)"):B.st==="local"?"로컬 디스크 PV":"블록 디스크 PV";disk=`<div class="box disk"><b>${lbl}</b>${B.st==="local"?"node-"+z+" 고정":"zone-"+z}</div>`;}
+    return `<div class="zn ${r.node===z?"hl":""}"><h5>zone-${z}</h5><div class="box ${nodeFull?"bad":""}"><b>node-${z}</b>${nodeFull?"CPU 부족":"Ready"}</div>${pod}${disk}</div>`;}).join("");
+  $("#bVerdict").className="verdict "+(r.ok?"ok":"no");
+  $("#bVerdict").textContent=r.ok?`Pod Running · node-${r.node}`:"Pod Pending";
+  $("#bMsg").innerHTML=(r.ev?`<b>이벤트</b> <code>${H(r.ev)}</code><br>`:"")+r.why;
+}
+renderBind();
+
+/* ---------- lifecycle stepper ---------- */
+const L={rp:"Delete"};
+function lReset(){Object.assign(L,{pvc:"없음",pvcFin:[],pv:"없음",disk:"없음",pod:false,unused:"—",log:[]});}
+lReset();
+function lg(m){L.log.push(m);}
+function reclaim(){
+  L.pvc="없음";L.pvcFin=[];L.unused="—";
+  if(L.rp==="Delete"){L.pv="삭제됨";L.disk="삭제됨";lg("PVC 삭제 완료 → PV Released → Delete 정책: provisioner가 백엔드 디스크와 PV를 삭제");}
+  else{L.pv="Released";lg("PVC 삭제 완료 → PV Released. Retain 정책: 디스크와 데이터는 남음(사람이 정리하거나 재사용)");}
+}
+const LA=[
+ ["PVC 생성",()=>L.pvc==="없음"&&L.pv!=="Bound",()=>{L.pvc="Pending";L.pvcFin=["kubernetes.io/pvc-protection"];lg("PVC 생성 → Pending (waiting for first consumer)");}],
+ ["Pod 생성(PVC 사용)",()=>!L.pod&&(L.pvc==="Pending"||L.pvc==="Bound"),()=>{
+   if(L.pv==="없음"||L.pv==="삭제됨"){L.disk="생성됨";L.pv="Bound";lg("스케줄러가 노드 선택 → provisioner가 디스크 생성 → PV 생성·바인딩");}
+   L.pvc="Bound";L.pod=true;L.unused="False";lg("Pod Running, Unused=False");}],
+ ["Pod 삭제",()=>L.pod,()=>{L.pod=false;lg("Pod 삭제");
+   if(L.pvc==="Terminating"){lg("PVC를 쓰는 Pod가 사라져 pvc-protection 해제");reclaim();}
+   else{L.unused="True (NoPodsUsingPVC)";lg("Unused=True, lastTransitionTime 기록 (1.37)");}}],
+ ["PVC 삭제",()=>L.pvc==="Bound"||L.pvc==="Pending",()=>{
+   if(L.pod){L.pvc="Terminating";lg("PVC 삭제 요청 → Pod가 사용 중이라 Terminating (pvc-protection)");}
+   else if(L.pvc==="Pending"){L.pvc="없음";L.pvcFin=[];lg("묶이지 않은 PVC는 바로 삭제");}
+   else reclaim();}],
+ ["Released PV 삭제",()=>L.pv==="Released",()=>{L.pv="삭제됨";lg(L.rp==="Retain"?"PV 객체만 삭제. Retain이므로 디스크는 클라우드에 그대로 → 추적 안 되는 고아 디스크(비용 발생)":"PV 삭제");}],
+ ["Retain PV 재사용(claimRef 제거)",()=>L.pv==="Released"&&L.disk==="생성됨",()=>{L.pv="Available";lg("claimRef 제거 → PV Available. 새 PVC가 volumeName으로 지정하면 기존 데이터와 함께 바인딩");}],
+ ["새 PVC로 재바인딩",()=>L.pv==="Available"&&L.pvc==="없음",()=>{L.pvc="Bound";L.pv="Bound";L.pvcFin=["kubernetes.io/pvc-protection"];L.unused="True (NoPodsUsingPVC)";lg("정적 바인딩 완료 → 이전 데이터 복구");}],
+ ["초기화",()=>true,()=>{lReset();}]
+];
+function renderLife(){
+  const rb=$("#lRp");rb.innerHTML="";["Delete","Retain"].forEach(v=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String(L.rp===v)},v);b.addEventListener("click",()=>{L.rp=v;lReset();renderLife();});rb.appendChild(b);});
+  const ab=$("#lActs");ab.innerHTML="";LA.forEach(([n,can,fn])=>{const b=el("button",{class:"btn",type:"button"},n);if(!can())b.disabled=true;b.addEventListener("click",()=>{fn();renderLife();});ab.appendChild(b);});
+  $("#lState").innerHTML=`<div><small>PVC</small><b>${L.pvc}</b><small>파이널라이저: ${L.pvcFin.join(", ")||"—"}<br>Unused: ${L.unused}</small></div><div><small>PV (리클레임 ${L.rp})</small><b>${L.pv}</b><small>${L.pv==="Released"?"그대로는 다른 PVC가 못 씀":L.pv==="Bound"?"pv-protection으로 보호":""}</small></div><div><small>백엔드 디스크</small><b>${L.disk}</b><small>${L.disk==="생성됨"&&(L.pv==="삭제됨")?"⚠ PV 없이 남은 고아 디스크":""}</small></div>`;
+  $("#lLog").innerHTML=L.log.map((m,i)=>`<div><span class="u">${i+1}.</span> ${H(m)}</div>`).join("")||"<div>동작 버튼을 순서대로 눌러 보세요. (예: PVC 생성 → Pod 생성 → PVC 삭제 → Pod 삭제)</div>";
+}
+renderLife();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["RWO에 대한 설명으로 옳은 것은?",["클러스터에서 Pod 하나만","노드 하나에서 읽기·쓰기, 같은 노드의 여러 Pod는 동시 사용 가능","여러 노드에서 쓰기","읽기 전용"],1,"Pod 하나를 보장하려면 RWOP를 씁니다."],
+ ["존에 묶인 블록 디스크용 StorageClass의 바인딩 모드로 적절한 것은?",["Immediate","WaitForFirstConsumer","None","Retain"],1,"Pod 위치가 정해진 뒤 그 존에 디스크를 만들어야 충돌이 없습니다."],
+ ["“N node(s) had volume node affinity conflict”의 의미는?",["디스크 용량 부족","PV가 묶인 존·노드에 Pod가 갈 수 있는 노드가 없음","CSI 드라이버 미설치","RBAC 거부"],1,"PV의 nodeAffinity와 Pod 제약·노드 구성을 비교합니다."],
+ ["Pod가 사용 중인 PVC를 삭제하면?",["즉시 삭제","Terminating으로 남았다가 Pod가 사라지면 삭제","오류로 거부","PV만 삭제"],1,"kubernetes.io/pvc-protection 파이널라이저 때문입니다."],
+ ["Retain 정책에서 PVC를 지운 뒤 PV 상태는?",["Available","Released","Bound","Failed"],1,"데이터는 남지만 claimRef를 정리하기 전까지 재사용되지 않습니다."],
+ ["1.37에서 Beta가 되어 기본으로 켜진, 미사용 PVC를 찾는 수단은?",["PVC의 unusedSince 필드","PVC 상태의 Unused 조건과 lastTransitionTime","PV 어노테이션","kubectl top pvc"],1,"필드가 아니라 조건(condition)입니다."],
+ ["PVC를 50Gi에서 30Gi로 줄이려면?",["requests를 30Gi로 수정","지원하지 않음(새 PVC로 이전)","VolumeAttributesClass","StatefulSet 재시작"],1,"축소는 지원하지 않습니다. 확장 실패 복구는 원래 크기보다 큰 범위에서만 가능합니다."],
+ ["일반 임시 볼륨(generic ephemeral)의 특징은?",["노드 메모리만 사용","StorageClass로 만든 실제 디스크가 Pod와 함께 생기고 사라짐","Pod가 지워져도 남음","ConfigMap 전용"],1,"Pod가 소유한 PVC <Pod>-<볼륨>이 만들어집니다."],
+ ["EKS의 옛 gp2 StorageClass(kubernetes.io/aws-ebs)가 동작하려면?",["in-tree 플러그인 활성화","EBS CSI 드라이버 설치(CSI Migration이 번역)","kube-proxy 설정","Auto Mode 전용"],1,"in-tree 코드는 1.27에 제거되었고 마이그레이션은 번역일 뿐입니다."],
+ ["RWO PVC를 쓰는 Deployment의 롤링 업데이트가 Multi-Attach 오류로 멈춘다. 적절한 대응은?",["레플리카 늘리기","Recreate 전략 또는 StatefulSet","RWX로 이름만 변경","fsGroup 제거"],1,"새 Pod가 다른 노드에 뜨면 디스크가 옛 노드에서 떨어질 때까지 붙일 수 없습니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 10편: DNS·서비스 메시·멀티클러스터와 종합 트러블슈팅</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 7편 추가 ---- */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.chain .nd{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:.82rem;line-height:1.35}
+.chain .nd b{display:block;font-size:.86rem;color:var(--strong)}
+.chain .nd.lb{border-color:var(--you)}
+.chain .nd.pod{border-color:var(--vendor)}
+.chain .nd.snat{border-color:var(--warn)}
+.chain .ar{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.opt-row .btn{margin:2px 0}
+.grp{font-size:.74rem;color:var(--muted);margin:6px 0 2px;width:100%}
+
+/* ---- 8편 추가 ---- */
+.nsgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.nsgrid{grid-template-columns:1fr}}
+.ns{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.ns h5{margin:0 0 6px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.res b{display:block;color:var(--strong);font-size:.84rem}
+.res.ok{border-color:var(--ok)}
+.res.bad{border-color:var(--warn)}
+.res.dim{opacity:.5;border-style:dashed}
+.cond{display:grid;gap:6px;margin-top:10px}
+.cond div{padding:7px 12px;border-radius:8px;font-size:.88rem}
+.cond .t1{background:var(--ok-bg)}
+.cond .t0{background:var(--warn-bg)}
+.split{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0;font-size:.78rem;font-weight:700}
+.split div{display:flex;align-items:center;justify-content:center;color:#0b1020;white-space:nowrap;overflow:hidden;transition:width .3s}
+.split .v1{background:var(--vendor)}
+.split .v2{background:var(--you)}
+:root[data-theme="light"] .split div{color:#fff}
+.rng{width:100%;accent-color:var(--you)}
+
+/* ---- 9편 추가 ---- */
+.trace{display:grid;gap:6px;margin:12px 0}
+.tier{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.tier .nm{font-weight:700;color:var(--strong);font-size:.84rem}
+.tier.hit-acc{border-color:var(--ok);background:var(--ok-bg)}
+.tier.hit-deny{border-color:var(--warn);background:var(--warn-bg)}
+.tier.skip{opacity:.5}
+.verdict{font-family:var(--serif);font-size:1.3rem;font-weight:900;margin:6px 0}
+.verdict.ok{color:var(--ok)}.verdict.no{color:var(--warn)}
+.chk{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 10px;font-size:.88rem}
+.chk label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chk input{accent-color:var(--vendor)}
+@media (max-width:640px){.tier{grid-template-columns:1fr}}
+.opt-row>span{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.opt-row .btn{white-space:normal;text-align:left;max-width:100%}
+
+/* ---- 10편 추가 ---- */
+.alert{border:1px solid var(--warn);background:var(--warn-bg);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:.92rem}
+.alert b{color:var(--warn)}
+.clock{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.88rem}
+.clock .bar2{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.clock .bar2 i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.clock .bar2 i.over{background:var(--warn)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acts .btn[disabled]{opacity:.45}
+.glog{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.6;max-height:300px;overflow:auto;margin:8px 0}
+.glog div{margin:0 0 6px}
+.glog .u{color:var(--you)}
+.glog .k{color:var(--ok)}
+.qlist{display:grid;gap:4px;margin:10px 0}
+.qlist div{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;font-family:var(--mono);font-size:.8rem;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}
+.qlist .ok{border-color:var(--ok)}
+.qlist .nx{color:var(--muted)}
+.rank{display:grid;gap:6px;margin-top:10px}
+.rank div{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.rank div:first-child{border-color:var(--vendor)}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">10편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#game">15분 장애 진단</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">CoreDNS 심화와 ndots</a></li>
+    <li><a href="#s2">벤더별 DNS 통합</a></li>
+    <li><a href="#s3">서비스 메시 선택</a></li>
+    <li><a href="#s4">멀티클러스터 네트워킹</a></li>
+    <li><a href="#s5">계층별 트러블슈팅 플레이북</a></li>
+    <li><a href="#s6">다섯 가지 장애 런북</a></li>
+    <li><a href="#s7">실습</a></li>
+    <li><a href="#s8">Level 1 정리와 점검표</a></li>
+    <li><a href="#s9">현장 사례</a></li>
+    <li><a href="#s10">점검 퀴즈</a></li>
+    <li><a href="#s11">용어·약어 사전</a></li>
+    <li><a href="#s12">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 1 네트워크, 10편 (마지막)</div>
+    <h1>DNS·서비스 메시·멀티클러스터와 종합 트러블슈팅</h1>
+    <p class="lead">네트워크 장애 신고의 절반은 “DNS가 이상하다”로 시작해 다른 곳에서 끝납니다. 이 편은 Level 1의 마지막 조각인 <strong>DNS(CoreDNS와 ndots), 서비스 메시, 멀티클러스터</strong>를 다룬 뒤, 4~9편 전체를 계층별 플레이북 하나로 묶습니다. 그리고 MTU, DNS, 정책, LB 헬스 체크, kube-proxy 동기화라는 다섯 가지 대표 장애를 시간 제한 안에 진단하는 훈련으로 Level 1을 마칩니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37 · Istio 1.30 · Cilium 1.20</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 180분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">CoreDNS·ndots</a></li><li><a href="#s2">벤더 DNS</a></li><li><a href="#s3">서비스 메시</a></li><li><a href="#s4">멀티클러스터</a></li><li><a href="#s5">플레이북</a></li><li><a href="#s6">장애 런북</a></li><li><a href="#s7">실습</a></li><li><a href="#s8">Level 1 정리</a></li><li><a href="#s9">현장 사례</a></li><li><a href="#s10">퀴즈</a></li><li><a href="#s11">용어 사전</a></li><li><a href="#s12">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="game">
+    <h3>15분 안에 원인을 찾아라</h3>
+    <p class="sub">고객사 장애 신고가 들어왔습니다. 진단 행동을 고를 때마다 그 행동에 드는 시간이 흐르고 결과가 기록됩니다. 충분하다고 판단되면 원인을 고르세요. 목표는 <strong>쓸모없는 행동을 줄이고 15분 안에 맞히는 것</strong>입니다. 다섯 장애의 상세 런북은 6장에 있습니다.</p>
+    <div class="opt-row"><span class="lbl">장애</span><span id="gSc"></span></div>
+    <div class="alert" id="gAlert"></div>
+    <div class="clock"><span id="gTime"></span><span class="bar2"><i id="gBar"></i></span></div>
+    <div class="acts" id="gActs"></div>
+    <div class="glog" id="gLog" aria-live="polite"></div>
+    <div class="opt-row"><span class="lbl">원인 판단</span><span id="gAns"></span></div>
+    <div class="calc-msg" id="gRes"></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    DNS는 회사 전화번호부, 서비스 메시는 모든 직원 전화기에 붙인 비서(암호화·기록·재시도를 대신 해 줌), 멀티클러스터는 여러 지사 전화망을 하나로 잇는 일입니다. 트러블슈팅 플레이북은 “전화가 안 된다”는 신고를 받았을 때, 번호부 → 교환대 → 회선 → 출입 통제 → 외부 회선 순으로 차례차례 확인하는 점검 순서표입니다.</div>
+    <div class="prose">
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>Pod의 DNS 질의 경로와 ndots·검색 도메인이 만드는 질의 수를 계산하고, autopath·FQDN·NodeLocal DNSCache로 줄일 수 있습니다.</li>
+        <li>EKS·AKS·GKE·OpenShift·RKE2의 DNS 구성 차이를 알고 사내 DNS 전달(stub domain)을 설계할 수 있습니다.</li>
+        <li>사이드카·ambient·노드 단위 프록시 메시를 비교하고, 고객 요구에 맞는 메시(또는 메시 없음)를 고를 수 있습니다.</li>
+        <li>MCS API, Cilium ClusterMesh, Submariner, Istio 멀티클러스터의 전제 조건과 차이를 설명할 수 있습니다.</li>
+        <li>계층별 플레이북으로 네트워크 장애를 분해하고, 다섯 가지 대표 장애를 15분 안에 진단할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>CoreDNS 심화와 ndots</h2>
+    <div class="prose">
+      <h3>질의가 지나는 길</h3>
+      <ol>
+        <li>kubelet이 Pod의 <code>/etc/resolv.conf</code>를 만듭니다. 기본(<code>dnsPolicy: ClusterFirst</code>)이면 nameserver는 kube-dns Service의 ClusterIP, search는 <code>&lt;ns&gt;.svc.cluster.local svc.cluster.local cluster.local</code>에 노드의 검색 도메인이 더해지고, <code>options ndots:5</code>가 붙습니다.</li>
+        <li>질의는 6편의 Service 경로(kube-proxy 또는 eBPF)를 거쳐 CoreDNS Pod에 닿습니다. UDP이므로 conntrack 경쟁(6편 5초 사례)이 여기서 생깁니다.</li>
+        <li>CoreDNS는 Corefile의 플러그인 순서대로 처리합니다. <code>kubernetes</code> 플러그인이 클러스터 이름을 답하고, 나머지는 <code>forward</code>로 노드의 상위 DNS(클라우드라면 VPC 리졸버)에 넘깁니다. <code>cache</code>가 결과를 재사용합니다.</li>
+      </ol>
+    </div>
+    <div class="code"><div class="bar"><span>대표 Corefile 읽기</span><button class="copy" type="button">복사</button></div><pre>.:53 {
+    errors
+    health { lameduck 5s }                       <span class="c"># 종료 전 5초 유예: 롤링 중 질의 유실 방지</span>
+    ready
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+       pods insecure                             <span class="c"># autopath를 쓰려면 pods verified 필요</span>
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }
+    prometheus :9153                             <span class="c"># coredns_dns_requests_total 등 지표</span>
+    forward . /etc/resolv.conf { max_concurrent 1000 }
+    cache 30
+    loop                                         <span class="c"># 상위 DNS가 자기 자신을 가리키는 루프 감지</span>
+    reload
+    loadbalance
+}
+corp.example:53 {                                <span class="c"># 사내 도메인은 사내 DNS로 (stub domain)</span>
+    forward . 10.10.0.53 10.10.0.54
+    cache 60
+}</pre></div>
+    <div class="prose">
+      <h3>ndots:5가 만드는 질의 폭증</h3>
+      <p><span class="t" data-k="ndots">ndots</span>는 “이름에 점이 이 개수보다 적으면 검색 도메인부터 붙여 본다”는 규칙입니다. 클러스터 안의 <code>web.shop</code> 같은 짧은 이름을 쓰기 위한 값이지만, <code>api.github.com</code>(점 2개)처럼 외부 이름도 검색 도메인을 모두 시도한 뒤에야 원래 이름을 묻습니다. A와 AAAA를 함께 물으므로 질의 수는 두 배가 됩니다. 아래 계산기로 확인해 보세요.</p>
+    </div>
+    <div class="calc" id="dnsc">
+      <div class="f-grid">
+        <div><label for="dName">질의할 이름</label><input id="dName" value="api.github.com"></div>
+        <div><label for="dNdots">ndots</label><select id="dNdots"><option>5</option><option>2</option><option>1</option></select></div>
+        <div><label for="dCloud">노드 검색 도메인</label><select id="dCloud"><option value="aws">ap-northeast-2.compute.internal (EKS 예)</option><option value="none">없음</option></select></div>
+        <div><label for="dAuto">CoreDNS autopath</label><select id="dAuto"><option value="off">끔</option><option value="on">켬</option></select></div>
+      </div>
+      <p class="sub" style="margin:.4em 0 0">Pod는 <code>shop</code> 네임스페이스에 있습니다. 예: <code>web</code>, <code>web.shop</code>, <code>kubernetes.default</code>, <code>registry.k8s.io</code>, 끝에 점을 붙인 <code>api.github.com.</code></p>
+      <div class="qlist" id="dList"></div>
+      <div class="calc-msg" id="dMsg"></div>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>줄이는 방법</th><th>원리</th><th>대가</th></tr></thead>
+      <tbody>
+        <tr><td class="k">FQDN에 끝 점</td><td><code>api.github.com.</code>처럼 쓰면 검색 없이 한 번에</td><td>앱 설정 변경 필요. 일부 라이브러리·TLS 검증과의 궁합 확인</td></tr>
+        <tr><td class="k">Pod <code>dnsConfig</code>로 ndots 낮추기</td><td><code>options: [{name: ndots, value: "2"}]</code></td><td>짧은 클러스터 이름(<code>web.shop</code>)이 바로 외부로 나갈 수 있음. 이름 규칙 정비 필요</td></tr>
+        <tr><td class="k">CoreDNS <span class="t" data-k="autopath">autopath</span></td><td>서버가 검색 경로를 대신 따라가 첫 질의에 최종 답을 돌려줌</td><td><code>pods verified</code>가 필요해 CoreDNS가 Pod 정보를 감시(메모리 증가)</td></tr>
+        <tr><td class="k"><span class="t" data-k="NodeLocal DNSCache">NodeLocal DNSCache</span></td><td>노드마다 캐시를 두고 TCP로 상위 질의. conntrack 경쟁 회피</td><td>DaemonSet 운영, NetworkPolicy에 링크 로컬 IP 허용(9편)</td></tr>
+        <tr><td class="k">CoreDNS 확장</td><td>노드·코어 수에 비례한 자동 확장, <code>cache</code> 증가</td><td>근본 원인(질의 폭증)은 그대로</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: DNS 비용은 클러스터 밖에서도 청구된다</b>
+    검색 도메인을 거치는 NXDOMAIN 질의는 상위 리졸버로도 나갑니다. 클라우드 VPC 리졸버에는 인터페이스당 초당 패킷 한도(예: AWS의 ENI당 1024 pps)가 있고, 일부 DNS 서비스는 질의 수로 과금됩니다. 대형 클러스터에서 “DNS가 가끔 실패한다”는 신고가 실제로는 이 한도에 걸린 경우가 많습니다. CoreDNS의 NXDOMAIN 비율을 대시보드에 두세요.</div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>벤더별 DNS 통합</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>환경</th><th>클러스터 DNS</th><th>설정 변경 방법</th><th>노드 로컬 캐시</th><th>메모</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td>CoreDNS Deployment(<code>kube-system</code>)</td><td><code>coredns</code> ConfigMap 직접 수정</td><td>NodeLocal DNSCache 매니페스트 직접 설치</td><td>kubeadm 업그레이드가 Corefile을 덮어쓸 수 있으니 변경 이력 관리</td></tr>
+        <tr><td class="k">RKE2</td><td>rke2-coredns 차트</td><td>HelmChartConfig</td><td>차트 값으로 NodeLocal 활성화 가능</td><td>5편의 HelmChartConfig 방식과 동일</td></tr>
+        <tr><td class="k">OpenShift</td><td>DNS 오퍼레이터가 관리하는 CoreDNS(<code>openshift-dns</code>, Pod 포트 5353)</td><td><code>dns.operator/default</code>의 <code>spec.servers</code>로 도메인별 전달</td><td>각 노드의 DNS Pod가 노드 단위로 응답하는 구조</td><td>Corefile 직접 수정은 오퍼레이터가 되돌림. NetworkPolicy는 5353(9편)</td></tr>
+        <tr><td class="k">EKS</td><td>CoreDNS 애드온</td><td>애드온 설정값(복제 수·자동 확장·Corefile 일부)</td><td>NodeLocal DNSCache 직접 설치</td><td>상위는 VPC 리졸버(VPC CIDR+2). ENI당 pps 한도 주의</td></tr>
+        <tr><td class="k">AKS</td><td>CoreDNS(관리형)</td><td><code>coredns-custom</code> ConfigMap에 추가 서버 블록</td><td>노드 로컬 DNS 기능(지원 단계 확인)</td><td>기본 <code>coredns</code> ConfigMap은 수정해도 되돌려짐</td></tr>
+        <tr><td class="k">GKE</td><td>kube-dns(기본) 또는 Cloud DNS for GKE(클러스터·VPC 범위)</td><td>kube-dns ConfigMap의 stubDomains / Cloud DNS 응답 정책</td><td>NodeLocal DNSCache 애드온</td><td>Cloud DNS 모드에서는 클러스터 안에 DNS Pod가 없을 수 있음</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note trap"><b>함정: 고친 Corefile이 사라졌다</b>
+    매니지드·오퍼레이터 환경에서 CoreDNS ConfigMap을 직접 고치면, 애드온 업데이트나 오퍼레이터 조정 루프가 원래대로 되돌립니다. 반드시 각 환경이 제공하는 <strong>확장 지점</strong>(AKS의 coredns-custom, OpenShift의 DNS 오퍼레이터, EKS 애드온 설정, RKE2 HelmChartConfig)을 쓰세요. 1편의 소켓 지도에서 “고객이 바꿀 수 있는 곳”을 다시 확인하는 일과 같습니다.</div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>서비스 메시 선택</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    서비스 메시는 모든 직원 전화기에 비서를 붙이는 일입니다. 비서가 통화를 자동으로 암호화하고(mTLS), 누가 누구에게 걸었는지 기록하고(관측), 상대가 안 받으면 다시 걸어 줍니다(재시도). 비서를 직원마다 한 명씩 붙이는 방식(사이드카), 층마다 한 명이 그 층 전화를 다 처리하는 방식(ambient, 노드 단위 프록시)이 있습니다.</div>
+    <div class="prose">
+      <h3>메시가 주는 것과 받는 것</h3>
+      <ul>
+        <li><strong>주는 것.</strong> Pod 신원 기반 상호 TLS(<span class="t" data-k="mTLS">mTLS</span>)와 인가, L7 트래픽 관리(재시도·타임아웃·가중치 분할·장애 주입), 서비스 간 지표·추적, 클러스터 내부(동서) 트래픽의 Gateway API 관리(<span class="t" data-k="GAMMA">GAMMA</span>, 8편).</li>
+        <li><strong>받는 것.</strong> 프록시 자원(사이드카면 Pod 수만큼), 지연, 업그레이드 부담(컨트롤 플레인과 데이터 플레인 버전 정렬), 장애 지점 추가, 앱 시작 순서 문제(사이드카가 준비되기 전 앱이 나가려는 경우).</li>
+        <li><strong>메시 없이 되는 것.</strong> 네트워크 격리는 NetworkPolicy(9편), 외부 노출은 Gateway(8편), 암호화만 필요하면 CNI 수준 암호화(Cilium·Calico의 WireGuard)로도 됩니다. 메시는 “L7 정책과 서비스 신원”이 필요할 때 선택합니다.</li>
+      </ul>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>선택지</th><th>데이터 플레인</th><th>강점</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Istio 사이드카</td><td>Pod마다 Envoy</td><td>가장 성숙, 기능 최다, Pod 단위 세밀한 설정</td><td>자원·지연, 사이드카 주입과 앱 시작 순서</td></tr>
+        <tr><td class="k">Istio ambient</td><td>노드마다 <span class="t" data-k="ztunnel">ztunnel</span>(L4·mTLS) + 필요한 곳에만 <span class="t" data-k="waypoint">waypoint</span>(L7 Envoy)</td><td>사이드카 없이 mTLS, L7은 선택적. 1.24에서 GA, 사이드카와 공존·이전 지원</td><td>멀티클러스터는 아직 성숙 중(OSSM 3.4 기준 기술 미리보기). 노드 단위 장애 영향</td></tr>
+        <tr><td class="k">Linkerd</td><td>Pod마다 Rust 마이크로 프록시</td><td>가볍고 단순, 기본 mTLS</td><td>안정판 배포는 Buoyant 경로 확인. 기능 범위가 Istio보다 좁음</td></tr>
+        <tr><td class="k">Cilium Service Mesh</td><td>eBPF + 노드마다 Envoy</td><td>CNI와 통합, 사이드카 없음, Hubble 관측</td><td>Cilium CNI 전제. 상호 인증 기능의 성숙도 확인</td></tr>
+        <tr><td class="k">벤더 관리형</td><td>AKS Istio 애드온(리비전 기반 업그레이드), GKE Cloud Service Mesh, OpenShift Service Mesh 3(Istio 1.30 기반 3.4)</td><td>업그레이드·지원 책임 분담</td><td>지원 버전·기능이 업스트림보다 늦음. OSSM 2.6은 2026-06-30 종료</td></tr>
+        <tr><td class="k">AWS</td><td>App Mesh는 <strong>2026-09-30 종료</strong>. EKS는 VPC Lattice(Gateway API 컨트롤러) 권장</td><td>관리형 서비스 간 연결</td><td>남은 App Mesh 사용처는 즉시 이전 대상</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><h3>요구 사항으로 걸러 보기</h3><p>고객 요구를 체크하면 선택지에 점수를 매깁니다. 판단을 돕는 참고용이며 정답표는 아닙니다.</p></div>
+    <div class="calc" id="mesh">
+      <div class="chk" id="mReq"></div>
+      <div class="rank" id="mRank"></div>
+    </div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>멀티클러스터 네트워킹</h2>
+    <div class="prose">
+      <h3>네 가지 패턴</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>패턴</th><th>방식</th><th>전제</th><th>대표 구현</th></tr></thead>
+      <tbody>
+        <tr><td class="k">독립 클러스터 + 전역 진입점</td><td>클러스터끼리는 연결하지 않고 전역 LB·DNS가 사용자를 나눔</td><td>없음(가장 단순)</td><td>GKE 멀티클러스터 Gateway(<code>-mc</code> 클래스), 클라우드 전역 LB, DNS 가중치</td></tr>
+        <tr><td class="k">평면 네트워크</td><td>Pod IP끼리 클러스터를 넘어 직접 통신, 서비스·정책 공유</td><td>Pod CIDR 겹치지 않음, 노드 간 도달성</td><td>Cilium ClusterMesh(전역 서비스, 클러스터 간 정책)</td></tr>
+        <tr><td class="k">터널 연결</td><td>게이트웨이 노드 사이 암호화 터널</td><td>게이트웨이 노드 도달성. CIDR 겹치면 Globalnet으로 변환</td><td>Submariner(+Lighthouse DNS), OpenShift는 ACM과 통합</td></tr>
+        <tr><td class="k">메시 연합</td><td>메시가 서비스 발견·mTLS를 클러스터 너머로 확장</td><td>공통 신뢰 루트, 동서 게이트웨이(네트워크가 다르면)</td><td>Istio multi-primary·primary-remote, Linkerd 멀티클러스터</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>Multi-Cluster Services API</h3>
+      <p>SIG Multicluster의 <span class="t" data-k="MCS API">MCS API</span>는 클러스터 간 서비스 공유를 표준화합니다. 공유하려는 Service와 같은 이름으로 <code>ServiceExport</code>를 만들면, 같은 클러스터셋의 다른 클러스터에 <code>ServiceImport</code>가 생기고 <code>&lt;svc&gt;.&lt;ns&gt;.svc.clusterset.local</code>로 부를 수 있습니다. GKE 멀티클러스터 서비스, Cilium ClusterMesh, Submariner Lighthouse, AWS Cloud Map 기반 컨트롤러가 이 API를 구현합니다. 핵심 전제는 <strong>네임스페이스 동일성</strong>입니다. 여러 클러스터의 같은 이름 네임스페이스는 같은 소유자의 것으로 간주되므로, 고객별 클러스터를 묶는 MSP 환경에서는 네임스페이스 이름 규칙이 곧 보안 경계입니다.</p>
+    </div>
+    <div class="code"><div class="bar"><span>MCS API와 Cilium ClusterMesh 표기</span><button class="copy" type="button">복사</button></div><pre><span class="c"># MCS API: 클러스터 A에서 내보내기</span>
+apiVersion: multicluster.x-k8s.io/v1alpha1
+kind: ServiceExport
+metadata: {name: api, namespace: shop}
+<span class="c"># 다른 클러스터에서: curl http://api.shop.svc.clusterset.local:8080</span>
+---
+<span class="c"># Cilium ClusterMesh: 같은 이름의 Service를 모든 클러스터에 두고 전역으로 표시</span>
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: shop
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: "local"     <span class="c"># 로컬 엔드포인트 우선, 없으면 원격</span>
+spec:
+  selector: {tier: api}
+  ports: [{port: 8080}]</pre></div>
+    <div class="note field"><b>현장 메모: 멀티클러스터는 IP 계획에서 이미 결정된다</b>
+    5편의 IP 계산기와 4편의 IPAM에서 클러스터마다 같은 10.244.0.0/16을 쓰면 평면 네트워크 방식(ClusterMesh)은 처음부터 불가능하고, 터널 방식도 Globalnet 같은 주소 변환이 필요합니다. 고객의 두 번째 클러스터를 만들 때 <strong>Pod·Service CIDR을 겹치지 않게</strong> 잡는 것이 나중의 멀티클러스터 선택지를 지켜 줍니다.</div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>계층별 트러블슈팅 플레이북</h2>
+    <div class="prose"><p>4~9편의 진단 도구를 한 순서표로 묶었습니다. 원칙은 <strong>“아래에서 위로, 그리고 반으로 쪼개기”</strong>입니다. 각 단계는 다음 단계를 볼지 말지를 정하는 질문 하나에 답합니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>단계</th><th>질문</th><th>명령·도구</th><th>관련 편</th></tr></thead>
+      <tbody>
+        <tr><td class="k">0. 범위</td><td>누가, 어디서, 언제부터? 모두인가 일부인가? 최근 변경은?</td><td>변경 이력, 경보 시각, 영향 Pod·노드 목록</td><td>1·2</td></tr>
+        <tr><td class="k">1. Pod</td><td>대상 Pod가 Running·Ready이고 포트를 열고 있나?</td><td><code>kubectl get pod -o wide</code>, <code>describe</code>, <code>ss -lnt</code>(디버그 컨테이너)</td><td>—</td></tr>
+        <tr><td class="k">2. DNS</td><td>이름이 올바른 IP로 풀리나? 시간이 걸리나?</td><td><code>dig</code>, resolv.conf, CoreDNS 지표·로그</td><td>10</td></tr>
+        <tr><td class="k">3. Service</td><td>엔드포인트가 있나? Pod IP 직접 호출은 되나?</td><td>EndpointSlice, Pod IP 직접 <code>curl</code></td><td>6</td></tr>
+        <tr><td class="k">4. 프록시 규칙</td><td>노드에 변환 규칙이 있고 최신인가?</td><td><code>nft</code>·<code>iptables-save</code>·<code>cilium-dbg service list</code>·<code>ovn-nbctl lb-list</code>, 동기화 지표</td><td>6</td></tr>
+        <tr><td class="k">5. 정책</td><td>막힌 흐름이 기록되나?</td><td>Hubble, Whisker, OVN ACL 로그, policyendpoints</td><td>9</td></tr>
+        <tr><td class="k">6. CNI 경로</td><td>노드 간 경로·터널·MTU가 맞나?</td><td><code>ip route</code>, <code>ip -d link</code>, <code>ping -M do -s</code>, <code>tcpdump</code></td><td>4·5</td></tr>
+        <tr><td class="k">7. 외부 진입</td><td>LB가 건강한 대상으로 보내나? 출발지는?</td><td>LB 대상 상태, healthCheckNodePort, Gateway status</td><td>7·8</td></tr>
+        <tr><td class="k">8. 이그레스</td><td>나가는 경로와 출발지 IP가 기대대로인가?</td><td>NAT·EgressIP·게이트웨이 확인, 외부에서 본 IP</td><td>9</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>만능 디버그 Pod: 대상 Pod와 같은 노드·네임스페이스에서</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 대상 Pod에 임시 디버그 컨테이너 붙이기 (같은 네트워크 공간)</span>
+kubectl -n shop debug -it pod/api-xxxx --image=nicolaka/netshoot:v0.13 --target=app -- bash
+<span class="c"># 노드 네트워크 공간에서 (특권 Pod, 감사 대상)</span>
+kubectl debug node/w1 -it --profile=sysadmin --image=nicolaka/netshoot:v0.13
+<span class="c"># 그 안에서 자주 쓰는 것</span>
+dig +search +stats api.github.com            <span class="c"># 검색 도메인 포함 질의와 시간</span>
+curl -sv -m 5 http://api.shop:8080/hostname
+ping -M do -s 1400 &lt;원격 Pod IP&gt;              <span class="c"># MTU</span>
+tcpdump -ni any host &lt;Pod IP&gt; -c 20
+conntrack -S | grep -E 'insert_failed|drop'</pre></div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>다섯 가지 장애 런북</h2>
+    <div class="prose"><p>맨 위 진단 게임의 다섯 시나리오에 대한 정식 런북입니다. 각 런북은 15분 진단 순서, 흔한 원인, 조치, 재발 방지로 구성됩니다. 고객사 런북의 뼈대로 그대로 쓰세요.</p></div>
+    <details class="case" open><summary>런북 1. MTU: 큰 응답만 멈춘다</summary><div class="body">
+      <p><strong>증상.</strong> 작은 요청은 정상, 큰 응답·파일 전송·TLS 핸드셰이크(인증서가 클 때)만 멈춤. 같은 노드 Pod끼리는 정상이고 다른 노드끼리만 실패.</p>
+      <p><strong>15분 순서.</strong> ① 같은 노드 vs 다른 노드 비교(2분) → ② <code>ping -M do -s</code>로 통과 크기 찾기(3분) → ③ 노드 eth0·터널 장치·Pod eth0의 MTU 비교(3분) → ④ 노드 간 <code>tcpdump</code>로 ICMP “fragmentation needed” 유무(5분).</p>
+      <p><strong>흔한 원인.</strong> 언더레이 MTU 축소(VPN·장비 교체), 오버레이 헤더 미반영(VXLAN 50바이트·Geneve·WireGuard 60바이트), 방화벽의 ICMP 차단으로 경로 MTU 발견 실패.</p>
+      <p><strong>조치·예방.</strong> CNI MTU를 언더레이 − 캡슐화 헤더로 맞추고 Pod를 재시작(새 veth부터 적용). 네트워크 변경 체크리스트에 “클러스터 MTU 영향”을 넣고, 5편의 MTU 시각화를 근거로 씁니다.</p>
+    </div></details>
+    <details class="case"><summary>런북 2. DNS: 간헐적 지연·실패</summary><div class="body">
+      <p><strong>증상.</strong> 외부 호출이 가끔 정확히 5초 늦음, 또는 일부 이름만 실패. CoreDNS CPU 증가.</p>
+      <p><strong>15분 순서.</strong> ① Pod resolv.conf(ndots·search) 확인(1분) → ② <code>dig +search +stats</code>로 질의 수·시간(3분) → ③ CoreDNS 지표(요청률·NXDOMAIN 비율·forward 지연)(4분) → ④ 노드 <code>conntrack -S</code>의 insert_failed(2분) → ⑤ 상위 리졸버 한도·오류(5분).</p>
+      <p><strong>흔한 원인.</strong> ndots로 인한 검색 폭증, UDP conntrack 경쟁, CoreDNS 복제 부족, 상위 리졸버 pps 한도, 이그레스 정책의 DNS 누락(9편).</p>
+      <p><strong>조치·예방.</strong> FQDN·ndots 조정·autopath, NodeLocal DNSCache, CoreDNS 자동 확장, NXDOMAIN 비율 경보.</p>
+    </div></details>
+    <details class="case"><summary>런북 3. 정책: 특정 경로만 타임아웃</summary><div class="body">
+      <p><strong>증상.</strong> 특정 출발지→목적지 조합만 타임아웃(거부가 아니라 응답 없음). 다른 경로는 정상. 최근 네임스페이스·정책·레이블 변경.</p>
+      <p><strong>15분 순서.</strong> ① Pod IP 직접 호출로 Service 문제 배제(2분) → ② 양쪽 네임스페이스의 NetworkPolicy·CNP 목록(3분) → ③ 흐름 기록에서 DROPPED·Deny(3분) → ④ 셀렉터가 기대하는 레이블과 실제 레이블 비교(3분).</p>
+      <p><strong>흔한 원인.</strong> 새 기본 거부, 레이블 누락·변경, AND·OR 실수, 이그레스 쪽 허용 누락(양쪽 모두 허용 필요), 강제가 막 켜진 정책(EKS).</p>
+      <p><strong>조치·예방.</strong> 연결 행렬 시험을 배포 파이프라인에, Staged·감사 모드로 사전 확인, 네임스페이스 레이블을 정책 계약으로 문서화.</p>
+    </div></details>
+    <details class="case"><summary>런북 4. LB 헬스 체크: 외부 사용자 일부만 실패</summary><div class="body">
+      <p><strong>증상.</strong> 외부 요청 일부만 실패·지연. 클러스터 안에서는 정상. 최근 externalTrafficPolicy·LB 어노테이션·노드 풀 변경.</p>
+      <p><strong>15분 순서.</strong> ① Service spec(ETP·healthCheckNodePort·loadBalancerClass)(2분) → ② LB의 대상별 상태(3분) → ③ 노드별 NodePort·헬스 포트 직접 호출(4분) → ④ LB 헬스 체크 설정(경로·포트·임계값)과 Pod 종료 설정(preStop·유예 시간)(4분).</p>
+      <p><strong>흔한 원인.</strong> Local 정책인데 LB가 헬스 포트가 아닌 트래픽 포트를 검사, IP 대상의 등록·해제 지연, 준비 게이트 미사용, 보안 그룹·방화벽이 헬스 체크 대역 차단.</p>
+      <p><strong>조치·예방.</strong> 7편 비교기로 구성 검증, 준비 게이트·preStop, 대상 상태 경보.</p>
+    </div></details>
+    <details class="case"><summary>런북 5. kube-proxy 동기화: 배포 직후 수 초간 오류</summary><div class="body">
+      <p><strong>증상.</strong> 배포·스케일 직후 짧은 503·연결 거부. EndpointSlice는 정상. 대형 클러스터.</p>
+      <p><strong>15분 순서.</strong> ① EndpointSlice에 새 Pod가 ready인지(2분) → ② 문제 노드의 규칙에 새 Pod IP가 언제 나타나는지(4분) → ③ <code>kubeproxy_sync_proxy_rules_duration_seconds</code>와 마지막 동기화 시각(3분) → ④ 옛 Pod의 종료 순서(preStop 유무)(3분).</p>
+      <p><strong>흔한 원인.</strong> iptables 모드의 규칙 수 증가로 동기화 수 초, <code>minSyncPeriod</code> 과대 설정, kube-proxy CPU 제한, preStop 없이 즉시 종료.</p>
+      <p><strong>조치·예방.</strong> nftables 모드 또는 eBPF 대체(6편), preStop 지연, kube-proxy 자원 여유, 동기화 시간 경보.</p>
+    </div></details>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>실습</h2>
+    <div class="prose">
+      <p>모든 실습은 lab-native(baseline: Calico, 6편 svc-lab 앱, 7편 MetalLB)에서 시작합니다. 실습 3은 Docker와 kind가 있는 호스트에서 하는 선택 실습입니다. 실습 4는 두 사람이 짝을 지어 한 사람이 장애를 심고 다른 사람이 15분 안에 찾는 게임 데이(game day)입니다.</p>
+      <h3>실습 1. DNS: 질의 수 세기와 NodeLocal DNSCache</h3>
+    </div>
+    <div class="code"><div class="bar"><span>(1) 검색 도메인이 만드는 질의 관찰</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-native
+kubectl -n svc-lab run dbg --image=nicolaka/netshoot:v0.13 -- sleep infinity
+kubectl -n svc-lab wait pod/dbg --for=condition=Ready
+kubectl -n svc-lab exec dbg -- cat /etc/resolv.conf
+
+<span class="c"># CoreDNS에 log 플러그인을 잠시 추가(reload 플러그인이 30초 안에 반영)</span>
+kubectl -n kube-system get cm coredns -o yaml &gt; coredns-backup.yaml
+kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | sed 's/^\(\s*\)errors/\1errors\n\1log/' &gt; Corefile.new
+kubectl -n kube-system create cm coredns --from-file=Corefile=Corefile.new --dry-run=client -o yaml | kubectl apply -f -
+sleep 35
+kubectl -n svc-lab exec dbg -- dig +search +short api.github.com
+kubectl -n kube-system logs -l k8s-app=kube-dns --since=1m | grep -E 'github' | awk '{print $6, $7, $9}'
+<span class="c"># 셀 수 있는 것: api.github.com.svc-lab.svc.cluster.local, …svc.cluster.local, …cluster.local 의 A·AAAA NXDOMAIN 뒤에야 원래 이름</span>
+
+kubectl -n svc-lab exec dbg -- dig +short api.github.com.            <span class="c"># 끝 점: 한 번에</span>
+kubectl -n kube-system apply -f coredns-backup.yaml                   <span class="c"># log 제거</span></pre></div>
+    <div class="code"><div class="bar"><span>(2) ndots를 낮춘 Pod와 비교</span><button class="copy" type="button">복사</button></div><pre>kubectl -n svc-lab apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: {name: dbg-ndots2}
+spec:
+  dnsConfig:
+    options: [{name: ndots, value: "2"}]
+  containers: [{name: c, image: nicolaka/netshoot:v0.13, command: ["sleep", "infinity"]}]
+EOF
+kubectl -n svc-lab wait pod/dbg-ndots2 --for=condition=Ready
+for p in dbg dbg-ndots2; do echo "== $p"; kubectl -n svc-lab exec $p -- bash -c 'for i in $(seq 1 20); do dig +search +stats api.github.com | grep "Query time"; done' | awk '{s+=$4} END {print "평균(ms):", s/NR}'; done
+kubectl -n svc-lab exec dbg-ndots2 -- dig +search +short web          <span class="c"># 짧은 클러스터 이름은 여전히 됨(점 0개)</span></pre></div>
+    <div class="code"><div class="bar"><span>(3) NodeLocal DNSCache 설치 (kube-proxy iptables·nftables 모드 기준)</span><button class="copy" type="button">복사</button></div><pre>curl -fsSLo nodelocaldns.yaml https://raw.githubusercontent.com/kubernetes/kubernetes/master/cluster/addons/dns/nodelocaldns/nodelocaldns.yaml
+KUBEDNS=$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')
+sed -i "s/__PILLAR__LOCAL__DNS__/169.254.20.10/g; s/__PILLAR__DNS__DOMAIN__/cluster.local/g; s/__PILLAR__DNS__SERVER__/$KUBEDNS/g" nodelocaldns.yaml
+kubectl apply -f nodelocaldns.yaml
+kubectl -n kube-system rollout status ds/node-local-dns
+multipass exec w1 -- ip addr show nodelocaldns                       <span class="c"># 169.254.20.10 과 kube-dns IP를 함께 가로챔</span>
+<span class="c"># (2)의 측정을 다시 실행해 평균 시간 비교. IPVS 모드라면 kubelet clusterDNS 변경이 필요(공식 문서)</span>
+<span class="c"># 9편의 기본 거부 정책이 있는 네임스페이스는 169.254.20.10 이그레스 허용이 필요(9편 생성기 'NodeLocal' 변형)</span></pre></div>
+
+    <div class="prose"><h3>실습 2. Istio ambient: 사이드카 없는 mTLS와 waypoint의 L7 인가</h3></div>
+    <div class="code"><div class="bar"><span>설치와 네임스페이스 편입</span><button class="copy" type="button">복사</button></div><pre>curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.30.1 sh -
+export PATH=$PWD/istio-1.30.1/bin:$PATH
+kubectl get crd gateways.gateway.networking.k8s.io                    <span class="c"># 8편에서 설치한 Gateway API CRD 확인</span>
+istioctl install --set profile=ambient --skip-confirmation
+kubectl -n istio-system get pods                                       <span class="c"># istiod, istio-cni-node, ztunnel(DaemonSet)</span>
+
+kubectl apply -f shop-app.yaml                                         <span class="c"># 9편 3계층 앱(정책은 아직 적용하지 않음)</span>
+kubectl label ns shop istio.io/dataplane-mode=ambient
+kubectl -n shop get pods                                               <span class="c"># 컨테이너 수 변화 없음(사이드카 없음)</span>
+istioctl ztunnel-config workloads | grep shop                          <span class="c"># PROTOCOL 열이 HBONE</span>
+kubectl -n shop exec deploy/frontend -c tool -- curl -s http://api.shop:8080/hostname; echo
+kubectl -n istio-system logs ds/ztunnel --since=1m | grep -m3 'shop'    <span class="c"># mTLS로 전달된 연결 기록(신원 포함)</span></pre></div>
+    <div class="code"><div class="bar"><span>waypoint와 L7 인가 정책</span><button class="copy" type="button">복사</button></div><pre>istioctl waypoint apply -n shop --enroll-namespace --wait
+kubectl -n shop get gateway                                            <span class="c"># GatewayClass istio-waypoint (8편 Gateway API의 메시 쪽 활용)</span>
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: api-l7, namespace: shop}
+spec:
+  targetRefs: [{kind: Service, group: "", name: api}]
+  action: ALLOW
+  rules:
+  - to: [{operation: {methods: ["GET"], paths: ["/hostname"]}}]
+EOF
+kubectl -n shop exec deploy/frontend -c tool -- curl -s -o /dev/null -w '%{http_code}\n' http://api.shop:8080/hostname   <span class="c"># 200</span>
+kubectl -n shop exec deploy/frontend -c tool -- curl -s -o /dev/null -w '%{http_code}\n' http://api.shop:8080/clientip   <span class="c"># 403</span>
+<span class="c"># 9편 Cilium L7 정책과 같은 결과를 메시로 얻었다. 출발지 신원까지 제한하려면 tier별 ServiceAccount를 만들고 principals 조건 추가</span></pre></div>
+    <div class="note trap"><b>함정: 기본 거부 정책과 ambient</b>
+    ambient에서는 ztunnel끼리 HBONE(포트 15008)으로 통신합니다. 9편의 기본 거부 NetworkPolicy가 걸린 네임스페이스를 편입하면 목적지 Pod의 인그레스에 15008 허용이 필요합니다. 메시 도입 전 9편의 연결 행렬을 반드시 다시 돌리세요.</div>
+
+    <div class="prose"><h3>실습 3. 선택: Cilium ClusterMesh로 두 클러스터 잇기 (kind)</h3></div>
+    <div class="code"><div class="bar"><span>호스트에 Docker·kind·cilium CLI 필요</span><button class="copy" type="button">복사</button></div><pre>for i in 1 2; do cat &gt;c$i.yaml &lt;&lt;EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking: {disableDefaultCNI: true, podSubnet: "10.${i}0.0.0/16", serviceSubnet: "10.${i}1.0.0/16"}
+nodes: [{role: control-plane}, {role: worker}]
+EOF
+kind create cluster --name c$i --config c$i.yaml; done                  <span class="c"># Pod·Service CIDR이 겹치지 않게</span>
+
+cilium install --context kind-c1 --set cluster.name=c1 --set cluster.id=1
+cilium install --context kind-c2 --set cluster.name=c2 --set cluster.id=2 --inherit-ca kind-c1
+for c in c1 c2; do cilium status --context kind-$c --wait; cilium clustermesh enable --context kind-$c --service-type NodePort; done
+cilium clustermesh connect --context kind-c1 --destination-context kind-c2
+cilium clustermesh status --context kind-c1 --wait
+
+<span class="c"># 양쪽에 같은 앱과 전역 Service (4장 YAML의 global 어노테이션)</span>
+for c in c1 c2; do kubectl --context kind-$c create ns shop
+  kubectl --context kind-$c -n shop create deployment api --image=registry.k8s.io/e2e-test-images/agnhost:2.52 -- /agnhost netexec --http-port=8080
+  kubectl --context kind-$c -n shop expose deployment api --port 8080
+  kubectl --context kind-$c -n shop annotate svc api service.cilium.io/global="true"; done
+kubectl --context kind-c1 -n shop run cli --image=curlimages/curl:8.10.1 -- sleep 3600
+for i in $(seq 1 10); do kubectl --context kind-c1 -n shop exec cli -- curl -s api:8080/hostname; echo; done | sort | uniq -c   <span class="c"># 두 클러스터 Pod가 섞임</span>
+kubectl --context kind-c1 -n shop scale deploy api --replicas=0         <span class="c"># c1 엔드포인트가 사라져도 c2로 계속 응답</span>
+kind delete cluster --name c1; kind delete cluster --name c2</pre></div>
+
+    <div class="prose"><h3>실습 4. 게임 데이: 다섯 장애를 심고 15분 안에 찾기</h3>
+      <p>한 사람이 아래 스크립트로 장애 하나를 무작위로 심고, 다른 사람이 5장 플레이북과 6장 런북만으로 15분 안에 원인을 찾습니다. 대상은 6편 svc-lab 앱입니다. 끝나면 반드시 restore를 실행합니다.</p></div>
+    <div class="code"><div class="bar"><span>gameday.sh — 출제자용</span><button class="copy" type="button">복사</button></div><pre>#!/usr/bin/env bash
+set -euo pipefail
+ID_FILE=/tmp/gameday.id
+inject(){ case $1 in
+  1) multipass exec w2 -- sudo ip link set dev eth0 mtu 1400 ;;                                   <span class="c"># 언더레이 MTU 축소</span>
+  2) kubectl -n kube-system get cm coredns -o yaml &gt; /tmp/coredns.bak
+     kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | sed 's#forward \. /etc/resolv.conf#forward . 192.0.2.53#' &gt; /tmp/Corefile
+     kubectl -n kube-system create cm coredns --from-file=Corefile=/tmp/Corefile --dry-run=client -o yaml | kubectl apply -f - ;;   <span class="c"># 외부 이름만 실패</span>
+  3) kubectl -n svc-lab apply -f - &lt;&lt;'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: hardening-2026q4, namespace: svc-lab}
+spec: {podSelector: {matchLabels: {app: web}}, policyTypes: ["Ingress"], ingress: [{from: [{podSelector: {matchLabels: {role: client}}}]}]}
+EOF
+     ;;                                                                                          <span class="c"># 그럴듯한 이름의 정책</span>
+  4) kubectl -n svc-lab patch svc web -p '{"spec":{"externalTrafficPolicy":"Local"}}'
+     kubectl -n svc-lab scale deploy web --replicas=1 ;;                                            <span class="c"># 노드 일부만 응답</span>
+  5) kubectl -n kube-system get cm kube-proxy -o yaml &gt; /tmp/kube-proxy.bak
+     kubectl -n kube-system get cm kube-proxy -o jsonpath='{.data.config\.conf}' | sed 's/minSyncPeriod: .*/minSyncPeriod: 45s/' &gt; /tmp/kp.conf
+     kubectl -n kube-system create cm kube-proxy --from-file=config.conf=/tmp/kp.conf --from-literal=kubeconfig.conf="$(kubectl -n kube-system get cm kube-proxy -o jsonpath='{.data.kubeconfig\.conf}')" --dry-run=client -o yaml | kubectl apply -f -
+     kubectl -n kube-system rollout restart ds/kube-proxy ;;                                        <span class="c"># 배포 직후 오류(무작위 재시작으로 확인)</span>
+  esac; echo "$1" &gt; $ID_FILE; echo "장애를 심었습니다. 신고: '고객이 svc-lab 앱이 이상하다고 합니다.'"; }
+restore(){ case $(cat $ID_FILE) in
+  1) multipass exec w2 -- sudo ip link set dev eth0 mtu 1500 ;;
+  2) kubectl apply -f /tmp/coredns.bak ;;
+  3) kubectl -n svc-lab delete networkpolicy hardening-2026q4 ;;
+  4) kubectl -n svc-lab patch svc web -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'; kubectl -n svc-lab scale deploy web --replicas=3 ;;
+  5) kubectl apply -f /tmp/kube-proxy.bak; kubectl -n kube-system rollout restart ds/kube-proxy ;;
+  esac; rm -f $ID_FILE; echo "복구했습니다."; }
+case ${1:-} in
+  inject) inject "${2:-$(( RANDOM % 5 + 1 ))}" ;;
+  restore) restore ;;
+  *) echo "사용법: $0 inject [1-5] | restore" ;;
+esac</pre></div>
+    <div class="note"><b>진행 방법</b>
+    출제자는 <code>./gameday.sh inject</code>만 실행하고 번호를 말하지 않습니다. 진단자는 타이머를 15분에 맞추고 맨 위 게임처럼 행동마다 걸린 시간을 기록합니다. 끝나면 출제자가 번호를 공개하고 <code>./gameday.sh restore</code>로 되돌립니다. 다섯 개를 모두 돌린 뒤 각자의 “첫 행동”을 비교해 보면, 플레이북의 0단계(범위와 최근 변경 확인)를 건너뛴 경우가 가장 오래 걸렸다는 것을 대개 확인하게 됩니다.</div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>Level 1 정리와 고객 클러스터 네트워크 점검표</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>편</th><th>핵심 질문</th><th>가장 먼저 볼 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">4. 네트워크 모델과 CNI</td><td>Pod끼리 NAT 없이 닿는가?</td><td>CNI 설정 파일, 경로 표, veth·브리지</td></tr>
+        <tr><td class="k">5. CNI 구현체</td><td>어떤 CNI와 IPAM이며, IP와 MTU는 충분한가?</td><td>IP 소비, MTU, 정책 엔진 유무</td></tr>
+        <tr><td class="k">6. Service</td><td>가상 IP가 Pod로 바뀌는 곳은 어디인가?</td><td>kube-proxy 모드, EndpointSlice, 동기화 시간</td></tr>
+        <tr><td class="k">7. 외부 노출</td><td>요청이 몇 번 넘어가고 출발지는 어디서 사라지나?</td><td>LB 컨트롤러, 대상 방식, 헬스 체크</td></tr>
+        <tr><td class="k">8. Gateway API</td><td>누가 무엇을 소유하는가?</td><td>GatewayClass·CRD 관리 주체, Route status</td></tr>
+        <tr><td class="k">9. NetworkPolicy</td><td>허락한 것만 통하는가, 정말 강제되는가?</td><td>강제 여부, 기본 거부, 흐름 기록</td></tr>
+        <tr><td class="k">10. DNS·메시·멀티클러스터</td><td>이름·신원·클러스터 경계가 설계됐는가?</td><td>ndots·CoreDNS 지표, 메시 범위, CIDR 계획</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><h3>고객 클러스터 네트워크 점검표 (온보딩·정기 점검용)</h3></div>
+    <div class="tbl"><table>
+      <thead><tr><th>#</th><th>점검 항목</th><th>확인 방법</th><th>편</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1</td><td>CNI 종류·버전·데이터플레인, 교체 가능 여부</td><td>1편 지문 스크립트, CNI DaemonSet 이미지</td><td>4·5</td></tr>
+        <tr><td class="k">2</td><td>Pod·Service CIDR, 다른 클러스터·온프렘과의 겹침</td><td>노드 podCIDR, IP 풀, Service CIDR</td><td>4·5·10</td></tr>
+        <tr><td class="k">3</td><td>IP 여유(클라우드 서브넷·노드당 최대 Pod)</td><td>5편 IP 계산기</td><td>5</td></tr>
+        <tr><td class="k">4</td><td>MTU 일관성(언더레이·터널·Pod)</td><td><code>ip -d link</code>, 다른 노드 간 <code>ping -M do</code></td><td>5·10</td></tr>
+        <tr><td class="k">5</td><td>kube-proxy 모드(IPVS 사용 시 이전 계획), 동기화 시간</td><td><code>:10249/proxyMode</code>, 동기화 지표</td><td>6</td></tr>
+        <tr><td class="k">6</td><td>LB 구현과 컨트롤러 버전, 고아 LB</td><td>LB 컨트롤러 이미지, 클라우드 LB 목록</td><td>7</td></tr>
+        <tr><td class="k">7</td><td>Ingress·Gateway 구현과 지원 종료일(ingress-nginx, App Routing NGINX 등)</td><td>IngressClass·GatewayClass, 7편 인벤토리 명령</td><td>7·8</td></tr>
+        <tr><td class="k">8</td><td>Gateway API CRD 버전·채널과 관리 주체</td><td>CRD 어노테이션</td><td>8</td></tr>
+        <tr><td class="k">9</td><td>NetworkPolicy 강제 여부(실제 시험)</td><td>3편 스모크 테스트</td><td>9</td></tr>
+        <tr><td class="k">10</td><td>네임스페이스 기본 거부·DNS 허용 템플릿</td><td>네임스페이스별 정책 목록</td><td>9</td></tr>
+        <tr><td class="k">11</td><td>메타데이터 서버 접근 차단</td><td>CNP·정책, Pod에서 직접 호출 시험</td><td>9</td></tr>
+        <tr><td class="k">12</td><td>이그레스 출발지 IP와 고객별 요구</td><td>외부에서 본 IP, NAT·EgressIP 구성</td><td>9</td></tr>
+        <tr><td class="k">13</td><td>DNS: ndots·NXDOMAIN 비율·CoreDNS 확장·노드 로컬 캐시</td><td>CoreDNS 지표, resolv.conf</td><td>10</td></tr>
+        <tr><td class="k">14</td><td>메시 종류·버전·지원 종료(App Mesh, OSSM 2.6)</td><td>메시 컨트롤 플레인 버전</td><td>10</td></tr>
+        <tr><td class="k">15</td><td>네트워크 흐름 관측 수단(Hubble·Whisker·정책 로그)과 보존 기간</td><td>관측 도구 설치·설정</td><td>9·10</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>매일 밤 CoreDNS 설정이 사라진다</summary><div class="body">
+      <p><strong>원인.</strong> AKS의 기본 <code>coredns</code> ConfigMap에 사내 도메인 전달을 직접 추가했는데, 관리형 애드온 조정이 원래대로 되돌렸습니다.</p>
+      <p><strong>교훈.</strong> 같은 설정을 <code>coredns-custom</code>으로 옮겨 해결했습니다. 2장 표의 <strong>“설정 변경 방법”</strong> 열이 환경마다 다르다는 것을 런북 첫 줄에 적어 두세요.</p>
+    </div></details>
+    <details class="case"><summary>DNS가 몇 분에 한 번씩 무더기로 실패한다 (EKS)</summary><div class="body">
+      <p><strong>원인.</strong> CoreDNS Pod가 올라간 노드의 ENI가 VPC 리졸버로 보내는 패킷 한도에 걸렸습니다. 노드의 ENA 드라이버 지표 <code>linklocal_allowance_exceeded</code>가 증가하고 있었습니다. 원인은 ndots로 인한 NXDOMAIN 폭증이었습니다.</p>
+      <p><strong>대응.</strong> NodeLocal DNSCache로 질의를 분산·캐시하고, 주요 외부 호출에 FQDN을 적용하고, CoreDNS를 여러 노드에 분산했습니다.</p>
+      <p><strong>교훈.</strong> DNS 장애는 클러스터 안이 아니라 <strong>클라우드 네트워크 한도</strong>에서 날 수 있습니다.</p>
+    </div></details>
+    <details class="case"><summary>사이드카보다 앱이 먼저 떠서 시작 직후 연결이 실패한다</summary><div class="body">
+      <p><strong>원인.</strong> 사이드카 메시에서 앱 컨테이너가 프록시보다 먼저 시작해 첫 외부 호출이 실패하고, 앱이 재시도 없이 종료됐습니다. 종료 때도 프록시가 먼저 내려가 진행 중 요청이 끊겼습니다.</p>
+      <p><strong>대응.</strong> Kubernetes 네이티브 사이드카(1.33 GA, <code>restartPolicy: Always</code>인 초기화 컨테이너)를 쓰는 메시 설정으로 바꿔 시작·종료 순서를 보장했습니다. 일부 워크로드는 ambient로 옮겼습니다.</p>
+      <p><strong>교훈.</strong> 메시 도입 검토표에 <strong>컨테이너 수명 주기 순서</strong>를 넣으세요.</p>
+    </div></details>
+    <details class="case"><summary>ambient로 옮긴 뒤 일부 서비스만 연결 실패</summary><div class="body">
+      <p><strong>원인.</strong> 기본 거부 NetworkPolicy가 있는 네임스페이스에서 ztunnel 간 HBONE 포트 15008이 막혔습니다.</p>
+      <p><strong>교훈.</strong> 메시·CNI·정책은 서로의 포트와 경로를 가정합니다. <strong>메시 도입은 9편 연결 행렬 재시험</strong>과 한 묶음입니다.</p>
+    </div></details>
+    <details class="case"><summary>두 번째 클러스터와 서비스를 공유하려 했지만 CIDR이 같았다</summary><div class="body">
+      <p><strong>상황.</strong> 고객이 재해 복구용 두 번째 클러스터를 같은 템플릿으로 만들어 Pod·Service CIDR이 완전히 같았습니다. ClusterMesh는 불가능했습니다.</p>
+      <p><strong>대응.</strong> 당장은 전역 DNS 기반의 독립 클러스터 패턴으로 운영하고, 다음 재구축 때 CIDR을 분리했습니다. 주소 변환이 가능한 Submariner Globalnet도 검토했지만 운영 복잡도 때문에 보류했습니다.</p>
+      <p><strong>교훈.</strong> 클러스터 템플릿(Terraform 모듈 등)에 <strong>클러스터별 CIDR 변수</strong>를 필수로 두세요.</p>
+    </div></details>
+    <details class="case"><summary>App Mesh 종료일이 지나고서야 남은 사용처를 발견했다</summary><div class="body">
+      <p><strong>상황.</strong> 2026년 9월 30일 App Mesh가 종료된 뒤, 한 고객의 오래된 EKS 서비스가 App Mesh 리소스에 의존하고 있었다는 것이 장애로 드러났습니다.</p>
+      <p><strong>교훈.</strong> 1편 인벤토리에 <strong>메시·게이트웨이·애드온의 지원 종료일</strong> 칸을 두고 분기마다 갱신하세요. 이 편의 점검표 14번 항목입니다.</p>
+    </div></details>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: ndots, ztunnel, ClusterMesh)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>Pod DNS는 ndots:5와 검색 도메인 때문에 외부 이름 하나에 수많은 NXDOMAIN 질의를 만들며, FQDN·ndots 조정·autopath·NodeLocal DNSCache로 줄이고 환경별 확장 지점으로 설정해야 합니다.</li>
+        <li>서비스 메시는 mTLS·L7 관리·관측을 주는 대신 자원·운영 부담을 받으며, 사이드카·ambient·노드 단위 프록시 중 고르고, App Mesh(2026-09-30 종료)·OSSM 2.6(2026-06-30 종료) 같은 지원 종료를 추적해야 합니다.</li>
+        <li>멀티클러스터는 독립 + 전역 진입점, 평면 네트워크(ClusterMesh), 터널(Submariner), 메시 연합 중 고르며, CIDR 비중복과 네임스페이스 동일성이 전제입니다.</li>
+        <li>네트워크 장애는 범위 → Pod → DNS → Service → 프록시 → 정책 → CNI 경로 → 외부 진입 → 이그레스 순으로 쪼개 진단합니다.</li>
+        <li>MTU·DNS·정책·LB 헬스 체크·kube-proxy 동기화의 다섯 런북과 게임 데이 훈련이 Level 1의 운영 결론입니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 11편 스토리지 모델: Volume → PV·PVC·StorageClass → CSI (Level 2 시작)</h3>
+      <p style="margin:.3em 0 0">Level 2는 스토리지 6편입니다. 첫 편에서는 바인딩 모드(Immediate·WaitForFirstConsumer)와 토폴로지, 리클레임 정책, 접근 모드(RWO·RWX·ROX·RWOP), 볼륨 확장, 임시·프로젝티드 볼륨, in-tree 제거와 CSI Migration의 흔적, v1.37의 PVC 미사용 추적·용량 스코어링·CSI 인지 오토스케일링을 다루고, 멀티 AZ 스케줄링 실패를 재현·해결합니다. CSI 드라이버 내부와 벤더 드라이버 비교는 12편입니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>DNS for Services and Pods, Customizing DNS Service, NodeLocal DNSCache, Debugging DNS Resolution — kubernetes.io 문서</li>
+        <li>CoreDNS 플러그인 문서(kubernetes, forward, cache, autopath, log) — coredns.io</li>
+        <li>Istio 1.30 릴리스, ambient 모드(ztunnel·waypoint) — istio.io</li>
+        <li>Red Hat OpenShift Service Mesh 3.4 소개(Istio 1.30 기반, ambient 멀티클러스터 기술 미리보기, OSSM 2.6 종료) — Red Hat 블로그</li>
+        <li>AWS App Mesh 종료 공지(2026-09-30)와 ECS Service Connect·VPC Lattice 이전 가이드 — AWS 문서·블로그</li>
+        <li>Multi-Cluster Services API(KEP-1645) — SIG Multicluster</li>
+        <li>Cilium ClusterMesh, Submariner·Lighthouse·Globalnet — 각 프로젝트 문서</li>
+        <li>EKS·AKS·GKE·OpenShift DNS 구성 문서(CoreDNS 애드온, coredns-custom, Cloud DNS for GKE, DNS Operator)</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 10편(Level 1 마지막). 작성 기준일 2026-10-23.
+      게임 데이 스크립트는 실습 랩 전용입니다. 고객 환경에서 장애 주입을 할 때는 사전 합의된 범위와 복구 절차를 따르세요.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "CoreDNS":["CoreDNS","Kubernetes 기본 클러스터 DNS 서버. 플러그인을 이어 붙여 동작한다."],
+ "kube-dns":["kube-dns","클러스터 DNS Service의 이름(CoreDNS를 가리킴). GKE에서는 같은 이름의 옛 DNS 구현도 쓴다."],
+ "Corefile":["Corefile","CoreDNS 설정 파일. 서버 블록과 플러그인 순서를 적는다."],
+ "ndots":["resolv.conf ndots option","이름의 점 수가 이 값보다 적으면 검색 도메인부터 붙여 묻는 규칙. Kubernetes 기본 5."],
+ "검색 도메인":["DNS search domains","짧은 이름 뒤에 차례로 붙여 보는 도메인 목록. 예: shop.svc.cluster.local."],
+ "FQDN":["Fully Qualified Domain Name","끝에 점을 붙인 완전한 이름(api.github.com.). 검색 없이 바로 질의된다."],
+ "NXDOMAIN":["Non-Existent Domain","‘그런 이름 없음’ DNS 응답. 검색 도메인 시도마다 생긴다."],
+ "autopath":["CoreDNS autopath plugin","서버가 검색 경로를 대신 따라가 첫 질의에 최종 답을 돌려주는 플러그인."],
+ "NodeLocal DNSCache":["NodeLocal DNSCache","노드마다 DNS 캐시를 두는 애드온. 링크 로컬 IP로 받고 상위로는 TCP로 묻는다."],
+ "stub domain":["Stub domain","특정 도메인 질의를 지정한 DNS 서버로 보내는 설정. 사내 DNS 연동에 쓴다."],
+ "forward":["CoreDNS forward plugin","클러스터 밖 이름을 상위 DNS로 넘기는 플러그인."],
+ "dnsConfig":["Pod dnsConfig","Pod별로 nameserver·search·ndots 등 DNS 옵션을 바꾸는 필드."],
+ "VPC 리졸버":["VPC resolver","클라우드 VPC가 제공하는 기본 DNS(AWS는 VPC CIDR+2). 인터페이스당 패킷 한도가 있다."],
+ "conntrack":["connection tracking","커널 연결 추적 표. UDP DNS의 동시 질의가 여기서 경쟁하면 5초 지연이 생긴다."],
+ "서비스 메시":["Service mesh","서비스 간 통신에 mTLS·재시도·관측·인가를 프록시로 덧붙이는 인프라 계층."],
+ "사이드카":["Sidecar proxy","Pod마다 함께 뜨는 프록시 컨테이너. 앱 대신 통신을 처리한다."],
+ "ambient":["Istio ambient mode","사이드카 없이 노드의 ztunnel이 L4·mTLS를, 필요할 때만 waypoint가 L7을 처리하는 Istio 방식. 1.24 GA."],
+ "ztunnel":["zero-trust tunnel","Istio ambient의 노드 단위 L4 프록시. HBONE(15008)으로 mTLS 터널을 만든다."],
+ "waypoint":["Waypoint proxy","ambient에서 L7 기능(경로 인가·재시도 등)이 필요한 서비스 앞에 두는 Envoy. Gateway API로 정의."],
+ "HBONE":["HTTP-Based Overlay Network Environment","ambient 프록시끼리 mTLS 터널을 만드는 방식. 포트 15008."],
+ "mTLS":["mutual TLS","양쪽이 인증서로 서로를 증명하는 TLS. 메시가 자동으로 해 준다."],
+ "SPIFFE":["Secure Production Identity Framework For Everyone","워크로드 신원 표준. 메시 인증서의 신원 형식(spiffe://…)."],
+ "Envoy":["Envoy proxy","메시·게이트웨이에서 가장 널리 쓰는 L7 프록시."],
+ "istiod":["istiod","Istio 컨트롤 플레인. 설정 배포와 인증서 발급을 맡는다."],
+ "Linkerd":["Linkerd","Rust 마이크로 프록시를 쓰는 경량 서비스 메시."],
+ "Cilium Service Mesh":["Cilium Service Mesh","eBPF와 노드 단위 Envoy로 사이드카 없이 메시 기능을 주는 Cilium 기능."],
+ "GAMMA":["Gateway API for Mesh","Gateway API로 클러스터 내부(동서) 트래픽을 다루는 규약(8편)."],
+ "App Mesh":["AWS App Mesh","AWS 관리형 메시. 2026-09-30 종료. ECS는 Service Connect, EKS는 VPC Lattice 권장."],
+ "VPC Lattice":["Amazon VPC Lattice","AWS의 관리형 서비스 간 연결·인가 서비스. EKS는 Gateway API 컨트롤러로 연동."],
+ "OSSM":["OpenShift Service Mesh","Red Hat의 Istio 기반 메시. 3.4는 Istio 1.30 기반, 2.6은 2026-06-30 종료."],
+ "동서 게이트웨이":["East-west gateway","메시가 네트워크가 다른 클러스터끼리 통신할 때 쓰는 전용 게이트웨이."],
+ "multi-primary":["Multi-primary topology","클러스터마다 Istio 컨트롤 플레인을 두고 서로의 서비스를 발견하는 멀티클러스터 구성."],
+ "MCS API":["Multi-Cluster Services API","ServiceExport·ServiceImport로 클러스터 간 서비스를 공유하는 SIG Multicluster 표준."],
+ "ServiceExport":["ServiceExport","이 Service를 클러스터셋에 공개한다는 표시(MCS API)."],
+ "ServiceImport":["ServiceImport","다른 클러스터가 공개한 서비스를 가져와 표현한 리소스(MCS API)."],
+ "clusterset.local":["clusterset.local","MCS API로 공유된 서비스의 DNS 영역. <svc>.<ns>.svc.clusterset.local."],
+ "ClusterMesh":["Cilium ClusterMesh","여러 Cilium 클러스터를 평면 네트워크로 잇고 전역 서비스·정책을 공유하는 기능."],
+ "Submariner":["Submariner","클러스터 간 암호화 터널과 서비스 발견(Lighthouse)을 제공하는 CNCF 프로젝트."],
+ "Globalnet":["Submariner Globalnet","CIDR이 겹치는 클러스터를 주소 변환으로 연결하는 Submariner 기능."],
+ "Lighthouse":["Submariner Lighthouse","Submariner의 클러스터 간 서비스 발견(DNS) 구성 요소. MCS API 구현."],
+ "MTU":["Maximum Transmission Unit","한 번에 보낼 수 있는 패킷 최대 크기. 캡슐화 헤더만큼 줄여야 한다."],
+ "PMTUD":["Path MTU Discovery","경로상 최소 MTU를 ICMP로 알아내는 방식. ICMP가 막히면 큰 패킷이 조용히 사라진다."],
+ "게임 데이":["Game day","일부러 장애를 심고 진단·복구를 연습하는 훈련."],
+ "런북":["Runbook","장애 유형별 진단·조치 절차서."],
+ "플레이북":["Playbook","여러 런북을 묶은 진단 순서표."],
+ "네이티브 사이드카":["Native sidecar containers","restartPolicy: Always인 초기화 컨테이너로 사이드카의 시작·종료 순서를 보장하는 Kubernetes 기능(1.33 GA)."],
+ "kube-proxy 동기화":["kube-proxy rule sync","EndpointSlice 변화를 노드 규칙에 반영하는 작업. 오래 걸리면 배포 직후 오류가 난다(6편)."],
+ "healthCheckNodePort":["Health check NodePort","externalTrafficPolicy: Local일 때 LB가 검사해야 하는 노드 포트(6·7편)."],
+ "netshoot":["nicolaka/netshoot","dig·curl·tcpdump·iperf 등 네트워크 진단 도구를 모은 디버그 이미지."],
+ "Kiali":["Kiali","Istio 메시의 서비스 그래프·설정을 보여 주는 관측 콘솔."]
+};
+const AUTO=["NodeLocal DNSCache","Cilium Service Mesh","healthCheckNodePort","ServiceExport","ServiceImport","clusterset.local","CoreDNS","kube-dns","Corefile","ndots","NXDOMAIN","autopath","dnsConfig","conntrack","ztunnel","waypoint","HBONE","mTLS","SPIFFE","Envoy","istiod","Linkerd","GAMMA","App Mesh","VPC Lattice","OSSM","MCS API","ClusterMesh","Submariner","Globalnet","Lighthouse","MTU","PMTUD","FQDN","netshoot","Kiali","ambient","multi-primary","검색 도메인","VPC 리졸버","서비스 메시","사이드카","동서 게이트웨이","게임 데이","런북","플레이북","네이티브 사이드카"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s11")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- diagnosis game ---------- */
+const SC=[
+ {n:"1. 큰 응답만 멈춤",alert:"<b>신고</b> 작은 API 응답은 정상인데 파일 다운로드·큰 JSON 응답만 멈춥니다. 같은 노드의 Pod끼리는 정상, 다른 노드끼리만 실패합니다. 어제 네트워크 팀이 언더레이 장비를 교체했습니다.",
+  acts:[["Pod 상태·이벤트 확인",1,"모든 Pod Running·Ready, 재시작 없음.",0],["EndpointSlice 확인",1,"엔드포인트 3개 모두 ready.",0],["다른 노드 Pod로 ping -M do -s 1400",2,"'message too long' — 페이로드 1322바이트(IP·ICMP 헤더 포함 1350)까지만 통과. 같은 노드 Pod로는 1400도 통과.",1],["노드 eth0·터널 장치 MTU 비교",2,"w2 eth0 mtu 1400(어제 변경), vxlan.calico mtu 1450 → 캡슐화 후 1500바이트가 1400 링크를 못 지남.",1],["CoreDNS 로그 확인",2,"오류 없음.",0],["노드 간 tcpdump로 ICMP 확인",3,"ICMP 'fragmentation needed'가 중간 방화벽에서 차단되어 경로 MTU 발견 실패.",1]],
+  opts:["CoreDNS 과부하","언더레이 MTU 축소로 오버레이 패킷 초과(경로 MTU 발견 차단)","NetworkPolicy 거부","kube-proxy 동기화 지연"],ans:1,fix:"CNI MTU를 1400−50=1350으로 낮추고 Pod 재시작, 방화벽에서 ICMP type 3 code 4 허용. 런북 1."},
+ {n:"2. 외부 호출 5초 지연",alert:"<b>신고</b> 외부 결제 API 호출이 간헐적으로 정확히 5초 늦습니다. CoreDNS CPU가 높고, 클라우드 DNS 질의량이 급증했습니다.",
+  acts:[["Pod resolv.conf 확인",1,"search shop.svc.cluster.local svc.cluster.local cluster.local ap-northeast-2.compute.internal / options ndots:5",1],["CoreDNS 지표 확인",2,"초당 4만 질의, NXDOMAIN 응답 비율 78%.",1],["앱이 쓰는 호스트 이름 확인",1,"api.pay.example.com (점 3개 < ndots 5)",1],["노드 conntrack 통계",2,"conntrack -S 의 insert_failed 가 계속 증가.",1],["NetworkPolicy 확인",2,"DNS 이그레스 허용 정상.",0],["LB 대상 상태 확인",2,"모두 healthy.",0]],
+  opts:["ndots 검색 폭증 + UDP conntrack 경쟁으로 질의 유실(5초 재시도)","MTU","결제사 장애","Ingress 타임아웃 설정"],ans:0,fix:"FQDN(끝 점)·ndots 조정, NodeLocal DNSCache, CoreDNS 확장. 런북 2."},
+ {n:"3. 특정 경로만 타임아웃",alert:"<b>신고</b> 배포 후 checkout → payment 호출만 타임아웃(연결 거부 아님)입니다. 다른 서비스는 정상입니다. 같은 시간대에 보안팀이 네임스페이스 템플릿을 갱신했습니다.",
+  acts:[["Pod·엔드포인트 확인",1,"모두 정상.",0],["payment Pod IP 직접 호출",2,"Pod IP로도 타임아웃 → Service 문제가 아님.",1],["payment 네임스페이스 정책 목록",1,"default-deny(어제 생성) + allow-from-checkout(namespaceSelector: team=shop).",1],["checkout 네임스페이스 레이블",1,"team 레이블 없음(새로 만든 네임스페이스).",1],["흐름 기록에서 DROPPED 조회",2,"policy-denied: checkout/checkout-7d… → payment:8080",1],["kube-proxy 지표",2,"정상.",0]],
+  opts:["ndots","새 기본 거부 + 레이블 누락으로 허용 정책 불일치","MTU","LB 헬스 체크"],ans:1,fix:"checkout 네임스페이스에 team=shop 레이블(정책 계약) 부여, 연결 행렬 시험 추가. 런북 3."},
+ {n:"4. 외부 사용자 일부만 실패",alert:"<b>신고</b> 외부 사용자 일부만 간헐적으로 연결에 실패합니다. 지난주 클라이언트 IP 보존을 위해 externalTrafficPolicy를 바꿨습니다. 노드 6대, Pod 2개입니다.",
+  acts:[["Pod 상태 확인",1,"Pod 2개 정상(n2, n5).",0],["Service spec 확인",1,"externalTrafficPolicy: Local, healthCheckNodePort: 32111, nodePort: 31080.",1],["LB 대상 상태 확인",2,"6개 노드 모두 healthy — 헬스 체크 포트가 31080(트래픽 포트)으로 수동 지정되어 있음.",1],["노드별 NodePort 직접 호출",2,"n2·n5만 응답, 나머지 4대는 연결 실패.",1],["CoreDNS 확인",2,"정상.",0],["kube-proxy 로그",2,"정상.",0]],
+  opts:["Local 정책인데 LB가 healthCheckNodePort가 아닌 트래픽 포트를 검사해 Pod 없는 노드로 전달","Pod 부족","MTU","DNS"],ans:0,fix:"LB 헬스 체크를 healthCheckNodePort로 되돌리거나 IP 대상으로 전환, Pod를 노드에 분산. 런북 4."},
+ {n:"5. 배포 직후 503",alert:"<b>신고</b> Service가 4,000개인 대형 클러스터에서 배포 직후 10~20초 동안 503이 납니다. 새 Pod는 Ready이고 EndpointSlice에도 있습니다.",
+  acts:[["EndpointSlice 확인",1,"새 Pod IP 포함, ready=true.",0],["문제 노드 규칙에 새 Pod IP 확인",2,"배포 15초 뒤에야 규칙에 나타남.",1],["kube-proxy 동기화 지표",2,"sync_proxy_rules_duration p99 14초, 모드 iptables.",1],["옛 Pod 종료 설정 확인",1,"preStop 없음, 종료 신호 즉시 프로세스 종료.",1],["CoreDNS 확인",2,"정상.",0],["NetworkPolicy 확인",2,"해당 네임스페이스 정책 없음.",0]],
+  opts:["iptables 규칙 동기화 지연 + preStop 부재로 옛 엔드포인트가 먼저 사라짐","DNS","MTU","LB 헬스 체크"],ans:0,fix:"nftables 모드 또는 eBPF 대체로 전환, preStop 지연 추가, 동기화 시간 경보. 런북 5."}
+];
+const G={sc:0,used:0,done:new Set(),answered:false};
+function renderGame(){
+  const sb=$("#gSc");sb.innerHTML="";SC.forEach((s,i)=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String(G.sc===i)},s.n);b.addEventListener("click",()=>{G.sc=i;G.used=0;G.done=new Set();G.answered=false;$("#gLog").innerHTML="";$("#gRes").textContent="";renderGame();});sb.appendChild(b);});
+  const s=SC[G.sc];$("#gAlert").innerHTML=s.alert;
+  const pct=Math.min(100,G.used/15*100);$("#gBar").style.width=pct+"%";$("#gBar").className=G.used>15?"over":"";
+  $("#gTime").textContent=`사용 ${G.used}분 / 15분`;
+  const ab=$("#gActs");ab.innerHTML="";s.acts.forEach((a,i)=>{const b=el("button",{class:"btn",type:"button"},`${a[0]} (${a[1]}분)`);if(G.done.has(i)||G.answered)b.disabled=true;
+    b.addEventListener("click",()=>{G.done.add(i);G.used+=a[1];const log=$("#gLog");log.insertAdjacentHTML("beforeend",`<div><span class="u">[${G.used}분] $ ${H(a[0])}</span><br>${H(a[2])}</div>`);log.scrollTop=log.scrollHeight;renderGame();});ab.appendChild(b);});
+  const an=$("#gAns");an.innerHTML="";s.opts.forEach((o,i)=>{const b=el("button",{class:"btn",type:"button"},o);if(G.answered)b.disabled=true;
+    b.addEventListener("click",()=>{G.answered=true;const ok=i===s.ans;const useless=[...G.done].filter(j=>!s.acts[j][3]).length;
+      $("#gRes").innerHTML=`${ok?"<b style='color:var(--ok)'>정답</b>":"<b style='color:var(--warn)'>오답</b> · 정답: "+s.opts[s.ans]} · 사용 시간 ${G.used}분${G.used<=15?" (시간 안)":" (초과)"} · 결정에 기여하지 않은 행동 ${useless}개<br><b>조치</b> ${s.fix}`;renderGame();});an.appendChild(b);});
+}
+renderGame();
+
+/* ---------- DNS query calculator ---------- */
+const KNOWN=new Set(["web.svc-lab.svc.cluster.local","web.shop.svc.cluster.local","api.shop.svc.cluster.local","kubernetes.default.svc.cluster.local","kube-dns.kube-system.svc.cluster.local"]);
+const EXT=new Set(["api.github.com","registry.k8s.io","www.google.com","api.pay.example.com"]);
+function exists(n){return KNOWN.has(n)||EXT.has(n);}
+function calcDns(){
+  let name=($("#dName").value||"").trim();const nd=+$("#dNdots").value,cloud=$("#dCloud").value,auto=$("#dAuto").value==="on";
+  const search=["shop.svc.cluster.local","svc.cluster.local","cluster.local"].concat(cloud==="aws"?["ap-northeast-2.compute.internal"]:[]);
+  let cands=[];
+  if(name.endsWith(".")){cands=[name.slice(0,-1)];}
+  else{const dots=(name.match(/\./g)||[]).length;const withS=search.map(s=>name+"."+s);cands=dots>=nd?[name].concat(withS):withS.concat([name]);}
+  let rows=[],tries=0,found=null;
+  for(const c of cands){tries++;const ok=exists(c);rows.push([tries,c,ok]);if(ok){found=c;break;}}
+  const queries=tries*2;
+  $("#dList").innerHTML=rows.map(r=>`<div class="${r[2]?"ok":"nx"}"><span>${r[0]}</span><span>${H(r[1])}</span><span>${r[2]?"NOERROR":"NXDOMAIN"}</span></div>`).join("");
+  let msg=`시도 ${tries}회 × (A + AAAA) = 질의 <b>${queries}개</b>`+(found?` → <b>${H(found)}</b>로 해석`:" → 해석 실패");
+  if(auto&&!name.endsWith(".")&&tries>1)msg+=`. autopath를 켜면 클라이언트는 첫 질의 한 번(2개)에 최종 답을 받고, 나머지 탐색은 CoreDNS 안에서 처리됩니다(캐시 활용).`;
+  if(!name.endsWith(".")&&found&&EXT.has(found)&&tries>1)msg+=` 외부 이름이 검색 도메인을 모두 거쳤습니다. 끝에 점을 붙이거나 ndots를 낮춰 보세요.`;
+  if(found&&KNOWN.has(found)&&nd<=2&&(name.match(/\./g)||[]).length>=nd&&tries>1)msg+=` ndots가 낮아 짧은 클러스터 이름을 먼저 외부로 물었습니다(불필요한 외부 질의).`;
+  $("#dMsg").innerHTML=msg;
+}
+["dName","dNdots","dCloud","dAuto"].forEach(id=>$("#"+id).addEventListener("input",calcDns));calcDns();
+
+/* ---------- mesh scorer ---------- */
+const REQ=[["mtls","서비스 간 mTLS 필수"],["l7","L7 트래픽 관리(재시도·가중치·장애 주입)"],["mc","멀티클러스터 연합"],["nosc","사이드카 자원·시작 순서 부담 회피"],["small","운영 인력이 적음"],["cilium","이미 Cilium CNI 사용"],["managed","벤더 지원 계약 필요"],["onlyiso","격리·외부 노출만 필요"]];
+const OPT=[
+ ["Istio ambient",{mtls:2,l7:2,mc:1,nosc:2,small:1,cilium:0,managed:1,onlyiso:0}],
+ ["Istio 사이드카",{mtls:2,l7:2,mc:2,nosc:0,small:0,cilium:0,managed:1,onlyiso:0}],
+ ["Linkerd",{mtls:2,l7:1,mc:1,nosc:0,small:2,cilium:0,managed:1,onlyiso:0}],
+ ["Cilium Service Mesh",{mtls:1,l7:1,mc:2,nosc:2,small:1,cilium:2,managed:0,onlyiso:1}],
+ ["벤더 관리형 메시(AKS Istio 애드온·GKE CSM·OSSM 3)",{mtls:2,l7:2,mc:1,nosc:1,small:2,cilium:0,managed:2,onlyiso:0}],
+ ["메시 없이: NetworkPolicy + Gateway + 앱 TLS/CNI 암호화",{mtls:0,l7:0,mc:0,nosc:2,small:2,cilium:1,managed:1,onlyiso:2}]
+];
+const msel=new Set(["mtls","nosc"]);
+function renderMesh(){
+  const rb=$("#mReq");rb.innerHTML="";REQ.forEach(([k,l])=>{const lb=el("label");lb.innerHTML=`<input type="checkbox" ${msel.has(k)?"checked":""}> ${l}`;lb.querySelector("input").addEventListener("change",e=>{e.target.checked?msel.add(k):msel.delete(k);renderMesh();});rb.appendChild(lb);});
+  const sc=OPT.map(([n,w])=>[n,[...msel].reduce((a,k)=>a+(w[k]||0),0)]).sort((a,b)=>b[1]-a[1]);
+  const max=Math.max(1,msel.size*2);
+  $("#mRank").innerHTML=msel.size?sc.map(([n,v])=>`<div><span>${n}</span><b>${v}/${max}</b></div>`).join(""):'<div><span>요구 사항을 하나 이상 고르세요</span><b>—</b></div>';
+}
+renderMesh();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["ndots:5인 Pod가 api.github.com(점 2개)을 질의하면?",["바로 외부로 한 번","검색 도메인을 모두 붙여 본 뒤 원래 이름을 질의","항상 실패","CoreDNS를 거치지 않음"],1,"점 수가 ndots보다 적으면 검색 도메인부터 시도합니다."],
+ ["외부 이름 질의를 한 번으로 줄이는 가장 직접적인 방법은?",["CoreDNS 재시작","이름 끝에 점을 붙인 FQDN 사용","ndots를 10으로","cache 끄기"],1,"끝 점은 ‘완전한 이름’이라 검색을 하지 않습니다."],
+ ["AKS에서 사내 도메인 전달을 추가하는 올바른 곳은?",["coredns ConfigMap 직접 수정","coredns-custom ConfigMap","노드 /etc/resolv.conf","Pod dnsPolicy None"],1,"관리형 coredns ConfigMap은 되돌려집니다."],
+ ["OpenShift 클러스터 DNS의 특징이 아닌 것은?",["DNS 오퍼레이터가 관리","openshift-dns 네임스페이스","Pod가 5353에서 응답","Corefile을 직접 고치면 영구 반영"],3,"오퍼레이터가 되돌립니다. spec.servers로 전달을 설정합니다."],
+ ["Istio ambient에서 L4 mTLS를 담당하는 구성 요소는?",["waypoint","ztunnel","istiod","Kiali"],1,"ztunnel은 노드 단위 L4 프록시이고, L7은 waypoint가 맡습니다."],
+ ["기본 거부 정책이 있는 네임스페이스를 ambient에 편입할 때 추가로 열어야 할 것은?",["53","HBONE 15008","6443","9153"],1,"ztunnel 간 HBONE 터널 포트입니다."],
+ ["AWS App Mesh에 대해 옳은 것은?",["2027년까지 지원","2026-09-30 종료, EKS는 VPC Lattice 권장","Istio로 자동 전환","Auto Mode 전용"],1,"종료 이후에는 콘솔과 리소스에 접근할 수 없습니다."],
+ ["Cilium ClusterMesh 평면 네트워크의 필수 전제는?",["같은 Pod CIDR","Pod CIDR 비중복과 노드 간 도달성","Istio 설치","Submariner"],1,"겹치면 평면 라우팅이 불가능합니다."],
+ ["MCS API에서 다른 클러스터의 서비스를 부르는 이름은?",["svc.cluster.local","svc.clusterset.local","global.local","mesh.local"],1,"<svc>.<ns>.svc.clusterset.local 입니다."],
+ ["작은 응답은 되고 큰 응답만 다른 노드 사이에서 멈출 때 첫 의심은?",["DNS","MTU·경로 MTU 발견","RBAC","HPA"],1,"ping -M do -s로 통과 크기를 찾는 것부터 시작합니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

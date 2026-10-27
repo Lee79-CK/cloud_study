@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 16편: 스테이트풀 워크로드 운영 종합</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 7편 추가 ---- */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.chain .nd{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:.82rem;line-height:1.35}
+.chain .nd b{display:block;font-size:.86rem;color:var(--strong)}
+.chain .nd.lb{border-color:var(--you)}
+.chain .nd.pod{border-color:var(--vendor)}
+.chain .nd.snat{border-color:var(--warn)}
+.chain .ar{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.opt-row .btn{margin:2px 0}
+.grp{font-size:.74rem;color:var(--muted);margin:6px 0 2px;width:100%}
+
+/* ---- 8편 추가 ---- */
+.nsgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.nsgrid{grid-template-columns:1fr}}
+.ns{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.ns h5{margin:0 0 6px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.res b{display:block;color:var(--strong);font-size:.84rem}
+.res.ok{border-color:var(--ok)}
+.res.bad{border-color:var(--warn)}
+.res.dim{opacity:.5;border-style:dashed}
+.cond{display:grid;gap:6px;margin-top:10px}
+.cond div{padding:7px 12px;border-radius:8px;font-size:.88rem}
+.cond .t1{background:var(--ok-bg)}
+.cond .t0{background:var(--warn-bg)}
+.split{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0;font-size:.78rem;font-weight:700}
+.split div{display:flex;align-items:center;justify-content:center;color:#0b1020;white-space:nowrap;overflow:hidden;transition:width .3s}
+.split .v1{background:var(--vendor)}
+.split .v2{background:var(--you)}
+:root[data-theme="light"] .split div{color:#fff}
+.rng{width:100%;accent-color:var(--you)}
+
+/* ---- 9편 추가 ---- */
+.trace{display:grid;gap:6px;margin:12px 0}
+.tier{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.tier .nm{font-weight:700;color:var(--strong);font-size:.84rem}
+.tier.hit-acc{border-color:var(--ok);background:var(--ok-bg)}
+.tier.hit-deny{border-color:var(--warn);background:var(--warn-bg)}
+.tier.skip{opacity:.5}
+.verdict{font-family:var(--serif);font-size:1.3rem;font-weight:900;margin:6px 0}
+.verdict.ok{color:var(--ok)}.verdict.no{color:var(--warn)}
+.chk{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 10px;font-size:.88rem}
+.chk label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chk input{accent-color:var(--vendor)}
+@media (max-width:640px){.tier{grid-template-columns:1fr}}
+.opt-row>span{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.opt-row .btn{white-space:normal;text-align:left;max-width:100%}
+
+/* ---- 10편 추가 ---- */
+.alert{border:1px solid var(--warn);background:var(--warn-bg);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:.92rem}
+.alert b{color:var(--warn)}
+.clock{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.88rem}
+.clock .bar2{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.clock .bar2 i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.clock .bar2 i.over{background:var(--warn)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acts .btn[disabled]{opacity:.45}
+.glog{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.6;max-height:300px;overflow:auto;margin:8px 0}
+.glog div{margin:0 0 6px}
+.glog .u{color:var(--you)}
+.glog .k{color:var(--ok)}
+.qlist{display:grid;gap:4px;margin:10px 0}
+.qlist div{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;font-family:var(--mono);font-size:.8rem;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}
+.qlist .ok{border-color:var(--ok)}
+.qlist .nx{color:var(--muted)}
+.rank{display:grid;gap:6px;margin-top:10px}
+.rank div{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.rank div:first-child{border-color:var(--vendor)}
+
+/* ---- 11편 추가 ---- */
+.zones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.zones{grid-template-columns:1fr}}
+.zn{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.zn h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.zn.hl{border-color:var(--vendor)}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.box b{display:block;color:var(--strong);font-size:.84rem}
+.box.pod{border-color:var(--vendor)}
+.box.disk{border-color:var(--you)}
+.box.bad{border-color:var(--warn)}
+.box.dim{opacity:.5;border-style:dashed}
+.lc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:640px){.lc{grid-template-columns:1fr}}
+.lc div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.lc b{display:block;font-size:1.05rem;color:var(--strong);margin:2px 0}
+.lc small{color:var(--muted);display:block;line-height:1.5}
+
+/* ---- 12편 추가 ---- */
+.lanes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:12px 0}
+@media (max-width:760px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lane{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:.78rem;line-height:1.35;color:var(--muted);transition:all .2s}
+.lane b{display:block;color:var(--text);font-size:.82rem}
+.lane.src{border-color:var(--you);background:var(--you-bg)}
+.lane.dst{border-color:var(--vendor);background:var(--vendor-bg)}
+.tl{position:relative;margin:14px 0;padding-left:18px;border-left:3px solid var(--line)}
+.tl div{position:relative;margin:0 0 10px;font-size:.88rem}
+.tl div::before{content:"";position:absolute;left:-26px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--line)}
+.tl div.ok::before{background:var(--ok)}
+.tl div.bad::before{background:var(--warn)}
+.tl div.key::before{background:var(--you)}
+.tl b{font-family:var(--mono);font-size:.8rem;color:var(--strong);margin-right:6px}
+.stepper{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:.85rem;color:var(--muted)}
+
+/* ---- 13편 추가 ---- */
+.vend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:900px){.vend{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.vend{grid-template-columns:1fr}}
+.vend>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.vend h5{margin:0 0 4px;font-size:.8rem;color:var(--muted)}
+.vend b{display:block;color:var(--strong);font-size:.98rem;margin:2px 0 4px}
+.vend small{display:block;color:var(--muted);line-height:1.5}
+.warns{margin:8px 0;display:grid;gap:6px}
+.warns div{background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:8px;padding:6px 10px;font-size:.85rem}
+
+/* ---- 16편 추가 ---- */
+.crumbs{display:flex;flex-wrap:wrap;gap:6px;font-size:.8rem;color:var(--muted);margin:8px 0}
+.crumbs span{background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
+.qbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}
+.qbox h4{margin:0 0 8px;font-size:1rem}
+.ans{border:1px solid var(--ok);background:var(--ok-bg);border-radius:12px;padding:12px 14px;margin:8px 0;font-size:.92rem}
+.ans h4{margin:0 0 6px}
+.cmp3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:760px){.cmp3{grid-template-columns:1fr}}
+.cmp3>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.cmp3 h5{margin:0 0 4px;font-size:.84rem;color:var(--muted)}
+.cmp3 b{display:block;font-size:1.3rem;font-family:var(--serif);color:var(--strong)}
+.cmp3 .best{border-color:var(--ok)}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">16편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#diag">스토리지 장애 진단 트리</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">StatefulSet 정밀 해부</a></li>
+    <li><a href="#s2">업데이트 전략과 v1.37 Recreate</a></li>
+    <li><a href="#s3">DB 오퍼레이터와 장애 조치</a></li>
+    <li><a href="#s4">오퍼레이터별 스토리지 요구와 벤더 권장 구성</a></li>
+    <li><a href="#s5">스토리지 비용 관리</a></li>
+    <li><a href="#s6">Level 2 스토리지 트러블슈팅 플레이북</a></li>
+    <li><a href="#s7">실습</a></li>
+    <li><a href="#s8">Level 2 정리와 점검표</a></li>
+    <li><a href="#s9">현장 사례</a></li>
+    <li><a href="#s10">점검 퀴즈</a></li>
+    <li><a href="#s11">용어·약어 사전</a></li>
+    <li><a href="#s12">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 2 스토리지, 16편 (마지막)</div>
+    <h1>스테이트풀 워크로드 운영 종합</h1>
+    <p class="lead">11~15편에서 볼륨이 생기고, 붙고, 빨라지고, 복제되고, 백업되는 원리를 봤습니다. 이 편은 그 위에서 실제로 데이터베이스와 메시지 큐를 운영하는 이야기입니다. StatefulSet의 순서·볼륨 템플릿·보존 정책과 v1.37의 Recreate 전략, 그리고 <strong>StatefulSet을 쓰지 않고 스스로 Pod와 PVC를 관리하는 데이터베이스 오퍼레이터</strong>가 장애 조치 시간을 어떻게 바꾸는지 비교합니다. 비용 관리와 Level 2 전체를 묶는 트러블슈팅 플레이북으로 스토리지 레벨을 마칩니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37 · CloudNativePG 1.29+ · Strimzi(KRaft)</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 180분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">StatefulSet</a></li><li><a href="#s2">업데이트 전략</a></li><li><a href="#s3">오퍼레이터·장애 조치</a></li><li><a href="#s4">스토리지 요구</a></li><li><a href="#s5">비용 관리</a></li><li><a href="#s6">플레이북</a></li><li><a href="#s7">실습</a></li><li><a href="#s8">Level 2 정리</a></li><li><a href="#s9">현장 사례</a></li><li><a href="#s10">퀴즈</a></li><li><a href="#s11">용어 사전</a></li><li><a href="#s12">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="diag">
+    <h3>스토리지 장애, 어디서부터 볼까</h3>
+    <p class="sub">증상을 고르고 질문에 답해 가면 원인 후보와 확인 명령, 고치는 방법, 관련 편이 나옵니다. 11~15편의 진단표를 하나의 길로 이은 것입니다.</p>
+    <div class="crumbs" id="dCr"></div>
+    <div id="dBody"></div>
+    <div class="stepper"><button class="btn" type="button" id="dBack">한 단계 뒤로</button><button class="btn" type="button" id="dReset">처음으로</button></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    StatefulSet은 “번호표를 단 직원들”입니다. 직원 0번, 1번, 2번이 각자 자기 서랍(PVC)을 갖고, 퇴사했다 다시 와도 같은 번호와 같은 서랍을 받습니다. 데이터베이스 오퍼레이터는 여기서 한 걸음 더 나아가 “직원 중 팀장이 쓰러지면 부팀장을 팀장으로 올리고, 새 직원을 뽑아 서랍을 복사해 주는” 인사팀 역할까지 자동으로 해 줍니다.</div>
+    <div class="prose">
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>StatefulSet의 볼륨 템플릿·Pod 관리 정책·업데이트 전략·PVC 보존 정책을 운영 요구에 맞게 설정하고, v1.37 Recreate 전략의 쓰임을 설명할 수 있습니다.</li>
+        <li>CloudNativePG·Strimzi·Redis·MongoDB 오퍼레이터의 스토리지 요구를 알고 벤더별 권장 구성을 설계할 수 있습니다.</li>
+        <li>스토리지 복제와 애플리케이션 복제의 장애 조치 시간 차이를 설명하고 측정할 수 있습니다.</li>
+        <li>미사용 PVC·고아 디스크·스냅샷 수명을 관리해 스토리지 비용을 줄일 수 있습니다.</li>
+        <li>Level 2 전체를 묶은 플레이북으로 스토리지 장애를 단계별로 진단할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>StatefulSet 정밀 해부</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>기능</th><th>내용</th><th>운영 포인트</th></tr></thead>
+      <tbody>
+        <tr><td class="k">안정된 이름</td><td>Pod 이름 <code>&lt;sts&gt;-&lt;번호&gt;</code>, 헤드리스 Service로 <code>&lt;pod&gt;.&lt;svc&gt;</code> DNS</td><td>클러스터 멤버 목록·리더 선출에 사용. 6편 헤드리스 Service</td></tr>
+        <tr><td class="k"><span class="t" data-k="volumeClaimTemplates">volumeClaimTemplates</span></td><td>Pod마다 PVC <code>&lt;템플릿&gt;-&lt;sts&gt;-&lt;번호&gt;</code> 생성</td><td>템플릿을 고쳐도 기존 PVC는 바뀌지 않음(확장은 PVC를 하나씩 패치, 11편)</td></tr>
+        <tr><td class="k">podManagementPolicy</td><td>OrderedReady(기본, 0부터 차례로) / Parallel(동시에)</td><td>멤버가 서로 순서를 요구하지 않으면 Parallel이 기동·복구가 빠름</td></tr>
+        <tr><td class="k">ordinals.start</td><td>번호 시작값 지정</td><td>클러스터 간 이전 때 번호 겹침 방지</td></tr>
+        <tr><td class="k"><span class="t" data-k="persistentVolumeClaimRetentionPolicy">PVC 보존 정책</span></td><td><code>whenDeleted</code>·<code>whenScaled</code>: Retain(기본) / Delete. 1.32 GA</td><td>축소 후 남은 PVC가 비용을 만들고, 다시 늘리면 <strong>옛 데이터가 그대로 붙음</strong>(10장 사례)</td></tr>
+        <tr><td class="k">minReadySeconds</td><td>Ready 후 이 시간 동안 유지돼야 가용으로 침</td><td>롤링 업데이트 속도 조절</td></tr>
+        <tr><td class="k">노드 장애 시</td><td>같은 이름 Pod가 둘이 되면 안 되므로 자동 대체하지 않음</td><td>12편 out-of-service 테인트, 14편 Longhorn 정책</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>운영형 StatefulSet 뼈대</span><button class="copy" type="button">복사</button></div><pre>apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db}
+spec:
+  serviceName: db
+  replicas: 3
+  podManagementPolicy: Parallel
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain               <span class="c"># 실수로 STS를 지워도 데이터 보존</span>
+    whenScaled: Delete                <span class="c"># 축소한 레플리카의 PVC는 정리(복제가 있는 앱에 한해)</span>
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: {partition: 0}     <span class="c"># 번호가 partition 이상인 Pod만 갱신 → 카나리</span>
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata: {labels: {app: db}}
+    spec:
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+      - {maxSkew: 1, topologyKey: topology.kubernetes.io/zone, whenUnsatisfiable: DoNotSchedule, labelSelector: {matchLabels: {app: db}}}
+      containers: [{name: db, image: "...", volumeMounts: [{name: data, mountPath: /var/lib/data}]}]
+  volumeClaimTemplates:
+  - metadata: {name: data}
+    spec: {storageClassName: gp3-wfc, accessModes: ["ReadWriteOncePod"], resources: {requests: {storage: 50Gi}}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: db}
+spec: {maxUnavailable: 1, selector: {matchLabels: {app: db}}}</pre></div>
+    <div class="note senior"><b>시니어 포인트: 존 분산과 WaitForFirstConsumer는 한 쌍</b>
+    존 분산 제약을 걸어도 StorageClass가 Immediate면 디스크가 먼저 임의 존에 생겨 충돌합니다(11편). 반대로 WaitForFirstConsumer + 존 분산이면 레플리카마다 다른 존에 디스크가 생기고, 이후 각 Pod는 자기 존에 고정됩니다. 존 하나에 노드가 모자라면 그 레플리카만 영원히 Pending이 되므로 <strong>존별 노드 여유</strong>를 노드 그룹 설계에 넣으세요.</div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>업데이트 전략과 v1.37 Recreate</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>전략</th><th>동작</th><th>장점</th><th>약점</th></tr></thead>
+      <tbody>
+        <tr><td class="k">RollingUpdate(기본)</td><td>번호가 큰 Pod부터 하나씩 지우고 새로 만들어 Ready를 기다림. <code>partition</code>으로 일부만</td><td>항상 일부가 서비스 중</td><td>새 Pod가 영원히 Ready가 안 되면(잘못된 이미지·설정) <strong>멈춘 채 대기</strong>. 고쳐도 그 Pod를 사람이 지워야 진행되던 오래된 문제</td></tr>
+        <tr><td class="k">OnDelete</td><td>템플릿만 바꾸고, 사람이(또는 오퍼레이터가) Pod를 지울 때 새 버전으로</td><td>완전한 수동 통제</td><td>자동화 도구가 필요</td></tr>
+        <tr><td class="k"><span class="t" data-k="Recreate">Recreate</span>(1.37 알파)</td><td>모든 Pod를 지우고 완전히 종료된 뒤 podManagementPolicy에 따라 새로 만듦</td><td>멈춘 롤아웃을 기다리지 않음. 버전이 섞이면 안 되는 앱(스키마·프로토콜 비호환)에 적합</td><td>업데이트 동안 <strong>전체 중단</strong>. 기능 게이트 StatefulSetRecreateStrategy 필요</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <p>Recreate는 Deployment의 같은 이름 전략을 StatefulSet에 가져온 것입니다. 잘못된 이미지로 롤아웃이 멈췄을 때 템플릿을 고치기만 하면 진행되고, 두 버전이 동시에 떠 있으면 안 되는 레거시 클러스터형 애플리케이션을 안전하게 바꿀 수 있습니다. 동시에 노드당 하나씩 줄이는 <code>maxUnavailable</code>(롤링 업데이트에서 한 번에 여러 Pod 갱신) 기능도 별도 기능 게이트로 진행 중이니, 사용하는 버전에서 단계를 확인하세요. 7장 실습 2에서 lab-native에 기능 게이트를 켜고 두 전략을 비교합니다.</p>
+    </div>
+    <div class="note trap"><b>함정: StatefulSet 업데이트는 데이터 마이그레이션이 아니다</b>
+    StatefulSet은 Pod를 바꿀 뿐, 데이터 스키마나 클러스터 멤버십 변경을 이해하지 못합니다. PostgreSQL 메이저 업그레이드, Kafka 프로토콜 버전 변경, Redis 클러스터 리샤딩 같은 작업은 앱이나 오퍼레이터가 순서를 지켜야 합니다. 이것이 상태 있는 서비스에 오퍼레이터를 쓰는 가장 큰 이유입니다.</div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>DB 오퍼레이터와 장애 조치</h2>
+    <div class="prose">
+      <h3>왜 오퍼레이터는 StatefulSet을 안 쓰기도 하나</h3>
+      <p>CloudNativePG는 StatefulSet 없이 Pod와 PVC를 직접 만들고, Strimzi는 자체 StrimziPodSet을 씁니다. StatefulSet의 순서 규칙과 “같은 이름은 하나만” 보장이 데이터베이스의 실제 요구(지금 누가 프라이머리인가, 어느 레플리카를 먼저 갱신하나, 장애 난 인스턴스를 어떻게 다시 만드나)와 맞지 않기 때문입니다. 오퍼레이터는 앱의 상태를 알고 결정합니다.</p>
+      <h3>스토리지 복제 vs 애플리케이션 복제</h3>
+      <p>노드가 죽었을 때 단일 Pod + 블록 디스크는 그 디스크가 떨어지기를 기다려야 합니다(12편의 분리 지연과 StatefulSet 교착). 반면 데이터베이스가 스스로 복제하면 <strong>다른 노드의 레플리카가 자기 디스크를 이미 붙이고 있으므로</strong>, 승격만 하면 됩니다. 분산 스토리지(14편)는 그 중간입니다. 아래 비교기에 예시 시간을 넣었습니다. 7장 실습 1에서 실제로 잽니다.</p>
+    </div>
+    <div class="calc" id="fo">
+      <div class="opt-row"><span class="lbl">장애</span><span id="foF"></span></div>
+      <div class="cmp3" id="foOut"></div>
+      <div class="calc-msg" id="foMsg"></div>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>CloudNativePG 기능</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td class="k">인스턴스별 PVC</td><td>데이터용 <code>storage</code>와 <span class="t" data-k="WAL">WAL</span> 전용 <code>walStorage</code>를 따로. WAL 볼륨이 가득 차면 DB가 멈추므로 별도 감시</td></tr>
+        <tr><td class="k">자동 장애 조치</td><td>프라이머리 이상 시 가장 앞선 레플리카 승격, <code>-rw</code> Service가 새 프라이머리를 가리킴</td></tr>
+        <tr><td class="k">스위치오버</td><td>계획된 프라이머리 이전. 업데이트 때 <code>primaryUpdateStrategy</code>로 자동·수동 선택</td></tr>
+        <tr><td class="k">동기 복제</td><td>데이터 손실 0이 필요하면 동기 복제 설정(쓰기 지연 증가)</td></tr>
+        <tr><td class="k">백업</td><td>Barman Cloud 플러그인(CNPG-I)으로 객체 저장소에 베이스 백업 + WAL 아카이브(15편 PITR). 코어 내장 Barman Cloud 지원은 폐기 수순(1.30 제거 예정). 볼륨 스냅샷 백업도 지원</td></tr>
+        <tr><td class="k">레플리카 클러스터</td><td>다른 리전·클러스터에 복제 클러스터를 두는 DR(15편 웜 스탠바이)</td></tr>
+        <tr><td class="k">펜싱·휴면</td><td>인스턴스를 격리하거나 PVC만 남기고 Pod를 내려 비용 절감</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>오퍼레이터별 스토리지 요구와 벤더 권장 구성</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>오퍼레이터</th><th>Pod 관리</th><th>스토리지 요구</th><th>클라우드 권장</th><th>온프렘 권장</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k">CloudNativePG (PostgreSQL)</td><td>Pod·PVC 직접 관리</td><td>낮은 fsync 지연(13편), WAL 분리, RWO</td><td>gp3(IOPS 조정)·io2 / Premium SSD v2 / Hyperdisk Balanced, WFC + 존 분산</td><td>로컬 디스크(TopoLVM·LocalPV) + 앱 복제가 문서상 권장되는 구성, 또는 Ceph RBD</td><td>NFS 금지(13편). WAL 볼륨 용량 경보</td></tr>
+        <tr><td class="k"><span class="t" data-k="Strimzi">Strimzi</span> (Kafka, KRaft)</td><td>StrimziPodSet, KafkaNodePool별 스토리지</td><td>높은 순차 처리량, JBOD(디스크 여러 개), 메타데이터 볼륨</td><td>gp3 처리량 조정 / Premium SSD v2 / Hyperdisk Balanced·Throughput, 랙(존) 인식 배치</td><td>로컬 디스크 + 복제 계수 3</td><td><code>deleteClaim</code> 설정, 디스크 추가·축소 시 Cruise Control로 재배치</td></tr>
+        <tr><td class="k">Redis·Valkey 오퍼레이터</td><td>StatefulSet 기반이 일반적</td><td>작은 용량. 캐시면 영속 불필요, 영속(AOF·RDB)이면 fsync 지연 민감</td><td>캐시는 emptyDir, 영속은 작은 블록 디스크</td><td>로컬 디스크</td><td>AOF 위의 NFS·느린 디스크는 지연 급증(10장 사례)</td></tr>
+        <tr><td class="k">MongoDB 오퍼레이터(공식·Percona)</td><td>StatefulSet 기반 레플리카 셋</td><td>WiredTiger 랜덤 I/O, 저널</td><td>블록 디스크(IOPS 조정), 멤버별 존 분산</td><td>로컬 디스크 + 레플리카 셋, 또는 Ceph RBD</td><td>백업은 전용 도구(PBM 등)로 객체 저장소에</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>Strimzi KafkaNodePool 스토리지 예</span><button class="copy" type="button">복사</button></div><pre>apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: brokers
+  labels: {strimzi.io/cluster: my-kafka}
+spec:
+  replicas: 3
+  roles: [broker]
+  storage:
+    type: jbod
+    volumes:
+    - {id: 0, type: persistent-claim, size: 500Gi, class: gp3-throughput, deleteClaim: false}
+    - {id: 1, type: persistent-claim, size: 500Gi, class: gp3-throughput, deleteClaim: false, kraftMetadata: shared}
+<span class="c"># Kafka CR의 rack.topologyKey: topology.kubernetes.io/zone 으로 파티션 레플리카를 존에 분산</span></pre></div>
+    <div class="note field"><b>현장 메모: 관리형 서비스와의 비교표를 같이 내라</b>
+    고객이 “Kubernetes 위에 DB를 올릴까, 관리형 DB(RDS·Azure Database·Cloud SQL)를 쓸까” 물으면, 장애 조치 시간·백업·업그레이드·비용·인력 다섯 항목으로 비교표를 내는 것이 MSP의 역할입니다. 오퍼레이터는 클라우드 중립성과 비용에서, 관리형 서비스는 운영 부담에서 유리합니다. 공용 PaaS로 여러 고객에게 DB를 제공한다면 이 편의 스토리지 설계(존 분산, 로컬 vs 네트워크 디스크, 백업 위치)가 상품의 SLA를 결정합니다.</div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>스토리지 비용 관리</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>낭비 원천</th><th>찾는 법</th><th>막는 법</th></tr></thead>
+      <tbody>
+        <tr><td class="k">안 쓰는 PVC</td><td>PVC Unused 조건(1.37 Beta)의 시각(11편)</td><td>네임스페이스 수명 정책, 보고서와 소유자 확인 후 정리</td></tr>
+        <tr><td class="k">축소 후 남은 PVC</td><td>StatefulSet 레플리카 수보다 번호가 큰 PVC</td><td><code>whenScaled: Delete</code>(복제가 있는 앱만)</td></tr>
+        <tr><td class="k">Released PV·고아 디스크</td><td>Retain PV 목록, 클라우드에서 “사용 가능(미부착)” 상태의 Kubernetes 태그 디스크</td><td>Retain은 꼭 필요한 곳만, 클러스터 삭제 절차(7편)</td></tr>
+        <tr><td class="k">스냅샷 누적</td><td>VolumeSnapshot·클라우드 스냅샷 수와 나이</td><td>보존 기간 정책(Velero TTL, 벤더 백업 수명 주기), 스냅샷 클래스의 deletionPolicy 확인</td></tr>
+        <tr><td class="k">과다 프로비저닝</td><td>프로비저닝 IOPS·처리량 대비 실제 사용(13편)</td><td>VolumeAttributesClass로 낮추기, 등급별 StorageClass</td></tr>
+        <tr><td class="k">옛 세대 디스크</td><td>gp2·Standard HDD 등</td><td>gp3·Premium SSD v2·Hyperdisk로 이전(13편)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="calc" id="cost">
+      <h4 style="margin-top:0">월 낭비 추정</h4>
+      <div class="f-grid">
+        <div><label for="cU">30일 넘게 안 쓴 PVC 용량(GiB)</label><input type="number" id="cU" value="2000" min="0"></div>
+        <div><label for="cO">고아 디스크(GiB)</label><input type="number" id="cO" value="800" min="0"></div>
+        <div><label for="cS">보존 기간 지난 스냅샷(GiB, 증분 기준)</label><input type="number" id="cS" value="5000" min="0"></div>
+        <div><label for="cP">디스크 GiB·월 단가($)</label><input type="number" id="cP" value="0.08" step="0.001" min="0"></div>
+        <div><label for="cSp">스냅샷 GiB·월 단가($)</label><input type="number" id="cSp" value="0.05" step="0.001" min="0"></div>
+        <div><label for="cI">과다 프로비저닝 IOPS 합계</label><input type="number" id="cI" value="40000" min="0"></div>
+        <div><label for="cIp">IOPS·월 단가($)</label><input type="number" id="cIp" value="0.005" step="0.001" min="0"></div>
+      </div>
+      <div class="kpis" id="cOut"></div>
+      <div class="calc-msg" id="cMsg"></div>
+    </div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>Level 2 스토리지 트러블슈팅 플레이북</h2>
+    <div class="prose"><p>맨 위 진단 트리의 내용을 한 장 표로 펼쳤습니다. 단계는 볼륨이 Pod에 닿기까지의 순서(11·12편)를 따르고, 그 뒤에 성능(13편), 분산 스토리지(14편), 백업·복원(15편), 앱 계층(이 편)이 이어집니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>단계</th><th>증상</th><th>먼저 볼 것</th><th>흔한 원인</th><th>편</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1. 프로비저닝</td><td>PVC Pending</td><td>PVC 이벤트, StorageClass provisioner, CSIDriver</td><td>드라이버·기본 SC 없음, 권한·할당량</td><td>11·12</td></tr>
+        <tr><td class="k">2. 스케줄링</td><td>Pod Pending</td><td>Pod 이벤트(node affinity conflict, max volume count, free storage)</td><td>Immediate 모드, 노드 그룹 변경, 어태치 한도</td><td>11·12</td></tr>
+        <tr><td class="k">3. 어태치</td><td>FailedAttachVolume, Multi-Attach</td><td>VolumeAttachment, csi-attacher 로그</td><td>RWO 롤링 업데이트, 노드 장애 분리 지연</td><td>12</td></tr>
+        <tr><td class="k">4. 마운트</td><td>FailedMount</td><td>노드 플러그인·kubelet 로그</td><td>파일 시스템, fsGroup·SELinux, FUSE</td><td>11·12</td></tr>
+        <tr><td class="k">5. 성능</td><td>느림·지연 급증</td><td>디스크 지표, VM 한도, 큐 깊이·fsync</td><td>한도 도달, 버스트 고갈, 공유 파일 시스템 절벽</td><td>13</td></tr>
+        <tr><td class="k">6. 용량</td><td>쓰기 실패·DB 정지</td><td>PVC 사용률, WAL 볼륨, 분산 스토리지 full</td><td>확장 미설정, WAL 아카이브 실패, OSD full</td><td>11·14·16</td></tr>
+        <tr><td class="k">7. 장애 복구</td><td>노드 장애 후 멈춤</td><td>Pod Terminating, 볼륨 robustness</td><td>StatefulSet 교착, 재구축할 노드 부족</td><td>12·14</td></tr>
+        <tr><td class="k">8. 백업·복원</td><td>복원 실패·빈 데이터</td><td>백업 상세·볼륨 목록, 복원 경고</td><td>볼륨 정책, SC 매핑, CRD 미설치</td><td>15</td></tr>
+        <tr><td class="k">9. 앱 계층</td><td>장애 조치 후 연결 실패·데이터 불일치</td><td>오퍼레이터 상태, Service 엔드포인트, 커넥션 풀</td><td>앱이 옛 프라이머리에 붙어 있음, 비동기 복제 지연</td><td>16</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>실습</h2>
+    <div class="prose">
+      <p>실습 1은 CloudNativePG 클러스터를 lab-eks와 lab-gke에 같은 정의로 배포하고, 쓰기 부하를 걸어 둔 채 프라이머리 Pod 삭제·스위치오버·노드 정지를 일으켜 쓰기가 끊긴 시간을 잽니다. 실습 2는 lab-native에서 StatefulSet의 멈춘 롤아웃과 v1.37 Recreate 전략, PVC 보존 정책을 확인합니다. 실습 3은 비용 점검 보고서를 만듭니다.</p>
+      <h3>실습 1. CloudNativePG 장애 조치 시간: EKS vs GKE</h3>
+    </div>
+    <div class="code"><div class="bar"><span>(1) 오퍼레이터·플러그인 설치와 클러스터 생성 (컨텍스트마다 반복)</span><button class="copy" type="button">복사</button></div><pre><span class="c"># EKS: CTX=lab-eks SC=gp3-wfc   /   GKE: CTX=lab-gke SC=standard-rwo</span>
+CTX=lab-eks; SC=gp3-wfc
+kubectl config use-context $CTX
+helm repo add cnpg https://cloudnative-pg.github.io/charts &amp;&amp; helm repo update
+helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace --wait
+curl -sSfL https://github.com/cloudnative-pg/cloudnative-pg/raw/main/hack/install-cnpg-plugin.sh | sudo sh -s -- -b /usr/local/bin
+kubectl create ns db-lab
+kubectl apply -f - &lt;&lt;EOF
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: pg, namespace: db-lab}
+spec:
+  instances: 3
+  storage: {size: 10Gi, storageClass: $SC}
+  walStorage: {size: 5Gi, storageClass: $SC}
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: preferred          <span class="c"># 노드가 3대 미만이어도 뜨도록(가능하면 분산)</span>
+EOF
+kubectl -n db-lab wait cluster/pg --for=condition=Ready --timeout=600s
+kubectl cnpg status pg -n db-lab
+kubectl -n db-lab get pod,pvc -o wide                       <span class="c"># 인스턴스마다 데이터·WAL PVC 2개, StatefulSet 없음</span></pre></div>
+    <div class="code"><div class="bar"><span>(2) 쓰기 부하 Pod (0.5초마다 INSERT, 실패를 기록)</span><button class="copy" type="button">복사</button></div><pre>kubectl -n db-lab apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: {name: writer}
+spec:
+  containers:
+  - name: w
+    image: postgres:17
+    env: [{name: URI, valueFrom: {secretKeyRef: {name: pg-app, key: uri}}}]
+    command: ["bash","-c"]
+    args:
+    - |
+      until psql "$URI" -c 'create table if not exists t(ts timestamptz default now(), n int)'; do sleep 2; done
+      i=0; while true; do i=$((i+1))
+        if psql "$URI" -qtAc "insert into t(n) values($i)" &gt;/dev/null 2&gt;&amp;1; then echo "$(date +%T.%3N) ok $i"; else echo "$(date +%T.%3N) FAIL $i"; fi
+        sleep 0.5; done
+EOF
+kubectl -n db-lab wait pod/writer --for=condition=Ready --timeout=120s
+gap(){ kubectl -n db-lab logs writer --since=${1:-10m} | awk '/FAIL/{if(!s)s=$1;e=$1;c++} END{print "실패", c+0, "회, 처음", s, "마지막", e}'; }</pre></div>
+    <div class="code"><div class="bar"><span>(3) 장애 세 가지</span><button class="copy" type="button">복사</button></div><pre>P=$(kubectl -n db-lab get cluster pg -o jsonpath='{.status.currentPrimary}'); echo "프라이머리: $P"
+
+<span class="c"># A. 프라이머리 Pod 삭제</span>
+date +%T; kubectl -n db-lab delete pod $P --wait=false; sleep 60; gap 2m
+kubectl -n db-lab get cluster pg -o jsonpath='{.status.currentPrimary}'; echo
+
+<span class="c"># B. 계획된 스위치오버</span>
+R=$(kubectl -n db-lab get pod -l cnpg.io/cluster=pg,cnpg.io/instanceRole=replica -o jsonpath='{.items[0].metadata.name}')
+date +%T; kubectl cnpg promote pg $R -n db-lab; sleep 60; gap 2m
+
+<span class="c"># C. 프라이머리가 있는 노드 정지</span>
+P=$(kubectl -n db-lab get cluster pg -o jsonpath='{.status.currentPrimary}')
+NODE=$(kubectl -n db-lab get pod $P -o jsonpath='{.spec.nodeName}')
+<span class="c"># EKS: aws ec2 stop-instances --force --instance-ids $(kubectl get node $NODE -o jsonpath='{.spec.providerID}' | awk -F/ '{print $NF}')</span>
+<span class="c"># GKE: gcloud compute instances stop $NODE --zone $(kubectl get node $NODE -o jsonpath='{.metadata.labels.topology\.kubernetes\.io/zone}')</span>
+date +%T; sleep 180; gap 5m
+kubectl -n db-lab get pod,pvc -o wide; kubectl get volumeattachment | grep $NODE
+<span class="c"># 관찰: 새 프라이머리는 자기 디스크를 이미 쓰고 있었으므로 12편의 디스크 분리 대기가 없다.</span>
+<span class="c"># 옛 프라이머리 Pod는 노드가 돌아올 때까지 남고, 돌아오면 레플리카로 다시 합류(pg_rewind)</span></pre></div>
+    <div class="note"><b>측정표</b>
+    EKS와 GKE 각각에 대해 A·B·C의 쓰기 실패 구간, 승격까지의 시간, 옛 프라이머리의 PVC·VolumeAttachment 상태, 노드 복귀 후 재합류 시간을 적으세요. 맨 위 3장 비교기의 “애플리케이션 복제” 열과 비교하고, 12편 실습 2(단일 StatefulSet 노드 장애)의 복구 시간과 나란히 두면 고객에게 오퍼레이터를 권하는 근거가 됩니다. 정리: <code>kubectl delete ns db-lab</code>(gp3-wfc·standard-rwo는 Delete 정책이라 디스크도 삭제), 정지한 노드는 다시 시작하거나 노드 그룹이 교체하게 둡니다.</div>
+
+    <div class="prose"><h3>실습 2. lab-native: 멈춘 롤아웃과 Recreate, PVC 보존 정책</h3></div>
+    <div class="code"><div class="bar"><span>(1) 알파 기능 게이트 켜기 (실습 클러스터 전용)</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-native
+for f in kube-apiserver kube-controller-manager; do
+  multipass exec cp1 -- sudo grep -q 'StatefulSetRecreateStrategy' /etc/kubernetes/manifests/$f.yaml || \
+  multipass exec cp1 -- sudo sed -i "/- $f\$/a\    - --feature-gates=StatefulSetRecreateStrategy=true" /etc/kubernetes/manifests/$f.yaml
+done
+sleep 60; kubectl get --raw /readyz &amp;&amp; echo
+<span class="c"># 기존에 --feature-gates 플래그가 있다면 새 줄을 추가하지 말고 그 값에 쉼표로 덧붙인다</span></pre></div>
+    <div class="code"><div class="bar"><span>(2) RollingUpdate가 멈추는 모습</span><button class="copy" type="button">복사</button></div><pre>kubectl create ns sts-lab
+kubectl -n sts-lab apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: web}
+spec:
+  serviceName: web
+  replicas: 3
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers: [{name: c, image: "busybox:1.36", command: ["sh","-c","sleep 3600"], readinessProbe: {exec: {command: ["true"]}}}]
+  volumeClaimTemplates:
+  - metadata: {name: data}
+    spec: {storageClassName: local-path, accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 1Gi}}}
+EOF
+kubectl -n sts-lab rollout status sts/web
+kubectl -n sts-lab set image sts/web c=busybox:does-not-exist     <span class="c"># 잘못된 이미지</span>
+sleep 60; kubectl -n sts-lab get pod                                <span class="c"># web-2만 ImagePullBackOff, 롤아웃 멈춤</span>
+kubectl -n sts-lab set image sts/web c=busybox:1.36                 <span class="c"># 고쳐도</span>
+sleep 60; kubectl -n sts-lab get pod                                <span class="c"># web-2가 그대로 남아 진행이 안 될 수 있음 → 수동 삭제가 필요했던 문제</span>
+kubectl -n sts-lab delete pod web-2; kubectl -n sts-lab rollout status sts/web</pre></div>
+    <div class="code"><div class="bar"><span>(3) Recreate 전략</span><button class="copy" type="button">복사</button></div><pre>kubectl -n sts-lab patch sts web --type merge -p '{"spec":{"updateStrategy":{"type":"Recreate","rollingUpdate":null}}}'
+kubectl -n sts-lab get sts web -o jsonpath='{.spec.updateStrategy}'; echo
+kubectl -n sts-lab set image sts/web c=busybox:does-not-exist
+kubectl -n sts-lab get pod -w                                        <span class="c"># 모든 Pod를 내리고 새로 만듦(전체 중단)</span>
+kubectl -n sts-lab set image sts/web c=busybox:1.36                  <span class="c"># 고치면 수동 삭제 없이 진행</span>
+kubectl -n sts-lab rollout status sts/web</pre></div>
+    <div class="code"><div class="bar"><span>(4) PVC 보존 정책</span><button class="copy" type="button">복사</button></div><pre>kubectl -n sts-lab exec web-2 -- sh -c 'echo from-web-2 &gt; /data/mark' 2&gt;/dev/null || true
+kubectl -n sts-lab scale sts web --replicas=1; sleep 20; kubectl -n sts-lab get pvc   <span class="c"># 기본 Retain: data-web-1·2 남음</span>
+kubectl -n sts-lab scale sts web --replicas=3; sleep 30
+kubectl -n sts-lab exec web-2 -- cat /data/mark 2&gt;/dev/null                           <span class="c"># 옛 데이터가 그대로 붙음</span>
+kubectl -n sts-lab patch sts web --type merge -p '{"spec":{"persistentVolumeClaimRetentionPolicy":{"whenScaled":"Delete","whenDeleted":"Retain"}}}'
+kubectl -n sts-lab scale sts web --replicas=1; sleep 20; kubectl -n sts-lab get pvc   <span class="c"># 이번엔 축소분 PVC 삭제</span>
+kubectl delete ns sts-lab</pre></div>
+
+    <div class="prose"><h3>실습 3. 스토리지 비용 점검 보고서</h3></div>
+    <div class="code"><div class="bar"><span>storage-waste.sh [일수]</span><button class="copy" type="button">복사</button></div><pre>#!/usr/bin/env bash
+DAYS=${1:-30}; NOW=$(date +%s)
+echo "== $DAYS일 넘게 안 쓴 PVC (Unused 조건, 1.37)"
+kubectl get pvc -A -o json | jq -r --argjson now $NOW --argjson d $DAYS '.items[] | . as $p | (.status.conditions // [])[]
+  | select(.type=="Unused" and .status=="True") | select(($now - (.lastTransitionTime|fromdateiso8601)) &gt; ($d*86400))
+  | "\($p.metadata.namespace)/\($p.metadata.name)\t\($p.spec.resources.requests.storage)\t\(.lastTransitionTime)"'
+echo "== Released PV (Retain으로 남은 것)"
+kubectl get pv -o json | jq -r '.items[] | select(.status.phase=="Released") | "\(.metadata.name)\t\(.spec.capacity.storage)\t\(.spec.storageClassName)"'
+echo "== StatefulSet 레플리카 수를 넘는 번호의 PVC"
+kubectl get sts -A -o json | jq -r '.items[] | .metadata.namespace as $ns | .metadata.name as $n | .spec.replicas as $r
+  | (.spec.volumeClaimTemplates // [])[] | "\($ns) \(.metadata.name)-\($n) \($r)"' | while read ns prefix r; do
+  kubectl -n "$ns" get pvc -o name | sed 's#.*/##' | grep -E "^$prefix-[0-9]+$" | while read p; do
+    i=${p##*-}; [ "$i" -ge "$r" ] &amp;&amp; echo "$ns/$p (replicas=$r)"; done; done
+echo "== $DAYS일 넘은 VolumeSnapshot"
+kubectl get volumesnapshot -A -o json 2&gt;/dev/null | jq -r --argjson now $NOW --argjson d $DAYS '.items[]
+  | select(($now - (.metadata.creationTimestamp|fromdateiso8601)) &gt; ($d*86400))
+  | "\(.metadata.namespace)/\(.metadata.name)\t\(.status.restoreSize // "?")\t\(.metadata.creationTimestamp)"'
+echo "== (AWS) 미부착 상태인 Kubernetes 생성 EBS"
+aws ec2 describe-volumes --filters Name=status,Values=available Name=tag-key,Values=kubernetes.io/created-for/pvc/name \
+  --query 'Volumes[].[VolumeId,Size,CreateTime]' --output text 2&gt;/dev/null</pre></div>
+    <div class="prose">
+      <h3>과제</h3>
+      <ol>
+        <li>실습 1의 EKS·GKE 측정표를 12편 단일 StatefulSet 노드 장애 결과와 합쳐 “같은 장애, 세 가지 구성”의 비교표를 만드세요.</li>
+        <li>실습 3 보고서를 담당 고객사 클러스터에서 돌리고, 5장 계산기로 월 낭비를 추정한 뒤 정리 우선순위를 정하세요.</li>
+        <li>고객사에서 운영 중인 스테이트풀 워크로드 하나를 골라 Level 2 점검표(8장)를 채우세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>Level 2 정리와 스토리지 점검표</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>편</th><th>핵심 질문</th><th>가장 먼저 볼 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">11. 스토리지 모델</td><td>디스크는 언제·어디에 생기고 언제 사라지나?</td><td>바인딩 모드, 리클레임, 접근 모드, 기본 StorageClass</td></tr>
+        <tr><td class="k">12. CSI 드라이버</td><td>누가 그 일을 하고 어디서 멈췄나?</td><td>사이드카 로그, VolumeAttachment, 어태치 한도</td></tr>
+        <tr><td class="k">13. 성능 설계</td><td>무엇이 먼저 막히나?</td><td>디스크·VM 한도, 큐 깊이, RWX 절벽</td></tr>
+        <tr><td class="k">14. 온프렘 분산 스토리지</td><td>노드가 죽으면 언제 다시 안전해지나?</td><td>복제 배치, 재구축 시간, 용량 경계</td></tr>
+        <tr><td class="k">15. 백업·DR</td><td>어떤 재해에서 얼마나 잃고 얼마나 걸리나?</td><td>백업 위치·일관성, RPO·RTO, 리허설</td></tr>
+        <tr><td class="k">16. 스테이트풀 운영</td><td>앱이 장애를 어떻게 견디고 비용은 새지 않나?</td><td>오퍼레이터, 장애 조치 시간, 미사용 리소스</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><h3>고객 클러스터 스토리지 점검표</h3></div>
+    <div class="tbl"><table>
+      <thead><tr><th>#</th><th>점검 항목</th><th>확인 방법</th><th>편</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1</td><td>CSI 드라이버·스냅샷 컨트롤러 설치와 버전, 업그레이드 책임</td><td>12편 csi-inventory.sh</td><td>12</td></tr>
+        <tr><td class="k">2</td><td>기본 StorageClass 정확히 하나, 바인딩 WFC, 리클레임·확장 정책 명시</td><td>11편 storage-inventory.sh</td><td>11</td></tr>
+        <tr><td class="k">3</td><td>옛 in-tree 이름 StorageClass·번역된 PV 정리 계획</td><td>migrated-to 어노테이션</td><td>11</td></tr>
+        <tr><td class="k">4</td><td>존별 PV 분포와 노드 그룹 구성 일치</td><td>존별 PV 집계</td><td>11</td></tr>
+        <tr><td class="k">5</td><td>노드당 어태치 한도와 ENI 공유</td><td>CSINode, 12편 계산기</td><td>12</td></tr>
+        <tr><td class="k">6</td><td>노드 장애 런북(out-of-service 테인트·펜싱)</td><td>런북 존재·리허설 기록</td><td>12</td></tr>
+        <tr><td class="k">7</td><td>워크로드별 StorageClass와 성능 근거(벤치마크)</td><td>13편 설계 가이드</td><td>13</td></tr>
+        <tr><td class="k">8</td><td>DB가 공유 파일 시스템·객체 마운트 위에 있지 않은지</td><td>PVC의 StorageClass·드라이버</td><td>13</td></tr>
+        <tr><td class="k">9</td><td>분산 스토리지 용량 경보(가장 꽉 찬 OSD·디스크)와 재구축 시간</td><td>14편 계산기, 지표</td><td>14</td></tr>
+        <tr><td class="k">10</td><td>백업이 다른 장애 도메인(리전·계정)에 있고 변경 불가인지</td><td>백업 위치·잠금 설정</td><td>15</td></tr>
+        <tr><td class="k">11</td><td>재해 유형별 RPO·RTO와 마지막 리허설 날짜</td><td>리허설 기록</td><td>15</td></tr>
+        <tr><td class="k">12</td><td>스테이트풀 워크로드의 복제·장애 조치 방식과 측정값</td><td>오퍼레이터 상태, 실습 1 방식 측정</td><td>16</td></tr>
+        <tr><td class="k">13</td><td>미사용 PVC·고아 디스크·오래된 스냅샷</td><td>실습 3 보고서</td><td>16</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>잘못된 이미지 하나로 StatefulSet 배포가 하루 동안 멈췄다</summary><div class="body">
+      <p><strong>원인.</strong> 오타가 난 이미지 태그로 롤링 업데이트가 마지막 번호 Pod에서 멈췄고, 태그를 고친 뒤에도 그 Pod를 아무도 지우지 않아 진행되지 않았습니다.</p>
+      <p><strong>교훈.</strong> 배포 파이프라인에 “StatefulSet 롤아웃 정체 감지 → 해당 Pod 삭제” 단계를 두거나, 버전 혼재가 허용되지 않는 앱은 Recreate(1.37 알파, 기능 성숙 후) 또는 오퍼레이터를 쓰세요.</p>
+    </div></details>
+    <details class="case"><summary>축소했다가 늘렸더니 몇 달 전 데이터가 나타났다</summary><div class="body">
+      <p><strong>원인.</strong> 기본 보존 정책(Retain) 때문에 축소된 레플리카의 PVC가 남아 있었고, 다시 늘리자 같은 번호 Pod가 옛 PVC를 그대로 붙였습니다. 그동안 디스크 비용도 계속 나갔습니다.</p>
+      <p><strong>교훈.</strong> 복제가 있는 앱은 <code>whenScaled: Delete</code>, 아니면 축소 절차에 PVC 정리를 넣으세요.</p>
+    </div></details>
+    <details class="case"><summary>노드 그룹 업그레이드 중 Kafka 파티션이 대량으로 복제 부족</summary><div class="body">
+      <p><strong>원인.</strong> 로컬 NVMe 위 브로커들을 업그레이드하면서 노드가 동시에 여러 대 교체되어, 여러 브로커가 데이터를 처음부터 다시 받았습니다.</p>
+      <p><strong>교훈.</strong> PDB(maxUnavailable 1), 랙(존) 인식 배치, 한 번에 한 브로커씩 교체하고 복제 부족 파티션이 0이 된 뒤 다음으로 넘어가는 절차가 필요합니다(14편 재구축 창).</p>
+    </div></details>
+    <details class="case"><summary>장애 조치는 20초 만에 됐는데 서비스는 10분 동안 오류</summary><div class="body">
+      <p><strong>원인.</strong> 앱의 커넥션 풀이 옛 프라이머리 IP로의 연결을 붙잡고 재연결하지 않았습니다.</p>
+      <p><strong>교훈.</strong> 앱은 오퍼레이터의 읽기·쓰기 Service(<code>-rw</code>)를 쓰고, 커넥션 풀 검증·재시도 설정을 갖추거나 커넥션 풀러(PgBouncer, CNPG Pooler)를 앞에 두세요. 장애 조치 측정은 <strong>앱 기준</strong>으로 합니다.</p>
+    </div></details>
+    <details class="case"><summary>PostgreSQL이 갑자기 멈췄다: WAL 볼륨 가득</summary><div class="body">
+      <p><strong>원인.</strong> 객체 저장소 자격 증명이 만료되어 WAL 아카이브가 계속 실패했고, 아카이브되지 못한 WAL이 쌓여 WAL 볼륨이 가득 찼습니다.</p>
+      <p><strong>교훈.</strong> WAL 아카이브 실패와 WAL 볼륨 사용률은 <strong>DB 정지의 선행 지표</strong>입니다. 둘 다 경보로 두세요.</p>
+    </div></details>
+    <details class="case"><summary>Redis 지연이 주기적으로 튄다</summary><div class="body">
+      <p><strong>원인.</strong> AOF 영속을 켠 Redis를 공유 파일 시스템 위에 두어, 매초 fsync가 네트워크 왕복이 되어 지연이 튀었습니다.</p>
+      <p><strong>교훈.</strong> 캐시 용도면 영속을 끄거나 emptyDir, 영속이 필요하면 블록 디스크로 옮기세요(13편).</p>
+    </div></details>
+    <details class="case"><summary>스냅샷 비용이 볼륨 비용을 넘었다</summary><div class="body">
+      <p><strong>원인.</strong> 시간마다 스냅샷을 찍는 정책에 보존 기간이 없었고, VolumeSnapshotClass의 deletionPolicy가 Retain이라 Kubernetes 객체를 지워도 클라우드 스냅샷이 남았습니다.</p>
+      <p><strong>교훈.</strong> 스냅샷은 <strong>만들 때 지울 날짜를 같이 정하세요</strong>. 백업 도구의 TTL·수명 주기 정책과 스냅샷 클래스 정책을 함께 점검합니다(15편).</p>
+    </div></details>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: Recreate, 스위치오버, WAL)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>StatefulSet은 안정된 이름·Pod별 PVC·순서를 주며, PVC 보존 정책(1.32 GA)과 존 분산 + WaitForFirstConsumer 조합이 운영의 기본입니다.</li>
+        <li>RollingUpdate의 멈춘 롤아웃 문제를 v1.37 Recreate(알파)가 해결하지만 업데이트 동안 전체 중단이 따릅니다.</li>
+        <li>데이터베이스 오퍼레이터는 앱 상태를 알고 승격·스위치오버·백업을 하므로, 노드 장애 때 디스크 분리 대기 없이 수십 초 안에 장애 조치가 가능합니다.</li>
+        <li>오퍼레이터마다 스토리지 요구(낮은 fsync 지연, 높은 순차 처리량, WAL 분리, 존 분산)가 다르며, 공유 파일 시스템은 피합니다.</li>
+        <li>미사용 PVC·고아 디스크·스냅샷 수명을 정기 보고서로 관리하고, Level 2 플레이북으로 장애를 단계별로 진단합니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 17편 인증 지형: 누가 요청했는가 (Level 3 RBAC과 접근 제어 시작)</h3>
+      <p style="margin:.3em 0 0">x509, ServiceAccount 토큰(바운드·프로젝티드), OIDC, 웹훅, 구조화된 인증 설정, Pod 인증서와 Cluster Trust Bundles까지 인증 경로를 모두 정리하고, EKS 액세스 엔트리(aws-auth 이후), AKS Entra ID 통합, GKE IAM·Google 그룹, OpenShift OAuth 서버, Rancher 인증 프록시를 비교합니다. kubeconfig exec 플러그인의 동작과 토큰 수명, 비상용(브레이크글라스) 계정 설계도 다룹니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>StatefulSets(PVC 보존 정책, 업데이트 전략, 순서 지정) — kubernetes.io 문서, KEP-3541(Recreate, 1.37 알파)</li>
+        <li>CloudNativePG 문서(아키텍처, 장애 조치, 스토리지, Barman Cloud 플러그인), 1.29 발표 — cloudnative-pg.io</li>
+        <li>Strimzi 문서(KafkaNodePool 스토리지, 랙 인식, Cruise Control) — strimzi.io</li>
+        <li>Redis·Valkey 오퍼레이터, MongoDB 공식·Percona 오퍼레이터 문서</li>
+        <li>PVC 미사용 추적(1.37 블로그), VolumeSnapshotClass deletionPolicy — kubernetes.io</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 16편(Level 2 마지막). 작성 기준일 2026-10-23.
+      실습 2의 알파 기능 게이트는 실습 클러스터 전용입니다. 장애 조치 시간 예시는 설명용이며 실제 값은 측정으로 확인하세요.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "StatefulSet":["StatefulSet","번호와 서랍(PVC)을 고정해 주는 워크로드. Pod 이름·저장소가 재시작 후에도 같다."],
+ "volumeClaimTemplates":["volumeClaimTemplates","StatefulSet이 Pod마다 PVC를 만드는 틀. 고쳐도 기존 PVC는 바뀌지 않는다."],
+ "podManagementPolicy":["podManagementPolicy","Pod를 순서대로(OrderedReady) 또는 동시에(Parallel) 만들고 지우는 정책."],
+ "persistentVolumeClaimRetentionPolicy":["PVC retention policy","StatefulSet 삭제·축소 때 PVC를 남길지(Retain) 지울지(Delete). 1.32 GA."],
+ "partition":["RollingUpdate partition","번호가 이 값 이상인 Pod만 갱신하는 설정. 카나리 배포에 쓴다."],
+ "Recreate":["StatefulSet Recreate strategy","모든 Pod를 지우고 완전히 종료된 뒤 새로 만드는 업데이트 전략(1.37 알파)."],
+ "OnDelete":["OnDelete strategy","Pod가 지워질 때만 새 버전으로 만드는 수동 업데이트 전략."],
+ "기능 게이트":["Feature gate","알파·베타 기능을 켜고 끄는 스위치. 알파는 기본 꺼짐."],
+ "헤드리스 Service":["Headless Service","가상 IP 없이 Pod별 DNS 이름을 주는 Service(6편)."],
+ "PDB":["PodDisruptionBudget","드레인 같은 자발적 중단 때 동시에 내려갈 수 있는 Pod 수를 제한하는 객체."],
+ "오퍼레이터":["Operator","특정 앱의 운영 지식을 코드로 담아 설치·장애 조치·백업·업그레이드를 자동화하는 컨트롤러."],
+ "CloudNativePG":["CloudNativePG","PostgreSQL 오퍼레이터(CNCF). StatefulSet 없이 Pod·PVC를 직접 관리."],
+ "Strimzi":["Strimzi","Kafka 오퍼레이터(CNCF). KRaft 전용, StrimziPodSet·KafkaNodePool 사용."],
+ "KRaft":["Kafka Raft","ZooKeeper 없이 Kafka 자체 합의로 메타데이터를 관리하는 방식."],
+ "JBOD":["Just a Bunch Of Disks","디스크 여러 개를 묶지 않고 각각 따로 쓰는 구성. Kafka 브로커에서 흔함."],
+ "Cruise Control":["Cruise Control","Kafka 파티션을 브로커·디스크 사이에 재배치하는 도구."],
+ "랙 인식":["Rack awareness","같은 데이터의 복제본을 서로 다른 랙·존에 두는 배치."],
+ "WAL":["Write-Ahead Log","PostgreSQL이 변경을 먼저 기록하는 로그. 별도 볼륨에 두고 가득 차지 않게 감시."],
+ "WAL 아카이브":["WAL archiving","WAL을 객체 저장소로 계속 복사하는 것. 실패하면 WAL이 쌓여 디스크가 찬다."],
+ "프라이머리":["Primary","쓰기를 받는 DB 인스턴스."],
+ "레플리카":["Replica (database)","프라이머리를 복제하는 DB 인스턴스. 승격되면 프라이머리가 된다."],
+ "승격":["Promotion","레플리카를 프라이머리로 올리는 것."],
+ "스위치오버":["Switchover","계획된 프라이머리 교체. 장애 조치(failover)는 계획되지 않은 교체."],
+ "장애 조치":["Failover","프라이머리 장애 때 레플리카를 자동으로 승격하는 것."],
+ "동기 복제":["Synchronous replication","레플리카가 받았다고 확인해야 커밋이 끝나는 복제. 손실 0, 지연 증가."],
+ "pg_rewind":["pg_rewind","옛 프라이머리를 새 프라이머리의 레플리카로 되돌리는 PostgreSQL 도구."],
+ "커넥션 풀러":["Connection pooler","DB 연결을 모아 관리하는 중개자(PgBouncer 등). 장애 조치 후 재연결을 돕는다."],
+ "AOF":["Append Only File","Redis가 모든 쓰기를 파일에 이어 쓰는 영속 방식. fsync 지연에 민감."],
+ "RDB":["Redis Database snapshot","Redis 메모리 내용을 주기적으로 파일에 저장하는 방식."],
+ "Valkey":["Valkey","Redis에서 갈라져 나온 오픈소스 키-값 저장소(Linux Foundation)."],
+ "WiredTiger":["WiredTiger","MongoDB 기본 스토리지 엔진. 랜덤 I/O 위주."],
+ "Unused 조건":["PVC Unused condition","PVC를 쓰는 Pod가 모두 사라지면 True가 되는 조건(1.37 Beta)."],
+ "고아 디스크":["Orphaned disk","Kubernetes와 연결이 끊긴 채 클라우드에 남아 비용을 내는 디스크."],
+ "VolumeAttributesClass":["VolumeAttributesClass","디스크 IOPS·처리량을 무중단으로 바꾸는 표준(13편)."],
+ "펜싱":["Fencing","장애 인스턴스가 더는 쓰지 못하게 확실히 격리하는 것."],
+ "StrimziPodSet":["StrimziPodSet","Strimzi가 StatefulSet 대신 Kafka Pod를 관리하는 자체 리소스."],
+ "CNPG-I":["CloudNativePG Interface","CloudNativePG 플러그인 인터페이스. Barman Cloud 백업 플러그인이 이를 사용."]
+};
+const AUTO=["persistentVolumeClaimRetentionPolicy","volumeClaimTemplates","podManagementPolicy","VolumeAttributesClass","CloudNativePG","StrimziPodSet","StatefulSet","Cruise Control","Strimzi","KRaft","JBOD","CNPG-I","Valkey","WiredTiger","pg_rewind","Recreate","OnDelete","partition","AOF","RDB","PDB","WAL 아카이브","WAL","기능 게이트","헤드리스 Service","오퍼레이터","랙 인식","프라이머리","승격","스위치오버","장애 조치","동기 복제","커넥션 풀러","Unused 조건","고아 디스크","펜싱"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s11")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- diagnosis tree ---------- */
+const A=(t,cmd,fix,ep)=>({ans:true,t,cmd,fix,ep});
+const TREE={q:"어떤 증상인가요?",o:[
+ ["PVC가 Pending",{q:"PVC 이벤트가 있나요? (kubectl describe pvc)",o:[
+   ["이벤트가 전혀 없다",A("처리할 드라이버가 없음: StorageClass의 provisioner 오타, CSI 드라이버 미설치, 기본 StorageClass 없음","kubectl get sc <이름> -o jsonpath='{.provisioner}'\nkubectl get csidriver\nkubectl get sc | grep '(default)'","provisioner 이름 수정, 드라이버 설치, 기본 StorageClass 하나 지정","11·12편")],
+   ["waiting for first consumer",A("정상 대기(WaitForFirstConsumer). PVC를 쓰는 Pod가 없거나 그 Pod가 스케줄되지 않음","kubectl get pod -A -o wide | grep <pvc를 쓰는 Pod>","Pod가 있다면 Pod 쪽 증상(Pod Pending)으로 이동","11편")],
+   ["waiting for a volume to be created … by external provisioner 가 계속",{q:"CSI 컨트롤러 Pod가 정상인가요?",o:[
+     ["아니오(없음·재시작 반복)",A("CSI 컨트롤러 장애","kubectl -n <드라이버 ns> get pod\nkubectl -n <ns> logs <컨트롤러> -c csi-provisioner","컨트롤러 복구, 애드온 재설치(권한 연결 포함)","12편")],
+     ["예, 그런데 ProvisioningFailed 이벤트",A("클라우드 권한·할당량·잘못된 파라미터·해당 존에 디스크 종류 없음","kubectl describe pvc <pvc> | sed -n '/Events/,$p'\nkubectl -n <ns> logs <컨트롤러> -c csi-provisioner --since=10m","IAM 권한(Pod Identity 등) 확인, 할당량 증가, StorageClass 파라미터 수정","12·13편")]]}]]}],
+ ["Pod가 Pending",{q:"Pod 이벤트의 메시지는?",o:[
+   ["volume node affinity conflict",A("PV가 묶인 존·노드에 갈 수 있는 노드가 없음(Immediate 모드, 노드 그룹 변경, 로컬 PV)","kubectl get pv <pv> -o jsonpath='{.spec.nodeAffinity}'\nkubectl get nodes -L topology.kubernetes.io/zone","WFC StorageClass 사용, 해당 존 노드 확보, 스냅샷으로 다른 존 복제","11편")],
+   ["exceed max volume count",A("노드 어태치 한도 초과(AWS는 ENI와 공유될 수 있음)","kubectl get csinode <노드> -o jsonpath='{.spec.drivers[*].allocatable.count}'","노드 추가·큰 인스턴스, ENI 사용 줄이기(prefix delegation)","12편")],
+   ["did not have enough free storage",A("용량 추적 결과 노드 공간 부족(로컬 스토리지)","kubectl get csistoragecapacities -A","노드 디스크 추가, 용량 스코어링(1.37 베타) 검토","11편")]]}],
+ ["ContainerCreating에서 멈춤",{q:"이벤트 종류는?",o:[
+   ["FailedAttachVolume: Multi-Attach error",{q:"직전에 무슨 일이 있었나요?",o:[
+     ["Deployment 롤링 업데이트",A("RWO 디스크가 옛 Pod 노드에 붙어 있음","kubectl get volumeattachment | grep <pv>","Recreate 전략·StatefulSet 사용, 단일 Pod면 RWOP","11편")],
+     ["노드가 갑자기 죽음",A("죽은 노드에서 디스크가 떨어지지 않음(강제 분리 대기, StatefulSet 교착)","kubectl get node; kubectl get pod -A | grep Terminating","전원 확인 후 out-of-service 테인트, 또는 앱 복제 구성","12·16편")]]}],
+   ["FailedAttachVolume: 다른 오류",A("클라우드 API 오류, 인스턴스 쪽 한도, 권한","kubectl -n <ns> logs <컨트롤러> -c csi-attacher --since=10m","오류 메시지에 따라 권한·한도 조정","12편")],
+   ["FailedMount: MountDevice",A("노드에서 장치를 찾거나 포맷·스테이지하지 못함","노드 플러그인 로그, journalctl -u kubelet","드라이버 등록(registrar), 파일 시스템 점검","12편")],
+   ["FailedMount: SetUp·권한 거부",A("fsGroup·SELinux·읽기 전용 마운트 문제","kubectl get pod <pod> -o jsonpath='{.spec.securityContext}'","fsGroupChangePolicy: OnRootMismatch, SELinux 마운트 옵션","11편")]]}],
+ ["I/O가 느리다",{q:"디스크 지표가 프로비저닝 한도(IOPS·처리량)에 닿았나요?",o:[
+   ["예",A("디스크 한도 도달","클라우드 디스크 지표, 13편 fio","VolumeAttributesClass로 상향, 클래스 변경","13편")],
+   ["아니오",{q:"노드 VM의 디스크 대역폭·IOPS 한도에 닿았나요?",o:[
+     ["예",A("VM 한도가 먼저 막힘(같은 노드의 다른 Pod 디스크와 공유)","인스턴스 유형별 EBS·디스크 한도 문서와 노드 지표","노드 크기 상향, 디스크 많은 Pod 분산","13편")],
+     ["아니오",A("지연·큐 깊이 문제(fsync 위주 앱), 또는 공유 파일 시스템 메타데이터 절벽, 버스트 크레딧 고갈","fio fsync 시험, 앱 동시성 확인","저지연 스토리지(io2·Ultra·Extreme·로컬 NVMe), 앱 동시성, RWX 재설계","13편")]]}]]}],
+ ["디스크가 가득·쓰기 실패",{q:"어떤 스토리지인가요?",o:[
+   ["클라우드 블록 PVC",A("PVC 용량 부족 또는 WAL 등 특정 볼륨 가득","kubectl exec <pod> -- df -h","PVC 확장(allowVolumeExpansion), FileSystemResizePending이면 재시작, WAL 아카이브 점검","11·16편")],
+   ["Ceph(ODF·Rook)",A("OSD full(95%)로 쓰기 중단","ceph osd df; ceph health detail","데이터 정리, OSD 추가, 밸런서. 경보는 가장 꽉 찬 OSD 기준","14편")],
+   ["Longhorn",A("과다 할당으로 실제 노드 디스크가 가득","Longhorn UI·nodes.longhorn.io 디스크 상태","과다 할당 비율·최소 여유 조정, 디스크 추가","14편")]]}],
+ ["노드 장애 후 복구가 안 된다",{q:"무엇이 멈춰 있나요?",o:[
+   ["StatefulSet Pod가 Terminating",A("노드 응답 없음으로 대체 Pod를 만들지 않음","kubectl get pod -o wide; kubectl get node","전원 확인 후 out-of-service 테인트, Longhorn이면 Pod 삭제 정책","12·14편")],
+   ["Longhorn 볼륨 degraded 유지",A("새 레플리카를 둘 노드가 없음(노드 수 = 복제 수)","kubectl -n longhorn-system get replicas.longhorn.io -o wide","노드 추가, 복제 수 + 1 이상의 노드","14편")],
+   ["DB가 쓰기 불가",A("오퍼레이터 승격 실패 또는 앱이 옛 프라이머리에 연결","kubectl cnpg status <cluster>","-rw Service 사용, 커넥션 풀 재연결","16편")]]}],
+ ["백업·복원 문제",{q:"어떤 상황인가요?",o:[
+   ["백업은 완료인데 복원한 볼륨이 비었다",A("볼륨 보호 방식 미지정(스냅샷 불가 스토리지가 그냥 빠짐)","velero backup describe <b> --details","볼륨 정책으로 방식 명시, 복원 시험","15편")],
+   ["복원한 PVC가 Pending",A("대상에 원본 StorageClass 없음","kubectl get pvc -n <ns>","StorageClass 매핑 ConfigMap","15편")],
+   ["스냅샷이 ReadyToUse가 안 됨",A("스냅샷 CRD·snapshot-controller 미설치, 드라이버 오류","kubectl get crd | grep snapshot; csi-snapshotter 로그","스냅샷 컨트롤러 설치, 드라이버 확인","12·15편")]]}]
+]};
+let path=[];
+function nodeAt(p){let n=TREE;for(const i of p)n=n.o[i][1];return n;}
+function renderTree(){
+  const n=nodeAt(path);
+  let cr=[],x=TREE;for(const i of path){cr.push(x.o[i][0]);x=x.o[i][1];}
+  $("#dCr").innerHTML=cr.length?cr.map(c=>`<span>${H(c)}</span>`).join("→"):"<span>시작</span>";
+  if(n.ans){$("#dBody").innerHTML=`<div class="ans"><h4>원인 후보</h4><p style="margin:.3em 0">${n.t}</p><div class="code" style="margin:.6em 0"><div class="bar"><span>확인</span></div><pre>${H(n.cmd)}</pre></div><p style="margin:.3em 0"><b>고치는 방법</b> ${n.fix}</p><p style="margin:.3em 0;color:var(--muted)">관련: ${n.ep}</p></div>`;return;}
+  const box=el("div",{class:"qbox"});box.innerHTML=`<h4>${n.q}</h4>`;const acts=el("div",{class:"acts"});
+  n.o.forEach((o,i)=>{const b=el("button",{class:"btn",type:"button"},o[0]);b.addEventListener("click",()=>{path.push(i);renderTree();});acts.appendChild(b);});
+  box.appendChild(acts);$("#dBody").innerHTML="";$("#dBody").appendChild(box);
+}
+$("#dBack").addEventListener("click",()=>{path.pop();renderTree();});
+$("#dReset").addEventListener("click",()=>{path=[];renderTree();});
+renderTree();
+
+/* ---------- failover comparer ---------- */
+const FO={f:"node"};
+const FC=[["pod","프라이머리 Pod 비정상 종료"],["node","프라이머리 노드 정지"],["zone","프라이머리 존 장애"]];
+const CFG=[
+ {n:"단일 StatefulSet + 블록 디스크",pod:[1,"같은 노드에서 재시작·DB 복구"],node:[Infinity,"StatefulSet 교착. 사람이 전원 확인·테인트 후 약 10분 이상(12편)"],zone:[Infinity,"디스크가 그 존에 묶여 있음 → 백업 복원(15편), 시간 단위"]},
+ {n:"단일 StatefulSet + 분산 스토리지(Longhorn 3복제, 존 분산)",pod:[1,"재시작"],node:[4,"Pod 삭제 정책 + 다른 노드 재부착(14편)"],zone:[5,"레플리카가 다른 존에 있으면 재부착, 쓰기 지연은 증가"]},
+ {n:"오퍼레이터 복제(CloudNativePG 3인스턴스)",pod:[0.5,"레플리카 승격 또는 재시작"],node:[1,"레플리카 승격(디스크 분리 대기 없음)"],zone:[1,"다른 존 레플리카 승격, 비동기면 수 초 데이터 손실 가능"]}
+];
+function renderFO(){
+  const b=$("#foF");b.innerHTML="";FC.forEach(([v,l])=>{const x=el("button",{class:"btn",type:"button","aria-pressed":String(FO.f===v)},l);x.addEventListener("click",()=>{FO.f=v;renderFO();});b.appendChild(x);});
+  const vals=CFG.map(c=>c[FO.f][0]),best=Math.min(...vals);
+  $("#foOut").innerHTML=CFG.map(c=>{const [m,d]=c[FO.f];return `<div class="${m===best?"best":""}"><h5>${c.n}</h5><b>${isFinite(m)?(m<1?"수십 초":"약 "+m+"분"):"사람 개입 필요"}</b>${d}</div>`;}).join("");
+  $("#foMsg").textContent="예시 값입니다. 7장 실습 1과 12·14편 실습으로 고객 환경의 실제 값을 측정해 바꾸세요. 애플리케이션 복제는 데이터 손실(비동기 복제 지연)과 운영 복잡도라는 대가가 있습니다.";
+}
+renderFO();
+
+/* ---------- cost calc ---------- */
+function calcC(){
+  const U=+$("#cU").value||0,O=+$("#cO").value||0,S=+$("#cS").value||0,P=+$("#cP").value||0,SP=+$("#cSp").value||0,I=+$("#cI").value||0,IP=+$("#cIp").value||0;
+  const a=U*P,b=O*P,c=S*SP,d=I*IP,t=a+b+c+d;
+  $("#cOut").innerHTML=`<div class="kpi"><b>$${a.toFixed(0)}</b><span>안 쓰는 PVC</span></div><div class="kpi"><b>$${b.toFixed(0)}</b><span>고아 디스크</span></div><div class="kpi"><b>$${c.toFixed(0)}</b><span>오래된 스냅샷</span></div><div class="kpi"><b>$${d.toFixed(0)}</b><span>과다 IOPS</span></div><div class="kpi"><b>$${t.toFixed(0)}</b><span>월 합계(연 $${(t*12).toFixed(0)})</span></div>`;
+  $("#cMsg").textContent="단가는 예시입니다. 고객 리전·디스크 종류의 실제 단가로 바꾸세요. 고아 디스크와 오래된 스냅샷은 소유자 확인 후 바로 줄일 수 있는 경우가 많아 첫 정리 대상으로 좋습니다.";
+}
+["cU","cO","cS","cP","cSp","cI","cIp"].forEach(id=>$("#"+id).addEventListener("input",calcC));calcC();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["StatefulSet volumeClaimTemplates의 크기를 바꾸면?",["기존 PVC도 자동 확장","기존 PVC는 그대로, PVC를 하나씩 패치해야 함","StatefulSet 재생성 필요","PV가 교체됨"],1,"템플릿은 새로 만들어질 PVC에만 적용됩니다."],
+ ["StatefulSet을 3→1로 줄였을 때 기본 동작은?",["PVC 2개 삭제","PVC 2개 남음(Retain), 다시 늘리면 옛 데이터가 붙음","PV만 삭제","오류"],1,"whenScaled 기본값은 Retain입니다."],
+ ["v1.37 StatefulSet Recreate 전략에 대해 옳은 것은?",["GA","알파이며 모든 Pod를 지우고 종료를 기다린 뒤 새로 만든다","한 번에 하나씩 교체","PVC도 새로 만든다"],1,"기능 게이트 StatefulSetRecreateStrategy가 필요하고 업데이트 중 전체 중단이 따릅니다."],
+ ["RollingUpdate가 잘못된 이미지로 멈췄을 때 예전부터 필요했던 조치는?",["StatefulSet 삭제","템플릿 수정 후 멈춘 Pod를 수동 삭제","노드 재부팅","PVC 삭제"],1,"Recreate가 이 문제를 겨냥합니다."],
+ ["CloudNativePG가 노드 장애 때 빠르게 장애 조치할 수 있는 핵심 이유는?",["StatefulSet 사용","레플리카가 자기 디스크를 이미 붙이고 있어 디스크 분리를 기다릴 필요가 없음","RWX 사용","etcd 복제"],1,"앱 수준 복제는 12편의 분리 지연을 우회합니다."],
+ ["PostgreSQL WAL 볼륨이 가득 차는 흔한 원인은?",["인덱스","WAL 아카이브 실패로 WAL이 쌓임","CPU 부족","DNS"],1,"아카이브 실패와 WAL 볼륨 사용률을 경보로 둡니다."],
+ ["Kafka 브로커를 존에 고르게 배치해 복제본이 같은 존에 몰리지 않게 하는 설정은?",["deleteClaim","rack awareness(랙 인식)","JBOD","partition"],1,"Strimzi의 rack.topologyKey를 존 레이블로."],
+ ["장애 조치가 20초 만에 끝났는데 앱 오류가 10분 계속됐다. 가장 유력한 원인은?",["디스크 느림","커넥션 풀이 옛 프라이머리 연결을 유지","MTU","PDB"],1,"-rw Service와 재연결 설정, 커넥션 풀러가 필요합니다."],
+ ["스냅샷 비용이 계속 늘어난다. 함께 점검할 것은?",["Service 타입","보존 기간(TTL)과 VolumeSnapshotClass deletionPolicy","kube-proxy 모드","ndots"],1,"Retain 클래스는 객체를 지워도 클라우드 스냅샷을 남깁니다."],
+ ["존 분산 제약을 건 StatefulSet이 한 레플리카만 계속 Pending이다. 먼저 의심할 것은?",["이미지","그 존에 노드 여유가 없거나 Immediate 모드로 디스크가 다른 존에 생김","DNS","RBAC"],1,"존 분산은 WFC와 존별 노드 여유를 함께 요구합니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

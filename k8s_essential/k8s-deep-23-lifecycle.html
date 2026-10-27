@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 23편: 클러스터 생명주기 운영 비교</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.aflow>div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 7편 추가 ---- */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.chain .nd{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:.82rem;line-height:1.35}
+.chain .nd b{display:block;font-size:.86rem;color:var(--strong)}
+.chain .nd.lb{border-color:var(--you)}
+.chain .nd.pod{border-color:var(--vendor)}
+.chain .nd.snat{border-color:var(--warn)}
+.chain .ar{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.opt-row .btn{margin:2px 0}
+.grp{font-size:.74rem;color:var(--muted);margin:6px 0 2px;width:100%}
+
+/* ---- 8편 추가 ---- */
+.nsgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.nsgrid{grid-template-columns:1fr}}
+.ns{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.ns h5{margin:0 0 6px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.res b{display:block;color:var(--strong);font-size:.84rem}
+.res.ok{border-color:var(--ok)}
+.res.bad{border-color:var(--warn)}
+.res.dim{opacity:.5;border-style:dashed}
+.cond{display:grid;gap:6px;margin-top:10px}
+.cond div{padding:7px 12px;border-radius:8px;font-size:.88rem}
+.cond .t1{background:var(--ok-bg)}
+.cond .t0{background:var(--warn-bg)}
+.split{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0;font-size:.78rem;font-weight:700}
+.split div{display:flex;align-items:center;justify-content:center;color:#0b1020;white-space:nowrap;overflow:hidden;transition:width .3s}
+.split .v1{background:var(--vendor)}
+.split .v2{background:var(--you)}
+:root[data-theme="light"] .split div{color:#fff}
+.rng{width:100%;accent-color:var(--you)}
+
+/* ---- 9편 추가 ---- */
+.trace{display:grid;gap:6px;margin:12px 0}
+.tier{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.tier .nm{font-weight:700;color:var(--strong);font-size:.84rem}
+.tier.hit-acc{border-color:var(--ok);background:var(--ok-bg)}
+.tier.hit-deny{border-color:var(--warn);background:var(--warn-bg)}
+.tier.skip{opacity:.5}
+.verdict{font-family:var(--serif);font-size:1.3rem;font-weight:900;margin:6px 0}
+.verdict.ok{color:var(--ok)}.verdict.no{color:var(--warn)}
+.chk{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 10px;font-size:.88rem}
+.chk label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chk input{accent-color:var(--vendor)}
+@media (max-width:640px){.tier{grid-template-columns:1fr}}
+.opt-row>span{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.opt-row .btn{white-space:normal;text-align:left;max-width:100%}
+
+/* ---- 10편 추가 ---- */
+.alert{border:1px solid var(--warn);background:var(--warn-bg);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:.92rem}
+.alert b{color:var(--warn)}
+.clock{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.88rem}
+.clock .bar2{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.clock .bar2 i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.clock .bar2 i.over{background:var(--warn)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acts .btn[disabled]{opacity:.45}
+.glog{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.6;max-height:300px;overflow:auto;margin:8px 0}
+.glog div{margin:0 0 6px}
+.glog .u{color:var(--you)}
+.glog .k{color:var(--ok)}
+.qlist{display:grid;gap:4px;margin:10px 0}
+.qlist div{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;font-family:var(--mono);font-size:.8rem;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}
+.qlist .ok{border-color:var(--ok)}
+.qlist .nx{color:var(--muted)}
+.rank{display:grid;gap:6px;margin-top:10px}
+.rank div{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.rank div:first-child{border-color:var(--vendor)}
+
+/* ---- 11편 추가 ---- */
+.zones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.zones{grid-template-columns:1fr}}
+.zn{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.zn h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.zn.hl{border-color:var(--vendor)}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.box b{display:block;color:var(--strong);font-size:.84rem}
+.box.pod{border-color:var(--vendor)}
+.box.disk{border-color:var(--you)}
+.box.bad{border-color:var(--warn)}
+.box.dim{opacity:.5;border-style:dashed}
+.lc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:640px){.lc{grid-template-columns:1fr}}
+.lc div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.lc b{display:block;font-size:1.05rem;color:var(--strong);margin:2px 0}
+.lc small{color:var(--muted);display:block;line-height:1.5}
+
+/* ---- 12편 추가 ---- */
+.lanes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:12px 0}
+@media (max-width:760px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lane{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:.78rem;line-height:1.35;color:var(--muted);transition:all .2s}
+.lane b{display:block;color:var(--text);font-size:.82rem}
+.lane.src{border-color:var(--you);background:var(--you-bg)}
+.lane.dst{border-color:var(--vendor);background:var(--vendor-bg)}
+.tl{position:relative;margin:14px 0;padding-left:18px;border-left:3px solid var(--line)}
+.tl div{position:relative;margin:0 0 10px;font-size:.88rem}
+.tl div::before{content:"";position:absolute;left:-26px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--line)}
+.tl div.ok::before{background:var(--ok)}
+.tl div.bad::before{background:var(--warn)}
+.tl div.key::before{background:var(--you)}
+.tl b{font-family:var(--mono);font-size:.8rem;color:var(--strong);margin-right:6px}
+.stepper{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:.85rem;color:var(--muted)}
+
+/* ---- 13편 추가 ---- */
+.vend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:900px){.vend{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.vend{grid-template-columns:1fr}}
+.vend>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.vend h5{margin:0 0 4px;font-size:.8rem;color:var(--muted)}
+.vend b{display:block;color:var(--strong);font-size:.98rem;margin:2px 0 4px}
+.vend small{display:block;color:var(--muted);line-height:1.5}
+.warns{margin:8px 0;display:grid;gap:6px}
+.warns div{background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:8px;padding:6px 10px;font-size:.85rem}
+
+/* ---- 16편 추가 ---- */
+.crumbs{display:flex;flex-wrap:wrap;gap:6px;font-size:.8rem;color:var(--muted);margin:8px 0}
+.crumbs span{background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
+.qbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}
+.qbox h4{margin:0 0 8px;font-size:1rem}
+.ans{border:1px solid var(--ok);background:var(--ok-bg);border-radius:12px;padding:12px 14px;margin:8px 0;font-size:.92rem}
+.ans h4{margin:0 0 6px}
+.cmp3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:760px){.cmp3{grid-template-columns:1fr}}
+.cmp3>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.cmp3 h5{margin:0 0 4px;font-size:.84rem;color:var(--muted)}
+.cmp3 b{display:block;font-size:1.3rem;font-family:var(--serif);color:var(--strong)}
+.cmp3 .best{border-color:var(--ok)}
+
+/* ---- 17편 추가 ---- */
+.aflow{display:grid;grid-template-columns:1fr;gap:6px;margin:10px 0}
+.aflow>div{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.aflow>div i{font-style:normal;font-family:var(--mono);font-weight:700;color:var(--vendor)}
+textarea.claims{width:100%;min-height:170px;font-family:var(--mono);font-size:.8rem;background:var(--code-bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px}
+.uinfo{font-family:var(--mono);font-size:.82rem;background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:10px 14px;white-space:pre-wrap}
+
+/* ---- 18편 추가 ---- */
+.why{display:grid;gap:6px;margin:8px 0}
+.why div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.86rem}
+.why div.hit{border-color:var(--ok)}
+.why div b{font-family:var(--mono);font-size:.8rem}
+.rb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:760px){.rb-grid{grid-template-columns:1fr}}
+.rb-grid>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:.86rem}
+.rb-grid h5{margin:0 0 6px;font-size:.88rem}
+
+/* ---- 19편 추가 ---- */
+.layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.layers{grid-template-columns:1fr}}
+.layers>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.layers h5{margin:0 0 4px;font-size:.8rem;color:var(--muted)}
+.layers b{display:block;font-size:1.02rem;margin:2px 0 4px}
+.layers .y{border-color:var(--ok)} .layers .y b{color:var(--ok)}
+.layers .n b{color:var(--muted)}
+.layers .na{opacity:.55}
+
+/* ---- 20편 추가 ---- */
+#wfl .lanes{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:640px){#wfl .lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tok{font-family:var(--mono);font-size:.78rem;background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-top:8px;white-space:pre-wrap;word-break:break-all}
+
+/* ---- 21편 추가 ---- */
+.aflow>div.pass{border-color:var(--ok)} .aflow>div.pass i{color:var(--ok)}
+.aflow>div.block{border-color:var(--warn);background:var(--warn-bg)} .aflow>div.block i{color:var(--warn)}
+.aflow>div.mut{border-color:var(--you)} .aflow>div.mut i{color:var(--you)}
+.aflow>div.skip{opacity:.55}
+.aflow>div small{display:block;color:var(--muted);font-size:.8rem;margin-top:2px}
+
+/* ---- 22편 추가 ---- */
+.attack{display:grid;gap:0;margin:12px 0;position:relative}
+.attack .node{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:.88rem;position:relative}
+.attack .node.on{border-color:var(--warn);background:var(--warn-bg)}
+.attack .node.cut{border-color:var(--ok);opacity:.6}
+.attack .node b{display:block;color:var(--strong)}
+.attack .node small{display:block;color:var(--muted);font-size:.8rem;margin-top:3px}
+.attack .arrow{height:22px;display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.attack .arrow.on{color:var(--warn)}
+.attack .arrow.cut{color:var(--ok)}
+.defchk{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.defchk label{font-size:.84rem;background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:4px 12px;cursor:pointer}
+.defchk label:has(input:checked){border-color:var(--ok);color:var(--ok)}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">23편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#plan">업그레이드 계획기</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">업그레이드의 원칙</a></li>
+    <li><a href="#s2">플랫폼별 업그레이드 방식</a></li>
+    <li><a href="#s3">노드 OS: 불변 OS 비교</a></li>
+    <li><a href="#s4">드레인·PDB·노드 교체 전략</a></li>
+    <li><a href="#s5">v1.37 Node Lifecycle Conditions</a></li>
+    <li><a href="#s6">오토스케일링: CA vs Karpenter vs NAP</a></li>
+    <li><a href="#s7">업그레이드 런북</a></li>
+    <li><a href="#s8">실습</a></li>
+    <li><a href="#s9">현장 사례</a></li>
+    <li><a href="#s10">점검 퀴즈</a></li>
+    <li><a href="#s11">용어·약어 사전</a></li>
+    <li><a href="#s12">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 4 벤더 운영 비교와 종합, 23편 (시작)</div>
+    <h1>클러스터 생명주기 운영 비교</h1>
+    <p class="lead">Kubernetes는 약 4개월마다 새 버전이 나오고, 각 버전은 1년 남짓만 지원됩니다. 즉 MSP가 맡은 모든 클러스터는 <strong>1년에 서너 번 업그레이드해야 하는 시스템</strong>입니다. 업그레이드는 컨트롤 플레인과 노드, 노드 OS, 그 위의 애드온과 워크로드가 함께 움직이는 일이고, 그 과정에서 노드가 비워지고(드레인) Pod가 옮겨 갑니다. 이 편은 kubeadm·RKE2·OpenShift·EKS·AKS·GKE의 업그레이드 방식, 불변 노드 OS, 노드 교체 전략과 PDB, 오토스케일러 세 종류, v1.37의 Node Lifecycle Conditions를 비교하고, PDB를 건 워크로드로 세 클라우드에서 노드 풀 업그레이드를 해 중단 시간을 잽니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37 · 2026-10 벤더 문서</span>
+      <span class="chip">작성 기준일: 2026-10-24</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 180분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">업그레이드 원칙</a></li><li><a href="#s2">플랫폼별 방식</a></li><li><a href="#s3">노드 OS</a></li><li><a href="#s4">드레인·PDB</a></li><li><a href="#s5">Node Lifecycle</a></li><li><a href="#s6">오토스케일링</a></li><li><a href="#s7">런북</a></li><li><a href="#s8">실습</a></li><li><a href="#s9">현장 사례</a></li><li><a href="#s10">퀴즈</a></li><li><a href="#s11">용어 사전</a></li><li><a href="#s12">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="plan">
+    <h3>이 클러스터를 목표 버전까지: 업그레이드 계획기</h3>
+    <p class="sub">플랫폼과 현재·목표 버전, 노드 수와 노드 교체 설정을 넣으면, 거쳐야 할 마이너 버전 단계, 단계별 작업 순서, 대략의 소요 시간, 플랫폼 고유의 주의점이 나옵니다. 시간은 노드당 교체 시간을 가정한 추정치입니다.</p>
+    <div class="opt-row"><span class="lbl">플랫폼</span><span id="uP"></span></div>
+    <div class="f-grid">
+      <div><label for="uFrom">현재 마이너 버전</label><input type="number" id="uFrom" value="34" min="20" max="37"></div>
+      <div><label for="uTo">목표 마이너 버전</label><input type="number" id="uTo" value="37" min="21" max="37"></div>
+      <div><label for="uN">노드 수</label><input type="number" id="uN" value="12" min="1"></div>
+      <div><label for="uPar">동시 교체 노드 수(서지·maxUnavailable)</label><input type="number" id="uPar" value="1" min="1"></div>
+      <div><label for="uT">노드당 교체 시간(분)</label><input type="number" id="uT" value="8" min="1"></div>
+    </div>
+    <div class="kpis" id="uK"></div>
+    <div class="aflow" id="uSteps"></div>
+    <div class="calc-msg" id="uMsg"></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    클러스터 업그레이드는 손님이 묵고 있는 호텔을 영업을 멈추지 않고 리모델링하는 일입니다. 먼저 프런트(컨트롤 플레인)를 고치고, 그다음 객실(노드)을 한 층씩 비워 고칩니다. 객실을 비울 때는 손님(Pod)을 다른 층으로 옮겨야 하는데, “같은 단체 손님은 최소 몇 명은 늘 묵고 있어야 한다”는 약속(PDB)을 지켜야 합니다. 객실 자체를 새 건물로 통째로 바꾸는 방식(불변 OS·노드 교체)이 요즘의 표준이고, 손님 수에 맞춰 객실을 늘리고 줄이는 일은 오토스케일러가 합니다.</div>
+    <div class="prose">
+      <p>Level 4는 세 편입니다: 23편 생명주기, 24편 관측·멀티클러스터·GitOps, 25편 종합(벤더 선택 매트릭스와 MSP 운영 플레이북).</p>
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>버전 차이 허용 범위(skew)와 업그레이드 순서를 지켜 여러 마이너 버전을 건너는 계획을 세울 수 있습니다.</li>
+        <li>여섯 플랫폼의 업그레이드 방식·채널·유지보수 창을 비교하고 고객별 정책을 정할 수 있습니다.</li>
+        <li>Bottlerocket·Azure Linux·COS·RHCOS·SLE Micro·Talos의 운영 차이를 설명할 수 있습니다.</li>
+        <li>서지·블루그린 교체와 PDB의 상호작용을 이해하고, 드레인이 막히는 조건과 벤더별 동작을 예측할 수 있습니다.</li>
+        <li>Cluster Autoscaler·Karpenter·Node Auto-Provisioning을 비교하고, 업그레이드·통합(consolidation)이 워크로드에 주는 영향을 관리할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>업그레이드의 원칙</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>원칙</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td class="k">마이너 버전은 하나씩</td><td>컨트롤 플레인은 1.34 → 1.35 → 1.36 → 1.37처럼 한 단계씩. 건너뛰기 불가(OpenShift EUS 간 이동은 노드 쪽을 묶어 한 번에 도는 특수 절차)</td></tr>
+        <tr><td class="k">순서</td><td>컨트롤 플레인 → 애드온(CNI·CoreDNS·CSI·kube-proxy) → 노드. 노드가 컨트롤 플레인보다 새 버전이면 안 됨</td></tr>
+        <tr><td class="k"><span class="t" data-k="버전 차이 정책">버전 차이 정책</span></td><td>kubelet은 API 서버보다 <strong>최대 세 마이너 버전 낮을 수 있음</strong>(높을 수는 없음). 그래서 노드를 매번 올리지 않고 컨트롤 플레인만 두세 번 올린 뒤 노드를 한 번에 교체하는 전략이 가능</td></tr>
+        <tr><td class="k">폐기 API 점검</td><td>올리려는 버전에서 제거되는 API를 쓰는 매니페스트·Helm 릴리스를 먼저 고침(pluto·kubent·API 서버 deprecated 메트릭)</td></tr>
+        <tr><td class="k">지원 기간</td><td>업스트림은 각 마이너 버전을 약 14개월 패치. 벤더는 표준·연장 지원을 따로 둠(아래 표)</td></tr>
+        <tr><td class="k">되돌리기 어려움</td><td>컨트롤 플레인 다운그레이드는 대개 불가. etcd 스냅샷·백업(15편)과 시험 클러스터 리허설이 안전망</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tbl"><table>
+      <thead><tr><th>플랫폼</th><th>지원 기간 개념</th><th>자동 업그레이드</th></tr></thead>
+      <tbody>
+        <tr><td class="k">EKS</td><td>표준 지원(약 14개월) + 연장 지원(추가 약 12개월, 추가 요금)</td><td>연장 지원도 끝나면 자동으로 다음 버전으로 올림. 그 전에는 사용자가 수행</td></tr>
+        <tr><td class="k">AKS</td><td>최근 세 마이너(N-2), Premium 등급에서 LTS(장기 지원)</td><td><span class="t" data-k="자동 업그레이드 채널">자동 업그레이드 채널</span>(none·patch·stable·rapid·node-image)과 노드 OS 채널(None·Unmanaged·SecurityPatch·NodeImage), 계획된 유지보수 창</td></tr>
+        <tr><td class="k">GKE</td><td><span class="t" data-k="릴리스 채널">릴리스 채널</span>(Rapid·Regular·Stable·Extended)</td><td>채널 클러스터는 자동 업그레이드. 유지보수 창과 제외 기간(마이너만 막기 등)으로 시점 통제</td></tr>
+        <tr><td class="k">OpenShift</td><td>채널(candidate·fast·stable·eus), EUS 버전은 장기 지원</td><td>클러스터 버전 오퍼레이터(CVO)가 업데이트 그래프에 따라 무선 업데이트(OTA)</td></tr>
+        <tr><td class="k">RKE2·Rancher</td><td>SUSE 지원 매트릭스</td><td>system-upgrade-controller 계획(Plan)으로 자동화, Rancher UI에서 버전 선택</td></tr>
+        <tr><td class="k">kubeadm</td><td>업스트림 지원 기간</td><td>없음(직접 수행)</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>플랫폼별 업그레이드 방식</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>플랫폼</th><th>컨트롤 플레인</th><th>노드</th><th>노드 교체 방식</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td><code>kubeadm upgrade plan</code> → 첫 컨트롤 노드 <code>upgrade apply</code> → 나머지 <code>upgrade node</code></td><td>노드마다 drain → kubeadm·kubelet 패키지 → <code>upgrade node</code> → kubelet 재시작 → uncordon</td><td>제자리 업그레이드(in-place)</td></tr>
+        <tr><td class="k">RKE2</td><td>서버 노드의 바이너리 교체(설치 스크립트 또는 Plan, 한 번에 하나)</td><td>에이전트 Plan(동시성 지정, 드레인 옵션)</td><td>제자리</td></tr>
+        <tr><td class="k">OpenShift</td><td>CVO가 컨트롤 플레인 오퍼레이터들을 순서대로 갱신</td><td><span class="t" data-k="MCO">Machine Config Operator</span>가 <span class="t" data-k="MachineConfigPool">MachineConfigPool</span>별로 RHCOS 이미지·설정을 적용(maxUnavailable, 기본 1)</td><td>제자리 이미지 교체 + 재부팅. 풀 일시 정지로 시점 분리</td></tr>
+        <tr><td class="k">EKS</td><td>콘솔·CLI·IaC로 버전 지정(한 단계씩). 업그레이드 인사이트가 폐기 API 사용 경고</td><td>관리형 노드 그룹 업데이트(새 AMI·버전), Auto Mode는 노드를 자동 교체</td><td>새 노드로 교체(롤링, maxUnavailable)</td></tr>
+        <tr><td class="k">AKS</td><td><code>az aks upgrade</code>(컨트롤 플레인만 또는 전체)</td><td>노드 풀 업그레이드, 노드 이미지만 업그레이드</td><td>서지(maxSurge) 교체, 드레인 타임아웃·노드 소크 시간 설정</td></tr>
+        <tr><td class="k">GKE</td><td>자동 또는 수동</td><td>노드 풀 업그레이드</td><td><span class="t" data-k="서지 업그레이드">서지</span>(maxSurge·maxUnavailable) 또는 <span class="t" data-k="블루그린 업그레이드">블루그린</span>(새 풀로 옮기고 소크 후 옛 풀 삭제)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>플랫폼별 대표 명령</span><button class="copy" type="button">복사</button></div><pre><span class="c"># kubeadm (컨트롤 노드 cp1)</span>
+sudo kubeadm upgrade plan
+sudo kubeadm upgrade apply v1.37.1
+<span class="c"># 각 노드: kubectl drain → 패키지 → sudo kubeadm upgrade node → systemctl restart kubelet → kubectl uncordon</span>
+
+<span class="c"># OpenShift</span>
+oc adm upgrade                                         <span class="c"># 가능한 업데이트 경로</span>
+oc adm upgrade --to=4.22.x
+oc get mcp; oc patch mcp worker --type merge -p '{"spec":{"paused":true}}'   <span class="c"># 워커 풀 일시 정지</span>
+
+<span class="c"># EKS</span>
+aws eks update-cluster-version --name lab-eks --kubernetes-version 1.37
+aws eks update-nodegroup-version --cluster-name lab-eks --nodegroup-name ng-1     <span class="c"># 새 AMI·버전으로 교체</span>
+
+<span class="c"># AKS</span>
+az aks get-upgrades -g rg-lab -n lab-aks -o table
+az aks upgrade -g rg-lab -n lab-aks --kubernetes-version 1.37.x --control-plane-only
+az aks nodepool upgrade -g rg-lab --cluster-name lab-aks -n nodepool1 --node-image-only --max-surge 33%
+
+<span class="c"># GKE</span>
+gcloud container clusters upgrade lab-gke --master --cluster-version 1.37 --location asia-northeast3-a
+gcloud container node-pools update default-pool --cluster lab-gke --location asia-northeast3-a --max-surge-upgrade 1 --max-unavailable-upgrade 0</pre></div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>노드 OS: 불변 OS 비교</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    예전 노드는 집에 가구를 하나씩 들여놓고 고치는 방식(패키지 설치·패치)이었습니다. <span class="t" data-k="불변 OS">불변 OS</span>는 가구가 붙박이인 조립식 집입니다. 바꾸고 싶으면 새 조립식 집으로 통째로 교체하고, 문제가 생기면 이전 집으로 바로 되돌립니다. 집 안에서 몰래 무언가를 바꾸기 어려워 보안에 유리하지만, 대신 “집 안에서 직접 손보기”(SSH 디버깅, 커널 모듈 설치)가 어렵습니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>OS</th><th>주 사용처</th><th>업데이트 방식</th><th>노드 접근</th><th>특징·주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><span class="t" data-k="Bottlerocket">Bottlerocket</span></td><td>EKS(Auto Mode 기반 포함)</td><td>A/B 파티션 이미지 교체, 자동 롤백</td><td>관리 컨테이너·API 기반, 기본 셸 없음</td><td>설정은 API·사용자 데이터(TOML). dm-verity로 무결성 검증</td></tr>
+        <tr><td class="k">Azure Linux</td><td>AKS(Ubuntu와 함께 선택)</td><td>노드 이미지 교체, 보안 패치 채널</td><td>일반 리눅스 접근 가능</td><td>작고 RPM 기반. AKS 노드 OS 업그레이드 채널과 함께 운영</td></tr>
+        <tr><td class="k"><span class="t" data-k="COS">COS</span></td><td>GKE 기본</td><td>노드 이미지 교체(GKE가 관리)</td><td>제한적, 읽기 전용 루트</td><td>패키지 관리자 없음. 도구는 toolbox·디버그 컨테이너로</td></tr>
+        <tr><td class="k"><span class="t" data-k="RHCOS">RHCOS</span></td><td>OpenShift</td><td>rpm-ostree 이미지 교체(MCO), 이미지 레이어링으로 확장</td><td>oc debug node 권장(SSH 지양)</td><td>설정 변경은 MachineConfig로만. 직접 수정은 MCO가 되돌림(drift)</td></tr>
+        <tr><td class="k"><span class="t" data-k="SLE Micro">SLE Micro</span></td><td>SUSE·RKE2·K3s 엣지</td><td>트랜잭션 업데이트(btrfs 스냅샷, 재부팅 시 적용·롤백)</td><td>일반 접근 가능</td><td>엣지·소형 노드에 적합</td></tr>
+        <tr><td class="k"><span class="t" data-k="Talos">Talos</span></td><td>독립 배포(온프렘·클라우드)</td><td>이미지 교체(talosctl upgrade)</td><td><strong>SSH·셸 없음</strong>, API로만</td><td>가장 엄격한 불변성. 운영 도구 체계가 완전히 다름</td></tr>
+        <tr><td class="k">Ubuntu·RHEL(일반)</td><td>kubeadm·RKE2·AKS 기본</td><td>패키지 업데이트(제자리)</td><td>SSH</td><td>유연하지만 노드마다 상태가 달라지는 드리프트 위험</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note field"><b>현장 메모: 불변 OS로 옮길 때 먼저 확인할 세 가지</b>
+    ① 노드에 직접 설치하던 <strong>에이전트</strong>(보안·모니터링·백업)가 DaemonSet으로 동작하는가. ② <strong>커널 모듈·hostPath</strong>에 의존하는 드라이버(일부 스토리지·GPU·eBPF 도구)가 그 OS를 지원하는가. ③ 장애 시 <strong>디버깅 경로</strong>(kubectl debug node, 관리 컨테이너, 로그 수집)가 런북에 있는가. 21편의 GKE Autopilot·EKS Auto Mode 제약과 같은 맥락입니다.</div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>드레인·PDB·노드 교체 전략</h2>
+    <div class="prose">
+      <ul>
+        <li><strong><span class="t" data-k="드레인">드레인</span></strong>은 노드를 스케줄 불가(cordon)로 만든 뒤 Pod를 <strong>축출(Eviction) API</strong>로 하나씩 내보냅니다. 축출은 PDB를 확인하므로, 허용된 중단 수가 0이면 거부되고 드레인은 기다립니다.</li>
+        <li><strong><span class="t" data-k="PDB">PDB</span></strong>는 <code>minAvailable</code> 또는 <code>maxUnavailable</code>로 “동시에 자발적으로 내려갈 수 있는 수”를 정합니다. Ready가 아닌 Pod의 처리 방식은 <code>unhealthyPodEvictionPolicy</code>(AlwaysAllow 권장)로 정합니다.</li>
+        <li><strong>막히는 전형.</strong> 레플리카 1개에 minAvailable 1, 또는 레플리카 3개에 minAvailable 3. 허용 중단이 늘 0이라 노드를 영원히 비울 수 없습니다.</li>
+        <li><strong>서지 vs 블루그린.</strong> 서지는 새 노드를 몇 개 먼저 만들고 옛 노드를 차례로 비웁니다(비용 적음, 시간 김). 블루그린은 새 풀을 통째로 만들고 옮긴 뒤 일정 시간 지켜보고(소크) 옛 풀을 지웁니다(되돌리기 쉬움, 일시적 비용 두 배).</li>
+      </ul>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>플랫폼</th><th>PDB 때문에 드레인이 막히면</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm·RKE2</td><td><code>kubectl drain</code>이 계속 재시도(타임아웃 옵션 지정 가능). RKE2 Plan은 드레인 옵션 설정</td></tr>
+        <tr><td class="k">EKS 관리형 노드 그룹</td><td>일정 시간(약 15분) 안에 못 비우면 업데이트 실패. 강제 옵션을 쓰면 PDB를 무시하고 진행</td></tr>
+        <tr><td class="k">AKS</td><td>드레인 타임아웃(기본 30분, 설정 가능) 후 실패, 실패 노드 처리 방식(cordon 유지 등) 설정 가능</td></tr>
+        <tr><td class="k">GKE</td><td>PDB를 최대 약 1시간 존중한 뒤 강제로 축출하고 진행</td></tr>
+        <tr><td class="k">OpenShift(MCO)</td><td>드레인을 계속 재시도하며 경보(드레인 오류). 풀 업데이트가 멈춤</td></tr>
+        <tr><td class="k">Karpenter·Auto Mode</td><td>PDB와 <code>karpenter.sh/do-not-disrupt</code> 어노테이션을 존중. 노드 교체가 지연</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><h3>PDB와 노드 교체 시뮬레이터</h3><p>레플리카가 노드에 고르게 퍼져 있다고 보고, 노드를 차례로 비울 때 최소 가용 Pod 수와 드레인 시간을 계산합니다. 허용 중단이 0이면 막히고, 플랫폼별로 그다음에 무슨 일이 일어나는지 보여 줍니다.</p></div>
+    <div class="calc" id="pdb">
+      <div class="f-grid">
+        <div><label for="dR">레플리카</label><input type="number" id="dR" value="3" min="1"></div>
+        <div><label for="dType">PDB 방식</label><select id="dType"><option value="min">minAvailable</option><option value="max">maxUnavailable</option><option value="none">PDB 없음</option></select></div>
+        <div><label for="dV">PDB 값</label><input type="number" id="dV" value="2" min="0"></div>
+        <div><label for="dN">노드 수</label><input type="number" id="dN" value="3" min="1"></div>
+        <div><label for="dReady">대체 Pod가 Ready까지(초)</label><input type="number" id="dReady" value="30" min="1"></div>
+        <div><label for="dPlat">플랫폼</label><select id="dPlat"><option value="eks">EKS 관리형 노드 그룹</option><option value="aks">AKS</option><option value="gke">GKE</option><option value="ocp">OpenShift MCO</option><option value="kubeadm">kubeadm drain</option></select></div>
+      </div>
+      <div class="kpis" id="dK"></div>
+      <div class="verdict" id="dV2"></div>
+      <div class="calc-msg" id="dMsg"></div>
+    </div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>v1.37 Node Lifecycle Conditions</h2>
+    <div class="prose">
+      <p>노드가 “지금 드레인 중인가, 정비 예정인가, 우아한 종료 중인가”를 알려 주는 공통 신호가 그동안 없었습니다. 테인트·레이블·어노테이션·클라우드 고유 API가 제각각 일부를 표현했고, 스토리지 오퍼레이터(14편 Rook 등)는 드레인을 스스로 추측해야 했습니다. v1.37은 Kubernetes가 소유하는 <span class="t" data-k="Node Lifecycle Conditions">노드 생명주기 조건</span>을 알파로 도입했습니다(KEP-5683, 기능 게이트 NodeLifecycleConditions, 기본 꺼짐).</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>조건</th><th>의미</th></tr></thead>
+      <tbody>
+        <tr><td class="k">MaintenancePlanned</td><td>노드에 변경이 예정됨. 워크로드에 영향이 있으면 정비 전에 드레인</td></tr>
+        <tr><td class="k">MaintenanceInProgress</td><td>하드웨어·소프트웨어 반영, 복구, 퇴역, 디버깅 등 정비 진행 중</td></tr>
+        <tr><td class="k">Drained(+ 드레인 진행 중 조건)</td><td>관리자가 정한 드레인 기준을 만족함(Drained), 그리고 드레인이 진행 중임을 나타내는 조건. 정확한 이름은 공식 문서의 조건 표 참고</td></tr>
+        <tr><td class="k">GracefulNodeShutdownInProgress</td><td>우아한 노드 종료가 진행 중(DaemonSet 컨트롤러와의 충돌 같은 문제를 풀기 위한 신호)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <ul>
+        <li><strong>1.37에서는 신호만.</strong> 관리자나 권한을 받은 정비 컨트롤러가 조건을 쓰고 지웁니다. 핵심 컨트롤러는 아직 이 값을 읽고 동작을 바꾸지 않으며, 기존 cordon·drain·테인트는 그대로 써야 합니다.</li>
+        <li><strong>왜 중요한가.</strong> 정비 도구, 오토스케일러, 스토리지 오퍼레이터, 배치 스케줄러가 같은 신호를 보고 서로 맞는 결정을 내릴 기반입니다. 이후 릴리스에서 드레인·우아한 종료·정비 흐름을 개선하는 데 쓰일 예정입니다.</li>
+        <li><strong>MSP 관점.</strong> 고객의 정비 자동화(노드 교체 스크립트)를 만들고 있다면, 지금부터 이 조건을 “쓰는 쪽”으로 맞춰 두면 생태계가 따라올 때 연동이 쉬워집니다.</li>
+      </ul>
+    </div>
+    <div class="code"><div class="bar"><span>조건 쓰고 보기 (기능 게이트를 켠 실습 클러스터)</span><button class="copy" type="button">복사</button></div><pre>kubectl get node w1 -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}'
+<span class="c"># 정비 예정 표시(상태 서브리소스 패치)</span>
+kubectl patch node w1 --subresource=status --type=json -p '[{"op":"add","path":"/status/conditions/-","value":
+ {"type":"MaintenancePlanned","status":"True","reason":"MaintenanceWindow","message":"kernel update tonight","lastTransitionTime":"'$(date -u +%FT%TZ)'"}}]'</pre></div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>오토스케일링: CA vs Karpenter vs NAP</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>항목</th><th><span class="t" data-k="Cluster Autoscaler">Cluster Autoscaler</span></th><th><span class="t" data-k="Karpenter">Karpenter</span></th><th>GKE <span class="t" data-k="NAP">NAP</span></th></tr></thead>
+      <tbody>
+        <tr><td class="k">단위</td><td>미리 정한 노드 그룹(같은 인스턴스 종류) 크기 조절</td><td>대기 Pod에 맞춰 인스턴스 종류를 그때그때 골라 노드 생성(NodePool·NodeClass)</td><td>필요한 사양의 노드 풀 자체를 자동 생성·삭제</td></tr>
+        <tr><td class="k">지원</td><td>대부분의 클라우드·Cluster API·Rancher·OpenShift(MachineAutoscaler와 함께)</td><td>EKS(Auto Mode의 기반), Azure(AKS Node Auto Provisioning)</td><td>GKE(Autopilot의 기반)</td></tr>
+        <tr><td class="k">축소</td><td>사용률 낮은 노드를 일정 시간 후 제거</td><td><span class="t" data-k="통합">통합(consolidation)</span>: 더 싼·적은 노드로 재배치</td><td>빈 노드 풀 제거</td></tr>
+        <tr><td class="k">노드 교체</td><td>그룹 업데이트로</td><td>드리프트(설정·AMI 변경) 감지 시 교체, <code>expireAfter</code>로 최대 수명</td><td>노드 풀 업그레이드로</td></tr>
+        <tr><td class="k">중단 통제</td><td>PDB, 축소 제외 어노테이션</td><td>PDB, NodePool <span class="t" data-k="중단 예산">중단 예산</span>(시간대·비율), do-not-disrupt</td><td>PDB, 유지보수 창</td></tr>
+        <tr><td class="k">장점</td><td>단순·예측 가능</td><td>빠른 확장, 비용 최적화, 다양한 인스턴스</td><td>노드 풀 관리 부담 감소</td></tr>
+        <tr><td class="k">주의</td><td>노드 그룹 수가 늘면 관리 부담</td><td>통합으로 인한 잦은 재배치(스테이트풀·긴 작업에 영향)</td><td>생성되는 풀의 사양 범위 통제</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>Karpenter NodePool 중단 예산 (업무 시간엔 통합 금지)</span><button class="copy" type="button">복사</button></div><pre>apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata: {name: general}
+spec:
+  template:
+    spec:
+      expireAfter: 720h                    <span class="c"># 최대 30일 후 교체(패치 반영)</span>
+      nodeClassRef: {group: karpenter.k8s.aws, kind: EC2NodeClass, name: default}
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    budgets:
+    - nodes: "10%"                         <span class="c"># 한 번에 최대 10%</span>
+    - nodes: "0"                           <span class="c"># 평일 업무 시간에는 자발적 중단 0</span>
+      schedule: "0 9 * * mon-fri"
+      duration: 9h
+      reasons: [Underutilized]</pre></div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>업그레이드 런북</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>단계</th><th>점검 항목</th></tr></thead>
+      <tbody>
+        <tr><td class="k">사전(1~2주 전)</td><td>릴리스 노트·폐기 API(pluto·kubent·업그레이드 인사이트), 애드온·오퍼레이터·CSI·CNI 호환표, Helm 차트 버전, 시험 클러스터 리허설</td></tr>
+        <tr><td class="k">사전(당일 전)</td><td>etcd 스냅샷·백업(15편), PDB 점검(막히는 PDB 찾기), 여유 용량(서지 노드분 할당량), 유지보수 창·고객 공지</td></tr>
+        <tr><td class="k">진행</td><td>컨트롤 플레인 → 애드온 → 노드 풀 순서. 노드 풀은 서지·블루그린. 경보·SLO 대시보드 감시</td></tr>
+        <tr><td class="k">사후</td><td>노드 버전·Ready, 애드온 상태, 경보·에러율 비교, 감사 로그 이상 여부, 다음 업그레이드 일정 기록</td></tr>
+        <tr><td class="k">중단 기준</td><td>에러율·지연이 기준을 넘으면 노드 풀 업그레이드 일시 정지(OpenShift 풀 정지, GKE 블루그린 되돌리기 등)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>막히는 PDB 찾기</span><button class="copy" type="button">복사</button></div><pre>kubectl get pdb -A -o json | jq -r '.items[] | select(.status.disruptionsAllowed==0) | "\(.metadata.namespace)/\(.metadata.name) expected=\(.status.expectedPods) healthy=\(.status.currentHealthy) allowed=0"'
+<span class="c"># 폐기 API 사용 여부 (API 서버 메트릭)</span>
+kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis | head</pre></div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>실습: PDB를 건 워크로드로 세 벤더 노드 풀 업그레이드</h2>
+    <div class="prose">
+      <p>같은 워크로드(6 레플리카, PDB maxUnavailable 1, readiness·preStop 설정)를 lab-eks·lab-aks·lab-gke에 배포하고, 호스트에서 LoadBalancer 주소로 0.2초마다 요청을 보내며 노드 풀을 교체합니다. 벤더가 제공하는 노드 풀 업그레이드가 가능하면 그것을, 새 버전이 없으면 “새 노드 풀 추가 + 옛 노드 드레인”(수동 블루그린)으로 같은 상황을 만듭니다. 실패 요청 수와 가장 긴 중단 구간을 비교합니다. LoadBalancer는 과금되므로 실습 후 바로 지웁니다.</p>
+      <h3>실습 0. 워크로드와 측정 도구</h3>
+    </div>
+    <div class="code"><div class="bar"><span>upg-app.yaml — 세 클러스터 공통</span><button class="copy" type="button">복사</button></div><pre>apiVersion: v1
+kind: Namespace
+metadata: {name: upg-lab}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: upg-lab}
+spec:
+  replicas: 6
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+      - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway, labelSelector: {matchLabels: {app: web}}}
+      containers:
+      - name: web
+        image: registry.k8s.io/e2e-test-images/agnhost:2.52
+        args: ["netexec", "--http-port=8080"]
+        ports: [{containerPort: 8080}]
+        readinessProbe: {httpGet: {path: /hostname, port: 8080}, periodSeconds: 2, failureThreshold: 1}
+        lifecycle: {preStop: {sleep: {seconds: 10}}}      <span class="c"># 엔드포인트에서 빠질 시간(6·7편)</span>
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: web, namespace: upg-lab}
+spec:
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector: {matchLabels: {app: web}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: upg-lab}
+spec:
+  type: LoadBalancer
+  selector: {app: web}
+  ports: [{port: 80, targetPort: 8080}]</pre></div>
+    <div class="code"><div class="bar"><span>측정: 호스트에서 요청 보내기와 분석</span><button class="copy" type="button">복사</button></div><pre>deploy(){ kubectl --context $1 apply -f upg-app.yaml; kubectl --context $1 -n upg-lab rollout status deploy/web
+  until LB=$(kubectl --context $1 -n upg-lab get svc web -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}') &amp;&amp; [ -n "$LB" ]; do sleep 5; done; echo "$LB"; }
+probe(){ <span class="c"># probe 컨텍스트 LB → 백그라운드로 기록</span>
+  while true; do c=$(curl -s -o /dev/null -m 2 -w '%{http_code}' http://$2/hostname); echo "$(date +%s.%N | cut -c1-14) $c"; sleep 0.2; done &gt; probe-$1.log &amp; echo $! &gt; probe-$1.pid; }
+stopprobe(){ kill $(cat probe-$1.pid); }
+an(){ awk 'BEGIN{prev=0;gap=0;mx=0}{n++; if($2!="200"){f++; if(!gap)gs=$1; gap=1} else if(gap){d=$1-gs; if(d&gt;mx)mx=d; gap=0}} END{printf "요청 %d, 실패 %d (%.2f%%), 가장 긴 중단 %.1f초\n", n,f,100*f/n,mx}' probe-$1.log; }
+nodes(){ kubectl --context $1 get nodes -w -o custom-columns=T:.metadata.creationTimestamp,NAME:.metadata.name,VER:.status.nodeInfo.kubeletVersion,READY:.status.conditions[-1].status &gt; nodes-$1.log &amp; }
+
+<span class="c"># 공통 대안: 수동 블루그린 — 새 풀이 준비된 뒤 옛 노드를 하나씩 비움(PDB 존중)</span>
+bluegreen_drain(){ for n in $(kubectl --context $1 get nodes -l "$2" -o name); do
+  kubectl --context $1 cordon $n; kubectl --context $1 drain $n --ignore-daemonsets --delete-emptydir-data --timeout=600s; done; }</pre></div>
+
+    <div class="prose"><h3>실습 1. EKS 관리형 노드 그룹</h3></div>
+    <div class="code"><div class="bar"><span>노드 그룹 업데이트 또는 새 노드 그룹으로 교체</span><button class="copy" type="button">복사</button></div><pre>C=lab-eks; LB=$(deploy $C); probe $C $LB; nodes $C
+NG=$(aws eks list-nodegroups --cluster-name lab-eks --query 'nodegroups[0]' --output text)
+aws eks update-nodegroup-config --cluster-name lab-eks --nodegroup-name $NG --update-config maxUnavailable=1
+date +%T; aws eks update-nodegroup-version --cluster-name lab-eks --nodegroup-name $NG   <span class="c"># 새 AMI가 있으면 교체</span>
+<span class="c"># 새 AMI가 없다는 오류면 대안: eksctl create nodegroup --cluster lab-eks --name ng-new … 후</span>
+<span class="c">#   bluegreen_drain $C eks.amazonaws.com/nodegroup=$NG ; 이후 옛 노드 그룹 삭제</span>
+aws eks wait nodegroup-active --cluster-name lab-eks --nodegroup-name $NG; date +%T
+stopprobe $C; an $C</pre></div>
+
+    <div class="prose"><h3>실습 2. AKS 노드 풀(서지)</h3></div>
+    <div class="code"><div class="bar"><span>노드 이미지 업그레이드(서지 33%)</span><button class="copy" type="button">복사</button></div><pre>C=lab-aks; LB=$(deploy $C); probe $C $LB; nodes $C
+az aks nodepool get-upgrades -g rg-lab --cluster-name lab-aks -n nodepool1 -o table
+az aks nodepool update -g rg-lab --cluster-name lab-aks -n nodepool1 --max-surge 33% --drain-timeout 30
+date +%T; az aks nodepool upgrade -g rg-lab --cluster-name lab-aks -n nodepool1 --node-image-only --yes; date +%T
+<span class="c"># 최신 이미지라 할 일이 없으면 대안: az aks nodepool add … -n np2 후 bluegreen_drain $C agentpool=nodepool1</span>
+stopprobe $C; an $C</pre></div>
+
+    <div class="prose"><h3>실습 3. GKE 노드 풀(서지 또는 블루그린)</h3></div>
+    <div class="code"><div class="bar"><span>서지 업그레이드, 가능하면 블루그린도</span><button class="copy" type="button">복사</button></div><pre>C=lab-gke; LB=$(deploy $C); probe $C $LB; nodes $C
+gcloud container node-pools update default-pool --cluster lab-gke --location asia-northeast3-a --max-surge-upgrade 1 --max-unavailable-upgrade 0
+MV=$(gcloud container clusters describe lab-gke --location asia-northeast3-a --format='value(currentMasterVersion)')
+date +%T; gcloud container clusters upgrade lab-gke --location asia-northeast3-a --node-pool default-pool --cluster-version $MV --quiet; date +%T
+<span class="c"># 노드가 이미 같은 버전이면 대안: gcloud container node-pools create pool-b … 후 bluegreen_drain $C cloud.google.com/gke-nodepool=default-pool</span>
+<span class="c"># 블루그린 전략(버전 변경이 있을 때): --enable-blue-green-upgrade --standard-rollout-policy=batch-node-count=1,batch-soak-duration=60s</span>
+stopprobe $C; an $C</pre></div>
+
+    <div class="prose"><h3>실습 4. 막히는 PDB와 대조 실험</h3></div>
+    <div class="code"><div class="bar"><span>PDB가 드레인을 막는 모습, 그리고 보호 장치를 뺐을 때</span><button class="copy" type="button">복사</button></div><pre>C=lab-gke
+<span class="c"># ① 허용 중단 0인 PDB</span>
+kubectl --context $C -n upg-lab patch pdb web --type merge -p '{"spec":{"maxUnavailable":null,"minAvailable":6}}'
+kubectl --context $C -n upg-lab get pdb web                           <span class="c"># ALLOWED DISRUPTIONS 0</span>
+N=$(kubectl --context $C -n upg-lab get pod -l app=web -o jsonpath='{.items[0].spec.nodeName}')
+kubectl --context $C drain $N --ignore-daemonsets --delete-emptydir-data --timeout=60s 2&gt;&amp;1 | grep -m2 -i 'disruption budget'
+kubectl --context $C uncordon $N
+<span class="c"># 벤더 노드 풀 업그레이드였다면: EKS는 일정 시간 뒤 실패, AKS는 드레인 타임아웃 후 실패, GKE는 약 1시간 뒤 강제 진행(4장 표)</span>
+
+<span class="c"># ② 대조: PDB 삭제 + preStop 제거 + 레플리카 2개로 같은 교체를 반복해 실패율 비교</span>
+kubectl --context $C -n upg-lab delete pdb web
+kubectl --context $C -n upg-lab patch deploy web --type json -p '[{"op":"remove","path":"/spec/template/spec/containers/0/lifecycle"},{"op":"replace","path":"/spec/replicas","value":2}]'
+<span class="c"># 실습 3을 다시 실행하고 an 결과 비교</span>
+
+<span class="c"># 정리 (LB 과금 중지)</span>
+for c in lab-eks lab-aks lab-gke; do kubectl --context $c delete ns upg-lab --wait=false; done</pre></div>
+    <div class="note"><b>비교표</b>
+    플랫폼 × 항목: 교체 방식(관리형 업그레이드·수동 블루그린), 노드 수, 전체 소요 시간, 실패 요청 수·비율, 가장 긴 중단, PDB가 막혔을 때의 동작, 대조 실험(PDB·preStop 없음)의 실패율. 맨 위 계획기·4장 시뮬레이터의 예측과 비교하세요. 대부분의 실패는 노드 교체 자체보다 <strong>LB 대상 등록·해제 타이밍</strong>(7편)과 preStop 부재에서 나옵니다.</div>
+    <div class="prose">
+      <h3>실습 5. 선택: kubeadm 패치 업그레이드</h3>
+      <p>lab-native에서 1.37 패치 버전 하나를 올립니다(컨트롤 노드 → 워커 순, 워커는 drain → 패키지 → <code>kubeadm upgrade node</code> → kubelet 재시작 → uncordon). 같은 워크로드를 NodePort로 띄워 같은 방식으로 측정하면, 제자리 업그레이드와 노드 교체 방식의 차이를 비교할 수 있습니다.</p>
+    </div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>PDB 하나 때문에 노드 업그레이드가 며칠째 멈췄다</summary><div class="body">
+      <p><strong>원인.</strong> 레플리카 3개 Deployment에 minAvailable 3을 걸어 허용 중단이 항상 0이었습니다. AKS 노드 풀 업그레이드가 드레인 타임아웃으로 실패를 반복했습니다.</p>
+      <p><strong>교훈.</strong> 업그레이드 전 “허용 중단 0” PDB 목록을 뽑아 고치세요(7장 명령). 정책(21편)으로 minAvailable = replicas를 막을 수도 있습니다.</p>
+    </div></details>
+    <details class="case"><summary>업그레이드 직후 Helm 릴리스가 갱신되지 않았다</summary><div class="body">
+      <p><strong>원인.</strong> 제거된 API 버전을 쓰는 매니페스트가 릴리스 기록에 남아 있어, 새 버전 클러스터에서 Helm이 기존 릴리스를 해석하지 못했습니다.</p>
+      <p><strong>교훈.</strong> 업그레이드 전 pluto·kubent로 클러스터와 Helm 릴리스를 모두 검사하고, 필요하면 릴리스의 API 버전을 먼저 바꾸세요.</p>
+    </div></details>
+    <details class="case"><summary>GKE 자동 업그레이드가 업무 시간에 노드를 교체했다</summary><div class="body">
+      <p><strong>원인.</strong> 릴리스 채널 클러스터에 유지보수 창을 정하지 않아, 업무 시간에 노드 풀 업그레이드가 진행되었습니다.</p>
+      <p><strong>교훈.</strong> 유지보수 창과 제외 기간(행사·결산 기간)을 고객 일정에 맞춰 설정하세요. AKS의 계획된 유지보수, EKS Auto Mode의 중단 예산도 같은 역할입니다.</p>
+    </div></details>
+    <details class="case"><summary>EKS 연장 지원 비용이 청구서에서 발견됐다</summary><div class="body">
+      <p><strong>원인.</strong> 업그레이드를 미루다 표준 지원이 끝나 연장 지원 요금이 자동으로 붙었습니다.</p>
+      <p><strong>교훈.</strong> 고객별 클러스터 버전과 지원 종료일을 인벤토리(1편)에 두고, 분기마다 업그레이드 계획을 세우세요.</p>
+    </div></details>
+    <details class="case"><summary>OpenShift 워커 풀이 몇 달째 일시 정지 상태였다</summary><div class="body">
+      <p><strong>원인.</strong> 장애 대응 중 워커 MachineConfigPool을 일시 정지했다가 해제를 잊었습니다. 인증서·설정 갱신이 쌓이고 다음 업그레이드가 막혔습니다.</p>
+      <p><strong>교훈.</strong> 풀 일시 정지는 기한과 담당자를 함께 기록하고, 정지된 풀을 경보로 두세요.</p>
+    </div></details>
+    <details class="case"><summary>불변 OS로 바꾸자 보안 에이전트가 동작하지 않았다</summary><div class="body">
+      <p><strong>원인.</strong> 노드에 직접 설치되던 에이전트가 커널 모듈을 빌드해야 했는데, Bottlerocket·COS에서는 불가능했습니다.</p>
+      <p><strong>교훈.</strong> OS 전환 전 에이전트의 지원 OS·eBPF 방식 여부를 확인하세요(3장 현장 메모).</p>
+    </div></details>
+    <details class="case"><summary>Karpenter 통합 때문에 배치 작업이 계속 재시작됐다</summary><div class="body">
+      <p><strong>원인.</strong> 사용률이 낮아 보이는 노드를 통합이 계속 비우면서, 몇 시간짜리 배치 작업이 중간에 축출되었습니다.</p>
+      <p><strong>교훈.</strong> 긴 작업에는 <code>karpenter.sh/do-not-disrupt</code>, NodePool에는 중단 예산(6장)을 두세요.</p>
+    </div></details>
+    <details class="case"><summary>kubeadm에서 kubelet을 먼저 올려 노드가 붙지 않았다</summary><div class="body">
+      <p><strong>원인.</strong> 자동 패키지 업데이트가 워커의 kubelet을 컨트롤 플레인보다 높은 버전으로 올려, 버전 차이 정책을 어겼습니다.</p>
+      <p><strong>교훈.</strong> kubelet·kubeadm 패키지는 버전 고정(hold)하고, 순서(컨트롤 플레인 먼저)를 자동화하세요.</p>
+    </div></details>
+    <details class="case"><summary>단일 레플리카 서비스가 노드 교체마다 끊겼다</summary><div class="body">
+      <p><strong>원인.</strong> 레플리카 1개라 PDB로도 보호할 수 없었고, 노드가 교체될 때마다 몇십 초씩 서비스가 끊겼습니다.</p>
+      <p><strong>교훈.</strong> 업그레이드 중에도 살아 있어야 하는 서비스는 최소 2개 이상 + 노드 분산 + PDB. 상태 있는 단일 인스턴스는 16편의 오퍼레이터 복제를 검토하세요.</p>
+    </div></details>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: PDB, 서지, Karpenter)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>업그레이드는 마이너 버전 하나씩, 컨트롤 플레인 → 애드온 → 노드 순서이며, kubelet은 최대 세 마이너까지 낮을 수 있어 노드 교체를 묶는 전략이 가능합니다. 폐기 API 점검과 백업이 선행 조건입니다.</li>
+        <li>kubeadm·RKE2는 제자리, OpenShift는 CVO·MCO의 이미지 교체, EKS·AKS·GKE는 노드 교체(서지·블루그린) 방식이며, 채널·유지보수 창·지원 기간이 플랫폼마다 다릅니다.</li>
+        <li>Bottlerocket·COS·RHCOS·Talos 같은 불변 OS는 보안·일관성이 좋지만 에이전트·커널 모듈·디버깅 경로를 다시 설계해야 합니다.</li>
+        <li>드레인은 PDB를 존중하므로 허용 중단 0인 PDB는 업그레이드를 막고, 막힌 뒤의 동작은 벤더마다 다릅니다(실패·강제 진행·재시도). v1.37 Node Lifecycle Conditions는 이 생명주기를 알리는 공통 신호의 첫걸음입니다.</li>
+        <li>Cluster Autoscaler는 노드 그룹 단위, Karpenter는 인스턴스 단위·통합·드리프트, NAP는 노드 풀 자동 생성이며, 중단 예산·do-not-disrupt로 업그레이드·통합의 영향을 통제합니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 24편 관측·멀티클러스터·GitOps 운영</h3>
+      <p style="margin:.3em 0 0">벤더 관측 스택과 자체 Prometheus·Grafana의 비교, 지표 기반 HPA, Rancher·Red Hat ACM·Fleet·Azure Arc·GKE Fleet으로 정책·RBAC·네트워크 설정을 중앙 배포하는 방법, Argo CD·Flux로 벤더 간 설정 차이(StorageClass·IngressClass·인증)를 오버레이로 흡수하는 패턴을 다루고, 하나의 Git 저장소로 kubeadm·EKS·OpenShift 세 클러스터에 같은 앱을 배포합니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Version Skew Policy, Upgrading kubeadm clusters, Safely Drain a Node, Specifying a Disruption Budget — kubernetes.io 문서</li>
+        <li>Node Lifecycle Conditions(1.37 알파, KEP-5683) — kubernetes.io 블로그·문서</li>
+        <li>EKS 버전 수명 주기·관리형 노드 그룹 업데이트·Auto Mode, AKS 자동 업그레이드 채널·노드 OS 채널·계획된 유지보수·서지, GKE 릴리스 채널·유지보수 창·서지/블루그린 업그레이드 — 각 벤더 문서</li>
+        <li>OpenShift 업데이트(CVO, 업데이트 채널, EUS-to-EUS), Machine Config Operator — Red Hat 문서</li>
+        <li>RKE2 업그레이드(system-upgrade-controller) — RKE2 문서</li>
+        <li>Bottlerocket, Azure Linux, Container-Optimized OS, RHCOS, SLE Micro, Talos — 각 프로젝트 문서</li>
+        <li>Cluster Autoscaler, Karpenter(NodePool 중단 예산), GKE Node Auto-Provisioning, AKS Node Auto Provisioning</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 23편(Level 4 시작). 작성 기준일 2026-10-24.
+      벤더의 드레인 타임아웃·지원 기간 값은 바뀔 수 있습니다. 계획기·시뮬레이터 결과는 추정치이며 실습 측정값으로 보정하세요.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "버전 차이 정책":["Version skew policy","컴포넌트 간 허용되는 버전 차이. kubelet은 API 서버보다 최대 3 마이너 낮을 수 있다."],
+ "마이너 버전":["Minor version","1.37의 37. 약 4개월마다 하나씩 나온다."],
+ "자동 업그레이드 채널":["AKS auto-upgrade channel","none·patch·stable·rapid·node-image. 클러스터가 자동으로 따라갈 버전 정책."],
+ "릴리스 채널":["GKE release channel","Rapid·Regular·Stable·Extended. 버전이 제공되는 속도와 지원 기간."],
+ "유지보수 창":["Maintenance window","자동 업그레이드가 일어나도 되는 시간대."],
+ "CVO":["Cluster Version Operator","OpenShift에서 클러스터 버전과 업데이트를 관리하는 오퍼레이터."],
+ "MCO":["Machine Config Operator","OpenShift 노드 OS(RHCOS)와 설정을 MachineConfigPool 단위로 적용하는 오퍼레이터."],
+ "MachineConfigPool":["MachineConfigPool","같은 설정을 받는 OpenShift 노드 묶음(master·worker 등). 일시 정지 가능."],
+ "OTA":["Over-The-Air update","무선 업데이트. OpenShift가 업데이트 그래프에 따라 클러스터를 갱신하는 방식."],
+ "EUS":["Extended Update Support","OpenShift 장기 지원 버전. EUS 간 이동 절차가 있다."],
+ "서지 업그레이드":["Surge upgrade","새 노드를 몇 개 먼저 만들고 옛 노드를 차례로 비우는 교체."],
+ "블루그린 업그레이드":["Blue-green upgrade","새 노드 풀을 통째로 만들고 옮긴 뒤 소크 후 옛 풀을 지우는 교체."],
+ "소크":["Soak time","교체 후 이상 여부를 지켜보는 대기 시간."],
+ "불변 OS":["Immutable OS","읽기 전용 루트·이미지 단위 교체·롤백을 하는 노드 OS."],
+ "Bottlerocket":["Bottlerocket","AWS의 컨테이너 전용 불변 OS. A/B 파티션, API 기반 설정."],
+ "COS":["Container-Optimized OS","GKE 기본 노드 OS. 읽기 전용 루트, 패키지 관리자 없음."],
+ "RHCOS":["Red Hat Enterprise Linux CoreOS","OpenShift 노드 OS. rpm-ostree 이미지, MCO가 관리."],
+ "SLE Micro":["SUSE Linux Enterprise Micro","트랜잭션 업데이트·스냅샷 롤백을 하는 SUSE의 경량 OS."],
+ "Talos":["Talos Linux","SSH·셸 없이 API로만 관리하는 Kubernetes 전용 불변 OS."],
+ "드레인":["Drain","노드를 스케줄 불가로 만들고 Pod를 축출해 비우는 작업."],
+ "축출":["Eviction API","PDB를 확인한 뒤 Pod를 내보내는 API. 드레인이 사용."],
+ "PDB":["PodDisruptionBudget","자발적 중단 때 동시에 내려갈 수 있는 Pod 수를 제한하는 객체."],
+ "unhealthyPodEvictionPolicy":["unhealthyPodEvictionPolicy","Ready가 아닌 Pod를 PDB와 무관하게 축출할지. AlwaysAllow 권장."],
+ "Node Lifecycle Conditions":["Node Lifecycle Conditions","노드의 정비 예정·진행·드레인·우아한 종료를 알리는 공통 조건(1.37 알파)."],
+ "Cluster Autoscaler":["Cluster Autoscaler","대기 Pod에 맞춰 노드 그룹 크기를 늘리고 줄이는 컴포넌트."],
+ "Karpenter":["Karpenter","대기 Pod에 맞춰 인스턴스 종류를 골라 노드를 만드는 오토스케일러. 통합·드리프트 교체."],
+ "NAP":["Node Auto-Provisioning","필요한 사양의 노드 풀을 자동 생성하는 GKE 기능(AKS에도 같은 이름의 Karpenter 기반 기능)."],
+ "통합":["Consolidation","Karpenter가 더 적거나 싼 노드로 Pod를 재배치하는 동작."],
+ "중단 예산":["Disruption budget (NodePool)","Karpenter가 한 번에·특정 시간대에 자발적으로 비울 수 있는 노드 비율·수."],
+ "드리프트":["Drift","노드가 원하는 설정·이미지와 달라진 상태. Karpenter는 감지 시 교체."],
+ "pluto":["pluto / kubent","클러스터·Helm 릴리스에서 폐기·제거될 API 사용을 찾는 도구."],
+ "preStop":["preStop hook","컨테이너 종료 전에 실행되는 훅. 엔드포인트에서 빠질 시간을 벌어 준다."]
+};
+const AUTO=["Node Lifecycle Conditions","unhealthyPodEvictionPolicy","Cluster Autoscaler","MachineConfigPool","자동 업그레이드 채널","Bottlerocket","Karpenter","SLE Micro","버전 차이 정책","블루그린 업그레이드","서지 업그레이드","릴리스 채널","유지보수 창","마이너 버전","Talos","RHCOS","preStop","pluto","CVO","MCO","OTA","EUS","COS","NAP","PDB","불변 OS","드레인","축출","통합","중단 예산","드리프트","소크"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,textarea,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s11")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- upgrade planner ---------- */
+const PL={
+ kubeadm:{n:"kubeadm",cp:30,cpOnly:true,node:"제자리(drain → 패키지 → kubeadm upgrade node → 재시작)",note:"컨트롤 노드가 여럿이면 첫 노드 upgrade apply, 나머지 upgrade node. 패키지는 버전 고정(hold)."},
+ rke2:{n:"RKE2",cp:20,cpOnly:true,node:"에이전트 Plan(동시성·드레인 설정) 제자리",note:"서버 Plan은 동시성 1. system-upgrade-controller 또는 Rancher에서 버전 지정."},
+ ocp:{n:"OpenShift",cp:60,cpOnly:false,node:"MCO가 MachineConfigPool별로 RHCOS 교체·재부팅(maxUnavailable)",note:"버전 표기는 4.x이지만 각 단계가 Kubernetes 마이너 하나에 대응. EUS 간 이동은 워커 풀을 정지하고 두 단계를 건넌 뒤 노드를 한 번만 갱신."},
+ eks:{n:"EKS",cp:15,cpOnly:true,node:"관리형 노드 그룹 교체(maxUnavailable) 또는 Karpenter 드리프트 교체",note:"애드온(VPC CNI·CoreDNS·kube-proxy·EBS CSI)도 단계마다 호환 버전으로. 연장 지원 종료 시 자동 업그레이드."},
+ aks:{n:"AKS",cp:15,cpOnly:true,node:"노드 풀 서지 교체(maxSurge), 드레인 타임아웃·소크 설정",note:"--control-plane-only로 컨트롤 플레인만 먼저 올릴 수 있음. 자동 업그레이드 채널과 계획된 유지보수 창 확인."},
+ gke:{n:"GKE",cp:10,cpOnly:true,node:"노드 풀 서지 또는 블루그린",note:"릴리스 채널 클러스터는 자동 업그레이드가 기본. 수동으로 할 땐 유지보수 제외 기간으로 자동을 잠시 막음."}
+};
+let pk="eks";
+function plan(){
+  const P=PL[pk],f=+$("#uFrom").value,t=+$("#uTo").value,N=Math.max(1,+$("#uN").value||1),par=Math.max(1,+$("#uPar").value||1),T=Math.max(1,+$("#uT").value||1);
+  const steps=[],warn=[];
+  if(t<=f){$("#uK").innerHTML="";$("#uSteps").innerHTML=`<div class="block"><i>!</i><span><strong>목표가 현재보다 높아야 합니다.</strong><small>다운그레이드는 대부분 지원되지 않습니다. 백업에서 복원하거나 새 클러스터로 이전하세요(15편).</small></span></div>`;$("#uMsg").textContent="";return;}
+  const hops=t-f;
+  const nodeOnce=Math.ceil(N/par)*T;
+  steps.push(["","0",`사전 점검: 1.${f+1}~1.${t}에서 제거되는 API, 애드온·CSI·CNI 호환표, 백업`,"pluto·kubent, 업그레이드 인사이트, etcd 스냅샷(15편)"]);
+  let nodeRounds,total=hops*(P.cp+5);
+  if(P.cpOnly){
+    nodeRounds=Math.ceil(hops/3);
+    let v=f,i=1;
+    while(v<t){const seg=Math.min(3,t-v);
+      for(let k=1;k<=seg;k++){steps.push(["pass",String(i++),`컨트롤 플레인 1.${v+k-1} → 1.${v+k} (+ 애드온)`,`약 ${P.cp+5}분`]);}
+      v+=seg;
+      steps.push(["mut",String(i++),`노드 교체 → 1.${v}`,`${P.node} · 노드 ${N}대 ÷ 동시 ${par} × ${T}분 ≈ ${nodeOnce}분`]);
+    }
+  } else {
+    nodeRounds=hops;let i=1;
+    for(let v=f;v<t;v++){steps.push(["pass",String(i++),`클러스터 업데이트 1.${v} → 1.${v+1}(컨트롤 플레인)`,`약 ${P.cp}분`]);steps.push(["mut",String(i++),`노드 갱신(MCO) → 1.${v+1}`,`${P.node} · ≈ ${nodeOnce}분`]);}
+    warn.push("OpenShift는 단계마다 노드가 갱신되는 것이 기본입니다. EUS 간 이동이면 워커 풀을 정지해 노드 갱신을 한 번으로 줄일 수 있습니다.");
+  }
+  total+=nodeRounds*nodeOnce;
+  steps.push(["",String(steps.length),"사후 확인","노드 버전·Ready, 애드온, 에러율·지연, 다음 일정 기록"]);
+  $("#uK").innerHTML=`<div class="kpi"><b>${hops}</b><span>마이너 단계</span></div><div class="kpi"><b>${nodeRounds}</b><span>노드 교체 라운드</span></div><div class="kpi"><b>${Math.floor(total/60)}시간 ${total%60}분</b><span>예상 소요(대략)</span></div>`;
+  $("#uSteps").innerHTML=steps.map(s=>`<div class="${s[0]}"><i>${s[1]}</i><span><strong>${s[2]}</strong><small>${s[3]}</small></span></div>`).join("");
+  if(P.cpOnly&&hops>1)warn.push(`kubelet은 최대 세 마이너까지 낮을 수 있어, 컨트롤 플레인을 ${Math.min(3,hops)}단계 올린 뒤 노드를 한 번에 교체합니다. 노드 교체 횟수가 ${hops}번에서 ${nodeRounds}번으로 줄어듭니다.`);
+  if(hops>3)warn.push("세 단계를 넘으면 노드가 버전 차이 한계에 걸리므로 중간에 노드 교체가 필요합니다.");
+  if(par>Math.max(1,Math.floor(N/3)))warn.push("동시 교체 수가 큽니다. 레플리카가 노드에 퍼져 있지 않으면 PDB가 드레인을 막거나 용량이 부족할 수 있습니다(4장).");
+  warn.push(P.note);
+  $("#uMsg").innerHTML=warn.map(w=>"• "+w).join("<br>");
+}
+function renderPlan(){const b=$("#uP");b.innerHTML="";Object.entries(PL).forEach(([k,v])=>{const x=el("button",{class:"btn",type:"button","aria-pressed":String(pk===k)},v.n);x.addEventListener("click",()=>{pk=k;renderPlan();});b.appendChild(x);});plan();}
+["uFrom","uTo","uN","uPar","uT"].forEach(id=>$("#"+id).addEventListener("input",plan));renderPlan();
+
+/* ---------- PDB simulator ---------- */
+const BLOCK={eks:"약 15분 안에 비우지 못하면 노드 그룹 업데이트가 실패합니다. 강제 옵션을 쓰면 PDB를 무시하고 진행(그때 중단 발생).",aks:"드레인 타임아웃(기본 30분, 설정 가능) 후 업그레이드가 실패하고, 설정에 따라 노드를 cordon 상태로 남깁니다.",gke:"약 1시간 PDB를 존중한 뒤 강제로 축출하고 진행합니다(그때 중단 발생).",ocp:"MCO가 드레인을 계속 재시도하고 드레인 오류 경보를 냅니다. 풀 업데이트가 멈춥니다.",kubeadm:"kubectl drain이 계속 재시도합니다. --timeout을 주면 실패로 끝납니다."};
+function pdb(){
+  const R=Math.max(1,+$("#dR").value||1),ty=$("#dType").value,V=Math.max(0,+$("#dV").value||0),N=Math.max(1,+$("#dN").value||1),t=Math.max(1,+$("#dReady").value||1),p=$("#dPlat").value;
+  const perNode=Math.ceil(R/N);
+  let allowed=ty==="none"?R:(ty==="min"?R-V:V);
+  const w=[];
+  if(allowed<=0){
+    $("#dK").innerHTML=`<div class="kpi"><b>0</b><span>허용 중단 수</span></div><div class="kpi"><b>${perNode}</b><span>노드당 Pod(최대)</span></div>`;
+    $("#dV2").className="verdict no";$("#dV2").textContent="드레인이 막힙니다(허용 중단 0)";
+    w.push(BLOCK[p]);
+    if(ty==="min"&&V>=R)w.push(`minAvailable(${V}) ≥ 레플리카(${R})라 항상 0입니다. maxUnavailable 1 같은 값으로 바꾸세요.`);
+    if(R===1)w.push("레플리카 1개는 PDB로 보호할 수 없습니다. 2개 이상으로 늘리세요.");
+    $("#dMsg").innerHTML=w.map(x=>"• "+x).join("<br>");return;
+  }
+  const batch=Math.min(allowed,perNode),perNodeSec=Math.ceil(perNode/batch)*t,total=N*perNodeSec;
+  const minAv=R-batch;
+  $("#dK").innerHTML=`<div class="kpi"><b>${ty==="none"?"제한 없음":allowed}</b><span>허용 중단 수</span></div><div class="kpi"><b>${perNode}</b><span>노드당 Pod(최대)</span></div><div class="kpi"><b>${minAv}/${R}</b><span>교체 중 최소 가용 Pod</span></div><div class="kpi"><b>${Math.floor(total/60)}분 ${total%60}초</b><span>드레인 합계(노드 생성 제외)</span></div>`;
+  const ok=minAv>0;
+  $("#dV2").className="verdict "+(ok?"ok":"no");$("#dV2").textContent=ok?"서비스가 유지되며 교체 가능":"교체 중 가용 Pod가 0이 되는 순간이 있습니다";
+  if(ty==="none")w.push("PDB가 없어 노드의 Pod가 한꺼번에 축출됩니다. 노드에 몰려 있으면 서비스가 끊길 수 있습니다.");
+  if(perNode>=R)w.push("모든 레플리카가 한 노드에 있습니다. topologySpreadConstraints로 노드에 분산하세요.");
+  if(R===1)w.push("레플리카 1개는 교체마다 중단이 생깁니다.");
+  if(ok&&ty!=="none")w.push("PDB가 축출을 나눠 진행시켜 서비스가 유지됩니다. 실제로는 LB 대상 등록·해제와 preStop 설정이 중단 여부를 좌우합니다(실습).");
+  $("#dMsg").innerHTML=w.map(x=>"• "+x).join("<br>");
+}
+["dR","dType","dV","dN","dReady","dPlat"].forEach(id=>{$("#"+id).addEventListener("input",pdb);$("#"+id).addEventListener("change",pdb);});pdb();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["1.34에서 1.37로 올리는 올바른 방법은?",["한 번에 1.37","1.35 → 1.36 → 1.37 한 단계씩","1.36으로 건너뛰기","노드 먼저"],1,"마이너 버전은 하나씩 올립니다."],
+ ["kubelet과 API 서버의 버전 차이 정책은?",["kubelet이 더 높아도 됨","kubelet이 최대 세 마이너까지 낮을 수 있음","같아야만 함","한 마이너만"],1,"그래서 노드 교체를 묶는 전략이 가능합니다."],
+ ["업그레이드 순서로 옳은 것은?",["노드 → 컨트롤 플레인","컨트롤 플레인 → 애드온 → 노드","애드온 → 노드 → 컨트롤 플레인","순서 무관"],1,"노드가 컨트롤 플레인보다 새 버전이면 안 됩니다."],
+ ["레플리카 3개에 minAvailable 3인 PDB의 영향은?",["문제없음","허용 중단이 0이라 드레인이 막힘","더 빨라짐","자동 확장"],1,"업그레이드 전에 이런 PDB를 찾아 고쳐야 합니다."],
+ ["GKE가 PDB 때문에 노드를 못 비울 때 기본 동작은?",["영원히 대기","약 1시간 존중 후 강제 축출하고 진행","즉시 실패","노드 삭제 안 함"],1,"EKS는 실패, AKS는 타임아웃 후 실패로 동작이 다릅니다."],
+ ["OpenShift 노드 OS(RHCOS)를 갱신하는 주체는?",["사용자 SSH","Machine Config Operator","Cluster Autoscaler","Karpenter"],1,"MachineConfigPool 단위로 적용하며 일시 정지할 수 있습니다."],
+ ["불변 OS(Bottlerocket·COS·Talos)로 바꿀 때 먼저 확인할 것은?",["CPU 클럭","노드 에이전트·커널 모듈 의존성과 디버깅 경로","DNS","PVC 크기"],1,"패키지·SSH 기반 운영이 통하지 않습니다."],
+ ["Karpenter가 Cluster Autoscaler와 다른 점은?",["노드 그룹 크기만 조절","대기 Pod에 맞춰 인스턴스 종류를 골라 노드 생성, 통합·드리프트 교체","축소 불가","EKS 전용이 아님을 보장 안 함"],1,"AKS의 Node Auto Provisioning도 Karpenter 기반입니다."],
+ ["v1.37 Node Lifecycle Conditions에 대해 옳은 것은?",["GA이며 컨트롤러가 즉시 사용","알파·기본 꺼짐이며 1.37에선 공통 신호만 제공(핵심 컨트롤러는 아직 읽지 않음)","드레인을 대체","테인트를 제거"],1,"관리자·정비 컨트롤러가 쓰고, 기존 cordon·drain은 계속 사용합니다."],
+ ["노드 교체 중 서비스 중단의 가장 흔한 실제 원인은?",["CPU 부족","LB 대상 등록·해제 타이밍과 preStop 부재, 레플리카 분산 부족","DNS TTL","이미지 크기"],1,"실습 대조 실험으로 확인합니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 6편: Service·kube-proxy와 그 대체재</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">6편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#svcx">Service 해석기</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">Service를 정밀하게</a></li>
+    <li><a href="#s2">EndpointSlice</a></li>
+    <li><a href="#s3">kube-proxy iptables 모드</a></li>
+    <li><a href="#s4">IPVS 모드와 그 퇴장</a></li>
+    <li><a href="#s5">nftables 모드</a></li>
+    <li><a href="#s6">Cilium·eBPF 대체</a></li>
+    <li><a href="#s7">OVN-Kubernetes의 Service</a></li>
+    <li><a href="#s8">트래픽 정책과 지역성</a></li>
+    <li><a href="#s9">벤더별 Service 구현 비교</a></li>
+    <li><a href="#s10">kube-proxy 없는 클러스터 디버깅</a></li>
+    <li><a href="#s11">실습</a></li>
+    <li><a href="#s12">현장 사례</a></li>
+    <li><a href="#s13">점검 퀴즈</a></li>
+    <li><a href="#s14">용어·약어 사전</a></li>
+    <li><a href="#s15">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 1 네트워크, 6편</div>
+    <h1>Service·kube-proxy와 그 대체재</h1>
+    <p class="lead">Service의 가상 IP는 어느 네트워크 카드에도 붙어 있지 않습니다. 패킷이 그 주소로 향하는 순간 누군가가 가로채 진짜 Pod 주소로 바꿔 줄 뿐입니다. 그 “누군가”가 iptables 규칙인지, nftables 맵인지, IPVS 테이블인지, eBPF 프로그램인지, OVN 로드밸런서인지에 따라 <strong>성능도, 출발지 IP도, 장애 때 봐야 할 곳도</strong> 달라집니다. 이 편은 같은 Service를 다섯 가지 구현으로 덤프해서 읽습니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 120분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">Service를 정밀하게</a></li><li><a href="#s2">EndpointSlice</a></li><li><a href="#s3">iptables 모드</a></li><li><a href="#s4">IPVS 모드</a></li><li><a href="#s5">nftables 모드</a></li><li><a href="#s6">Cilium·eBPF</a></li><li><a href="#s7">OVN-K</a></li><li><a href="#s8">트래픽 정책</a></li><li><a href="#s9">벤더 비교</a></li><li><a href="#s10">디버깅</a></li><li><a href="#s11">실습</a></li><li><a href="#s12">현장 사례</a></li><li><a href="#s13">퀴즈</a></li><li><a href="#s14">용어 사전</a></li><li><a href="#s15">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="svcx">
+    <h3>같은 Service, 다섯 가지 구현</h3>
+    <p class="sub">예제 Service <code>default/web</code>(ClusterIP 10.96.120.10:80, NodePort 31080, LB IP 203.0.113.50, 엔드포인트 3개)를 골라 둔 구현으로 처리할 때, 패킷이 지나는 길과 노드에서 실제로 보게 될 덤프를 보여 줍니다. 덤프는 실제 출력 형식을 따른 예시이며 해시·ID는 단순화했습니다.</p>
+    <div class="opt-row"><span class="lbl">Service 종류</span><span id="oType"></span></div>
+    <div class="opt-row"><span class="lbl">구현</span><span id="oImpl"></span></div>
+    <div class="opt-row"><span class="lbl">외부 트래픽 정책</span><span id="oEtp"></span></div>
+    <div class="opt-row"><span class="lbl">세션 어피니티</span><span id="oAff"></span></div>
+    <div class="path" id="xPath"></div>
+    <div class="facts" id="xFacts"></div>
+    <div class="dump"><div class="bar"><span id="xDumpT"></span><span>예시 출력</span></div><pre id="xDump"></pre></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Service는 회사의 대표 전화번호입니다. 손님은 대표 번호(ClusterIP)로 전화하고, 교환대가 지금 자리에 있는 직원(Pod) 중 한 명에게 돌려 줍니다. 교환대 역할을 누가 하느냐가 이 편의 주제입니다. kube-proxy는 노드마다 앉은 교환원이 규칙표(iptables·nftables)를 보고 돌려 주는 방식이고, Cilium은 전화기 자체에 자동 연결 기능(eBPF)을 넣어 교환원을 없앤 방식이며, OVN-K는 사내 전화망(가상 스위치)에 연결 규칙을 심은 방식입니다.</div>
+    <div class="prose">
+      <p>4·5편처럼 점선 밑줄 용어는 마우스를 올리거나 누르면 설명이 나오고, 14장 사전에 모여 있습니다.</p>
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>ClusterIP·NodePort·LoadBalancer 요청이 iptables·IPVS·nftables·eBPF·OVN에서 각각 어떤 규칙을 거쳐 Pod에 닿는지 덤프를 보고 설명할 수 있습니다.</li>
+        <li>EndpointSlice의 조건(ready·serving·terminating)과 힌트가 트래픽 분배에 어떻게 쓰이는지 설명할 수 있습니다.</li>
+        <li>externalTrafficPolicy·internalTrafficPolicy·trafficDistribution·세션 어피니티의 조합이 출발지 IP, 부하 분산, 지역성, 장애 동작에 주는 영향을 예측할 수 있습니다.</li>
+        <li>kube-proxy가 없는 클러스터(Cilium, GKE Dataplane V2, AKS Cilium, OpenShift)에서 Service 장애를 구현별 도구로 진단할 수 있습니다.</li>
+        <li>IPVS 폐기와 nftables 전환 흐름에 맞춰 고객 클러스터의 kube-proxy 모드 이전 계획을 세울 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>Service를 정밀하게</h2>
+    <div class="prose">
+      <h3>누가 무엇을 하나</h3>
+      <p>Service 하나가 동작하려면 서로 다른 네 주체가 협업합니다. 장애가 났을 때 “어느 주체의 일이 안 됐나”로 쪼개는 것이 진단의 출발점입니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>주체</th><th>하는 일</th><th>잘못되면</th></tr></thead>
+      <tbody>
+        <tr><td class="k">API 서버</td><td>ClusterIP와 NodePort 번호를 할당(Service CIDR, 기본 NodePort 범위 30000~32767)</td><td>IP 고갈, 포트 충돌로 Service 생성 실패</td></tr>
+        <tr><td class="k">EndpointSlice 컨트롤러</td><td>selector에 맞는 Pod를 찾아 EndpointSlice에 주소·상태를 기록</td><td>엔드포인트 없음(selector·레이블 불일치, Pod 미준비)</td></tr>
+        <tr><td class="k">프록시 구현</td><td>노드마다 가상 IP → Pod IP 변환 규칙을 프로그래밍(kube-proxy, Cilium, OVN-K 등)</td><td>규칙 누락·지연, 특정 노드에서만 실패</td></tr>
+        <tr><td class="k">클라우드 컨트롤러</td><td>type: LoadBalancer에 외부 LB를 만들고 IP를 status에 기록(CCM, LB 컨트롤러)</td><td>EXTERNAL-IP pending(3편 스모크 테스트의 kubeadm·RKE2)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><h3>종류별 정리</h3></div>
+    <div class="tbl"><table>
+      <thead><tr><th>종류</th><th>무엇이 생기나</th><th>쉬운 말로</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><span class="t" data-k="ClusterIP">ClusterIP</span></td><td>클러스터 안에서만 통하는 가상 IP</td><td>사내 대표 번호</td><td>노드 밖에서는 라우팅되지 않음(VPC 직결 CNI라도)</td></tr>
+        <tr><td class="k"><span class="t" data-k="NodePort">NodePort</span></td><td>ClusterIP + 모든 노드의 같은 포트</td><td>모든 지점 건물에 같은 내선 번호</td><td>nftables 모드는 localhost(127.0.0.1)의 NodePort를 받지 않음(5장)</td></tr>
+        <tr><td class="k">LoadBalancer</td><td>NodePort + 외부 LB(구현은 클라우드·MetalLB 등)</td><td>외부 고객용 대표 번호</td><td>LB가 노드로 보내느냐 Pod로 바로 보내느냐는 구현마다 다름(7편)</td></tr>
+        <tr><td class="k"><span class="t" data-k="headless">Headless</span> (<code>clusterIP: None</code>)</td><td>가상 IP 없이 DNS가 Pod IP 목록을 직접 반환</td><td>대표 번호 없이 직원 직통 번호부</td><td>프록시를 거치지 않음. StatefulSet·클라이언트 측 분산에 사용</td></tr>
+        <tr><td class="k">ExternalName</td><td>DNS CNAME만 생성</td><td>다른 회사 번호로 착신 전환</td><td>프록시 규칙 없음. TLS 인증서 이름 불일치 주의</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>최근 버전에서 달라진 것</h3>
+      <ul>
+        <li><strong>Service CIDR 확장.</strong> ServiceCIDR·IPAddress API가 1.33에서 GA가 되어, 클러스터를 다시 만들지 않고도 Service 대역을 추가할 수 있습니다. 예전에는 API 서버 플래그 하나로 고정이라 대역 고갈이 재구축 사유였습니다.</li>
+        <li><strong>LoadBalancer ipMode.</strong> LB가 패킷의 목적지를 LB IP 그대로 노드에 보내는지(VIP), 프록시처럼 바꿔서 보내는지(Proxy)를 status에 표시해, kube-proxy가 LB IP를 노드 안에서 단축 처리할지 결정합니다. 7편에서 다룹니다.</li>
+        <li><strong>spec.externalIPs 폐기 수순.</strong> 1.36에서 폐기와 제거 계획이 공지됐습니다. 아무 IP나 Service에 붙일 수 있어 트래픽 가로채기에 악용될 수 있던 필드입니다. 오래된 온프렘 매니페스트를 점검하세요.</li>
+        <li><strong>Endpoints API 폐기 예고.</strong> 1.33부터 Endpoints 대신 EndpointSlice를 쓰라는 경고가 나옵니다(2장).</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>EndpointSlice: 프록시가 읽는 단 하나의 진실</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    EndpointSlice는 교환대에 붙어 있는 “지금 근무 중인 직원 명단”입니다. 명단은 100명 단위 쪽지로 나뉘어 있고, 각 이름 옆에 “근무 중/곧 퇴근/퇴근 중” 표시와 “이 직원은 A동 손님 담당” 같은 메모(힌트)가 붙습니다. 모든 교환대 구현은 이 명단만 보고 연결합니다.</div>
+    <div class="prose">
+      <ul>
+        <li><strong>쪼개진 명단.</strong> Service 하나에 슬라이스가 여러 개일 수 있습니다(기본 슬라이스당 최대 100개). Pod 하나가 바뀌어도 그 슬라이스만 갱신되어, 엔드포인트가 수천 개인 Service에서도 API 서버와 프록시의 부담이 작습니다. 옛 Endpoints 객체는 한 Service의 모든 주소를 한 객체에 담아 대형 Service에서 큰 부하를 만들었고, 1,000개를 넘으면 잘립니다.</li>
+        <li><strong>세 가지 조건.</strong> <code>ready</code>(트래픽 받아도 됨), <code>serving</code>(준비 상태지만 종료 중일 수도 있음), <code>terminating</code>(종료 중). 프록시는 기본으로 ready만 쓰고, 모든 엔드포인트가 종료 중일 때는 serving인 종료 중 엔드포인트로라도 보내 연결 끊김을 줄입니다. 롤링 업데이트 중 순간적인 503을 줄이는 장치입니다.</li>
+        <li><strong>힌트.</strong> 토폴로지 인식 라우팅·trafficDistribution이 켜지면 컨트롤러가 각 엔드포인트에 “어느 존(zone)·노드가 써야 하는지” 힌트를 붙이고, 프록시는 자기 존·노드와 맞는 엔드포인트만 고릅니다(8장).</li>
+        <li><strong>누가 쓰나.</strong> EndpointSlice 컨트롤러(selector 있는 Service), 미러링 컨트롤러(selector 없이 Endpoints를 직접 쓴 Service를 슬라이스로 복사), 그리고 서비스 메시·Gateway 구현체 같은 외부 컨트롤러가 직접 슬라이스를 만들기도 합니다(<code>endpointslice.kubernetes.io/managed-by</code> 레이블로 구분).</li>
+      </ul>
+    </div>
+    <div class="code"><div class="bar"><span>EndpointSlice 읽기</span><button class="copy" type="button">복사</button></div><pre>kubectl get endpointslices -l kubernetes.io/service-name=web -o wide
+kubectl get endpointslices -l kubernetes.io/service-name=web -o yaml \
+  | yq '.items[].endpoints[] | {"ip": .addresses[0], "node": .nodeName, "zone": .zone, "cond": .conditions, "hints": .hints}'</pre></div>
+    <div class="note trap"><b>함정: Endpoints를 읽는 오래된 도구</b>
+    모니터링 스크립트, 사내 대시보드, 오래된 인그레스 컨트롤러가 아직 Endpoints 객체를 읽는 경우가 있습니다. 엔드포인트가 1,000개를 넘는 Service에서는 그 도구가 잘린 목록을 보게 되고, Endpoints 폐기가 진행되면 아예 동작하지 않게 됩니다. 고객 클러스터의 RBAC에서 <code>endpoints</code> 읽기 권한을 가진 ServiceAccount 목록을 뽑아 보면 이전 대상을 찾을 수 있습니다(18편의 who-can 활용).</div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>kube-proxy iptables 모드: 규칙 체인 읽기</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    iptables 모드의 kube-proxy는 노드마다 “이 번호로 오면 저 표를 봐라”는 이정표를 줄줄이 세웁니다. 패킷은 이정표를 위에서부터 차례로 읽다가 맞는 곳에서 목적지를 바꿉니다(<span class="t" data-k="DNAT">DNAT</span>). Pod 셋 중 하나를 고를 때는 주사위를 굴립니다(1/3, 남은 것 중 1/2, 마지막은 무조건).</div>
+    <div class="prose"><h3>체인 지도</h3></div>
+    <div class="tbl"><table>
+      <thead><tr><th>체인</th><th>역할</th><th>쉬운 말로</th></tr></thead>
+      <tbody>
+        <tr><td class="k">KUBE-SERVICES</td><td>모든 ClusterIP·LB IP의 입구. 목적지 IP·포트로 Service별 체인에 분기</td><td>안내 데스크</td></tr>
+        <tr><td class="k">KUBE-SVC-&lt;해시&gt;</td><td>Service 하나. 확률 규칙으로 엔드포인트 하나를 고름</td><td>부서 대표 번호</td></tr>
+        <tr><td class="k">KUBE-SEP-&lt;해시&gt;</td><td>엔드포인트 하나. Pod IP:포트로 DNAT</td><td>직원 내선</td></tr>
+        <tr><td class="k">KUBE-NODEPORTS</td><td>NodePort 입구</td><td>지점 건물 내선 안내</td></tr>
+        <tr><td class="k">KUBE-EXT-&lt;해시&gt;</td><td>외부에서 들어온 트래픽(NodePort·LB) 처리. 정책이 Cluster면 SNAT 표시 후 KUBE-SVC로</td><td>외부 손님 응대 창구</td></tr>
+        <tr><td class="k">KUBE-SVL-&lt;해시&gt;</td><td>externalTrafficPolicy: Local일 때 이 노드의 엔드포인트만</td><td>이 건물 직원에게만 연결</td></tr>
+        <tr><td class="k">KUBE-MARK-MASQ / KUBE-POSTROUTING</td><td>나중에 출발지를 노드 IP로 바꿀(<span class="t" data-k="masquerade">masquerade</span>) 패킷에 표시하고, 나갈 때 실제로 바꿈</td><td>“회신은 지점 번호로” 도장</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>Service 하나를 따라가는 명령</span><button class="copy" type="button">복사</button></div><pre>CIP=$(kubectl -n svc-lab get svc web -o jsonpath='{.spec.clusterIP}')
+sudo iptables-save -t nat | grep -- "-d $CIP/32"                  <span class="c"># KUBE-SERVICES → KUBE-SVC-xxx</span>
+SVC=$(sudo iptables-save -t nat | grep -- "-d $CIP/32" | grep -o 'KUBE-SVC-[A-Z0-9]*' | head -1)
+sudo iptables -t nat -L "$SVC" -n -v                               <span class="c"># probability 0.333 / 0.5 / 나머지</span>
+sudo iptables-save -t nat | grep -A2 "^-A KUBE-SEP" | grep DNAT     <span class="c"># 실제 Pod IP:포트</span>
+sudo conntrack -L -d "$CIP" 2&gt;/dev/null | head                      <span class="c"># 변환된 연결 기록 (conntrack 패키지 필요)</span>
+curl -s localhost:10249/proxyMode; echo                            <span class="c"># 현재 모드</span>
+curl -s localhost:10249/metrics | grep -E 'kubeproxy_sync_proxy_rules_(duration_seconds_(sum|count)|iptables_total)'</pre></div>
+    <div class="prose">
+      <h3>비용과 한계</h3>
+      <ul>
+        <li><strong>선형 탐색.</strong> KUBE-SERVICES는 Service 수만큼, KUBE-SVC는 엔드포인트 수만큼 규칙이 길어집니다. Service 수천 개, 엔드포인트 수만 개 규모에서는 첫 패킷 지연과 CPU가 늘어납니다.</li>
+        <li><strong>규칙 갱신 비용.</strong> 예전에는 매번 전체 테이블을 다시 썼고, 최근 버전은 바뀐 부분만 쓰도록 최적화됐지만 그래도 대형 클러스터에서 동기화 시간(<code>kubeproxy_sync_proxy_rules_duration_seconds</code>)이 수 초까지 늘어납니다. 그동안 새 엔드포인트로 트래픽이 가지 않습니다.</li>
+        <li><strong><span class="t" data-k="conntrack">conntrack</span> 의존.</strong> 첫 패킷만 규칙을 타고, 이후 패킷은 conntrack 기록으로 처리됩니다. conntrack 표가 가득 차면 새 연결이 조용히 버려집니다(12장).</li>
+        <li><strong>엔드포인트가 없을 때.</strong> 해당 ClusterIP로 오는 연결을 REJECT해 즉시 “연결 거부”를 돌려줍니다. 타임아웃이 아니라 거부가 보이면 엔드포인트 없음부터 의심하세요.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>IPVS 모드와 그 퇴장</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    <span class="t" data-k="IPVS">IPVS</span>는 리눅스 커널에 원래 들어 있던 전용 부하 분산기입니다. 이정표를 줄줄이 읽는 대신 해시 표에서 바로 찾기 때문에 대형 클러스터에서 iptables보다 빨랐습니다. 하지만 관리할 사람이 줄었고, 같은 장점을 가진 nftables 모드가 생기면서 퇴장 절차에 들어갔습니다.</div>
+    <div class="prose">
+      <ul>
+        <li><strong>동작.</strong> 모든 ClusterIP를 노드의 더미 인터페이스 <code>kube-ipvs0</code>에 붙이고, IPVS 가상 서버 → 실제 서버(Pod) 표를 만듭니다. <code>ipvsadm -Ln</code>으로 보입니다. 라운드 로빈 외에 최소 연결 등 여러 분산 알고리즘을 고를 수 있었던 것이 고유 장점입니다. 다만 SNAT·필터링 같은 일부는 여전히 iptables(ipset)에 기대므로 두 기술을 함께 디버깅해야 했습니다.</li>
+        <li><strong>폐기 일정.</strong> 1.35에서 공식 폐기되어 IPVS 모드로 시작하면 경고 로그가 찍힙니다. 업스트림 계획은 이 모드를 켜는 기능 게이트를 1.40에서 기본 꺼짐, 1.43에서 완전 잠금으로 바꿔 사실상 제거하는 것입니다. 별도 저장소로 옮겨 유지하는 안은 접었습니다.</li>
+        <li><strong>이전 대상.</strong> 업스트림 권장은 nftables 모드입니다. Calico를 함께 쓴다면 Calico 데이터플레인도 nftables로 맞추거나, 아예 eBPF 데이터플레인으로 kube-proxy를 없애는 선택지가 있습니다.</li>
+      </ul>
+    </div>
+    <div class="note field"><b>현장 메모: 인벤토리에 “kube-proxy 모드” 칸을 추가</b>
+    성능 때문에 IPVS로 바꿔 둔 온프렘·초기 매니지드 클러스터가 적지 않습니다. 1편의 버전 인벤토리에 kube-proxy 모드를 함께 기록하고, IPVS인 클러스터는 1.40 이전에 이전 계획을 세우세요. 이전은 ConfigMap의 mode 변경과 DaemonSet 재시작으로 끝나지만, 순간적인 연결 재설정이 있으므로 유지보수 창에서 합니다(11장 실습 1과 같은 절차).</div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>nftables 모드: 맵으로 한 번에 찾기</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    nftables 모드는 이정표를 한 줄씩 읽는 대신 “번호 → 갈 곳” 사전(맵)을 펼쳐 한 번에 찾습니다. Service가 수천 개여도 찾는 시간이 거의 같고, 바뀐 항목만 고쳐 쓸 수 있습니다.</div>
+    <div class="prose">
+      <ul>
+        <li><strong>상태.</strong> 1.33에서 GA. 1.37에서 기본값을 iptables에서 nftables로 바꾸는 작업이 Alpha로 시작됐지만, 1.37의 기본값은 아직 iptables입니다. 커널 5.13 이상이 필요합니다(3편 기준선의 Ubuntu 24.04는 충족).</li>
+        <li><strong>구조.</strong> kube-proxy가 자기 전용 테이블(<code>ip kube-proxy</code>, IPv6는 <code>ip6 kube-proxy</code>)을 소유하고, <code>service-ips</code>·<code>service-nodeports</code> 같은 판정 맵(verdict map)에서 목적지로 바로 Service 체인을 찾습니다. 엔드포인트 선택은 <code>numgen random mod N</code>으로 한 번에 합니다. 다른 도구의 규칙과 섞이지 않는 독립 테이블이라는 점도 iptables 모드와의 큰 차이입니다.</li>
+      </ul>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>iptables 모드와 다른 동작</th><th>영향</th></tr></thead>
+      <tbody>
+        <tr><td class="k">localhost NodePort 미지원</td><td>노드에서 <code>curl 127.0.0.1:&lt;NodePort&gt;</code>로 확인하던 헬스 체크·스크립트가 실패합니다. 노드 IP로 바꿔야 합니다.</td></tr>
+        <tr><td class="k">NodePort를 받는 주소의 기본값</td><td>노드의 모든 IP가 아니라 기본 주소에서만 NodePort를 받는 쪽으로 기본값이 바뀌었습니다. 보조 IP로 NodePort를 쓰던 구성은 <code>nodePortAddresses</code> 설정이 필요합니다.</td></tr>
+        <tr><td class="k">다른 방화벽 도구와의 관계</td><td>iptables로 직접 넣은 규칙과 kube-proxy 규칙의 상대 순서에 기대던 운영 스크립트는 다시 검증해야 합니다. 테이블이 분리되어 우선순위가 hook priority로 정해집니다.</td></tr>
+        <tr><td class="k">진단 명령</td><td><code>iptables-save</code> 대신 <code>nft list table ip kube-proxy</code>, <code>nft list map ip kube-proxy service-ips</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>nftables 모드 덤프 읽기</span><button class="copy" type="button">복사</button></div><pre>sudo nft list tables                                   <span class="c"># ip kube-proxy, ip6 kube-proxy</span>
+sudo nft list map ip kube-proxy service-ips | grep 10.96.120.10
+sudo nft list map ip kube-proxy service-nodeports
+sudo nft list table ip kube-proxy | grep -A6 'chain service-.*svc-lab/web'
+sudo nft list table ip kube-proxy | grep -A3 'chain endpoint-.*svc-lab/web' | head -20</pre></div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>Cilium·eBPF 대체: 교환원을 없애다</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Cilium의 kube-proxy 대체(<span class="t" data-k="KPR">KPR</span>)는 애플리케이션이 대표 번호로 전화를 거는 순간, 전화기 안에서 바로 직원 번호로 바꿔 거는 방식입니다(소켓 수준 변환). 교환대를 거치지 않으니 빠르고, 직원 쪽에서는 손님 번호가 그대로 보입니다.</div>
+    <div class="prose">
+      <h3>세 가지 경로</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>경로</th><th>어디서 변환하나</th><th>효과</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><span class="t" data-k="socket LB">소켓 로드밸런싱</span></td><td>Pod 안 프로세스가 <code>connect()</code>할 때 cgroup eBPF 훅에서 ClusterIP를 Pod IP로 바꿈</td><td>패킷 단위 DNAT·conntrack이 필요 없음. 클러스터 내부 트래픽의 대부분</td></tr>
+        <tr><td class="k">tc(트래픽 제어) 훅</td><td>노드 인터페이스에 붙은 eBPF가 NodePort·LB·외부 트래픽 처리</td><td>NodePort·LoadBalancer, hostPort</td></tr>
+        <tr><td class="k"><span class="t" data-k="XDP">XDP</span> 가속(선택)</td><td>NIC 드라이버 직후에서 처리</td><td>가장 빠른 NodePort·LB 처리. 지원 NIC 필요</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>추가 기능</h3>
+      <ul>
+        <li><strong><span class="t" data-k="DSR">DSR</span>.</strong> 외부 요청을 다른 노드의 Pod로 보낼 때, 응답은 그 Pod의 노드가 클라이언트에게 직접 돌려줍니다. 원래 출발지 IP가 보존되고 왕복 경로가 짧아집니다. 네이티브 라우팅이 필요하고 일부 클라우드 환경에서는 제약이 있습니다.</li>
+        <li><strong><span class="t" data-k="Maglev">Maglev</span> 해싱.</strong> 백엔드가 바뀌어도 기존 연결이 같은 Pod로 가도록 일관 해싱을 씁니다. 노드가 여러 대인 LB 앞단에서 유용합니다.</li>
+        <li><strong>Service가 없는 엔드포인트.</strong> 백엔드가 없으면 연결 시점에 바로 오류를 돌려줘 타임아웃 대기를 줄입니다.</li>
+      </ul>
+      <h3>벤더 안의 KPR</h3>
+      <ul>
+        <li><strong>GKE Dataplane V2</strong>: kube-proxy가 아예 없고 노드의 <code>anetd</code>(Cilium 기반 에이전트)가 Service를 처리합니다. GKE 문서는 kube-proxy가 업스트림에서 먼저 구현하는 Service 신기능이 Dataplane V2에는 늦게 들어올 수 있다고 명시합니다. 1.37 기능을 쓰려 할 때 확인할 지점입니다.</li>
+        <li><strong>AKS Cilium 데이터플레인</strong>: 마찬가지로 kube-proxy가 없고, 사용자가 KPR 세부 설정(DSR, XDP 등)을 바꿀 수 없습니다.</li>
+        <li><strong>자체 설치 Cilium</strong>: 위 기능을 모두 고를 수 있는 대신 커널 요구사항과 업그레이드를 직접 책임집니다.</li>
+      </ul>
+    </div>
+    <div class="code"><div class="bar"><span>Cilium에서 Service 보기</span><button class="copy" type="button">복사</button></div><pre>kubectl -n kube-system exec ds/cilium -- cilium-dbg status --verbose | sed -n '/KubeProxyReplacement/,/^$/p'
+kubectl -n kube-system exec ds/cilium -- cilium-dbg service list | grep -A3 10.96.120.10
+kubectl -n kube-system exec ds/cilium -- cilium-dbg bpf lb list | head -20
+kubectl -n kube-system exec ds/cilium -- cilium-dbg bpf ct list global | grep 10.96.120.10 | head
+hubble observe --to-service svc-lab/web --last 20</pre></div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>OVN-Kubernetes의 Service (OpenShift)</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    OVN-K는 가상 사내 전화망의 각 층 교환기(논리 스위치)와 건물 출입구(게이트웨이 라우터)에 “이 대표 번호는 이 직원들에게”라는 연결 규칙(<span class="t" data-k="OVN">OVN</span> 로드밸런서)을 심어 둡니다. kube-proxy는 없습니다.</div>
+    <div class="prose">
+      <ul>
+        <li><strong>구현.</strong> Service마다 OVN 로드밸런서 객체가 생기고, 클러스터 내부용은 노드별 논리 스위치에, NodePort·외부용은 노드의 게이트웨이 라우터에 붙습니다. 변환은 결국 각 노드 <span class="t" data-k="OVS">OVS</span>의 흐름 규칙과 conntrack으로 실행됩니다.</li>
+        <li><strong>이름 규칙.</strong> 로드밸런서 이름이 <code>Service_&lt;네임스페이스&gt;/&lt;이름&gt;_TCP_cluster</code>, <code>..._node_router_&lt;노드&gt;</code> 같은 형식이라, 문제의 Service를 찾기 쉽습니다.</li>
+        <li><strong>헤어핀.</strong> Pod가 자기 자신이 뒤에 있는 Service를 호출하면(헤어핀), 응답이 돌아올 수 있도록 특별한 SNAT 주소를 씁니다. 패킷 캡처에서 낯선 출발지가 보이면 이것일 수 있습니다.</li>
+        <li><strong>진단 도구.</strong> <code>ovn-nbctl lb-list</code>(설계도 쪽), <code>ovn-trace</code>·<code>ovnkube-trace</code>(가상 경로 추적), <code>ovs-appctl dpctl/dump-conntrack</code>(실제 연결). OVN 인터커넥트 구조에서는 노드마다 데이터베이스가 있으므로, <strong>문제가 난 노드의 ovnkube-node Pod</strong>에서 조회해야 합니다.</li>
+      </ul>
+    </div>
+    <div class="code"><div class="bar"><span>OpenShift에서 Service 보기</span><button class="copy" type="button">복사</button></div><pre>NODE=$(oc get pod -n svc-lab -l app=web -o jsonpath='{.items[0].spec.nodeName}')
+OVN=$(oc -n openshift-ovn-kubernetes get pod -l app=ovnkube-node --field-selector spec.nodeName=$NODE -o name)
+oc -n openshift-ovn-kubernetes exec $OVN -c nbdb -- ovn-nbctl lb-list | grep 'svc-lab/web'
+oc -n openshift-ovn-kubernetes exec $OVN -c nbdb -- ovn-nbctl --columns=name,vips find load_balancer name~svc-lab
+oc -n openshift-ovn-kubernetes exec $OVN -c ovn-controller -- ovs-appctl dpctl/dump-conntrack | grep 172.30. | head
+<span class="c"># 컨테이너 이름(nbdb, ovn-controller 등)은 버전에 따라 다를 수 있음: oc get $OVN -o jsonpath='{.spec.containers[*].name}'</span></pre></div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>트래픽 정책과 지역성</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Service에는 “어느 직원에게 연결할지” 고르는 규칙이 네 가지 있습니다. 외부 손님은 들어온 건물 직원에게만 연결할지(externalTrafficPolicy), 내부 직원끼리는 같은 층 직원에게만 연결할지(internalTrafficPolicy), 가까운 직원을 우선할지(trafficDistribution), 한 번 연결된 손님은 같은 직원에게 계속 연결할지(sessionAffinity)입니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>설정</th><th>값</th><th>효과</th><th>대가</th></tr></thead>
+      <tbody>
+        <tr><td class="k">externalTrafficPolicy</td><td>Cluster(기본) / Local</td><td>Local: 외부 트래픽을 들어온 노드의 Pod에만 보내고 <strong>원래 출발지 IP 보존</strong>. 엔드포인트가 없는 노드는 LB 헬스 체크(<span class="t" data-k="healthCheckNodePort">healthCheckNodePort</span>)에 실패해 LB가 빼 줌</td><td>Pod가 고르게 퍼져 있지 않으면 부하 쏠림. LB가 헬스 체크를 지원하지 않으면 트래픽 유실</td></tr>
+        <tr><td class="k">internalTrafficPolicy</td><td>Cluster(기본) / Local</td><td>Local: 클러스터 내부 트래픽을 같은 노드의 엔드포인트로만. 노드 로컬 캐시·에이전트(DaemonSet)에 적합</td><td>같은 노드에 엔드포인트가 없으면 <strong>그냥 실패</strong>(대체 없음)</td></tr>
+        <tr><td class="k">trafficDistribution</td><td>PreferSameZone / PreferSameNode (PreferClose는 PreferSameZone의 폐기된 별칭)</td><td>가까운 엔드포인트를 <strong>우선</strong>하고, 없으면 다른 곳으로 대체. 존 간 데이터 전송 비용·지연 감소</td><td>존별 Pod 수가 불균형하면 일부 Pod에 부하 쏠림</td></tr>
+        <tr><td class="k">세션 어피니티</td><td>None / ClientIP (기본 유지 3시간)</td><td>같은 클라이언트 IP는 같은 Pod로</td><td>SNAT 뒤에서는 모든 요청이 같은 IP로 보여 한 Pod에 몰림. NAT 게이트웨이·Cluster 정책과 함께 쓰면 의미가 없어지기 쉬움</td></tr>
+        <tr><td class="k">토폴로지 인식 라우팅(어노테이션)</td><td><code>service.kubernetes.io/topology-mode: Auto</code></td><td>존별 CPU 용량에 비례해 힌트를 배분. 안전 조건이 맞지 않으면 힌트를 붙이지 않음</td><td>동작 조건이 복잡해 기대와 다를 수 있음. 신규 설정은 trafficDistribution 권장</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <p>trafficDistribution은 1.33에서 GA가 됐고, 의미가 모호했던 PreferClose를 대체하는 PreferSameZone과 새 값 PreferSameNode가 1.35에서 GA가 됐습니다. 힌트는 EndpointSlice에 기록되며, 존 정보는 노드의 <code>topology.kubernetes.io/zone</code> 레이블에서 옵니다. 매니지드에서는 CCM이 채우지만, kubeadm 기준선에서는 직접 붙여야 동작합니다(11장 실습 4).</p>
+      <h3>시뮬레이터: 어떤 Pod가 후보가 되나</h3>
+      <p>존 두 개, 노드 세 대인 클러스터입니다. 요청이 어디서 시작하는지와 정책을 바꿔 보면, 후보가 되는 Pod가 초록색으로 표시되고 출발지 IP 보존 여부와 주의점이 나옵니다.</p>
+    </div>
+    <div class="calc" id="sim">
+      <div class="opt-row"><span class="lbl">요청 출발</span><span id="sFrom"></span></div>
+      <div class="opt-row"><span class="lbl">externalTP</span><span id="sEtp"></span></div>
+      <div class="opt-row"><span class="lbl">internalTP</span><span id="sItp"></span></div>
+      <div class="opt-row"><span class="lbl">distribution</span><span id="sTd"></span></div>
+      <div class="topo" id="sTopo"></div>
+      <div class="calc-msg" id="sMsg"></div>
+    </div>
+    <div class="note trap"><b>함정: Local 정책과 롤링 업데이트</b>
+    externalTrafficPolicy: Local인 Service에서 노드의 마지막 Pod가 종료되는 순간, LB 헬스 체크가 그 노드를 빼기 전까지 들어온 요청은 갈 곳이 없습니다. 2장에서 본 종료 중 엔드포인트 처리(serving·terminating)가 이 틈을 줄여 주지만, LB 헬스 체크 주기·임계값과 Pod의 종료 유예 시간(preStop 지연)을 함께 맞춰야 완전히 막을 수 있습니다. 7편에서 LB 쪽 설정과 함께 다룹니다.</div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>벤더별 Service 구현 비교</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>배포 방식</th><th>기본 구현</th><th>바꿀 수 있나</th><th>진단 도구</th><th>메모</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm</td><td>kube-proxy iptables</td><td class="y">ConfigMap mode로 자유(nftables 권장, IPVS 폐기)</td><td>iptables-save, nft, conntrack</td><td>3편 기준선</td></tr>
+        <tr><td class="k">RKE2</td><td>kube-proxy iptables</td><td class="y"><code>kube-proxy-arg</code>로 모드 변경, 또는 Cilium + <code>disable-kube-proxy</code></td><td>위와 같음</td><td>5편 10장 설정 예</td></tr>
+        <tr><td class="k">OpenShift</td><td>OVN-Kubernetes (kube-proxy 없음)</td><td class="n">불가</td><td>ovn-nbctl, ovn-trace, ovs-appctl</td><td>Service CIDR 기본 172.30.0.0/16</td></tr>
+        <tr><td class="k">EKS</td><td>kube-proxy 애드온 iptables</td><td class="m">애드온 설정으로 모드 변경(지원 모드는 애드온 버전 확인), Cilium 체이닝으로 대체 가능</td><td>노드 접속 후 iptables·nft</td><td>VPC CNI와 조합. kube-proxy 애드온 버전도 업그레이드 대상(1편 공동 책임)</td></tr>
+        <tr><td class="k">AKS</td><td>Azure CNI: kube-proxy iptables / Cilium 데이터플레인: kube-proxy 없음</td><td class="m">kube-proxy 구성 사용자 지정 기능, 데이터플레인은 생성 시 선택</td><td>노드 디버그 Pod, Cilium 상태(ACNS 시 Hubble)</td><td>3편 lab-aks는 Cilium</td></tr>
+        <tr><td class="k">GKE</td><td>Dataplane V2: anetd(kube-proxy 없음) / 레거시: kube-proxy iptables</td><td class="n">생성 시 결정</td><td>anetd 안의 cilium 명령, DPv2 관측 기능</td><td>Service 신기능 반영이 업스트림보다 늦을 수 있음</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: “kube-proxy 버전”도 업그레이드 항목이다</b>
+    kube-proxy를 쓰는 매니지드(EKS, 일부 AKS)에서는 컨트롤 플레인을 올려도 kube-proxy 애드온은 따로 올려야 하는 경우가 많습니다. 2편의 스큐 정책상 kube-proxy는 API 서버보다 세 마이너까지 뒤처질 수 있으니 당장 깨지지는 않지만, 그만큼 새 Service 기능(trafficDistribution 값 등)이 노드에서 동작하지 않는 기간이 길어집니다. “API에서는 받아 주는데 동작은 안 하는” 상태의 대표 원인입니다.</div>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>kube-proxy 없는 클러스터 디버깅</h2>
+    <div class="prose"><p>Service 장애는 아래 순서로 쪼갭니다. 1~3단계는 구현과 무관하게 같고, 4단계부터 구현별 도구가 갈립니다. 3단계에서 “Pod IP로 직접 호출은 되는데 Service로는 안 된다”가 확인되면 문제는 CNI가 아니라 Service 구현입니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>단계</th><th>질문</th><th>kube-proxy (iptables·nft)</th><th>Cilium·DPv2·AKS Cilium</th><th>OVN-K (OpenShift)</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1</td><td>엔드포인트가 있나</td><td colspan="3"><code>kubectl get endpointslices -l kubernetes.io/service-name=web</code> (비어 있으면 selector·레이블·readiness 확인)</td></tr>
+        <tr><td class="k">2</td><td>포트가 맞나</td><td colspan="3">Service <code>targetPort</code>와 컨테이너 포트·이름, <code>kubectl get svc web -o yaml</code></td></tr>
+        <tr><td class="k">3</td><td>Pod IP 직접 호출은 되나</td><td colspan="3"><code>kubectl exec client -- curl &lt;PodIP&gt;:8080</code> (안 되면 CNI·NetworkPolicy 문제: 5·9편)</td></tr>
+        <tr><td class="k">4</td><td>변환 규칙이 있나</td><td><code>iptables-save -t nat</code> / <code>nft list map ip kube-proxy service-ips</code></td><td><code>cilium-dbg service list</code>, <code>bpf lb list</code></td><td><code>ovn-nbctl lb-list</code></td></tr>
+        <tr><td class="k">5</td><td>연결이 기록되나</td><td><code>conntrack -L -d &lt;ClusterIP&gt;</code></td><td><code>cilium-dbg bpf ct list global</code></td><td><code>ovs-appctl dpctl/dump-conntrack</code></td></tr>
+        <tr><td class="k">6</td><td>어디서 버려지나</td><td>정책 엔진 로그(Calico Whisker 등), <code>tcpdump</code></td><td><code>hubble observe --verdict DROPPED</code>, <code>cilium-dbg monitor --type drop</code></td><td>ACL 감사 로그, <code>ovn-trace</code></td></tr>
+        <tr><td class="k">7</td><td>프록시 자체는 건강한가</td><td>kube-proxy 로그, <code>:10256/healthz</code>, 동기화 시간 지표</td><td><code>cilium status</code>, 에이전트 재시작 이력</td><td><code>oc get co network</code>, ovnkube-node 로그</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note trap"><b>함정: “iptables에 아무것도 없으니 Service가 고장”</b>
+    Cilium KPR·DPv2·OVN-K 노드에서 <code>iptables-save</code>에 KUBE- 체인이 없는 것은 정상입니다. 데이터플레인을 확인하지 않고 iptables부터 보는 습관이 kube-proxy 없는 클러스터에서 진단 시간을 가장 많이 낭비합니다. 1편 지문 스크립트의 “kube-proxy 모드” 항목을 먼저 보세요.</div>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>실습: 같은 Service를 세 구현에서 추적하기</h2>
+    <div class="prose">
+      <p>커리큘럼의 핵심 실습입니다. 같은 Deployment·Service를 lab-native(iptables → nftables), lab-gke(Dataplane V2), lab-ocp(OVN-K)에 배포하고 같은 질문을 던집니다. 테스트 앱은 요청을 보낸 클라이언트 IP(<code>/clientip</code>)와 자기 Pod 이름(<code>/hostname</code>)을 돌려주는 agnhost netexec입니다. 5편 실습 2에서 Cilium으로 바꿨다면 baseline 스냅샷으로 돌아온 상태에서 시작하세요.</p>
+      <h3>실습 0. 공통 배포</h3>
+    </div>
+    <div class="code"><div class="bar"><span>svc-lab.yaml (세 환경 공통)</span><button class="copy" type="button">복사</button></div><pre>apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: svc-lab}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      topologySpreadConstraints:
+      - {maxSkew: 1, topologyKey: kubernetes.io/hostname, whenUnsatisfiable: ScheduleAnyway, labelSelector: {matchLabels: {app: web}}}
+      containers:
+      - name: web
+        image: registry.k8s.io/e2e-test-images/agnhost:2.52
+        args: ["netexec", "--http-port=8080"]
+        ports: [{name: http, containerPort: 8080}]
+        readinessProbe: {httpGet: {path: /healthz, port: 8080}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: svc-lab}
+spec:
+  type: NodePort
+  selector: {app: web}
+  ports: [{name: http, port: 80, targetPort: http}]
+</pre></div>
+    <div class="code"><div class="bar"><span>배포와 기본 확인</span><button class="copy" type="button">복사</button></div><pre>kubectl create ns svc-lab
+kubectl apply -f svc-lab.yaml
+kubectl -n svc-lab rollout status deploy/web
+kubectl -n svc-lab get pods -o wide
+kubectl -n svc-lab get svc web
+kubectl -n svc-lab get endpointslices -l kubernetes.io/service-name=web -o wide
+<span class="c"># 클라이언트 Pod (curl 이미지)</span>
+kubectl -n svc-lab run client --image=curlimages/curl:8.10.1 --restart=Never -- sleep 3600
+kubectl -n svc-lab wait pod/client --for=condition=Ready
+for i in $(seq 1 9); do kubectl -n svc-lab exec client -- curl -s web/hostname; echo; done | sort | uniq -c</pre></div>
+    <div class="note"><b>확인 포인트</b>
+    세 Pod 이름이 고르게 섞여 나오면 기본 분산이 동작하는 것입니다. 노드가 세 대뿐이라 컨트롤 플레인 노드(테인트)에는 Pod가 뜨지 않으므로, 실습 4의 Local 정책 실험에서 cp1은 엔드포인트가 없는 노드 역할을 합니다.</div>
+
+    <div class="prose"><h3>실습 1. lab-native: iptables 덤프 → nftables 전환 → 다시 덤프</h3></div>
+    <div class="code"><div class="bar"><span>(1) iptables 모드 읽기 — w1에서</span><button class="copy" type="button">복사</button></div><pre>CIP=$(kubectl -n svc-lab get svc web -o jsonpath='{.spec.clusterIP}')
+NP=$(kubectl -n svc-lab get svc web -o jsonpath='{.spec.ports[0].nodePort}')
+multipass exec w1 -- sudo bash -c "
+  curl -s localhost:10249/proxyMode; echo
+  iptables-save -t nat | grep -- '-d $CIP/32'
+  iptables-save -t nat | grep -E 'KUBE-NODEPORTS.*$NP'
+  iptables-save -t nat | grep -c '^-A KUBE-'
+"</pre></div>
+    <div class="code"><div class="bar"><span>(2) nftables로 전환 (kube-proxy + Calico)</span><button class="copy" type="button">복사</button></div><pre><span class="c"># kube-proxy ConfigMap의 config.conf 안 'mode: iptables' 를 'mode: nftables' 로</span>
+kubectl -n kube-system get cm kube-proxy -o jsonpath='{.data.config\.conf}' | grep '^mode'
+kubectl -n kube-system edit cm kube-proxy
+kubectl -n kube-system rollout restart ds/kube-proxy
+kubectl -n kube-system rollout status ds/kube-proxy
+kubectl -n kube-system logs ds/kube-proxy | grep -i -m3 nftables
+
+<span class="c"># Calico 데이터플레인도 nftables로 맞춤</span>
+kubectl patch installation default --type=merge -p '{"spec":{"calicoNetwork":{"linuxDataplane":"Nftables"}}}'
+kubectl get tigerastatus</pre></div>
+    <div class="code"><div class="bar"><span>(3) nftables 모드 읽기 — w1에서</span><button class="copy" type="button">복사</button></div><pre>multipass exec w1 -- sudo bash -c "
+  curl -s localhost:10249/proxyMode; echo
+  nft list map ip kube-proxy service-ips | grep $CIP
+  nft list map ip kube-proxy service-nodeports | grep $NP
+  nft list table ip kube-proxy | grep -A5 'chain service-.*svc-lab/web' | head -12
+  iptables-save -t nat | grep -c '^-A KUBE-'     # 남은 iptables 규칙 수
+  curl -s -m2 127.0.0.1:$NP/hostname || echo 'localhost NodePort 거부 (nftables 모드 특성)'
+"</pre></div>
+    <div class="note"><b>관찰 과제</b>
+    전환 전후로 ① Service 하나를 찾는 데 거친 규칙 수, ② 엔드포인트 선택 방식(statistic 확률 vs numgen), ③ localhost NodePort 동작, ④ <code>kubeproxy_sync_proxy_rules_duration_seconds</code> 평균을 기록하세요. 이후 실습은 nftables 모드로 진행해도 됩니다. 되돌리려면 같은 절차로 mode를 iptables로 바꾸면 됩니다.</div>
+
+    <div class="prose"><h3>실습 2. lab-gke: Dataplane V2에서 같은 Service</h3></div>
+    <div class="code"><div class="bar"><span>lab-gke 컨텍스트</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-gke
+kubectl create ns svc-lab &amp;&amp; kubectl apply -f svc-lab.yaml &amp;&amp; kubectl -n svc-lab rollout status deploy/web
+kubectl -n kube-system get ds | grep -E 'kube-proxy|anetd'          <span class="c"># kube-proxy 없음, anetd 있음</span>
+
+CIP=$(kubectl -n svc-lab get svc web -o jsonpath='{.spec.clusterIP}')
+A=$(kubectl -n kube-system get pod -l k8s-app=cilium -o jsonpath='{.items[0].metadata.name}')
+kubectl -n kube-system get pod $A -o jsonpath='{.spec.containers[*].name}'; echo   <span class="c"># 컨테이너 이름 확인</span>
+kubectl -n kube-system exec $A -c cilium-agent -- cilium service list | grep -A3 "$CIP"
+kubectl -n kube-system exec $A -c cilium-agent -- cilium bpf lb list | grep -A3 "$CIP"</pre></div>
+    <div class="note"><b>메모</b>
+    GKE가 관리하는 에이전트이므로 명령 이름(<code>cilium</code> 또는 <code>cilium-dbg</code>)과 컨테이너 이름은 버전에 따라 다를 수 있습니다. 위 둘째 줄 출력으로 확인한 이름을 쓰세요. 흐름까지 보려면 Dataplane V2 관측 기능(<code>--enable-dataplane-v2-flow-observability</code>)을 켭니다.</div>
+
+    <div class="prose"><h3>실습 3. lab-ocp: OVN 로드밸런서로 같은 Service</h3></div>
+    <div class="code"><div class="bar"><span>lab-ocp 컨텍스트 (oc 사용)</span><button class="copy" type="button">복사</button></div><pre>oc new-project svc-lab
+oc apply -f svc-lab.yaml &amp;&amp; oc -n svc-lab rollout status deploy/web
+oc -n openshift-ovn-kubernetes get ds                                <span class="c"># ovnkube-node, kube-proxy 없음</span>
+OVN=$(oc -n openshift-ovn-kubernetes get pod -l app=ovnkube-node -o name | head -1)
+oc -n openshift-ovn-kubernetes get $OVN -o jsonpath='{.spec.containers[*].name}'; echo
+oc -n openshift-ovn-kubernetes exec $OVN -c nbdb -- ovn-nbctl lb-list | grep 'svc-lab/web'
+oc -n openshift-ovn-kubernetes exec $OVN -c nbdb -- ovn-nbctl ls-lb-list $(oc get nodes -o name | head -1 | cut -d/ -f2) | head</pre></div>
+
+    <div class="prose"><h3>실습 4. 트래픽 정책 실험 (lab-native)</h3></div>
+    <div class="code"><div class="bar"><span>(1) externalTrafficPolicy와 출발지 IP</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-native
+NP=$(kubectl -n svc-lab get svc web -o jsonpath='{.spec.ports[0].nodePort}')
+IPS=$(kubectl get nodes -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address} {end}')
+
+<span class="c"># 호스트에서: Cluster 정책 → 응답의 클라이언트 IP가 노드 IP로 바뀜(SNAT)</span>
+for ip in $IPS; do echo -n "$ip → "; curl -s -m2 http://$ip:$NP/clientip; echo; done
+
+kubectl -n svc-lab patch svc web -p '{"spec":{"externalTrafficPolicy":"Local"}}'
+kubectl -n svc-lab get svc web -o jsonpath='{.spec.healthCheckNodePort}'; echo
+<span class="c"># Local 정책 → 호스트의 실제 IP가 보이고, Pod가 없는 노드(cp1)는 응답 없음</span>
+for ip in $IPS; do echo -n "$ip → "; curl -s -m2 http://$ip:$NP/clientip || echo "(이 노드엔 엔드포인트 없음)"; echo; done
+kubectl -n svc-lab patch svc web -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'</pre></div>
+    <div class="code"><div class="bar"><span>(2) trafficDistribution과 힌트</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 기준선에는 존 레이블이 없으므로 직접 부여 (매니지드에서는 CCM이 채움)</span>
+kubectl label node cp1 w1 topology.kubernetes.io/zone=zone-a --overwrite
+kubectl label node w2 topology.kubernetes.io/zone=zone-b --overwrite
+kubectl -n svc-lab rollout restart deploy/web &amp;&amp; kubectl -n svc-lab rollout status deploy/web
+
+kubectl -n svc-lab patch svc web -p '{"spec":{"trafficDistribution":"PreferSameZone"}}'
+kubectl -n svc-lab get endpointslices -l kubernetes.io/service-name=web -o yaml | grep -B2 -A4 hints
+
+<span class="c"># client Pod를 zone-a 노드(w1)에 다시 두고 반복 호출 → zone-a Pod 이름만 나와야 함</span>
+kubectl -n svc-lab delete pod client
+kubectl -n svc-lab run client --image=curlimages/curl:8.10.1 \
+  --overrides='{"spec":{"nodeName":"w1"}}' -- sleep 3600
+kubectl -n svc-lab wait pod/client --for=condition=Ready
+for i in $(seq 1 10); do kubectl -n svc-lab exec client -- curl -s web/hostname; echo; done | sort | uniq -c
+
+<span class="c"># PreferSameNode, internalTrafficPolicy: Local 도 같은 방법으로 비교</span>
+kubectl -n svc-lab patch svc web -p '{"spec":{"trafficDistribution":"PreferSameNode"}}'
+kubectl -n svc-lab patch svc web -p '{"spec":{"trafficDistribution":null,"internalTrafficPolicy":"Local"}}'</pre></div>
+    <div class="prose">
+      <h3>과제</h3>
+      <ol>
+        <li>아래 표를 실습 결과로 채우세요: 구현 / ClusterIP 변환 위치 / NodePort 처리 위치 / 엔드포인트 선택 방식 / 출발지 IP(Cluster·Local) / 엔드포인트 없을 때 증상 / 진단 명령. lab-native(iptables·nftables), lab-gke, lab-ocp 네 줄입니다.</li>
+        <li>8장 시뮬레이터에서 “internalTrafficPolicy: Local + 클라이언트가 Pod 없는 노드”를 고른 결과를 실습 4 (2)의 마지막 명령으로 재현하고, 어떤 오류가 나는지 기록하세요.</li>
+        <li>담당 고객사 클러스터의 kube-proxy 모드와 kube-proxy 버전을 조사해, IPVS 사용 여부와 API 서버 대비 마이너 차이를 표로 정리하세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>DNS 조회가 가끔 5초씩 걸린다</summary><div class="body">
+      <p><strong>증상.</strong> 대부분 빠른데 간헐적으로 정확히 5초 지연이 생깁니다.</p>
+      <p><strong>원인.</strong> glibc 리졸버가 A·AAAA 질의를 같은 UDP 소켓으로 동시에 보내는데, 두 패킷이 conntrack에 동시에 등록되려다 하나가 버려지는 경쟁 조건이 iptables 기반 Service(CoreDNS ClusterIP)에서 알려져 있습니다. 버려진 질의는 리졸버 타임아웃(5초) 뒤 재시도됩니다.</p>
+      <p><strong>대응.</strong> NodeLocal DNSCache로 노드 로컬 캐시를 두거나(10편), Pod <code>dnsConfig</code>에 <code>single-request-reopen</code> 옵션을 주거나, conntrack을 거치지 않는 eBPF 소켓 로드밸런싱으로 옮깁니다.</p>
+      <p><strong>교훈.</strong> “정확히 5초”는 DNS 타임아웃의 지문입니다. Service 구현과 conntrack을 함께 의심하세요.</p>
+    </div></details>
+    <details class="case"><summary>트래픽 피크 때 새 연결만 조용히 실패한다</summary><div class="body">
+      <p><strong>원인.</strong> 노드의 conntrack 표가 가득 찼습니다. 커널 로그에 <code>nf_conntrack: table full, dropping packet</code>이 남아 있었습니다. 짧은 연결을 대량으로 맺는 배치 작업이 같은 노드에 몰려 있었습니다.</p>
+      <p><strong>대응.</strong> kube-proxy의 conntrack 설정(<code>conntrack.maxPerCore</code>)과 노드 sysctl을 조정하고, 해당 워크로드에 연결 재사용(keep-alive)을 적용했습니다. conntrack 사용률을 노드 지표 경보에 추가했습니다.</p>
+      <p><strong>교훈.</strong> iptables·nftables·OVN 모두 conntrack에 기대고, eBPF 구현도 자체 연결 표를 가집니다. <strong>연결 표 사용률</strong>은 어떤 구현에서든 감시 대상입니다.</p>
+    </div></details>
+    <details class="case"><summary>방화벽 허용 목록이 갑자기 안 맞는다 (출발지 IP)</summary><div class="body">
+      <p><strong>상황.</strong> 외부 파트너 시스템이 고객 앱으로 호출할 때 출발지 IP로 허용 목록을 관리하는데, 앱 로그에는 노드 IP만 찍혔습니다.</p>
+      <p><strong>원인.</strong> LoadBalancer Service가 externalTrafficPolicy: Cluster(기본)라 노드에서 SNAT되었습니다.</p>
+      <p><strong>대응.</strong> Local로 바꾸고, Pod를 노드에 고르게 퍼뜨리는 토폴로지 분산을 넣고, LB 헬스 체크 설정을 확인했습니다. LB 종류에 따라서는 프록시 프로토콜이나 X-Forwarded-For가 대안입니다(7편).</p>
+      <p><strong>교훈.</strong> 출발지 IP 보존은 <strong>Service 정책·LB 종류·CNI 구현의 조합</strong>으로 결정됩니다. 8장 시뮬레이터로 먼저 확인하세요.</p>
+    </div></details>
+    <details class="case"><summary>nftables로 바꿨더니 노드 헬스 체크 스크립트가 실패한다</summary><div class="body">
+      <p><strong>원인.</strong> 노드에서 <code>curl 127.0.0.1:&lt;NodePort&gt;</code>로 앱을 확인하던 모니터링 스크립트가 있었습니다. nftables 모드는 localhost NodePort를 지원하지 않습니다.</p>
+      <p><strong>대응.</strong> 노드 IP로 호출하도록 스크립트를 바꿨습니다.</p>
+      <p><strong>교훈.</strong> 모드 전환은 kube-proxy만의 일이 아닙니다. 노드에서 NodePort·ClusterIP를 직접 부르는 <strong>주변 스크립트와 방화벽 규칙</strong>을 먼저 목록화하세요.</p>
+    </div></details>
+    <details class="case"><summary>internalTrafficPolicy: Local로 바꾼 뒤 일부 Pod만 로그 전송 실패</summary><div class="body">
+      <p><strong>상황.</strong> 노드마다 도는 로그 수집기(DaemonSet) 앞의 Service에 Local을 걸어 노드 간 트래픽을 줄였습니다. 그런데 새로 추가한 노드 풀의 Pod만 로그 전송이 실패했습니다.</p>
+      <p><strong>원인.</strong> 새 노드 풀에 테인트가 있어 수집기 DaemonSet이 그 노드에 뜨지 않았습니다. Local 정책은 대체 경로 없이 실패합니다.</p>
+      <p><strong>교훈.</strong> internalTrafficPolicy: Local은 <strong>“모든 노드에 엔드포인트가 반드시 있다”</strong>는 가정 위에서만 안전합니다. 대체가 필요하면 trafficDistribution: PreferSameNode가 맞는 선택입니다.</p>
+    </div></details>
+    <details class="case"><summary>대형 클러스터에서 배포 직후 몇 초간 503</summary><div class="body">
+      <p><strong>원인.</strong> Service 수천 개짜리 iptables 모드 클러스터에서 kube-proxy 규칙 동기화가 수 초씩 걸려, 새 Pod가 Ready가 된 뒤에도 일부 노드는 옛 엔드포인트로 보내고 있었습니다.</p>
+      <p><strong>대응.</strong> nftables 모드로 전환해 동기화 시간을 줄이고, 앱에 preStop 지연을 넣어 종료되는 Pod가 규칙에서 빠질 시간을 벌었습니다.</p>
+      <p><strong>교훈.</strong> <code>kubeproxy_sync_proxy_rules_duration_seconds</code>는 대형 클러스터의 배포 안정성 지표입니다. 2편의 컨트롤 플레인 지표와 함께 대시보드에 두세요.</p>
+    </div></details>
+  </section>
+
+  <!-- S13 -->
+  <section class="chap" id="s13">
+    <div class="chap-num">13</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S14 -->
+  <section class="chap" id="s14">
+    <div class="chap-num">14</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: DNAT, conntrack, EndpointSlice)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S15 -->
+  <section class="chap" id="s15">
+    <div class="chap-num">15</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>Service는 API 서버(IP 할당), EndpointSlice 컨트롤러(명단), 프록시 구현(변환), 클라우드 컨트롤러(외부 LB)의 협업이며, 장애는 이 넷으로 쪼개 진단합니다.</li>
+        <li>kube-proxy는 iptables(선형 체인), nftables(맵 조회, 1.33 GA), IPVS(1.35 폐기) 모드가 있고, Cilium·DPv2·AKS Cilium은 eBPF로, OpenShift는 OVN 로드밸런서로 kube-proxy 없이 Service를 구현합니다.</li>
+        <li>externalTrafficPolicy: Local은 출발지 IP를 보존하지만 부하 쏠림과 헬스 체크 의존을, internalTrafficPolicy: Local은 대체 없는 실패를 가져옵니다.</li>
+        <li>trafficDistribution의 PreferSameZone·PreferSameNode(1.35 GA)는 가까운 엔드포인트를 우선하되 대체 경로를 남기는 지역성 설정입니다.</li>
+        <li>kube-proxy 없는 클러스터에서는 iptables가 아니라 그 구현의 도구(cilium-dbg, hubble, ovn-nbctl)로 진단해야 합니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 7편 클러스터 외부 노출: LoadBalancer 컨트롤러와 Ingress의 세대 교체</h3>
+      <p style="margin:.3em 0 0">이 편의 LoadBalancer Service가 실제 외부 LB로 바뀌는 과정을 다룹니다. AWS Load Balancer Controller(NLB·ALB, 인스턴스 대상 vs IP 대상), Azure LB·Application Gateway for Containers, GKE L4·L7과 NEG, 온프렘의 MetalLB·kube-vip·Cilium LB IPAM을 비교하고, ingress-nginx 은퇴 이후의 Ingress 컨트롤러 지형을 정리합니다. 출발지 IP 보존, 헬스 체크, ipMode, 비용 차이를 같은 앱으로 측정합니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Virtual IPs and Service Proxies, Service, EndpointSlices, Service Internal Traffic Policy, Topology Aware Routing — kubernetes.io 문서</li>
+        <li>KEP-3866 kube-proxy nftables 백엔드, KEP-5495 IPVS 모드 폐기, KEP-3015 PreferSameZone·PreferSameNode — kubernetes.dev</li>
+        <li>Kubernetes v1.35 릴리스 노트(PreferSameNode GA, IPVS 폐기), v1.37 릴리스 블로그</li>
+        <li>Cilium kube-proxy replacement, DSR, Maglev — https://docs.cilium.io/</li>
+        <li>GKE Dataplane V2 개요 — https://docs.cloud.google.com/kubernetes-engine/docs/concepts/dataplane-v2</li>
+        <li>OVN-Kubernetes Service 구현과 디버깅, OpenShift 네트워킹 문서 — ovn-kubernetes.io, Red Hat 문서</li>
+        <li>Calico nftables 데이터플레인 전환 안내(Tigera 블로그 “From IPVS to NFTables”)</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 6편. 작성 기준일 2026-10-23, Kubernetes v1.37 기준.
+      덤프 예시는 실제 출력 형식을 따른 설명용이며, 체인·맵 이름의 해시와 세부 형식은 버전에 따라 다를 수 있습니다.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "Service":["Kubernetes Service","여러 Pod 앞에 붙는 고정된 대표 주소와 이름. Pod가 바뀌어도 이 주소는 그대로다."],
+ "ClusterIP":["Cluster IP","클러스터 안에서만 통하는 Service의 가상 IP. 어떤 네트워크 카드에도 붙어 있지 않고, 가로채서 Pod 주소로 바꿀 때만 의미가 있다."],
+ "NodePort":["NodePort","모든 노드의 같은 포트(기본 30000~32767)로 Service를 열어 주는 방식."],
+ "headless":["Headless Service","가상 IP 없이 DNS가 Pod IP 목록을 그대로 돌려주는 Service. 프록시를 거치지 않는다."],
+ "ExternalName":["ExternalName Service","DNS CNAME 하나만 만드는 Service. 외부 도메인으로 착신 전환."],
+ "EndpointSlice":["EndpointSlice","Service 뒤의 실제 Pod 주소와 상태를 담은 명단. 100개 단위로 나뉘어 저장된다."],
+ "Endpoints":["Endpoints (레거시)","EndpointSlice 이전의 명단 객체. 한 Service의 모든 주소를 한 객체에 담았고, 1.33부터 폐기 경고가 나온다."],
+ "kube-proxy":["kube-proxy","노드마다 돌면서 Service 가상 IP → Pod IP 변환 규칙을 커널에 써 넣는 Kubernetes 기본 구성 요소."],
+ "DNAT":["Destination NAT","패킷의 목적지 주소를 바꾸는 것. Service IP를 실제 Pod IP로 바꾸는 핵심 동작."],
+ "SNAT":["Source NAT","패킷의 출발지 주소를 바꾸는 것. 외부 트래픽을 다른 노드의 Pod로 보낼 때 응답이 돌아오도록 노드 IP로 바꾼다."],
+ "masquerade":["Masquerade","나가는 인터페이스의 주소로 출발지를 자동으로 바꾸는 SNAT의 한 종류."],
+ "conntrack":["connection tracking","커널이 ‘이 연결은 이렇게 바꿨다’를 기억하는 표. 첫 패킷만 규칙을 타고 나머지는 이 표로 처리된다."],
+ "iptables":["iptables","리눅스 방화벽·NAT 규칙을 위에서부터 차례로 비교하는 도구. kube-proxy의 기본 모드."],
+ "nftables":["nftables","iptables의 후속. 규칙을 집합·맵으로 묶어 한 번에 찾는다. kube-proxy nftables 모드는 1.33 GA."],
+ "IPVS":["IP Virtual Server","리눅스 커널 내장 L4 부하 분산기. kube-proxy IPVS 모드는 1.35에서 폐기되었다."],
+ "netfilter":["netfilter","커널이 패킷을 가로채 검사·변환할 수 있게 하는 훅 체계. iptables·nftables·IPVS가 그 위에서 동작."],
+ "eBPF":["extended Berkeley Packet Filter","커널 안에 작은 프로그램을 안전하게 심어 실행하는 기술. Cilium이 Service 처리에 쓴다."],
+ "KPR":["kube-proxy replacement","kube-proxy 대신 CNI(주로 eBPF)가 Service를 처리하는 구성."],
+ "socket LB":["Socket-level load balancing (Cilium)","프로세스가 연결을 맺는 순간 소켓 수준에서 목적지를 Pod IP로 바꾸는 방식. 패킷마다 변환할 필요가 없다."],
+ "XDP":["eXpress Data Path","네트워크 카드 드라이버 바로 뒤에서 eBPF로 패킷을 처리하는 가장 빠른 지점."],
+ "DSR":["Direct Server Return","응답을 로드밸런서를 거치지 않고 백엔드 노드가 클라이언트에게 직접 돌려보내는 방식. 출발지 IP가 보존된다."],
+ "Maglev":["Maglev consistent hashing","Google이 만든 일관 해싱. 백엔드가 바뀌어도 기존 연결 대부분이 같은 Pod로 간다."],
+ "OVN":["Open Virtual Network","논리 스위치·라우터·로드밸런서를 설계하면 각 노드 OVS 규칙으로 번역해 주는 계층. OpenShift가 사용."],
+ "OVS":["Open vSwitch","소프트웨어 스위치. 흐름 규칙으로 패킷을 처리한다."],
+ "hairpin":["Hairpin (헤어핀)","Pod가 자기 자신이 뒤에 있는 Service를 호출해 패킷이 같은 곳으로 되돌아오는 경우. 특별한 SNAT 처리가 필요하다."],
+ "healthCheckNodePort":["Health check NodePort","externalTrafficPolicy: Local일 때 LB가 ‘이 노드에 Pod가 있나’를 확인하라고 열어 두는 포트."],
+ "externalTrafficPolicy":["External traffic policy","NodePort·LB로 들어온 외부 트래픽을 클러스터 전체 Pod로 보낼지(Cluster), 들어온 노드의 Pod로만 보낼지(Local)."],
+ "internalTrafficPolicy":["Internal traffic policy","클러스터 내부 트래픽을 전체 Pod로 보낼지(Cluster), 같은 노드의 Pod로만 보낼지(Local)."],
+ "trafficDistribution":["Traffic distribution","가까운 엔드포인트를 우선하는 Service 필드. PreferSameZone·PreferSameNode, 없으면 다른 곳으로 대체."],
+ "sessionAffinity":["Session affinity","같은 클라이언트 IP의 요청을 같은 Pod로 보내는 설정(ClientIP, 기본 3시간 유지)."],
+ "hints":["EndpointSlice hints","엔드포인트마다 ‘어느 존·노드의 클라이언트가 써야 하는지’ 붙여 두는 메모. 프록시가 이것으로 가까운 Pod를 고른다."],
+ "Service CIDR":["Service CIDR","ClusterIP를 할당하는 주소 대역. 1.33부터 ServiceCIDR API로 운영 중 추가할 수 있다."],
+ "ipMode":["LoadBalancer ipMode","LB가 목적지를 LB IP 그대로 노드로 보내는지(VIP), 바꿔서 보내는지(Proxy)를 Service status에 알리는 값."],
+ "CCM":["cloud-controller-manager","클라우드 API로 LB를 만들고 노드 정보를 채우는 컨트롤러."],
+ "anetd":["anetd (GKE)","GKE Dataplane V2의 노드 에이전트. Cilium 기반이며 kube-proxy 대신 Service와 정책을 처리한다."],
+ "verdict map":["nftables verdict map","‘이 키면 이 체인으로 가라’는 판정을 담은 nftables 사전. kube-proxy nftables 모드의 service-ips 맵."],
+ "numgen":["nftables numgen","nftables의 숫자 생성 표현. random mod N으로 엔드포인트 하나를 한 번에 고른다."],
+ "Dataplane V2":["GKE Dataplane V2","Cilium 기반 GKE 데이터플레인. kube-proxy 없이 Service를 처리한다."],
+ "LB":["Load Balancer","여러 백엔드에 트래픽을 나눠 주는 장치. Kubernetes에서는 type: LoadBalancer Service가 외부 LB를 요청한다."],
+ "NAT":["Network Address Translation","패킷의 주소를 바꿔 끼우는 것의 총칭."],
+ "VIP":["Virtual IP","특정 장비에 고정되지 않은 가상의 대표 IP. ClusterIP와 LB IP가 해당한다."],
+ "preStop":["preStop hook","컨테이너가 종료되기 직전에 실행되는 훅. 몇 초 기다리게 해 트래픽이 빠질 시간을 번다."],
+ "NodeLocal DNSCache":["NodeLocal DNSCache","노드마다 DNS 캐시를 두어 conntrack 경쟁과 CoreDNS 부하를 줄이는 애드온."]
+};
+const AUTO=["NodeLocal DNSCache","externalTrafficPolicy","internalTrafficPolicy","trafficDistribution","healthCheckNodePort","sessionAffinity","EndpointSlice","Dataplane V2","Service CIDR","verdict map","kube-proxy","ExternalName","masquerade","conntrack","nftables","iptables","netfilter","hairpin","ClusterIP","NodePort","Endpoints","Maglev","numgen","preStop","ipMode","anetd","IPVS","eBPF","DNAT","SNAT","OVN","OVS","DSR","XDP","KPR","CCM","VIP","NAT","LB"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s14")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+function bindTerms(scope){scope.querySelectorAll(".t:not([data-b])").forEach(t=>{t.dataset.b="1";t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});}
+bindTerms(document);
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- Service interpreter ---------- */
+const st={type:"NodePort",impl:"iptables",etp:"Cluster",aff:"None"};
+const OPTS={oType:["type",[["ClusterIP","ClusterIP"],["NodePort","NodePort"],["LoadBalancer","LoadBalancer"]]],
+ oImpl:["impl",[["iptables","kube-proxy iptables"],["nftables","kube-proxy nftables"],["ipvs","kube-proxy IPVS (폐기)"],["cilium","Cilium eBPF (KPR)"],["ovn","OVN-Kubernetes"]]],
+ oEtp:["etp",[["Cluster","Cluster"],["Local","Local"]]],oAff:["aff",[["None","None"],["ClientIP","ClientIP"]]]};
+function renderOpts(){for(const id in OPTS){const [key,vals]=OPTS[id],box=$("#"+id);box.innerHTML="";vals.forEach(([v,l])=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String(st[key]===v)},l);
+  if(key==="etp"&&st.type==="ClusterIP"){b.disabled=true;b.style.opacity=.45;}
+  b.addEventListener("click",()=>{st[key]=v;renderOpts();renderX();});box.appendChild(b);});}}
+const SVC="KUBE-SVC-WEB4FGQ7",EXT="KUBE-EXT-WEB4FGQ7",SVL="KUBE-SVL-WEB4FGQ7",EP=[["AAA111","10.244.1.5"],["BBB222","10.244.2.7"],["CCC333","10.244.2.8"]];
+function dumpIpt(){
+  const a=st.aff==="ClientIP",L=[];
+  L.push("# iptables-save -t nat (w2 노드, 발췌)");
+  L.push(`-A KUBE-SERVICES -d 10.96.120.10/32 -p tcp -m comment --comment "default/web:http cluster IP" --dport 80 -j ${SVC}`);
+  if(st.type==="LoadBalancer")L.push(`-A KUBE-SERVICES -d 203.0.113.50/32 -p tcp -m comment --comment "default/web:http loadbalancer IP" --dport 80 -j ${EXT}`);
+  if(st.type!=="ClusterIP")L.push(`-A KUBE-NODEPORTS -p tcp -m comment --comment "default/web:http" --dport 31080 -j ${EXT}`);
+  L.push(`-A ${SVC} ! -s 10.244.0.0/16 -d 10.96.120.10/32 -p tcp --dport 80 -j KUBE-MARK-MASQ`);
+  if(a)EP.forEach(e=>L.push(`-A ${SVC} -m recent --name KUBE-SEP-${e[0]} --mask 255.255.255.255 --rsource --rcheck --seconds 10800 --reap -j KUBE-SEP-${e[0]}`));
+  L.push(`-A ${SVC} -m statistic --mode random --probability 0.33333333349 -j KUBE-SEP-AAA111`);
+  L.push(`-A ${SVC} -m statistic --mode random --probability 0.50000000000 -j KUBE-SEP-BBB222`);
+  L.push(`-A ${SVC} -j KUBE-SEP-CCC333`);
+  if(st.type!=="ClusterIP"){
+    if(st.etp==="Cluster"){L.push(`-A ${EXT} -m comment --comment "masquerade traffic for default/web:http external destinations" -j KUBE-MARK-MASQ`);L.push(`-A ${EXT} -j ${SVC}`);}
+    else{L.push(`-A ${EXT} -s 10.244.0.0/16 -m comment --comment "pod traffic for default/web:http external destinations" -j ${SVC}`);L.push(`-A ${EXT} -j ${SVL}`);L.push(`# w2에 있는 엔드포인트(10.244.2.7, 10.244.2.8)만`);L.push(`-A ${SVL} -m statistic --mode random --probability 0.50000000000 -j KUBE-SEP-BBB222`);L.push(`-A ${SVL} -j KUBE-SEP-CCC333`);}
+  }
+  EP.forEach(e=>{L.push(`-A KUBE-SEP-${e[0]} -s ${e[1]}/32 -j KUBE-MARK-MASQ`);L.push(`-A KUBE-SEP-${e[0]} -p tcp${a?` -m recent --name KUBE-SEP-${e[0]} --set`:""} -j DNAT --to-destination ${e[1]}:8080`);});
+  L.push("-A KUBE-POSTROUTING -m mark --mark 0x4000/0x4000 -j MASQUERADE --random-fully");
+  return L.join("\n");
+}
+function dumpNft(){
+  const a=st.aff==="ClientIP",svc="service-WEB4FGQ7-default/web/tcp/http",ext="external-WEB4FGQ7-default/web/tcp/http",L=[];
+  L.push("# nft list table ip kube-proxy (w2 노드, 발췌)","table ip kube-proxy {","  map service-ips {","    type ipv4_addr . inet_proto . inet_service : verdict","    elements = { 10.96.120.10 . tcp . 80 : goto "+svc+(st.type==="LoadBalancer"?",\n                 203.0.113.50 . tcp . 80 : goto "+ext:"")+" }","  }");
+  if(st.type!=="ClusterIP")L.push("  map service-nodeports {","    type inet_proto . inet_service : verdict","    elements = { tcp . 31080 : goto "+ext+" }","  }");
+  L.push(`  chain ${svc} {`,"    ip daddr 10.96.120.10 tcp dport 80 ip saddr != 10.244.0.0/16 jump mark-for-masquerade");
+  if(a)L.push("    ip saddr @affinity-AAA111-default/web/tcp/http__10.244.1.5/8080 goto endpoint-AAA111-...","    # (엔드포인트마다 타임아웃 10800초짜리 affinity 집합)");
+  L.push("    numgen random mod 3 vmap { 0 : goto endpoint-AAA111-default/web/tcp/http__10.244.1.5/8080,","                               1 : goto endpoint-BBB222-default/web/tcp/http__10.244.2.7/8080,","                               2 : goto endpoint-CCC333-default/web/tcp/http__10.244.2.8/8080 }","  }");
+  if(st.type!=="ClusterIP"){L.push(`  chain ${ext} {`);
+    if(st.etp==="Cluster")L.push("    jump mark-for-masquerade","    goto "+svc);
+    else L.push("    ip saddr 10.244.0.0/16 goto "+svc,"    goto local-WEB4FGQ7-default/web/tcp/http   # 이 노드 엔드포인트만(2개)");
+    L.push("  }");}
+  L.push("  chain endpoint-AAA111-default/web/tcp/http__10.244.1.5/8080 {","    ip saddr 10.244.1.5 jump mark-for-masquerade",`    ${a?"update @affinity-AAA111-... { ip saddr }\n    ":""}meta l4proto tcp dnat to 10.244.1.5:8080`,"  }","  # endpoint-BBB222…, endpoint-CCC333… 동일","}");
+  return L.join("\n");
+}
+function dumpIpvs(){
+  const a=st.aff==="ClientIP"?" persistent 10800":"",L=["# ip -br addr show kube-ipvs0",`kube-ipvs0  DOWN  10.96.0.1/32 10.96.0.10/32 10.96.120.10/32${st.type==="LoadBalancer"?" 203.0.113.50/32":""}`,"","# ipvsadm -Ln (w2 노드, 발췌)","Prot LocalAddress:Port Scheduler Flags","  -> RemoteAddress:Port   Forward Weight ActiveConn InActConn",`TCP  10.96.120.10:80 rr${a}`];
+  EP.forEach(e=>L.push(`  -> ${e[1]}:8080       Masq    1      0          0`));
+  if(st.type!=="ClusterIP"){L.push(`TCP  192.168.64.13:31080 rr${a}     # NodePort: 노드 IP마다 가상 서버`);(st.etp==="Local"?EP.slice(1):EP).forEach(e=>L.push(`  -> ${e[1]}:8080       Masq    1      0          0`));}
+  if(st.type==="LoadBalancer"){L.push(`TCP  203.0.113.50:80 rr${a}`);(st.etp==="Local"?EP.slice(1):EP).forEach(e=>L.push(`  -> ${e[1]}:8080       Masq    1      0          0`));}
+  L.push("","# SNAT·필터링은 여전히 iptables + ipset (KUBE-LOOP-BACK, KUBE-NODE-PORT-TCP 등)");
+  return L.join("\n");
+}
+function dumpCil(){
+  const L=["# kubectl -n kube-system exec ds/cilium -- cilium-dbg service list (w2 노드, 발췌)","ID   Frontend               Service Type   Backend","42   10.96.120.10:80/TCP    ClusterIP      1 => 10.244.1.5:8080/TCP (active)","                                           2 => 10.244.2.7:8080/TCP (active)","                                           3 => 10.244.2.8:8080/TCP (active)"];
+  const be=st.etp==="Local"?["1 => 10.244.2.7:8080/TCP (active)","2 => 10.244.2.8:8080/TCP (active)"]:["1 => 10.244.1.5:8080/TCP (active)","2 => 10.244.2.7:8080/TCP (active)","3 => 10.244.2.8:8080/TCP (active)"];
+  const add=(id,fe,t)=>{L.push(`${id}   ${fe.padEnd(22)} ${t.padEnd(14)} ${be[0]}`);be.slice(1).forEach(b=>L.push(" ".repeat(43)+b));};
+  if(st.type!=="ClusterIP"){add("43","0.0.0.0:31080/TCP","NodePort");add("44","192.168.64.13:31080/TCP","NodePort");}
+  if(st.type==="LoadBalancer")add("45","203.0.113.50:80/TCP","LoadBalancer");
+  if(st.etp==="Local"&&st.type!=="ClusterIP")L.push("","# externalTrafficPolicy=Local: 외부 프런트엔드는 이 노드 백엔드만 가짐");
+  if(st.aff==="ClientIP")L.push("","# 세션 어피니티: BPF affinity 맵에 (클라이언트, 서비스) → 백엔드 기록, 타임아웃 10800초");
+  L.push("","# cilium-dbg bpf lb list 로 BPF 맵 원본, bpf ct list global 로 연결 표 확인","# 클러스터 내부 호출은 소켓 LB가 connect() 시점에 변환 → 패킷 DNAT 없음");
+  return L.join("\n");
+}
+function dumpOvn(){
+  const L=["# ovn-nbctl lb-list (w2 노드의 ovnkube-node 안 nbdb, 발췌)","UUID    LB                                              PROTO  VIP                   IPs",
+   "1a2b..  Service_default/web_TCP_cluster                 tcp    10.96.120.10:80       10.244.1.5:8080,10.244.2.7:8080,10.244.2.8:8080"];
+  if(st.type!=="ClusterIP"){const ips=st.etp==="Local"?"10.244.2.7:8080,10.244.2.8:8080":"10.244.1.5:8080,10.244.2.7:8080,10.244.2.8:8080";
+    L.push(`3c4d..  Service_default/web_TCP_node_router${st.etp==="Local"?"_local":""}_w2       tcp    192.168.64.13:31080   ${ips}`);
+    if(st.type==="LoadBalancer")L.push(`5e6f..  Service_default/web_TCP_node_router${st.etp==="Local"?"_local":""}_w2       tcp    203.0.113.50:80       ${ips}`);}
+  L.push("","# 클러스터 내부용 LB는 각 노드 논리 스위치에, NodePort·외부용은 노드 게이트웨이 라우터에 연결","# (LB 이름 형식은 OVN-K 버전에 따라 다름)");
+  if(st.aff==="ClientIP")L.push("# 세션 어피니티: LB options:affinity_timeout=10800");
+  return L.join("\n");
+}
+const IMPL={
+ iptables:{t:"iptables-save -t nat",d:dumpIpt,sel:"statistic 모듈 확률 규칙(1/3 → 1/2 → 나머지)",cost:"Service·엔드포인트 수에 비례(선형)",aff:"iptables recent 모듈",tool:"iptables-save, conntrack"},
+ nftables:{t:"nft list table ip kube-proxy",d:dumpNft,sel:"numgen random mod N 한 번",cost:"맵 조회로 거의 일정",aff:"타임아웃 있는 nftables 집합",tool:"nft, conntrack"},
+ ipvs:{t:"ipvsadm -Ln",d:dumpIpvs,sel:"IPVS 스케줄러(rr 등)",cost:"해시 조회로 거의 일정",aff:"IPVS persistence",tool:"ipvsadm, ipset, iptables"},
+ cilium:{t:"cilium-dbg service list",d:dumpCil,sel:"BPF 맵에서 무작위 또는 Maglev",cost:"BPF 맵 조회로 거의 일정",aff:"BPF affinity 맵",tool:"cilium-dbg, hubble"},
+ ovn:{t:"ovn-nbctl lb-list",d:dumpOvn,sel:"OVN LB 해시(OVS select 그룹)",cost:"OVS 흐름 캐시",aff:"OVN LB affinity_timeout",tool:"ovn-nbctl, ovn-trace, ovs-appctl"}
+};
+function renderX(){
+  const i=st.impl,ext=st.type!=="ClusterIP",hops=[];
+  if(!ext||true)hops.push(["클라이언트 Pod(w1)가 10.96.120.10:80으로 연결",""]);
+  const inner={iptables:["노드 nat 테이블의 KUBE-SERVICES가 목적지 IP·포트를 비교해 KUBE-SVC 체인으로","KUBE-SVC가 확률 규칙으로 엔드포인트 하나를 골라 KUBE-SEP으로","KUBE-SEP이 DNAT(10.244.x.x:8080), conntrack에 기록"],
+   nftables:["nat 훅에서 service-ips 맵을 (IP, 프로토콜, 포트)로 한 번에 조회","service 체인이 numgen으로 엔드포인트 선택","endpoint 체인이 dnat, conntrack에 기록"],
+   ipvs:["ClusterIP가 kube-ipvs0에 붙은 로컬 주소이므로 IPVS 가상 서버가 받음","스케줄러가 실제 서버(Pod) 선택, Masq 방식으로 전달","IPVS 연결 표와 conntrack에 기록"],
+   cilium:["Pod 안 connect() 시점에 cgroup eBPF 훅이 ClusterIP를 Pod IP로 바꿔 소켓을 엶(소켓 LB)","이후 패킷은 처음부터 Pod IP로 나감. 패킷 단위 DNAT·conntrack 없음","Pod 간 전달은 Cilium 데이터플레인(5편)"],
+   ovn:["Pod가 연결된 노드의 논리 스위치에 붙은 OVN LB가 VIP와 일치","OVS 흐름 + conntrack으로 DNAT, 엔드포인트 선택","다른 노드 Pod라면 Geneve로 전달(5편)"]}[i];
+  if(ext){hops.length=0;
+    hops.push([st.type==="LoadBalancer"?"외부 클라이언트 → 203.0.113.50:80 → LB가 노드(w2)로 전달":"외부 클라이언트 → 노드 w2의 31080 포트",""]);
+    const e={iptables:[st.type==="LoadBalancer"?"KUBE-SERVICES가 LB IP 일치 → KUBE-EXT":"KUBE-NODEPORTS가 31080 일치 → KUBE-EXT",st.etp==="Cluster"?"KUBE-EXT: SNAT 표시(KUBE-MARK-MASQ) 후 KUBE-SVC로 → 엔드포인트 3개 중 선택":"KUBE-EXT → KUBE-SVL: 이 노드(w2)의 엔드포인트 2개 중에서만 선택","KUBE-SEP이 DNAT, 나갈 때 "+(st.etp==="Cluster"?"출발지를 노드 IP로 MASQUERADE":"SNAT 없음(출발지 보존)")],
+     nftables:[st.type==="LoadBalancer"?"service-ips 맵이 LB IP 일치 → external 체인":"service-nodeports 맵이 31080 일치 → external 체인",st.etp==="Cluster"?"mark-for-masquerade 후 service 체인으로":"이 노드 엔드포인트 전용 체인으로","endpoint 체인이 dnat, "+(st.etp==="Cluster"?"출발지 masquerade":"출발지 보존")],
+     ipvs:["노드 IP:31080(또는 LB IP) 가상 서버가 받음",st.etp==="Cluster"?"실제 서버 3개 중 선택, iptables 규칙으로 SNAT":"이 노드의 실제 서버만 선택","Masq로 전달"],
+     cilium:["노드 인터페이스의 tc eBPF 훅(XDP 가속 시 드라이버 직후)이 받음",st.etp==="Cluster"?"백엔드 3개 중 선택. 다른 노드 Pod면 SNAT, DSR 설정 시 출발지 보존":"이 노드 백엔드만 선택, 출발지 보존","BPF 연결 표에 기록"],
+     ovn:["노드 게이트웨이 라우터의 OVN LB가 받음",st.etp==="Cluster"?"엔드포인트 3개 중 선택, 게이트웨이에서 SNAT":"이 노드 엔드포인트용 LB로, 출발지 보존","OVS 흐름 + conntrack으로 DNAT"]}[i];
+    e.forEach(x=>hops.push([x,""]));
+  } else inner.forEach(x=>hops.push([x,""]));
+  hops.push(["Pod가 응답하면 기록된 연결 정보로 주소를 되돌려 클라이언트에게",""]);
+  if(ext&&st.etp==="Local")hops.push(["주의: 엔드포인트가 없는 노드로 들어온 요청은 버려짐. LB가 healthCheckNodePort로 그 노드를 빼야 함","warn"]);
+  if(st.aff==="ClientIP"&&ext&&st.etp==="Cluster")hops.push(["주의: Cluster 정책에서는 다른 노드로 갈 때 SNAT되어도 어피니티 판단은 SNAT 이전 클라이언트 IP 기준. 그러나 앞단 NAT·프록시가 있으면 모든 요청이 같은 IP로 보여 한 Pod로 쏠림","warn"]);
+  $("#xPath").innerHTML=hops.map((h,k)=>`<div class="hop ${h[1]}"><span class="n">${k+1}</span><span>${h[0]}</span></div>`).join("");
+  const I=IMPL[i],src=!ext?"보존(Pod IP)":st.etp==="Local"?"보존":i==="cilium"?"SNAT(노드 IP), DSR이면 보존":"SNAT(노드 IP)으로 손실";
+  $("#xFacts").innerHTML=[["엔드포인트 선택",I.sel],["규칙 조회 비용",I.cost],["출발지 IP",src],["세션 어피니티 구현",st.aff==="ClientIP"?I.aff:"사용 안 함"],["진단 도구",I.tool]].map(f=>`<div><span style="color:var(--muted);font-size:.78rem">${f[0]}</span><b>${f[1]}</b></div>`).join("");
+  $("#xDumpT").textContent=I.t;$("#xDump").innerHTML=H(I.d());
+}
+renderOpts();renderX();
+
+/* ---------- policy simulator ---------- */
+const NODES=[{n:"n1",z:"zone-a",pods:["p1"]},{n:"n2",z:"zone-a",pods:[]},{n:"n3",z:"zone-b",pods:["p2","p3"]}];
+const sim={from:"in-n2",etp:"Cluster",itp:"Cluster",td:"None"};
+const SOPT={sFrom:["from",[["in-n1","내부: n1의 Pod"],["in-n2","내부: n2의 Pod"],["in-n3","내부: n3의 Pod"],["ex-n1","외부 → n1 진입"],["ex-n2","외부 → n2 진입"],["ex-n3","외부 → n3 진입"]]],
+ sEtp:["etp",[["Cluster","Cluster"],["Local","Local"]]],sItp:["itp",[["Cluster","Cluster"],["Local","Local"]]],sTd:["td",[["None","설정 안 함"],["PreferSameZone","PreferSameZone"],["PreferSameNode","PreferSameNode"]]]};
+function renderSimOpts(){for(const id in SOPT){const [k,vals]=SOPT[id],box=$("#"+id);box.innerHTML="";vals.forEach(([v,l])=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String(sim[k]===v)},l);b.addEventListener("click",()=>{sim[k]=v;renderSimOpts();renderSim();});box.appendChild(b);});}}
+function renderSim(){
+  const [kind,node]=sim.from.split("-"),cn=NODES.find(x=>x.n===node),all=NODES.flatMap(x=>x.pods.map(p=>({p,n:x.n,z:x.z})));
+  let cand=[],msg=[],src="";
+  if(kind==="in"){
+    src="Pod IP 그대로(내부 트래픽)";
+    if(sim.itp==="Local"){cand=all.filter(e=>e.n===node);msg.push("internalTrafficPolicy: Local이 trafficDistribution보다 우선합니다.");if(!cand.length)msg.push(`<span style="color:var(--warn)">${node}에 엔드포인트가 없어 연결이 실패합니다. 대체 경로가 없습니다.</span>`);}
+    else if(sim.td==="PreferSameNode"){cand=all.filter(e=>e.n===node);if(cand.length)msg.push("같은 노드의 엔드포인트를 우선합니다.");else{cand=all.filter(e=>e.z===cn.z);if(cand.length)msg.push("같은 노드에 없어 같은 존으로 대체합니다(구현이 존 힌트를 함께 쓰는 경우).");else{cand=all;msg.push("같은 노드·존에 없어 전체로 대체합니다.");}}}
+    else if(sim.td==="PreferSameZone"){cand=all.filter(e=>e.z===cn.z);if(cand.length)msg.push(`같은 존(${cn.z})의 엔드포인트만 씁니다. 존마다 Pod 수가 다르면 부하가 쏠립니다(zone-a는 p1 하나뿐).`);else{cand=all;msg.push("같은 존에 없어 전체로 대체합니다.");}}
+    else{cand=all;msg.push("모든 준비된 엔드포인트가 후보입니다.");}
+  }else{
+    if(sim.etp==="Local"){cand=all.filter(e=>e.n===node);src=cand.length?"보존(클라이언트 실제 IP)":"해당 없음";
+      if(!cand.length)msg.push(`<span style="color:var(--warn)">${node}에 엔드포인트가 없어 요청이 버려집니다. LB가 healthCheckNodePort 검사로 이 노드를 빼 두어야 합니다. NodePort로 직접 들어왔다면 그냥 실패합니다.</span>`);
+      else msg.push(`이 노드의 엔드포인트 ${cand.length}개에만 분산합니다. 노드별 Pod 수가 다르면 LB가 노드에 고르게 보내도 Pod 부하는 고르지 않습니다.`);}
+    else{cand=all;src="노드 IP로 SNAT(다른 노드 Pod로 갈 수 있으므로)";msg.push("모든 엔드포인트가 후보이며, 응답이 돌아오도록 출발지를 노드 IP로 바꿉니다.");}
+    if(sim.td!=="None")msg.push("trafficDistribution 힌트는 Cluster 정책의 외부 트래픽에도 적용될 수 있으나, 이 모델은 내부 트래픽 기준으로 단순화했습니다.");
+  }
+  const zones=["zone-a","zone-b"];
+  $("#sTopo").innerHTML=zones.map(z=>`<div class="zone"><h5>${z}</h5>${NODES.filter(x=>x.z===z).map(x=>`<div class="node ${x.n===node?"entry":""}"><div class="nm">${x.n} ${x.n===node?`<span class="badge">${kind==="in"?"클라이언트 위치":"진입 노드"}</span>`:""}</div><div class="pods">${kind==="in"&&x.n===node?`<span class="pod cli">client</span>`:""}${x.pods.map(p=>`<span class="pod ${cand.some(c=>c.p===p)?"ok":""}">${p}</span>`).join("")||'<span class="pod">엔드포인트 없음</span>'}</div></div>`).join("")}</div>`).join("");
+  $("#sMsg").innerHTML=`<b>후보:</b> ${cand.map(c=>c.p).join(", ")||"없음"} · <b>출발지 IP:</b> ${src}<br>`+msg.join("<br>");
+}
+renderSimOpts();renderSim();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["Service의 ClusterIP에 대해 옳은 것은?",["노드 하나의 네트워크 카드에 붙는다","어떤 인터페이스에도 붙지 않고, 프록시 구현이 가로채 Pod IP로 바꿔 준다","VPC CNI라면 VPC에서 라우팅된다","CoreDNS가 패킷을 전달한다"],1,"ClusterIP는 가상 주소입니다. IPVS 모드의 kube-ipvs0처럼 붙이는 구현도 있지만 그건 가로채기 위한 장치입니다."],
+ ["iptables 모드에서 엔드포인트가 3개일 때 KUBE-SVC 체인의 확률 규칙은?",["0.33, 0.33, 0.33","0.33, 0.5, 나머지 전부","1, 1, 1","0.5, 0.25, 0.25"],1,"위에서부터 차례로 평가되므로 1/3, 남은 둘 중 1/2, 마지막은 무조건입니다."],
+ ["kube-proxy IPVS 모드의 현재 상태는?",["1.37에서 기본값","1.35에서 폐기, 업스트림은 1.40 기본 꺼짐·1.43 잠금 계획","GA로 계속 권장","OpenShift 기본"],1,"업스트림 권장 대체는 nftables 모드입니다."],
+ ["nftables 모드로 바꾼 뒤 노드에서 curl 127.0.0.1:<NodePort>가 실패합니다. 이유는?",["버그","nftables 모드는 localhost NodePort를 지원하지 않는다","Calico 충돌","conntrack 고갈"],1,"iptables 모드와의 알려진 동작 차이입니다. 노드 IP로 호출하세요."],
+ ["외부 클라이언트의 실제 IP를 Pod에서 보려면 가장 기본적인 설정은?",["sessionAffinity: ClientIP","externalTrafficPolicy: Local","internalTrafficPolicy: Local","trafficDistribution: PreferSameNode"],1,"Local이면 다른 노드로 보내지 않으므로 SNAT하지 않고 출발지를 보존합니다."],
+ ["internalTrafficPolicy: Local인데 클라이언트 노드에 엔드포인트가 없으면?",["다른 노드로 대체","같은 존으로 대체","연결 실패","DNS가 다른 IP를 준다"],2,"Local은 대체 경로가 없습니다. 대체가 필요하면 trafficDistribution: PreferSameNode."],
+ ["trafficDistribution의 PreferClose는 이제 어떻게 취급되나?",["PreferSameNode의 별칭","PreferSameZone의 폐기된 별칭","삭제됨","Local과 같음"],1,"1.35에서 PreferSameZone·PreferSameNode가 GA가 되며 PreferClose는 PreferSameZone의 폐기된 별칭이 됐습니다."],
+ ["GKE Dataplane V2 노드에서 iptables-save에 KUBE- 체인이 없다. 올바른 해석은?",["Service가 고장났다","정상. anetd가 eBPF로 Service를 처리한다","kube-proxy를 설치해야 한다","Calico가 지웠다"],1,"kube-proxy 없는 클러스터에서는 구현 고유 도구로 진단합니다."],
+ ["OpenShift에서 Service의 변환 규칙을 확인하는 명령으로 맞는 것은?",["iptables-save -t nat","ipvsadm -Ln","ovnkube-node Pod의 nbdb에서 ovn-nbctl lb-list","cilium-dbg service list"],2,"OVN-K는 Service를 OVN 로드밸런서로 구현합니다. 문제의 노드의 ovnkube-node에서 조회하세요."],
+ ["정확히 5초 간격의 간헐적 DNS 지연이 보입니다. 가장 먼저 의심할 것은?",["etcd","A·AAAA 동시 질의의 conntrack 경쟁 조건","PSA","MTU"],1,"리졸버 타임아웃 5초는 conntrack 경쟁으로 질의가 버려졌다는 지문입니다. NodeLocal DNSCache 등이 대책입니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

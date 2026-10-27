@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 15편: 스냅샷·백업·DR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 7편 추가 ---- */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.chain .nd{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:.82rem;line-height:1.35}
+.chain .nd b{display:block;font-size:.86rem;color:var(--strong)}
+.chain .nd.lb{border-color:var(--you)}
+.chain .nd.pod{border-color:var(--vendor)}
+.chain .nd.snat{border-color:var(--warn)}
+.chain .ar{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.opt-row .btn{margin:2px 0}
+.grp{font-size:.74rem;color:var(--muted);margin:6px 0 2px;width:100%}
+
+/* ---- 8편 추가 ---- */
+.nsgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.nsgrid{grid-template-columns:1fr}}
+.ns{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.ns h5{margin:0 0 6px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.res b{display:block;color:var(--strong);font-size:.84rem}
+.res.ok{border-color:var(--ok)}
+.res.bad{border-color:var(--warn)}
+.res.dim{opacity:.5;border-style:dashed}
+.cond{display:grid;gap:6px;margin-top:10px}
+.cond div{padding:7px 12px;border-radius:8px;font-size:.88rem}
+.cond .t1{background:var(--ok-bg)}
+.cond .t0{background:var(--warn-bg)}
+.split{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0;font-size:.78rem;font-weight:700}
+.split div{display:flex;align-items:center;justify-content:center;color:#0b1020;white-space:nowrap;overflow:hidden;transition:width .3s}
+.split .v1{background:var(--vendor)}
+.split .v2{background:var(--you)}
+:root[data-theme="light"] .split div{color:#fff}
+.rng{width:100%;accent-color:var(--you)}
+
+/* ---- 9편 추가 ---- */
+.trace{display:grid;gap:6px;margin:12px 0}
+.tier{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.tier .nm{font-weight:700;color:var(--strong);font-size:.84rem}
+.tier.hit-acc{border-color:var(--ok);background:var(--ok-bg)}
+.tier.hit-deny{border-color:var(--warn);background:var(--warn-bg)}
+.tier.skip{opacity:.5}
+.verdict{font-family:var(--serif);font-size:1.3rem;font-weight:900;margin:6px 0}
+.verdict.ok{color:var(--ok)}.verdict.no{color:var(--warn)}
+.chk{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 10px;font-size:.88rem}
+.chk label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chk input{accent-color:var(--vendor)}
+@media (max-width:640px){.tier{grid-template-columns:1fr}}
+.opt-row>span{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.opt-row .btn{white-space:normal;text-align:left;max-width:100%}
+
+/* ---- 10편 추가 ---- */
+.alert{border:1px solid var(--warn);background:var(--warn-bg);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:.92rem}
+.alert b{color:var(--warn)}
+.clock{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.88rem}
+.clock .bar2{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.clock .bar2 i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.clock .bar2 i.over{background:var(--warn)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acts .btn[disabled]{opacity:.45}
+.glog{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.6;max-height:300px;overflow:auto;margin:8px 0}
+.glog div{margin:0 0 6px}
+.glog .u{color:var(--you)}
+.glog .k{color:var(--ok)}
+.qlist{display:grid;gap:4px;margin:10px 0}
+.qlist div{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;font-family:var(--mono);font-size:.8rem;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}
+.qlist .ok{border-color:var(--ok)}
+.qlist .nx{color:var(--muted)}
+.rank{display:grid;gap:6px;margin-top:10px}
+.rank div{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.rank div:first-child{border-color:var(--vendor)}
+
+/* ---- 11편 추가 ---- */
+.zones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.zones{grid-template-columns:1fr}}
+.zn{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.zn h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.zn.hl{border-color:var(--vendor)}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.box b{display:block;color:var(--strong);font-size:.84rem}
+.box.pod{border-color:var(--vendor)}
+.box.disk{border-color:var(--you)}
+.box.bad{border-color:var(--warn)}
+.box.dim{opacity:.5;border-style:dashed}
+.lc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:640px){.lc{grid-template-columns:1fr}}
+.lc div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.lc b{display:block;font-size:1.05rem;color:var(--strong);margin:2px 0}
+.lc small{color:var(--muted);display:block;line-height:1.5}
+
+/* ---- 12편 추가 ---- */
+.lanes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:12px 0}
+@media (max-width:760px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lane{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:.78rem;line-height:1.35;color:var(--muted);transition:all .2s}
+.lane b{display:block;color:var(--text);font-size:.82rem}
+.lane.src{border-color:var(--you);background:var(--you-bg)}
+.lane.dst{border-color:var(--vendor);background:var(--vendor-bg)}
+.tl{position:relative;margin:14px 0;padding-left:18px;border-left:3px solid var(--line)}
+.tl div{position:relative;margin:0 0 10px;font-size:.88rem}
+.tl div::before{content:"";position:absolute;left:-26px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--line)}
+.tl div.ok::before{background:var(--ok)}
+.tl div.bad::before{background:var(--warn)}
+.tl div.key::before{background:var(--you)}
+.tl b{font-family:var(--mono);font-size:.8rem;color:var(--strong);margin-right:6px}
+.stepper{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:.85rem;color:var(--muted)}
+
+/* ---- 13편 추가 ---- */
+.vend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:900px){.vend{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.vend{grid-template-columns:1fr}}
+.vend>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.vend h5{margin:0 0 4px;font-size:.8rem;color:var(--muted)}
+.vend b{display:block;color:var(--strong);font-size:.98rem;margin:2px 0 4px}
+.vend small{display:block;color:var(--muted);line-height:1.5}
+.warns{margin:8px 0;display:grid;gap:6px}
+.warns div{background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:8px;padding:6px 10px;font-size:.85rem}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">15편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#plan">복구 계획 계산기</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">무엇을 지키나: 백업의 세 층</a></li>
+    <li><a href="#s2">VolumeSnapshot과 스냅샷 토폴로지</a></li>
+    <li><a href="#s3">일관성: 크래시 vs 애플리케이션</a></li>
+    <li><a href="#s4">Velero 해부</a></li>
+    <li><a href="#s5">벤더 백업 서비스 비교</a></li>
+    <li><a href="#s6">크로스 리전·크로스 클러스터 복구</a></li>
+    <li><a href="#s7">RPO·RTO 설계와 DR 전략</a></li>
+    <li><a href="#s8">복구 리허설</a></li>
+    <li><a href="#s9">실습</a></li>
+    <li><a href="#s10">현장 사례</a></li>
+    <li><a href="#s11">점검 퀴즈</a></li>
+    <li><a href="#s12">용어·약어 사전</a></li>
+    <li><a href="#s13">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 2 스토리지, 15편</div>
+    <h1>스냅샷·백업·DR</h1>
+    <p class="lead">“백업은 있습니다”와 “복구할 수 있습니다”는 다른 말입니다. 스냅샷은 원본과 같은 스토리지·같은 리전·같은 계정에 있어 원본과 함께 사라질 수 있고, 백업은 데이터만 있고 그 데이터를 쓰던 Kubernetes 리소스가 없을 수 있으며, 둘 다 있어도 다른 클러스터의 StorageClass·Ingress·IAM이 달라 복원이 멈출 수 있습니다. 이 편은 VolumeSnapshot의 원리와 일관성, Velero와 벤더 백업 서비스, 크로스 리전·크로스 클러스터 복구, RPO·RTO 설계를 다루고, EKS의 네임스페이스를 kubeadm 클러스터로 실제로 옮겨 봅니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37 · Velero v1.18 · external-snapshotter v8</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 180분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">백업의 세 층</a></li><li><a href="#s2">VolumeSnapshot</a></li><li><a href="#s3">일관성</a></li><li><a href="#s4">Velero</a></li><li><a href="#s5">벤더 서비스</a></li><li><a href="#s6">크로스 리전·클러스터</a></li><li><a href="#s7">RPO·RTO</a></li><li><a href="#s8">복구 리허설</a></li><li><a href="#s9">실습</a></li><li><a href="#s10">현장 사례</a></li><li><a href="#s11">퀴즈</a></li><li><a href="#s12">용어 사전</a></li><li><a href="#s13">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="plan">
+    <h3>이 백업 방식으로 이 재해에서 살아남나?</h3>
+    <p class="sub">보호 방식과 재해 종류를 고르고 숫자를 넣으면, 복구할 수 있는지, 잃는 데이터의 최대 시간(RPO), 복구에 걸리는 시간(RTO)의 단계별 내역이 나옵니다. 숫자는 고객 환경 값으로 바꿔 쓰세요.</p>
+    <div class="opt-row"><span class="lbl">보호 방식</span><span id="pM"></span></div>
+    <div class="opt-row"><span class="lbl">재해</span><span id="pD"></span></div>
+    <div class="f-grid">
+      <div><label for="pInt">백업 주기(시간)</label><input type="number" id="pInt" value="24" min="0.25" step="0.25"></div>
+      <div><label for="pData">복원할 볼륨 데이터(GiB)</label><input type="number" id="pData" value="500" min="1"></div>
+      <div><label for="pTp">복원 처리량(MiB/s)</label><input type="number" id="pTp" value="150" min="1"></div>
+      <div><label for="pCl">대상 클러스터 준비(분)</label><input type="number" id="pCl" value="30" min="0"></div>
+    </div>
+    <div class="verdict" id="pV"></div>
+    <div class="kpis" id="pK"></div>
+    <div class="tl" id="pTl"></div>
+    <div class="calc-msg" id="pMsg"></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    스냅샷은 같은 집 서랍에 넣어 둔 사진첩입니다. 실수로 지운 사진은 금방 찾지만, 집에 불이 나면 함께 탑니다. 백업은 은행 금고에 맡긴 사본이고, DR(재해 복구)은 “집이 통째로 없어지면 어느 집에서, 몇 시간 안에, 어떤 순서로 살림을 다시 차릴지”까지 정한 이사 계획입니다. RPO는 “최대 몇 시간 치 기억을 잃어도 되나”, RTO는 “몇 시간 안에 다시 살 수 있어야 하나”입니다.</div>
+    <div class="prose">
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>VolumeSnapshotClass·VolumeSnapshot·VolumeSnapshotContent로 스냅샷을 만들고 복원하며, 스냅샷이 어디에 저장되는지(토폴로지) 설명할 수 있습니다.</li>
+        <li>크래시 일관성과 애플리케이션 일관성을 구분하고, 훅·그룹 스냅샷·DB 네이티브 백업으로 필요한 일관성을 확보할 수 있습니다.</li>
+        <li>Velero의 구조(서버·node-agent·백업 저장소)와 볼륨 보호 방식(CSI 스냅샷·데이터 무버·fs-backup)을 고를 수 있습니다.</li>
+        <li>AWS Backup for EKS·Azure Backup for AKS·Backup for GKE·OpenShift OADP를 비교할 수 있습니다.</li>
+        <li>RPO·RTO에서 출발해 DR 전략을 설계하고, 복구 리허설로 실제 RTO를 측정할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>무엇을 지키나: 백업의 세 층</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>층</th><th>무엇</th><th>주요 수단</th><th>빠지면</th></tr></thead>
+      <tbody>
+        <tr><td class="k">클러스터 상태</td><td>etcd 전체(모든 리소스)</td><td>etcd 스냅샷(2·3편), 매니지드는 벤더 책임</td><td>컨트롤 플레인 재구축 불가(셀프 관리형). 단, 같은 클러스터를 되살리는 용도이지 다른 클러스터로 옮기는 용도는 아님</td></tr>
+        <tr><td class="k">애플리케이션 리소스</td><td>네임스페이스의 Deployment·Service·ConfigMap·Secret·PVC·CR 등</td><td>GitOps 저장소(원본), Velero·벤더 백업(실제 상태)</td><td>데이터는 있어도 앱을 다시 올릴 정의가 없음. 수동으로 바꾼 설정이 사라짐</td></tr>
+        <tr><td class="k">영구 데이터</td><td>PV 안의 데이터</td><td>스냅샷, 스냅샷 데이터 이동, 파일 백업, DB 네이티브 백업</td><td>앱은 뜨지만 빈 데이터</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: GitOps는 백업이 아니고, 백업은 GitOps가 아니다</b>
+    GitOps 저장소는 “원래 이래야 한다”를 담고, 백업은 “실제로 이랬다”를 담습니다. 운영 중 사람이 바꾼 설정, 오퍼레이터가 만든 리소스, 자동 생성된 Secret(인증서·토큰)은 저장소에 없습니다. 반대로 백업만 있으면 무엇이 의도된 상태였는지 알 수 없습니다. DR 계획에는 <strong>둘 다</strong> 필요하고, 복원 순서(저장소로 기반을 깔고 → 백업으로 데이터와 실제 상태를 올림)를 정해 두어야 합니다.</div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>VolumeSnapshot과 스냅샷 토폴로지</h2>
+    <div class="prose">
+      <h3>세 객체 (11편의 PV·PVC·StorageClass와 같은 구조)</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>객체</th><th>범위</th><th>PV 쪽 대응</th><th>역할</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><span class="t" data-k="VolumeSnapshotClass">VolumeSnapshotClass</span></td><td>클러스터</td><td>StorageClass</td><td>드라이버, <code>deletionPolicy</code>(Delete·Retain), 파라미터(예: 증분·태그)</td></tr>
+        <tr><td class="k"><span class="t" data-k="VolumeSnapshot">VolumeSnapshot</span></td><td>네임스페이스</td><td>PVC</td><td>“이 PVC의 스냅샷을 찍어 주세요”라는 요청</td></tr>
+        <tr><td class="k"><span class="t" data-k="VolumeSnapshotContent">VolumeSnapshotContent</span></td><td>클러스터</td><td>PV</td><td>실제 백엔드 스냅샷(<code>snapshotHandle</code>)을 가리킴</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <ul>
+        <li><strong>설치.</strong> 스냅샷 CRD와 snapshot-controller는 CSI 드라이버와 별도로 설치합니다(12편). EKS는 snapshot-controller 애드온, AKS·GKE는 기본 제공, OpenShift는 플랫폼이 제공합니다.</li>
+        <li><strong>복원.</strong> 새 PVC의 <code>dataSource</code>에 VolumeSnapshot을 지정하면 provisioner가 스냅샷에서 디스크를 만듭니다. 원본보다 크게 만들 수는 있지만 작게는 안 됩니다.</li>
+        <li><strong>다른 클러스터로 가져오기.</strong> 백엔드 스냅샷 ID를 알면, 대상 클러스터에 <code>snapshotHandle</code>을 적은 VolumeSnapshotContent를 직접 만들어(미리 프로비저닝된 스냅샷) 복원할 수 있습니다. 같은 클라우드·같은 리전·접근 권한이 전제입니다.</li>
+        <li><strong>그룹 스냅샷.</strong> 여러 PVC를 같은 시점에 찍는 VolumeGroupSnapshot은 업스트림에서 베타 단계이며, 드라이버 지원이 필요합니다. 데이터와 로그가 다른 볼륨에 있는 DB에 의미가 큽니다(3장). Velero 1.17이 이를 지원합니다.</li>
+      </ul>
+      <h3>스냅샷은 어디에 저장되나</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>스토리지</th><th>스냅샷 위치</th><th>복원 범위</th><th>원본과 함께 사라질 위험</th></tr></thead>
+      <tbody>
+        <tr><td class="k">AWS EBS</td><td>리전 단위(S3 기반 내부 저장, 증분)</td><td>같은 리전의 어느 존에나 복원 가능. 다른 리전은 스냅샷 복사 후</td><td>리전 장애, 계정 침해·삭제</td></tr>
+        <tr><td class="k">Azure Disk</td><td>리전 단위(증분 스냅샷, ZRS 저장 옵션)</td><td>같은 리전. 다른 리전은 복사</td><td>리전 장애, 구독 침해</td></tr>
+        <tr><td class="k">GCE PD·Hyperdisk</td><td>기본 다중 리전 저장(설정 가능)</td><td>프로젝트 안 여러 리전</td><td>프로젝트 침해·삭제</td></tr>
+        <tr><td class="k">Ceph RBD·Longhorn</td><td><strong>같은 스토리지 클러스터 안</strong></td><td>같은 클러스터</td><td>스토리지 클러스터 장애 = 스냅샷도 소실. 외부 백업 필수(Longhorn 백업 대상, Velero 데이터 무버)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>스냅샷과 복원</span><button class="copy" type="button">복사</button></div><pre>apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ebs-vsc
+  labels: {velero.io/csi-volumesnapshot-class: "true"}   <span class="c"># Velero가 이 드라이버용으로 사용</span>
+driver: ebs.csi.aws.com
+deletionPolicy: Retain                                   <span class="c"># VolumeSnapshot을 지워도 백엔드 스냅샷 보존</span>
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata: {name: data-snap-1, namespace: shop-dr}
+spec:
+  volumeSnapshotClassName: ebs-vsc
+  source: {persistentVolumeClaimName: data-db-0}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: data-restored, namespace: shop-dr}
+spec:
+  storageClassName: gp3-wfc
+  dataSource: {name: data-snap-1, kind: VolumeSnapshot, apiGroup: snapshot.storage.k8s.io}
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 10Gi}}</pre></div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>일관성: 크래시 vs 애플리케이션</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    스냅샷은 전원 플러그를 뽑은 순간의 디스크 사진입니다(<span class="t" data-k="크래시 일관성">크래시 일관성</span>). 데이터베이스는 대부분 이 상태에서도 스스로 복구하지만, 메모리에만 있던 내용은 없고, 디스크가 여러 개면 각 사진의 찍힌 순간이 미세하게 달라 맞지 않을 수 있습니다. 애플리케이션 일관성은 “잠깐 멈추고 정리한 뒤 찍은 사진”입니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>수준</th><th>방법</th><th>장점</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k">크래시 일관</td><td>그냥 스냅샷</td><td>앱 수정 없음, 빠름</td><td>DB가 복구 로그를 재생해야 함. 볼륨이 여럿이면 시점 불일치</td></tr>
+        <tr><td class="k">다중 볼륨 크래시 일관</td><td>VolumeGroupSnapshot</td><td>데이터·로그 볼륨이 같은 시점</td><td>드라이버 지원 필요(베타)</td></tr>
+        <tr><td class="k">파일 시스템 일관</td><td>백업 전 <code>fsfreeze</code> 또는 <code>sync</code> 훅, 후에 해제</td><td>디스크 버퍼 정리</td><td>freeze 동안 쓰기 멈춤. 해제 실패 시 장애</td></tr>
+        <tr><td class="k">애플리케이션 일관</td><td>DB 기능으로 체크포인트·백업 모드 진입 후 스냅샷(Velero 사전·사후 훅)</td><td>복원 직후 바로 사용</td><td>DB별 명령, 훅 실패 처리</td></tr>
+        <tr><td class="k">DB 네이티브 백업</td><td>pgBackRest·Barman(CloudNativePG)·mysqldump·mongodump, WAL·binlog 아카이브</td><td>특정 시점 복구(<span class="t" data-k="PITR">PITR</span>), 버전·플랫폼 이동</td><td>DB마다 다른 도구, 복원 시간(16편)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>Velero 훅으로 백업 전후 명령 실행 (Pod 어노테이션)</span><button class="copy" type="button">복사</button></div><pre>metadata:
+  annotations:
+    pre.hook.backup.velero.io/container: app
+    pre.hook.backup.velero.io/command: '["/bin/sh","-c","psql -U postgres -c CHECKPOINT; sync"]'
+    pre.hook.backup.velero.io/on-error: Fail                <span class="c"># 훅 실패면 백업 실패로</span>
+    post.hook.backup.velero.io/command: '["/bin/sh","-c","echo backup-done"]'
+<span class="c"># fsfreeze가 필요하면 볼륨을 마운트한 특권 사이드카에서 fsfreeze -f / -u 를 실행하는 방식을 씀</span></pre></div>
+    <div class="note senior"><b>시니어 포인트: 데이터베이스는 데이터베이스의 방식으로</b>
+    운영 DB의 1차 보호는 DB 네이티브 백업(연속 WAL 아카이브 + 정기 베이스 백업)이고, 볼륨 스냅샷과 Velero는 “클러스터와 함께 빠르게 되돌리는 2차 수단”으로 두는 것이 안전합니다. 네이티브 백업은 특정 시점 복구와 다른 버전·다른 플랫폼으로의 복원을 지원하지만, 스냅샷은 같은 스토리지 계열로만 돌아갈 수 있습니다. 16편에서 CloudNativePG로 이 조합을 구성합니다.</div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>Velero 해부</h2>
+    <div class="prose">
+      <h3>구성 요소</h3>
+      <ul>
+        <li><strong>velero 서버</strong>(Deployment): Backup·Restore·Schedule CR을 처리하고 리소스를 JSON으로 모아 객체 저장소에 올립니다.</li>
+        <li><strong><span class="t" data-k="node-agent">node-agent</span></strong>(DaemonSet): 볼륨 데이터를 옮길 때만 필요합니다(fs-backup, 데이터 무버). 1.17부터는 실제 전송을 Pod 단위 마이크로서비스로 분리해 Windows 노드까지 지원합니다.</li>
+        <li><strong>BackupStorageLocation(BSL)</strong>: 리소스와 데이터 저장소(S3·Blob·GCS·MinIO 등). <strong>VolumeSnapshotLocation(VSL)</strong>: 클라우드 네이티브 스냅샷 위치(플러그인 방식일 때).</li>
+        <li><strong>플러그인</strong>: 클라우드별 객체 저장소·스냅샷 플러그인(AWS·Azure·GCP). CSI 지원은 1.14부터 Velero 본체에 통합되었습니다.</li>
+      </ul>
+      <h3>볼륨 데이터를 지키는 네 가지 방법</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>방법</th><th>어떻게</th><th>데이터가 남는 곳</th><th>다른 리전·클러스터 복원</th><th>쓸 때</th></tr></thead>
+      <tbody>
+        <tr><td class="k">CSI 스냅샷</td><td>VolumeSnapshot을 만들고 그 참조만 백업</td><td>스토리지 백엔드(원본과 같은 곳)</td><td class="n">같은 리전·계정·스토리지만</td><td>빠른 롤백, 같은 클러스터 복구</td></tr>
+        <tr><td class="k"><span class="t" data-k="데이터 무버">CSI 스냅샷 데이터 이동</span></td><td>스냅샷에서 임시 볼륨을 만들어 node-agent가 Kopia로 객체 저장소에 업로드</td><td>객체 저장소(증분·중복 제거)</td><td class="y">어디로든(스토리지 종류가 달라도)</td><td>DR, 클라우드 간·온프렘 이전(실습)</td></tr>
+        <tr><td class="k"><span class="t" data-k="fs-backup">fs-backup</span>(Kopia)</td><td>실행 중인 Pod의 볼륨 파일을 직접 읽어 업로드</td><td>객체 저장소</td><td class="y">어디로든</td><td>스냅샷이 없는 스토리지(NFS, hostPath, 일부 온프렘)</td></tr>
+        <tr><td class="k">클라우드 네이티브 스냅샷(플러그인)</td><td>클라우드 API로 직접 스냅샷</td><td>클라우드 스냅샷</td><td class="m">같은 클라우드, 복사 필요</td><td>CSI 이전 방식 호환</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <ul>
+        <li><strong>restic 퇴장.</strong> 1.17에서 restic 경로의 새 백업이 제거되었고, 옛 restic 백업의 복원은 1.19까지 지원됩니다. restic 백업만 있는 고객은 1.19 전에 Kopia로 새 백업을 쌓아 두어야 합니다.</li>
+        <li><strong>1.18.</strong> 동시 백업, 데이터 무버의 캐시 볼륨 지정(노드 임시 디스크 고갈 방지) 등이 들어왔습니다.</li>
+        <li><strong>어떤 볼륨을 어떻게.</strong> 볼륨 정책(ConfigMap)으로 StorageClass·크기·볼륨 종류별로 스냅샷·fs-backup·제외를 정할 수 있습니다. 기본 동작을 모르고 쓰면 “백업은 완료인데 데이터가 없는” 사고가 납니다(10장).</li>
+        <li><strong>복원 시 변환.</strong> StorageClass 매핑 ConfigMap과 리소스 수정자(resource modifiers, JSON 패치)로 대상 클러스터에 맞게 바꿉니다. 실습의 핵심입니다.</li>
+        <li><strong>보안.</strong> 백업에는 Secret이 들어갑니다. <strong>버킷 접근 권한이 곧 비밀 접근 권한</strong>입니다. 버킷 암호화, 접근 제한, 변경 불가(Object Lock) 설정을 함께 설계하세요.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>벤더 백업 서비스 비교</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>서비스</th><th>방식</th><th>지키는 것</th><th>DR 기능</th><th>메모</th></tr></thead>
+      <tbody>
+        <tr><td class="k">AWS Backup for EKS (2025-11 출시)</td><td>클러스터 안 에이전트 없이 AWS Backup이 직접 수행. 클러스터 상태 + 볼륨을 하나의 복합 복구 지점으로</td><td>Kubernetes 리소스, EBS·EFS·S3(PVC로 연결된 것)</td><td>교차 리전·교차 계정 복사, 변경 불가 볼트, 복원 시 새 EKS 클러스터 생성</td><td>클러스터 인증 모드가 API(액세스 엔트리)여야 함. 기존 클러스터 복원은 덮어쓰지 않음. 클러스터 상태는 항상 전체 백업</td></tr>
+        <tr><td class="k">Azure Backup for AKS</td><td>클러스터에 백업 확장(Velero 기반) 설치 + Backup 볼트, 신뢰된 액세스</td><td>리소스(블롭에), Azure Disk 스냅샷</td><td>볼트 계층에 보관하면 다른 리전 복원 가능</td><td>운영 계층(스냅샷)과 볼트 계층의 보존·비용 차이</td></tr>
+        <tr><td class="k">Backup for GKE</td><td>관리형 서비스, 백업 계획·복원 계획</td><td>리소스와 PD·Hyperdisk 볼륨 데이터</td><td>다른 리전·프로젝트의 클러스터로 복원</td><td>복원 계획에서 네임스페이스·StorageClass 변환 규칙 지정</td></tr>
+        <tr><td class="k">OpenShift OADP</td><td>Velero 기반 오퍼레이터(DataProtectionApplication CR)</td><td>리소스, CSI 스냅샷, 데이터 무버, Kopia</td><td>객체 저장소 위치에 따름</td><td>Red Hat 지원. Velero 업스트림 버전과의 대응표 확인</td></tr>
+        <tr><td class="k">자체 Velero</td><td>직접 설치</td><td>위 네 가지 방법 모두</td><td>객체 저장소 복제로 구성</td><td>클라우드 간·온프렘 이전에 유일하게 중립적</td></tr>
+        <tr><td class="k">Kasten K10 등 상용</td><td>정책·UI·DB 연동 중심</td><td>리소스·데이터, 앱 인지 블루프린트</td><td>제품 기능</td><td>여러 고객·클러스터를 관리하는 MSP에 맞을 수 있음</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note field"><b>현장 메모: 벤더 서비스는 “같은 벤더로의 복원”에 강하다</b>
+    벤더 백업 서비스는 설치·보존·불변 보관·교차 계정 복사를 쉽게 해 주지만, 복원 대상은 같은 벤더의 클러스터입니다. 클라우드 이전, 온프렘 DR, 멀티 클라우드가 요구 사항에 있다면 Velero(또는 중립적 제품)를 함께 두거나 DB 네이티브 백업을 중립 저장소에 두는 이중 구조가 필요합니다.</div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>크로스 리전·크로스 클러스터 복구</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>장애물</th><th>무엇이 다른가</th><th>해결</th></tr></thead>
+      <tbody>
+        <tr><td class="k">스냅샷 위치</td><td>스냅샷은 원본 리전·계정에</td><td>스냅샷 교차 리전 복사, 데이터 무버로 중립 객체 저장소에, 버킷 교차 리전 복제</td></tr>
+        <tr><td class="k">StorageClass</td><td>gp3-wfc가 대상에 없음</td><td>Velero StorageClass 매핑, Backup for GKE 변환 규칙</td></tr>
+        <tr><td class="k">존·노드 고정</td><td>PV nodeAffinity의 존이 대상에 없음</td><td>데이터 무버로 새 PV 생성(존 정보는 따라가지 않음)</td></tr>
+        <tr><td class="k">클라우드 고유 리소스</td><td>LB 어노테이션, IngressClass alb, IRSA·워크로드 아이덴티티 어노테이션, ECR 이미지 인증</td><td>리소스 수정자로 바꾸거나 제외, 대상 환경용 값을 GitOps 오버레이로</td></tr>
+        <tr><td class="k">클러스터 범위 리소스·CRD</td><td>CRD·ClusterRole·오퍼레이터가 대상에 없음</td><td>오퍼레이터·CRD를 먼저 설치(GitOps), 그 뒤 네임스페이스 복원</td></tr>
+        <tr><td class="k">DNS·인증서·외부 연결</td><td>새 LB 주소, 다른 출발지 IP(9편), 파트너 허용 목록</td><td>DNS 전환 절차, 인증서 재발급, 허용 목록 사전 등록</td></tr>
+        <tr><td class="k">이미지</td><td>사설 레지스트리 접근, 리전 복제</td><td>레지스트리 복제·pull secret 준비</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>Velero 복원 변환: StorageClass 매핑과 리소스 수정자</span><button class="copy" type="button">복사</button></div><pre>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: change-storage-class-config
+  namespace: velero
+  labels:
+    velero.io/plugin-config: ""
+    velero.io/change-storage-class: RestoreItemAction
+data:
+  gp3-wfc: local-path              <span class="c"># 원본 SC: 대상 SC</span>
+  gp2: local-path
+---
+<span class="c"># 리소스 수정자: LoadBalancer를 ClusterIP로, AWS 전용 어노테이션 제거</span>
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: dr-modifiers, namespace: velero}
+data:
+  modifiers.yaml: |
+    version: v1
+    resourceModifierRules:
+    - conditions: {groupResource: services, namespaces: ["shop-dr"]}
+      patches:
+      - {operation: replace, path: "/spec/type", value: "ClusterIP"}
+      - {operation: remove, path: "/metadata/annotations/service.beta.kubernetes.io~1aws-load-balancer-type"}
+<span class="c"># 사용: velero restore create ... --resource-modifier-configmap dr-modifiers</span></pre></div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>RPO·RTO 설계와 DR 전략</h2>
+    <div class="prose">
+      <p><span class="t" data-k="RPO">RPO</span>는 백업 주기와 복제 지연이, <span class="t" data-k="RTO">RTO</span>는 “대상 환경 준비 + 리소스 복원 + 데이터 복원 + 앱 기동·검증 + 트래픽 전환”의 합이 정합니다. 맨 위 계산기가 이 합을 보여 줍니다. 대부분의 RTO 초과는 <strong>데이터 복원 처리량</strong>과 <strong>사람이 결정하는 시간</strong>(누가 DR을 선언하나)에서 생깁니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>전략</th><th>평소 상태</th><th>RPO 경향</th><th>RTO 경향</th><th>비용</th><th>Kubernetes 구현</th></tr></thead>
+      <tbody>
+        <tr><td class="k">백업·복원</td><td>DR 리전에 백업만</td><td>백업 주기(시간~일)</td><td>시간 단위</td><td>낮음</td><td>Velero 데이터 무버·벤더 백업 교차 리전 복사, 복원 때 클러스터 생성</td></tr>
+        <tr><td class="k">파일럿 라이트</td><td>DR 클러스터 최소 구성 + 데이터 복제</td><td>분~시간</td><td>수십 분~시간</td><td>중간</td><td>대기 클러스터(노드 0~최소) + GitOps 동기화 + DB 복제</td></tr>
+        <tr><td class="k">웜 스탠바이</td><td>DR 클러스터가 작은 규모로 실행 중</td><td>초~분</td><td>분</td><td>높음</td><td>양쪽 클러스터 GitOps, DB 비동기 복제, DNS 전환</td></tr>
+        <tr><td class="k">액티브-액티브</td><td>두 리전이 함께 서비스</td><td>거의 0(데이터 설계에 따라)</td><td>거의 0</td><td>가장 높음</td><td>전역 LB(7편), 멀티 리전 DB, 멀티클러스터(10편)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note trap"><b>함정: 재해 종류마다 답이 다르다</b>
+    실수로 지운 네임스페이스는 같은 클러스터의 스냅샷으로 몇 분 안에 돌아오지만, 랜섬웨어나 버그로 데이터가 조용히 망가진 경우는 망가지기 전 시점의 백업이 남아 있어야 하고(보존 기간·변경 불가 보관), 계정 침해는 다른 계정에 복사본이 있어야 합니다. 요구 사항 문서에 “어떤 재해에 대한 RPO·RTO인가”를 반드시 적으세요.</div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>복구 리허설</h2>
+    <div class="prose">
+      <ol>
+        <li><strong>범위와 성공 기준.</strong> 어떤 앱을, 어떤 재해 가정으로, 어디에 복원하나. 성공 기준은 “Pod Running”이 아니라 <strong>업무 확인 항목</strong>(로그인, 최근 주문 조회, 데이터 건수 대조)입니다.</li>
+        <li><strong>격리된 대상.</strong> 운영과 분리된 네임스페이스나 클러스터에 복원합니다. 복원된 앱이 운영 DB·외부 API에 연결하지 않도록 네트워크 정책(9편)과 설정 변환을 먼저 겁니다.</li>
+        <li><strong>시간 측정.</strong> 계산기의 각 단계를 실제로 잽니다. 첫 리허설의 RTO는 보통 목표의 2~3배입니다.</li>
+        <li><strong>막힌 곳 기록.</strong> 권한, 누락된 CRD, 이미지 접근, 사람의 판단 대기 등을 런북에 반영합니다.</li>
+        <li><strong>주기.</strong> 분기마다, 그리고 클러스터 업그레이드·스토리지 변경·백업 도구 업그레이드 뒤에 반복합니다. 백업 도구의 버전 변화(restic 종료처럼)가 복원 가능성을 바꿉니다.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>실습: EKS의 네임스페이스를 kubeadm 클러스터로 옮기기</h2>
+    <div class="prose">
+      <p>lab-eks의 <code>shop-dr</code> 네임스페이스(StatefulSet·PVC·ConfigMap·Secret·LoadBalancer Service)를 Velero로 백업하고, lab-native(kubeadm, local-path)로 복원합니다. EBS 스냅샷은 kubeadm에서 쓸 수 없으므로 <strong>CSI 스냅샷 데이터 이동</strong>으로 데이터를 S3에 올리고, 복원 때 StorageClass 매핑과 리소스 수정자로 대상 환경에 맞춥니다. 각 단계의 시각을 기록해 RTO를 잽니다.</p>
+      <h3>실습 0. 공통 준비: 버킷·자격 증명·CLI</h3>
+    </div>
+    <div class="code"><div class="bar"><span>호스트에서</span><button class="copy" type="button">복사</button></div><pre>REGION=ap-northeast-2
+BUCKET=velero-lab-$(aws sts get-caller-identity --query Account --output text)-$RANDOM
+aws s3api create-bucket --bucket $BUCKET --region $REGION --create-bucket-configuration LocationConstraint=$REGION
+aws s3api put-bucket-encryption --bucket $BUCKET --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws s3api put-public-access-block --bucket $BUCKET --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+
+<span class="c"># 실습용 최소 권한 IAM 사용자 (두 클러스터가 같은 자격 증명 사용. 운영에서는 클러스터별 워크로드 아이덴티티)</span>
+cat &gt; velero-policy.json &lt;&lt;EOF
+{"Version":"2012-10-17","Statement":[
+ {"Effect":"Allow","Action":["ec2:DescribeVolumes","ec2:DescribeSnapshots","ec2:CreateTags","ec2:CreateVolume","ec2:CreateSnapshot","ec2:DeleteSnapshot"],"Resource":"*"},
+ {"Effect":"Allow","Action":["s3:GetObject","s3:DeleteObject","s3:PutObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":"arn:aws:s3:::$BUCKET/*"},
+ {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::$BUCKET"}]}
+EOF
+aws iam create-user --user-name velero-lab
+aws iam put-user-policy --user-name velero-lab --policy-name velero --policy-document file://velero-policy.json
+aws iam create-access-key --user-name velero-lab --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text | \
+  awk '{print "[default]\naws_access_key_id="$1"\naws_secret_access_key="$2}' &gt; credentials-velero
+chmod 600 credentials-velero
+
+VV=v1.18.2                                                   <span class="c"># Velero CLI·서버 버전(최신 패치 확인)</span>
+curl -fsSL https://github.com/vmware-tanzu/velero/releases/download/$VV/velero-$VV-linux-amd64.tar.gz | tar xz
+sudo install velero-$VV-linux-amd64/velero /usr/local/bin/ &amp;&amp; velero version --client-only
+PLUGIN=velero/velero-plugin-for-aws:v1.14.0                  <span class="c"># Velero 버전과의 호환표에서 확인</span></pre></div>
+
+    <div class="prose"><h3>실습 1. lab-eks: 앱 배포와 백업</h3></div>
+    <div class="code"><div class="bar"><span>(1) 스냅샷 기능과 VolumeSnapshotClass</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-eks
+aws eks create-addon --cluster-name lab-eks --addon-name snapshot-controller
+aws eks wait addon-active --cluster-name lab-eks --addon-name snapshot-controller
+kubectl get crd | grep snapshot.storage.k8s.io
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ebs-vsc
+  labels: {velero.io/csi-volumesnapshot-class: "true"}
+driver: ebs.csi.aws.com
+deletionPolicy: Delete
+EOF</pre></div>
+    <div class="code"><div class="bar"><span>(2) 복원 대상 앱 (gp3-wfc는 11편에서 만든 StorageClass)</span><button class="copy" type="button">복사</button></div><pre>kubectl create ns shop-dr
+kubectl -n shop-dr create configmap app-config --from-literal=MODE=production
+kubectl -n shop-dr create secret generic app-secret --from-literal=API_KEY=lab-only-secret
+kubectl -n shop-dr apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db}
+spec:
+  serviceName: db
+  replicas: 1
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata:
+      labels: {app: db}
+      annotations:
+        pre.hook.backup.velero.io/command: '["/bin/sh","-c","sync"]'
+        pre.hook.backup.velero.io/container: c
+    spec:
+      containers:
+      - name: c
+        image: busybox:1.36
+        envFrom: [{configMapRef: {name: app-config}}]
+        command: ["sh","-c","while true; do echo \"$(date +%s) $MODE\" &gt;&gt; /data/log; sleep 1; done"]
+        volumeMounts: [{name: data, mountPath: /data}]
+  volumeClaimTemplates:
+  - metadata: {name: data}
+    spec: {storageClassName: gp3-wfc, accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 10Gi}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  annotations: {service.beta.kubernetes.io/aws-load-balancer-type: external}
+spec:
+  type: LoadBalancer
+  selector: {app: db}
+  ports: [{port: 80, targetPort: 8080}]
+EOF
+kubectl -n shop-dr wait pod/db-0 --for=condition=Ready --timeout=300s</pre></div>
+    <div class="code"><div class="bar"><span>(3) Velero 설치(노드 에이전트 포함)와 데이터 이동 백업</span><button class="copy" type="button">복사</button></div><pre>velero install --kubecontext lab-eks --provider aws --plugins $PLUGIN \
+  --bucket $BUCKET --prefix lab --secret-file ./credentials-velero \
+  --backup-location-config region=$REGION --snapshot-location-config region=$REGION \
+  --use-node-agent --features=EnableCSI
+kubectl -n velero rollout status deploy/velero; kubectl -n velero rollout status ds/node-agent
+velero backup-location get
+
+T0=$(date +%s)
+velero backup create shop-dr-1 --include-namespaces shop-dr --snapshot-move-data --wait
+echo "백업 소요: $(( $(date +%s) - T0 ))초"
+velero backup describe shop-dr-1 --details | sed -n '/Backup Volumes/,$p'
+kubectl -n velero get datauploads -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,BYTES:.status.progress.bytesDone
+kubectl -n shop-dr exec db-0 -- sh -c 'wc -l &lt; /data/log'   <span class="c"># 백업 시점의 줄 수를 기록(대략)</span>
+aws s3 ls s3://$BUCKET/lab/ --recursive | head              <span class="c"># backups/ 와 kopia/ 저장소</span></pre></div>
+
+    <div class="prose"><h3>실습 2. lab-native: 변환을 걸어 복원</h3></div>
+    <div class="code"><div class="bar"><span>(1) Velero 설치(같은 버킷, 읽기 전용으로)</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-native
+kubectl get sc local-path                                     <span class="c"># 11편 실습 0에서 설치</span>
+velero install --kubecontext lab-native --provider aws --plugins $PLUGIN \
+  --bucket $BUCKET --prefix lab --secret-file ./credentials-velero \
+  --backup-location-config region=$REGION --use-volume-snapshots=false \
+  --use-node-agent --features=EnableCSI
+kubectl -n velero patch backupstoragelocation default --type merge -p '{"spec":{"accessMode":"ReadOnly"}}'
+sleep 60; velero backup get                                   <span class="c"># 버킷에서 shop-dr-1 이 동기화되어 보임</span></pre></div>
+    <div class="code"><div class="bar"><span>(2) StorageClass 매핑과 리소스 수정자 (6장 YAML 적용)</span><button class="copy" type="button">복사</button></div><pre>kubectl apply -f change-storage-class-config.yaml           <span class="c"># gp3-wfc → local-path</span>
+kubectl apply -f dr-modifiers.yaml                          <span class="c"># LoadBalancer → ClusterIP, AWS 어노테이션 제거</span>
+
+T1=$(date +%s)
+velero restore create shop-dr-r1 --from-backup shop-dr-1 --resource-modifier-configmap dr-modifiers --wait
+echo "복원 소요: $(( $(date +%s) - T1 ))초"
+velero restore describe shop-dr-r1 --details | sed -n '/Phase/,/Resource List/p'
+kubectl -n velero get datadownloads -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,BYTES:.status.progress.bytesDone</pre></div>
+    <div class="code"><div class="bar"><span>(3) 검증</span><button class="copy" type="button">복사</button></div><pre>kubectl -n shop-dr get pod,pvc,svc,cm,secret
+kubectl -n shop-dr get pvc -o custom-columns=PVC:.metadata.name,SC:.spec.storageClassName,STATUS:.status.phase
+kubectl -n shop-dr get svc web -o jsonpath='{.spec.type} {.metadata.annotations}'; echo
+kubectl -n shop-dr exec db-0 -- sh -c 'head -3 /data/log; wc -l &lt; /data/log'     <span class="c"># 원본의 앞부분과 줄 수 비교</span>
+kubectl -n shop-dr get secret app-secret -o jsonpath='{.data.API_KEY}' | base64 -d; echo
+<span class="c"># 기록: 백업 소요, 복원 소요(리소스·데이터), Pod Ready까지, 그리고 '업무 확인'(로그 앞부분 일치)</span></pre></div>
+    <div class="note"><b>RTO 표로 정리</b>
+    대상 클러스터 준비(이미 있었으므로 0) · Velero 설치 · 백업 동기화 · 리소스 복원 · 데이터 다운로드 · Pod Ready · 업무 확인 각각의 시간을 적고, 맨 위 계산기에 넣은 예측과 비교하세요. 실제 DR에서는 “누가 DR을 선언하고 승인하나”의 시간도 한 줄 추가합니다.</div>
+
+    <div class="prose"><h3>실습 3. lab-eks: 스냅샷 토폴로지 확인 (다른 존으로 복원)</h3></div>
+    <div class="code"><div class="bar"><span>EBS 스냅샷은 리전 단위라 다른 존에서 복원 가능</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-eks
+kubectl -n shop-dr apply -f - &lt;&lt;'EOF'
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata: {name: snap-1}
+spec: {volumeSnapshotClassName: ebs-vsc, source: {persistentVolumeClaimName: data-db-0}}
+EOF
+kubectl -n shop-dr wait volumesnapshot/snap-1 --for=jsonpath='{.status.readyToUse}'=true --timeout=600s
+SRCZ=$(kubectl get pv $(kubectl -n shop-dr get pvc data-db-0 -o jsonpath='{.spec.volumeName}') -o jsonpath='{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}')
+OTHER=$(kubectl get nodes -o jsonpath='{.items[*].metadata.labels.topology\.kubernetes\.io/zone}' | tr ' ' '\n' | sort -u | grep -v "$SRCZ" | head -1)
+echo "원본 존 $SRCZ → 복원 존 $OTHER"
+kubectl -n shop-dr apply -f - &lt;&lt;EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: from-snap}
+spec:
+  storageClassName: gp3-wfc
+  dataSource: {name: snap-1, kind: VolumeSnapshot, apiGroup: snapshot.storage.k8s.io}
+  accessModes: ["ReadWriteOnce"]
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: check}
+spec:
+  nodeSelector: {topology.kubernetes.io/zone: $OTHER}
+  containers: [{name: c, image: busybox:1.36, command: ["sh","-c","head -2 /data/log; sleep 3600"], volumeMounts: [{name: d, mountPath: /data}]}]
+  volumes: [{name: d, persistentVolumeClaim: {claimName: from-snap}}]
+EOF
+kubectl -n shop-dr wait pod/check --for=condition=Ready --timeout=300s &amp;&amp; kubectl -n shop-dr logs check</pre></div>
+    <div class="code"><div class="bar"><span>정리 (비용 방지)</span><button class="copy" type="button">복사</button></div><pre>velero --kubecontext lab-eks backup delete shop-dr-1 --confirm
+kubectl --context lab-eks delete ns shop-dr; kubectl --context lab-native delete ns shop-dr
+velero --kubecontext lab-eks uninstall --force; velero --kubecontext lab-native uninstall --force
+aws s3 rb s3://$BUCKET --force
+aws iam delete-access-key --user-name velero-lab --access-key-id $(aws iam list-access-keys --user-name velero-lab --query 'AccessKeyMetadata[0].AccessKeyId' --output text)
+aws iam delete-user-policy --user-name velero-lab --policy-name velero; aws iam delete-user --user-name velero-lab
+rm -f credentials-velero</pre></div>
+    <div class="prose">
+      <h3>실습 4. 선택: 벤더 백업 서비스 한 가지</h3>
+      <p>AWS Backup 콘솔에서 EKS 지원을 켜고 lab-eks의 온디맨드 백업을 만든 뒤, 네임스페이스 하나만 같은 클러스터에 복원해 보세요(클러스터 인증 모드가 API여야 합니다). 또는 GKE의 Backup for GKE로 백업 계획과 복원 계획을 만들어 StorageClass 변환 규칙을 확인하세요. Velero 실습과 비교해 설치·권한·복원 범위·소요 시간을 표로 남깁니다.</p>
+      <h3>과제</h3>
+      <ol>
+        <li>실습 2의 RTO 표를 맨 위 계산기 결과와 비교하고, 차이가 가장 큰 단계의 원인을 적으세요.</li>
+        <li>담당 고객사 하나의 핵심 앱에 대해 재해 유형별(실수 삭제, 데이터 손상, 존 장애, 리전 장애, 계정 침해) 목표 RPO·RTO와 현재 수단을 표로 정리하고, 빈칸을 메울 방법을 제안하세요.</li>
+        <li>restic 기반 Velero 백업을 쓰는 고객이 있다면 1.19 이전 전환 계획(Kopia 새 백업, 보존 기간 겹치기)을 쓰세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>스냅샷만 있었는데 계정 침해로 함께 삭제됐다</summary><div class="body">
+      <p><strong>원인.</strong> 볼륨 스냅샷을 매일 찍고 있었지만 같은 계정·같은 리전에만 있었습니다. 침해된 자격 증명으로 볼륨과 스냅샷이 함께 삭제됐습니다.</p>
+      <p><strong>교훈.</strong> 백업의 최소 요건은 <strong>다른 장애 도메인</strong>(다른 계정·리전)과 <strong>변경 불가 보관</strong>입니다. AWS Backup 볼트 잠금, S3 Object Lock, 교차 계정 복사를 검토하세요.</p>
+    </div></details>
+    <details class="case"><summary>DB가 복원은 됐는데 데이터가 맞지 않았다</summary><div class="body">
+      <p><strong>원인.</strong> 데이터 볼륨과 WAL 볼륨을 따로 크래시 일관 스냅샷으로 찍어, 두 볼륨의 시점이 어긋났습니다.</p>
+      <p><strong>교훈.</strong> 여러 볼륨에 걸친 DB는 그룹 스냅샷이나 DB 네이티브 백업으로 보호하세요(3장).</p>
+    </div></details>
+    <details class="case"><summary>백업은 “Completed”인데 복원하니 볼륨이 비어 있다</summary><div class="body">
+      <p><strong>원인.</strong> 볼륨 보호 방식을 정하지 않아, 스냅샷을 지원하지 않는 NFS 볼륨은 아무 방식으로도 백업되지 않았습니다. Velero는 리소스만 백업하고 성공으로 표시했습니다.</p>
+      <p><strong>교훈.</strong> 백업 성공 상태가 아니라 <strong>백업 상세(볼륨 목록)와 복원 시험</strong>으로 확인하세요. 볼륨 정책으로 StorageClass별 방식을 명시합니다.</p>
+    </div></details>
+    <details class="case"><summary>다른 클러스터로 복원하다 절반에서 멈췄다</summary><div class="body">
+      <p><strong>원인.</strong> 대상 클러스터에 앱이 쓰는 CRD와 오퍼레이터가 없어 CR 복원이 실패했고, StorageClass 이름이 달라 PVC가 Pending이었습니다.</p>
+      <p><strong>교훈.</strong> DR 대상 클러스터는 <strong>GitOps로 기반(오퍼레이터·CRD·StorageClass·네트워크)을 먼저</strong> 깔고, 백업은 앱과 데이터만 올리는 순서로 설계하세요.</p>
+    </div></details>
+    <details class="case"><summary>Velero를 올렸더니 옛 백업을 복원할 수 없다</summary><div class="body">
+      <p><strong>원인.</strong> 오랫동안 restic 경로로 백업했고, 복원 지원이 끝난 버전으로 올렸습니다. 보존 기간 안의 옛 백업이 사실상 쓸 수 없게 됐습니다.</p>
+      <p><strong>교훈.</strong> 백업 도구 업그레이드는 <strong>복원 호환성</strong>을 확인하는 변경입니다. 새 형식 백업이 보존 기간만큼 쌓인 뒤에 옛 형식 지원이 끝나는 버전으로 올리세요.</p>
+    </div></details>
+    <details class="case"><summary>목표 RTO 4시간, 첫 리허설 14시간</summary><div class="body">
+      <p><strong>원인.</strong> 데이터 복원 처리량이 예상의 3분의 1이었고, 사설 레지스트리 접근 권한이 DR 리전에 없었으며, DNS 변경 권한자가 연락되지 않았습니다.</p>
+      <p><strong>교훈.</strong> RTO는 기술보다 <strong>권한·연락망·결정 절차</strong>에서 늘어납니다. 리허설로만 발견됩니다.</p>
+    </div></details>
+    <details class="case"><summary>백업 버킷 접근 권한이 사실상 모든 비밀에 대한 접근이었다</summary><div class="body">
+      <p><strong>상황.</strong> 분석 팀이 비용 보고용으로 백업 버킷 읽기 권한을 받았는데, 그 안에 모든 네임스페이스의 Secret이 들어 있었습니다.</p>
+      <p><strong>교훈.</strong> 백업 저장소는 <strong>가장 민감한 저장소</strong>로 취급하세요. 별도 계정, 최소 권한, 암호화, 접근 감사, 필요하면 Secret 제외와 외부 비밀 관리(19편)를 함께 설계합니다.</p>
+    </div></details>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: RPO, 데이터 무버, VolumeSnapshotContent)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S13 -->
+  <section class="chap" id="s13">
+    <div class="chap-num">13</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>백업은 클러스터 상태(etcd)·애플리케이션 리소스·영구 데이터의 세 층이며, GitOps 저장소와 백업은 서로를 대신하지 못합니다.</li>
+        <li>VolumeSnapshot은 PV·PVC·StorageClass와 같은 구조이고, 스냅샷은 원본과 같은 스토리지·리전·계정에 남으므로 그 자체로는 DR이 아닙니다.</li>
+        <li>크래시 일관 스냅샷으로 부족하면 훅·그룹 스냅샷·DB 네이티브 백업으로 애플리케이션 일관성을 확보합니다.</li>
+        <li>Velero는 CSI 스냅샷·데이터 이동·fs-backup(Kopia)을 고를 수 있고(restic은 1.17에서 백업 제거), 벤더 서비스(AWS Backup for EKS, Azure Backup for AKS, Backup for GKE, OADP)는 같은 벤더 안의 복원에 강합니다.</li>
+        <li>RPO·RTO는 재해 종류별로 정하고, 크로스 클러스터 복원은 StorageClass 매핑·리소스 수정자·기반 선설치로 풀며, 리허설로만 실제 RTO를 알 수 있습니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 16편 스테이트풀 워크로드 운영 종합 (Level 2 마지막)</h3>
+      <p style="margin:.3em 0 0">StatefulSet의 볼륨 템플릿·순서 보장·v1.37의 Recreate 롤아웃 전략과 PVC 자동 삭제 정책, 데이터베이스 오퍼레이터(CloudNativePG, Strimzi, Redis 오퍼레이터)의 스토리지 요구와 벤더별 권장 구성, 미사용 PVC·스냅샷 수명 같은 스토리지 비용 관리, 그리고 Level 2 전체를 묶는 스토리지 트러블슈팅 플레이북을 다룹니다. CloudNativePG 클러스터를 두 벤더에 배포해 장애 조치 시간과 볼륨 동작을 비교합니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Volume Snapshots, Volume Snapshot Classes, Volume Group Snapshots — kubernetes.io 문서, external-snapshotter</li>
+        <li>Velero 문서(CSI 스냅샷 데이터 이동, 파일 시스템 백업, 볼륨 정책, 복원 리소스 수정자, StorageClass 매핑), Velero 1.17·1.18 발표 — velero.io</li>
+        <li>AWS Backup의 Amazon EKS 지원(2025-11) — AWS 뉴스 블로그·AWS Backup 개발자 안내서</li>
+        <li>Azure Backup for AKS — Microsoft Learn</li>
+        <li>Backup for GKE — Google Cloud 문서</li>
+        <li>OpenShift API for Data Protection(OADP) — Red Hat 문서</li>
+        <li>AWS Well-Architected 재해 복구 전략(백업·복원, 파일럿 라이트, 웜 스탠바이, 액티브-액티브)</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 15편. 작성 기준일 2026-10-23.
+      실습의 IAM 사용자·정적 자격 증명은 실습 편의를 위한 것입니다. 운영에서는 워크로드 아이덴티티와 별도 백업 계정을 쓰세요.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "스냅샷":["Snapshot","특정 시점의 디스크 상태 기록. 대개 원본과 같은 스토리지·리전에 남는다."],
+ "백업":["Backup","원본과 다른 장애 도메인(다른 저장소·리전·계정)에 둔 사본."],
+ "DR":["Disaster Recovery","재해로 서비스·데이터를 잃었을 때 정해진 시간 안에 다른 곳에서 복구하는 계획과 체계."],
+ "RPO":["Recovery Point Objective","재해 때 잃어도 되는 데이터의 최대 시간. 백업 주기·복제 지연이 정한다."],
+ "RTO":["Recovery Time Objective","재해 후 서비스를 되살려야 하는 최대 시간."],
+ "VolumeSnapshotClass":["VolumeSnapshotClass","스냅샷 드라이버와 삭제 정책을 정하는 클러스터 객체(StorageClass에 대응)."],
+ "VolumeSnapshot":["VolumeSnapshot","PVC의 스냅샷을 요청하는 네임스페이스 객체(PVC에 대응)."],
+ "VolumeSnapshotContent":["VolumeSnapshotContent","실제 백엔드 스냅샷을 가리키는 클러스터 객체(PV에 대응)."],
+ "snapshotHandle":["snapshotHandle","백엔드 스냅샷 ID. 다른 클러스터에서 이 값으로 스냅샷을 가져올 수 있다."],
+ "VolumeGroupSnapshot":["VolumeGroupSnapshot","여러 PVC를 같은 시점에 찍는 스냅샷(베타, 드라이버 지원 필요)."],
+ "크래시 일관성":["Crash consistency","전원을 뽑은 순간과 같은 상태. DB가 스스로 복구해야 한다."],
+ "애플리케이션 일관성":["Application consistency","앱이 정리·멈춘 상태에서 찍어 복원 직후 바로 쓸 수 있는 상태."],
+ "fsfreeze":["fsfreeze","파일 시스템 쓰기를 잠시 멈추고 버퍼를 디스크에 내려 일관된 스냅샷을 돕는 명령."],
+ "PITR":["Point-In-Time Recovery","WAL·binlog를 재생해 원하는 시각 직전으로 되돌리는 DB 복구."],
+ "WAL":["Write-Ahead Log","DB가 변경을 먼저 기록하는 로그. 아카이브하면 특정 시점 복구가 가능하다."],
+ "Velero":["Velero","Kubernetes 리소스와 볼륨 데이터를 백업·복원·이전하는 오픈소스 도구(CNCF)."],
+ "node-agent":["Velero node-agent","볼륨 데이터를 옮길 때(fs-backup·데이터 무버) 쓰는 DaemonSet."],
+ "BSL":["BackupStorageLocation","Velero 백업을 저장하는 객체 저장소 위치."],
+ "VSL":["VolumeSnapshotLocation","클라우드 네이티브 스냅샷을 만드는 위치(플러그인 방식)."],
+ "데이터 무버":["CSI snapshot data movement","CSI 스냅샷에서 데이터를 읽어 객체 저장소로 올리는 Velero 기능. 다른 클러스터·스토리지로 복원 가능."],
+ "fs-backup":["File system backup","실행 중인 Pod의 볼륨 파일을 직접 읽어 백업하는 방식(Kopia)."],
+ "Kopia":["Kopia","증분·중복 제거·암호화를 지원하는 백업 도구. Velero의 기본 업로더."],
+ "restic":["restic","Velero의 옛 업로더. 1.17에서 백업 제거, 복원은 1.19까지."],
+ "리소스 수정자":["Velero resource modifiers","복원할 때 리소스를 JSON 패치로 바꾸는 규칙."],
+ "StorageClass 매핑":["Change storage class","복원 때 원본 StorageClass 이름을 대상 이름으로 바꾸는 Velero 설정."],
+ "훅":["Backup hooks","백업 전후에 컨테이너 안에서 명령을 실행하는 기능."],
+ "AWS Backup for EKS":["AWS Backup support for Amazon EKS","클러스터 상태와 EBS·EFS·S3 볼륨을 하나의 복구 지점으로 백업하는 AWS 관리형 서비스(2025-11)."],
+ "Azure Backup for AKS":["Azure Backup for AKS","백업 확장과 Backup 볼트로 AKS 리소스·디스크를 보호하는 서비스."],
+ "Backup for GKE":["Backup for GKE","백업 계획·복원 계획으로 GKE 리소스와 볼륨을 보호하는 관리형 서비스."],
+ "OADP":["OpenShift API for Data Protection","Velero 기반 OpenShift 백업 오퍼레이터."],
+ "복합 복구 지점":["Composite recovery point","클러스터 상태와 여러 볼륨 백업을 하나로 묶은 AWS Backup 복구 지점."],
+ "변경 불가":["Immutable backup","정해진 기간 동안 누구도 지우거나 바꿀 수 없는 백업(볼트 잠금, Object Lock)."],
+ "Object Lock":["S3 Object Lock","S3 객체를 일정 기간 삭제·변경하지 못하게 하는 기능."],
+ "교차 계정 복사":["Cross-account copy","백업 사본을 다른 계정에 두어 계정 침해에 대비하는 것."],
+ "파일럿 라이트":["Pilot light","DR 리전에 최소 구성만 켜 두고 데이터는 복제하는 전략."],
+ "웜 스탠바이":["Warm standby","DR 리전에 작은 규모로 서비스를 실행해 두는 전략."],
+ "액티브-액티브":["Active-active","여러 리전이 동시에 서비스하는 전략."],
+ "복구 리허설":["Recovery rehearsal","실제로 복원해 RTO와 절차를 검증하는 훈련."],
+ "GitOps":["GitOps","Git 저장소를 원하는 상태의 원본으로 두고 클러스터를 동기화하는 운영(24편)."],
+ "etcd":["etcd","Kubernetes 모든 리소스를 저장하는 키-값 저장소(2편)."],
+ "증분":["Incremental backup","직전 백업 이후 바뀐 부분만 저장하는 방식."]
+};
+const AUTO=["VolumeSnapshotContent","VolumeSnapshotClass","VolumeGroupSnapshot","VolumeSnapshot","AWS Backup for EKS","Azure Backup for AKS","Backup for GKE","snapshotHandle","node-agent","fs-backup","Object Lock","fsfreeze","Velero","Kopia","restic","GitOps","OADP","etcd","PITR","WAL","RPO","RTO","BSL","VSL","DR","크래시 일관성","애플리케이션 일관성","리소스 수정자","StorageClass 매핑","복합 복구 지점","변경 불가","교차 계정 복사","파일럿 라이트","웜 스탠바이","액티브-액티브","복구 리허설"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s12")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- recovery planner ---------- */
+const MS=[["snap","CSI 스냅샷만(같은 리전·계정)"],["velcsi","Velero + CSI 스냅샷 참조"],["mover","Velero 데이터 이동(교차 리전 버킷 복제, 같은 계정)"],["vendor","벤더 백업(교차 리전·계정 복사, 변경 불가)"],["db","DB 네이티브 백업 + WAL 아카이브(다른 리전·계정)"],["warm","웜 스탠바이(다른 리전 클러스터 + DB 비동기 복제)"]];
+const DS=[["del","네임스페이스 실수 삭제"],["corrupt","데이터 손상(6시간 뒤 발견)"],["zone","존 장애"],["region","리전 장애"],["account","계정·구독 침해(자원 삭제)"],["cluster","클러스터 전체 손실"]];
+const P={m:"mover",d:"region"};
+function fmt(min){if(!isFinite(min))return"—";if(min<60)return Math.round(min)+"분";const h=Math.floor(min/60),m=Math.round(min%60);return `${h}시간${m?" "+m+"분":""}`;}
+function plan(){
+  const I=(+$("#pInt").value||24)*60,D=+$("#pData").value||1,TP=+$("#pTp").value||1,CL=+$("#pCl").value||0;
+  const m=P.m,d=P.d,big=["region","account","cluster"].includes(d);
+  let ok=true,why="",rpo=I,steps=[],notes=[];
+  const dataMin=D*1024/TP/60;
+  // survival
+  if(m==="snap"||m==="velcsi"){
+    if(d==="region"){ok=false;why="스냅샷이 원본 리전에 있어 리전과 함께 접근할 수 없습니다.";}
+    else if(d==="account"){ok=false;why="같은 계정의 스냅샷은 침해된 자격 증명으로 함께 삭제될 수 있습니다.";}
+  }
+  if(m==="mover"&&d==="account"){ok=false;why="버킷이 같은 계정에 있으면 함께 삭제될 수 있습니다. 교차 계정 복제나 Object Lock이 필요합니다.";}
+  if(m==="warm"&&d==="corrupt"){ok=false;why="비동기 복제는 손상된 데이터도 그대로 복제합니다. 시점 복구 가능한 백업이 따로 있어야 합니다.";}
+  if(m==="warm"&&d==="account"){notes.push("DR 클러스터가 다른 계정에 있다고 가정했습니다. 같은 계정이면 함께 위험합니다.");}
+  if(d==="corrupt")rpo=(m==="db")?5:I+360;
+  if(m==="db")rpo=d==="corrupt"?5:5;
+  if(m==="warm")rpo=1;
+  // RTO steps
+  if(ok){
+    const decide=big?20:5;steps.push(["재해 판단·DR 선언",decide]);
+    if(m==="warm"){steps.push(["DR DB 승격",5],["트래픽 전환(DNS·전역 LB)",10],["업무 확인",10]);}
+    else{
+      if(big)steps.push(["대상 클러스터 준비(GitOps로 기반 설치 포함)",CL]);
+      if(m==="snap"){steps.push(["앱 리소스 재배포(GitOps)",10],["스냅샷에서 볼륨 생성",10]);notes.push("스냅샷에서 만든 클라우드 디스크는 처음 읽을 때 느릴 수 있습니다(지연 로딩). 빠른 복원 기능을 검토하세요.");if(d==="cluster")notes.push("다른 클러스터에서는 snapshotHandle로 VolumeSnapshotContent를 직접 만들어 가져와야 합니다.");}
+      else if(m==="velcsi"){steps.push(["Velero 설치·백업 동기화",big?10:0],["리소스 복원",10],["스냅샷에서 볼륨 생성",10]);}
+      else if(m==="mover"){steps.push(["Velero 설치·백업 동기화",big?10:0],["리소스 복원",10],["볼륨 데이터 다운로드",dataMin]);}
+      else if(m==="vendor"){steps.push(["리소스 복원",10],[big?"교차 리전 사본에서 볼륨 복원":"스냅샷에서 볼륨 생성",big?dataMin:10]);}
+      else if(m==="db"){steps.push(["앱 리소스 재배포(GitOps)",10],["DB 베이스 백업 복원 + WAL 재생",dataMin*1.2]);notes.push("DB 외의 볼륨(업로드 파일 등)은 별도 수단이 필요합니다.");}
+      steps.push(["앱 기동·업무 확인",15]);
+      if(big)steps.push(["트래픽 전환(DNS·인증서·허용 목록)",15]);
+    }
+  }
+  const rto=steps.reduce((a,s)=>a+s[1],0);
+  $("#pV").className="verdict "+(ok?"ok":"no");$("#pV").textContent=ok?"복구 가능":"이 방식으로는 복구 불가";
+  $("#pK").innerHTML=ok?`<div class="kpi"><b>${fmt(rpo)}</b><span>최대 데이터 손실(RPO)</span></div><div class="kpi"><b>${fmt(rto)}</b><span>예상 복구 시간(RTO)</span></div><div class="kpi"><b>${fmt(dataMin)}</b><span>데이터 전송만(${D} GiB ÷ ${TP} MiB/s)</span></div>`:"";
+  let t=0;$("#pTl").innerHTML=ok?steps.map(s=>{t+=s[1];return `<div class="${s[0].includes("업무")?"ok":"key"}"><b>+${fmt(t)}</b>${s[0]} (${fmt(s[1])})</div>`;}).join(""):`<div class="bad"><b>—</b>${why}</div>`;
+  if(d==="corrupt"&&ok&&m!=="db")notes.push("손상이 발견되기 전(6시간)의 데이터와 그 이전 마지막 백업 이후의 데이터를 함께 잃습니다. 백업 보존 기간이 발견 지연보다 길어야 합니다.");
+  if(d==="corrupt"&&m==="db")notes.push("WAL 재생으로 손상 직전 시각까지 되돌릴 수 있습니다(PITR).");
+  if(d==="zone"&&(m==="snap"||m==="velcsi"))notes.push("EBS·Azure Disk 스냅샷은 리전 단위라 다른 존에서 복원할 수 있습니다(실습 3). Ceph·Longhorn 같은 클러스터 내부 스냅샷이라면 결과가 다릅니다.");
+  $("#pMsg").innerHTML=notes.map(n=>"• "+n).join("<br>")||"계산기의 단계 시간은 리허설로 실측해 바꾸세요.";
+}
+function renderPlan(){
+  [["pM",MS,"m"],["pD",DS,"d"]].forEach(([id,list,k])=>{const b=$("#"+id);b.innerHTML="";list.forEach(([v,l])=>{const x=el("button",{class:"btn",type:"button","aria-pressed":String(P[k]===v)},l);x.addEventListener("click",()=>{P[k]=v;renderPlan();});b.appendChild(x);});});
+  plan();
+}
+["pInt","pData","pTp","pCl"].forEach(id=>$("#"+id).addEventListener("input",plan));renderPlan();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["EBS 스냅샷만 매일 찍는 고객이 리전 장애를 겪으면?",["바로 복구","원본 리전의 스냅샷이라 접근 불가 → 교차 리전 복사가 필요","다른 존에서 복원","Velero가 자동 복구"],1,"스냅샷은 원본 리전에 남습니다."],
+ ["VolumeSnapshot에 대응하는 PV 쪽 객체는?",["StorageClass","PVC","PV","CSINode"],1,"VolumeSnapshotClass↔StorageClass, VolumeSnapshot↔PVC, VolumeSnapshotContent↔PV."],
+ ["데이터·WAL 볼륨이 분리된 DB를 각각 스냅샷하면 생길 수 있는 문제는?",["용량 증가","두 볼륨의 시점 불일치","권한 오류","MTU"],1,"그룹 스냅샷이나 DB 네이티브 백업이 필요합니다."],
+ ["EKS의 볼륨을 kubeadm 클러스터로 복원하려면 Velero의 어떤 방식이 필요한가?",["CSI 스냅샷 참조만","CSI 스냅샷 데이터 이동 또는 fs-backup","클라우드 네이티브 스냅샷","etcd 스냅샷"],1,"EBS 스냅샷은 kubeadm에서 쓸 수 없으니 데이터를 객체 저장소로 옮겨야 합니다."],
+ ["Velero에서 restic에 대해 옳은 것은?",["기본 업로더","1.17에서 새 백업 경로 제거, 복원은 1.19까지 지원","영구 지원","Kopia의 다른 이름"],1,"restic 백업만 있는 고객은 전환 계획이 필요합니다."],
+ ["복원 때 StorageClass 이름을 바꾸는 Velero 수단은?",["VolumeSnapshotClass","change-storage-class ConfigMap(StorageClass 매핑)","BSL","node-agent"],1,"리소스 수정자와 함께 대상 환경 차이를 메웁니다."],
+ ["웜 스탠바이(DB 비동기 복제)로 막기 어려운 재해는?",["리전 장애","존 장애","버그로 인한 데이터 손상","클러스터 손실"],2,"손상도 복제되므로 시점 복구 가능한 백업이 따로 필요합니다."],
+ ["AWS Backup for EKS의 특징이 아닌 것은?",["클러스터 상태와 볼륨을 복합 복구 지점으로","교차 리전·계정 복사","kubeadm 클러스터로 직접 복원","복원 때 새 EKS 클러스터 생성"],2,"벤더 서비스는 같은 벤더의 클러스터로 복원합니다."],
+ ["Velero 백업 버킷의 접근 권한을 엄격히 해야 하는 이유는?",["비용","백업에 Secret이 포함되어 버킷 접근이 곧 비밀 접근","속도","CRD 때문"],1,"가장 민감한 저장소로 취급해야 합니다."],
+ ["첫 복구 리허설에서 흔히 드러나는 RTO 초과 원인이 아닌 것은?",["데이터 복원 처리량","레지스트리·DNS 권한","DR 선언 결정 지연","Pod의 CPU 요청값 표기 방식"],3,"권한·연락망·처리량이 대표 원인입니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

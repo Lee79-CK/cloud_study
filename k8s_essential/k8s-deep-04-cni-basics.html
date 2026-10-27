@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 4편: 네트워크 모델과 CNI 원리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 4편 추가: 패킷 추적 다이어그램 ---- */
+.dia{display:grid;grid-template-columns:1fr 70px 1fr;gap:0;align-items:stretch;margin:12px 0}
+@media (max-width:760px){.dia{grid-template-columns:1fr;gap:10px}.dia .wirecol{min-height:46px}}
+.nbox{border:1px solid var(--line);border-radius:14px;padding:10px;background:var(--bg);display:flex;flex-direction:column;gap:6px}
+.nbox h5{margin:0 0 2px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between}
+.prow{display:flex;gap:6px}
+.prow>div{flex:1}
+.el{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:.76rem;line-height:1.35;background:var(--surface);color:var(--muted);transition:background .2s,border-color .2s,color .2s}
+.el b{display:block;color:var(--text);font-size:.82rem}
+.el.none{border-style:dashed;opacity:.5}
+.el.hl{background:var(--vendor-bg);border-color:var(--vendor);color:var(--text)}
+.el.hl b{color:var(--strong)}
+.wirecol{display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px}
+.wire{width:100%;height:10px;border-radius:5px;background:var(--line);position:relative;transition:background .2s}
+.wire.hl{background:var(--vendor)}
+.wire span{position:absolute;top:14px;left:50%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap}
+.hdr{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.hdr span{font-family:var(--mono);font-size:.72rem;padding:3px 7px;border-radius:6px}
+.hdr .o{background:var(--you-bg);color:var(--you);border:1px solid color-mix(in srgb,var(--you) 40%,transparent)}
+.hdr .i{background:var(--info-bg);color:var(--info);border:1px solid color-mix(in srgb,var(--info) 40%,transparent)}
+.stepper{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:.85rem;color:var(--muted)}
+.cni-sim{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:14px;margin-top:10px}
+@media (max-width:760px){.cni-sim{grid-template-columns:1fr}}
+.cs-steps{display:flex;flex-direction:column;gap:4px}
+.cs-steps button{font:inherit;font-size:.85rem;text-align:left;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.cs-steps button[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.cs-out{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.cs-out .bar{padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.cs-out pre{overflow:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:380px}
+.cs-out p{margin:0;padding:10px 14px;font-size:.88rem;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">4편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#trace">패킷 추적기</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">네트워크 모델 4원칙</a></li>
+    <li><a href="#s2">Pod 안쪽 배선</a></li>
+    <li><a href="#s3">Pod IP가 생기는 순서</a></li>
+    <li><a href="#s4">CNI 스펙</a></li>
+    <li><a href="#s5">IPAM</a></li>
+    <li><a href="#s6">레퍼런스 플러그인과 체이닝</a></li>
+    <li><a href="#s7">노드 사이 전달: 오버레이 유무</a></li>
+    <li><a href="#s8">벤더 노드의 CNI 배선</a></li>
+    <li><a href="#s9">실습</a></li>
+    <li><a href="#s10">현장 사례</a></li>
+    <li><a href="#s11">점검 퀴즈</a></li>
+    <li><a href="#s12">용어·약어 사전</a></li>
+    <li><a href="#s13">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 1 네트워크, 4편</div>
+    <h1>Kubernetes 네트워크 모델과 CNI 원리</h1>
+    <p class="lead">Kubernetes는 네트워크를 만들지 않습니다. “모든 Pod는 서로 NAT 없이 통신해야 한다”는 계약만 정하고, 그 계약을 지키는 일은 노드에서 실행되는 작은 프로그램, CNI 플러그인에 맡깁니다. 이 편은 그 계약을 문장 하나하나 뜯어보고, <strong>netns·veth·브리지·라우팅 테이블만으로 Pod 사이 패킷을 손으로 따라가며</strong>, 마지막에는 CNI를 손으로 직접 만들어 봅니다. 5·6편이 서 있는 바닥입니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Kubernetes v1.37 · CNI 스펙 1.1</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 120분 + 실습 150분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">4원칙</a></li><li><a href="#s2">Pod 안쪽 배선</a></li><li><a href="#s3">Pod IP 생성 순서</a></li><li><a href="#s4">CNI 스펙</a></li><li><a href="#s5">IPAM</a></li><li><a href="#s6">플러그인·체이닝</a></li><li><a href="#s7">노드 사이 전달</a></li><li><a href="#s8">벤더 노드</a></li><li><a href="#s9">실습</a></li><li><a href="#s10">현장 사례</a></li><li><a href="#s11">퀴즈</a></li><li><a href="#s12">용어 사전</a></li><li><a href="#s13">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="trace">
+    <h3>Pod에서 Pod까지, 한 칸씩</h3>
+    <p class="sub">전달 방식과 경로를 고른 뒤 단계를 넘기면, 패킷이 지금 어느 장치에 있는지 강조되고 그 순간의 헤더와 확인 명령이 나옵니다. 주소는 3편 기준선(w1·w2, Pod 대역 10.244.0.0/16)을 따랐습니다.</p>
+    <div class="opt-row"><span class="lbl">전달 방식</span><span id="tMode"></span></div>
+    <div class="opt-row"><span class="lbl">경로</span><span id="tPath"></span></div>
+    <div class="dia" id="tDia"></div>
+    <div class="stepper"><button class="btn" type="button" id="tPrev">이전</button><button class="btn" type="button" id="tNext">다음</button><span id="tPos"></span></div>
+    <div class="detail" id="tDet" style="position:static;margin-top:10px" aria-live="polite"></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Pod는 각자 작은 방(<span class="t" data-k="netns">netns</span>)에 사는 사람입니다. 방에는 랜선 구멍이 하나 있고, 그 랜선(<span class="t" data-k="veth">veth</span>)의 반대쪽 끝은 건물 복도(노드)로 나와 있습니다. CNI는 사람이 입주할 때마다 랜선을 깔고 주소를 붙여 주는 설치 기사이고, 건물과 건물 사이를 잇는 방법(직통 도로를 내느냐, 소포로 감싸 보내느냐)도 CNI가 정합니다.</div>
+    <div class="prose">
+      <p>5·6편처럼 점선 밑줄 용어는 마우스를 올리거나 누르면 설명이 나오고, 12장 사전에 모여 있습니다. 이 편은 커리큘럼상 Level 1의 첫 편이며, 5편(CNI 구현체 비교)과 6편(Service)은 이 편의 개념을 전제로 합니다.</p>
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>네트워크 모델 4원칙을 정확히 말하고, 주어진 구성이 원칙을 지키는지 판정할 수 있습니다.</li>
+        <li>netns·veth·브리지·라우팅 테이블·터널 장치로 Pod 간 패킷 경로를 명령어 출력으로 추적할 수 있습니다.</li>
+        <li>kubelet → CRI → 런타임 → CNI로 이어지는 Pod IP 생성 과정을 설명하고, 각 단계의 실패 증상을 구분할 수 있습니다.</li>
+        <li>CNI 스펙의 동사(ADD·DEL·CHECK·GC·STATUS·VERSION), 설정 목록, 결과 전달(prevResult), 체이닝을 설명하고 플러그인을 직접 호출할 수 있습니다.</li>
+        <li>CNI 없이 클러스터를 만들어 보고, 손으로 만든 CNI → Flannel → Calico로 바꿔 가며 경로의 차이를 관찰할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>네트워크 모델 4원칙</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Kubernetes가 CNI에게 요구하는 것은 “평평한 주소 공간”입니다. 모든 Pod가 하나의 큰 사무실에 있는 것처럼, 누구든 상대 주소만 알면 중간에서 이름표를 바꿔 달지 않고(<span class="t" data-k="NAT">NAT</span> 없이) 바로 말을 걸 수 있어야 합니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>원칙</th><th>정확한 의미</th><th>CNI에게 강제하는 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1. Pod마다 고유 IP</td><td>클러스터 안에서 모든 Pod가 겹치지 않는 자기 IP를 가진다. Pod 안 컨테이너들은 그 IP와 포트 공간을 공유한다</td><td>노드 사이에 겹치지 않게 주소를 나눠 주는 <span class="t" data-k="IPAM">IPAM</span>(노드별 대역 또는 중앙 배정)</td></tr>
+        <tr><td class="k">2. Pod ↔ Pod, NAT 없이</td><td>어느 노드의 Pod든 다른 모든 노드의 Pod와, 출발지·목적지 주소를 바꾸지 않고 통신한다</td><td>노드 사이의 L3 도달성(라우팅·캡슐화·VPC 직결 중 하나)과, 클러스터 내부 트래픽에 SNAT를 걸지 않는 규칙</td></tr>
+        <tr><td class="k">3. 노드 에이전트 ↔ 그 노드의 Pod</td><td>kubelet·시스템 데몬이 같은 노드의 Pod에 Pod IP로 닿는다(프로브, 메트릭)</td><td>노드 자신의 라우팅 테이블에 Pod로 가는 경로</td></tr>
+        <tr><td class="k">4. 내가 아는 내 IP = 남이 보는 내 IP</td><td>Pod가 자기 인터페이스에서 보는 IP와 다른 Pod가 보는 그 Pod의 IP가 같다</td><td>Docker 기본 브리지처럼 바깥에 다른 주소로 보이는 구조 금지</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>원칙이 말하지 않는 것</h3>
+      <ul>
+        <li><strong>클러스터 밖으로 나가는 트래픽.</strong> Pod가 인터넷·사내망으로 나갈 때 노드 IP로 SNAT하는 것은 원칙 위반이 아닙니다. 원칙은 Pod끼리, 노드와 그 Pod 사이만 다룹니다.</li>
+        <li><strong>Service.</strong> ClusterIP로 접속할 때 DNAT가 일어나는 것은 별도의 Service 모델(6편)입니다.</li>
+        <li><strong>캡슐화.</strong> VXLAN으로 감싸는 것은 주소를 바꾸는 것이 아니라 봉투에 넣는 것이라 위반이 아닙니다. 상대 Pod가 받는 패킷의 출발지는 원래 Pod IP 그대로입니다.</li>
+        <li><strong>격리.</strong> NetworkPolicy로 통신을 막는 것은 원칙과 충돌하지 않습니다. 원칙은 “기본 연결성”이고, 정책은 그 위에 거는 의도적 제한입니다(9편).</li>
+        <li><strong>hostNetwork Pod.</strong> 노드의 네트워크 공간을 그대로 쓰는 Pod는 노드 IP를 공유합니다. 의도된 예외입니다.</li>
+      </ul>
+      <h3>판정 연습: 원칙 위반일까?</h3>
+    </div>
+    <div class="sorter" id="sorter"></div>
+    <div class="score" id="sorterScore"></div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>Pod 안쪽 배선: netns, pause, veth</h2>
+    <div class="prose">
+      <h3>네트워크 공간을 붙잡는 pause 컨테이너</h3>
+      <p>Pod가 만들어지면 컨테이너 런타임은 먼저 <strong>샌드박스</strong>를 만듭니다. 샌드박스의 핵심은 아무 일도 하지 않는 <span class="t" data-k="pause">pause</span> 컨테이너 하나와, 그것이 붙잡고 있는 netns입니다. Pod 안의 앱 컨테이너들은 이 netns에 합류하기 때문에 같은 IP와 같은 <code>localhost</code>를 공유합니다. 앱 컨테이너가 재시작해도 IP가 바뀌지 않는 이유는 IP가 앱 컨테이너가 아니라 샌드박스에 붙어 있기 때문입니다. 반대로 샌드박스가 다시 만들어지면(노드 재부팅, 샌드박스 변경) CNI가 다시 불려 IP가 바뀔 수 있습니다.</p>
+      <h3>veth 한 쌍과 노드 쪽 끝의 세 가지 운명</h3>
+      <p>CNI는 veth 한 쌍을 만들어 한쪽 끝은 Pod netns 안으로 옮겨 <code>eth0</code>이라 부르고, 다른 끝은 노드에 남깁니다. 차이는 노드에 남은 끝을 어떻게 처리하느냐에서 납니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>노드 쪽 처리</th><th>구조</th><th>Pod 안 기본 경로</th><th>쓰는 곳</th></tr></thead>
+      <tbody>
+        <tr><td class="k">브리지에 꽂기</td><td>노드의 가상 스위치(<code>cni0</code> 등)에 모든 Pod veth를 꽂고, 브리지가 게이트웨이 IP를 가짐</td><td><code>default via 10.244.1.1</code>(브리지 IP)</td><td>bridge 플러그인, Flannel, Docker 기본</td></tr>
+        <tr><td class="k">라우팅으로 처리</td><td>브리지 없이 veth마다 노드 라우팅 테이블에 Pod IP /32 경로. 게이트웨이는 <span class="t" data-k="proxy ARP">proxy ARP</span>로 노드가 대신 대답</td><td><code>default via 169.254.1.1</code>(가상 게이트웨이)</td><td>Calico, ptp 플러그인, 일부 클라우드 CNI</td></tr>
+        <tr><td class="k">eBPF가 받기</td><td>veth 노드 쪽 끝에 eBPF 프로그램을 붙여 커널 라우팅을 거치지 않고 직접 전달</td><td>구현마다 다름</td><td>Cilium, GKE Dataplane V2</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>노드에서 Pod 배선 들여다보기</span><button class="copy" type="button">복사</button></div><pre><span class="c"># Pod의 샌드박스 ID와 netns 경로 (crictl은 kubeadm 설치에 포함된 cri-tools)</span>
+POD_ID=$(sudo crictl pods --name web -q | head -1)
+sudo crictl inspectp $POD_ID | jq -r '.info.runtimeSpec.linux.namespaces[] | select(.type=="network") | .path'
+
+<span class="c"># 그 netns 안에서 명령 실행 (pause 프로세스의 PID로 진입)</span>
+PID=$(sudo crictl inspectp $POD_ID | jq -r '.info.pid')
+sudo nsenter -t $PID -n ip addr show eth0
+sudo nsenter -t $PID -n ip route
+
+<span class="c"># Pod eth0의 짝 veth 찾기: eth0@ifN 의 N이 노드 쪽 인터페이스 번호</span>
+sudo nsenter -t $PID -n ip -o link show eth0     <span class="c"># 예: eth0@if12</span>
+ip -o link | grep '^12:'                        <span class="c"># 노드 쪽 veth 이름과 master(브리지)</span>
+ip netns list                                    <span class="c"># 런타임이 이름 붙인 netns 목록(cni-xxxx)</span></pre></div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>Pod IP가 생기는 순서</h2>
+    <div class="prose"><p>“IP가 안 붙는다”는 장애는 이 순서의 어느 단계에서 멈췄는지로 쪼개야 합니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>단계</th><th>주체</th><th>하는 일</th><th>여기서 멈추면 보이는 것</th></tr></thead>
+      <tbody>
+        <tr><td class="k">1</td><td>스케줄러</td><td>Pod에 노드 배정. 노드가 NotReady(네트워크 미준비)면 기본 테인트 때문에 배정하지 않음</td><td>Pod Pending, “node(s) had untolerated taint node.kubernetes.io/not-ready”</td></tr>
+        <tr><td class="k">2</td><td>kubelet</td><td><span class="t" data-k="CRI">CRI</span>로 런타임에 RunPodSandbox 요청</td><td>kubelet 로그의 sandbox 생성 오류</td></tr>
+        <tr><td class="k">3</td><td>런타임(containerd·CRI-O)</td><td>netns 생성, pause 시작, CNI 설정 디렉터리에서 설정 파일을 골라 플러그인에 ADD 호출</td><td>ContainerCreating, 이벤트 “failed to setup network for sandbox … plugin type=… failed”</td></tr>
+        <tr><td class="k">4</td><td>CNI 플러그인</td><td>veth 생성, IPAM으로 IP 받기, 경로 설정, 결과 JSON 반환</td><td>“no IP addresses available in range set”, “failed to find plugin … in path”</td></tr>
+        <tr><td class="k">5</td><td>런타임 → kubelet</td><td>결과의 IP를 Pod 상태(<code>status.podIPs</code>)로 보고</td><td>—</td></tr>
+        <tr><td class="k">6</td><td>EndpointSlice 컨트롤러</td><td>준비된 Pod IP를 Service 명단에 기록(6편)</td><td>Service 엔드포인트 없음</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>노드의 “네트워크 준비됨”은 누가 정하나</h3>
+      <p>kubelet은 런타임에게 네트워크가 준비됐는지 묻고, 런타임은 전통적으로 <strong>CNI 설정 디렉터리에 유효한 설정 파일이 있는지</strong>로 답해 왔습니다. 그래서 CNI DaemonSet이 설정 파일을 써 넣는 순간 노드가 Ready로 바뀝니다. CNI 스펙 1.1의 STATUS 동사는 플러그인이 “지금 ADD를 받을 준비가 됐다”를 직접 보고하게 해, 설정 파일은 있는데 실제 에이전트는 죽어 있는 상태를 구분할 수 있게 합니다. 런타임 버전에 따라 이 동사를 쓰는지 여부가 다릅니다.</p>
+    </div>
+    <div class="code"><div class="bar"><span>containerd 2.x의 CNI 위치 설정</span><button class="copy" type="button">복사</button></div><pre>containerd config dump | grep -A6 "io.containerd.cri.v1.runtime'.cni"
+<span class="c"># bin_dirs = ['/opt/cni/bin']        플러그인 실행 파일 위치(2.x부터 목록)</span>
+<span class="c"># conf_dir = '/etc/cni/net.d'        설정 파일 위치</span>
+<span class="c"># max_conf_num = 1                   사용할 설정 파일 개수(기본 1: 이름순 첫 파일)</span>
+sudo crictl info | jq '.status.conditions[] | select(.type=="NetworkReady")'</pre></div>
+    <div class="note trap"><b>함정: 이름순 첫 파일이 이긴다</b>
+    런타임은 설정 디렉터리의 파일을 <strong>이름순으로 정렬해 첫 번째</strong>를 씁니다. CNI를 바꾸고 옛 설정 파일을 지우지 않으면, 이름이 앞선 쪽이 계속 쓰입니다. 예를 들어 <code>10-calico.conflist</code>와 <code>10-flannel.conflist</code>가 함께 있으면 calico가 선택되지만, 옛 <code>cni0</code> 브리지·경로·iptables 규칙은 그대로 남아 있습니다. 많은 CNI가 <code>00-</code>, <code>05-</code> 같은 접두사로 우선순위를 확보하는 이유이고, Multus가 맨 앞에 자기 설정을 두는 이유입니다(10장 첫 사례).</div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>CNI 스펙: 실행 파일과 표준 입력의 계약</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    CNI는 서버도 데몬도 아닌 “명령 실행 규칙”입니다. 런타임은 플러그인 실행 파일을 한 번 실행하면서, 무엇을 할지는 환경 변수로, 설정은 표준 입력(JSON)으로 넘기고, 결과는 표준 출력(JSON)으로 받습니다. 그래서 사람도 같은 방식으로 플러그인을 손으로 실행해 볼 수 있습니다(9장 실습 1).</div>
+    <div class="prose"><h3>동사(CNI_COMMAND)</h3></div>
+    <div class="tbl"><table>
+      <thead><tr><th>동사</th><th>언제</th><th>하는 일</th><th>쉬운 말로</th></tr></thead>
+      <tbody>
+        <tr><td class="k">ADD</td><td>샌드박스 생성 시</td><td>인터페이스 만들고 IP·경로 설정, 결과 반환</td><td>입주 공사</td></tr>
+        <tr><td class="k">DEL</td><td>샌드박스 삭제 시</td><td>만든 것을 정리하고 IP 반납. <strong>여러 번 불려도 안전해야 함</strong>(<span class="t" data-k="멱등">멱등</span>)</td><td>퇴거 정리. 이미 비어 있어도 오류 없이</td></tr>
+        <tr><td class="k">CHECK</td><td>런타임이 주기적으로(선택)</td><td>이전 결과대로 아직 설정돼 있는지 확인</td><td>점검 방문</td></tr>
+        <tr><td class="k">GC (1.1)</td><td>런타임이 정리할 때</td><td>“지금 살아 있는 연결 목록”을 받아 그 밖의 흔적(새 IP 기록 등)을 정리</td><td>빈집 대청소</td></tr>
+        <tr><td class="k">STATUS (1.1)</td><td>런타임이 준비 상태 확인 시</td><td>플러그인이 ADD를 받을 준비가 됐는지 보고</td><td>“지금 공사 가능?” 문의</td></tr>
+        <tr><td class="k">VERSION</td><td>호환성 확인</td><td>지원하는 스펙 버전 목록 반환</td><td>자격증 확인</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>입력과 출력</h3>
+      <ul>
+        <li><strong>환경 변수.</strong> <code>CNI_COMMAND</code>, <code>CNI_CONTAINERID</code>(샌드박스 ID), <code>CNI_NETNS</code>(netns 경로), <code>CNI_IFNAME</code>(대개 eth0), <code>CNI_PATH</code>(플러그인 검색 경로), <code>CNI_ARGS</code>(부가 정보. Kubernetes는 Pod 이름·네임스페이스를 넣음).</li>
+        <li><strong>설정 목록(<span class="t" data-k="conflist">conflist</span>).</strong> 관리자가 쓰는 파일. <code>cniVersion</code>, <code>name</code>, <code>plugins</code> 배열로 이루어지고, 런타임은 배열의 플러그인을 순서대로 호출합니다. 스펙 1.0부터 목록이 아닌 단일 설정 파일 형식은 제거됐습니다(플러그인 자체는 여전히 표준 입력으로 단일 객체를 받음).</li>
+        <li><strong>결과.</strong> 만들어진 <code>interfaces</code>, 배정된 <code>ips</code>, <code>routes</code>, <code>dns</code>. 다음 플러그인에게 <span class="t" data-k="prevResult">prevResult</span>로 전달되고, 마지막 결과가 런타임에 돌아갑니다. 런타임은 이 결과를 캐시해 두었다가 DEL·CHECK 때 다시 넘깁니다.</li>
+        <li><strong>실행 시 정보(<span class="t" data-k="capabilities">capabilities</span>).</strong> 포트 매핑(hostPort), 대역폭 제한처럼 Pod마다 다른 값은 설정 파일이 아니라 실행 시 <code>runtimeConfig</code>로 들어옵니다. 플러그인이 설정에서 해당 capability를 선언해야 런타임이 넘겨 줍니다.</li>
+        <li><strong>위임(delegation).</strong> 플러그인이 다른 플러그인을 직접 실행할 수 있습니다. 대표가 IPAM입니다. bridge 플러그인은 IP를 직접 고르지 않고 <code>ipam.type</code>에 적힌 host-local을 실행해 IP를 받아 옵니다. Flannel 플러그인은 bridge에 통째로 위임합니다.</li>
+      </ul>
+      <h3>호출 시뮬레이터</h3>
+      <p>bridge → portmap → bandwidth 체인 설정에서 런타임이 동사별로 무엇을 하는지 순서대로 보여 줍니다. 단계를 누르면 그때 넘겨지는 환경 변수·입력과 돌아오는 출력이 나옵니다.</p>
+    </div>
+    <div class="calc" id="cniSim">
+      <div class="opt-row"><span class="lbl">동사</span><span id="csVerb"></span></div>
+      <div class="cni-sim"><div class="cs-steps" id="csSteps"></div><div class="cs-out"><div class="bar" id="csTitle"></div><p id="csDesc"></p><pre id="csCode"></pre></div></div>
+    </div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>IPAM: 겹치지 않게 주소 나누기</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    IPAM은 주소 관리 담당입니다. 가장 흔한 방식은 클러스터 전체 대역을 노드마다 한 동(/24)씩 나눠 주고, 각 노드가 자기 동 안에서만 호수를 매기는 것입니다. 노드끼리 상의할 필요가 없어 단순합니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>방식</th><th>누가 대역을 나누나</th><th>노드에서 IP를 고르는 법</th><th>쓰는 곳</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Kubernetes 노드 IPAM + host-local</td><td>kube-controller-manager(<code>--allocate-node-cidrs</code>, <code>--cluster-cidr</code>, 노드당 기본 /24)가 <code>node.spec.podCIDR</code>에 기록</td><td><span class="t" data-k="host-local">host-local</span>이 그 대역에서 골라 <code>/var/lib/cni/networks/&lt;이름&gt;/</code>에 IP별 파일로 기록</td><td>kubeadm(podSubnet 지정 시) + Flannel·bridge·ptp</td></tr>
+        <tr><td class="k">CNI 자체 IPAM</td><td>CNI 컨트롤러가 자기 방식으로 블록 배정</td><td>CNI 에이전트가 블록에서 배정</td><td>Calico(/26 블록), Cilium cluster-pool</td></tr>
+        <tr><td class="k">클라우드 IPAM</td><td>클라우드 네트워크(VPC·VNet 서브넷, 보조 범위)</td><td>클라우드 API로 받아 온 IP</td><td>EKS VPC CNI, Azure CNI, GKE(5편)</td></tr>
+        <tr><td class="k">static·dhcp</td><td>사람 또는 외부 DHCP</td><td>지정 값 또는 DHCP 임대</td><td>Multus 보조 네트워크, 특수 장비 연결</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <ul>
+        <li><strong>노드당 /24의 의미.</strong> 노드당 Pod 254개까지 가능하지만 kubelet 기본 최대 Pod는 110입니다. 클러스터 대역이 /16이면 노드 256대가 상한입니다. 대역 계획이 곧 클러스터 규모 계획입니다.</li>
+        <li><strong>IP 누수.</strong> host-local은 IP를 파일로 기록하므로, DEL이 불리지 못한 채 샌드박스가 사라지면(런타임 비정상 종료, 노드 강제 재부팅) 파일이 남아 그 IP가 영영 재사용되지 않습니다. 쌓이면 “no IP addresses available in range set”으로 새 Pod가 실패합니다. CNI 1.1의 GC가 이 문제를 겨냥하며, libcni는 GC를 지원하지 않는 플러그인에도 남은 캐시 기준으로 DEL을 합성해 정리를 시도합니다(10장 두 번째 사례).</li>
+        <li><strong>듀얼 스택.</strong> IPv4·IPv6 대역을 함께 주면 Pod가 두 주소를 받습니다(<code>status.podIPs</code>에 둘). 1.23에서 GA. IPAM과 경로가 각 패밀리에 대해 따로 동작합니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>레퍼런스 플러그인과 체이닝</h2>
+    <div class="prose"><p>CNI 프로젝트가 관리하는 레퍼런스 플러그인(<code>containernetworking/plugins</code>)은 세 부류로 나뉩니다. 대부분의 CNI 구현체가 이 중 일부를 내부적으로 재사용합니다.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>부류</th><th>플러그인</th><th>하는 일</th></tr></thead>
+      <tbody>
+        <tr><td class="k">인터페이스</td><td>bridge, ptp, macvlan, ipvlan, host-device, vlan, loopback, dummy, tap</td><td>Pod netns에 인터페이스를 만들고 노드와 연결</td></tr>
+        <tr><td class="k">IPAM</td><td>host-local, dhcp, static</td><td>IP 배정만 담당(인터페이스 플러그인이 위임 호출)</td></tr>
+        <tr><td class="k">메타(체인용)</td><td><span class="t" data-k="portmap">portmap</span>, <span class="t" data-k="bandwidth">bandwidth</span>, tuning, firewall, sbr, vrf</td><td>앞 플러그인이 만든 결과 위에 기능을 덧붙임</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tbl"><table>
+      <thead><tr><th>메타 플러그인</th><th>Kubernetes에서 켜지는 방법</th><th>내부 동작</th></tr></thead>
+      <tbody>
+        <tr><td class="k">portmap</td><td>Pod 스펙의 <code>hostPort</code></td><td>노드 포트 → Pod 포트 DNAT 규칙(iptables·nftables)</td></tr>
+        <tr><td class="k">bandwidth</td><td>Pod 어노테이션 <code>kubernetes.io/ingress-bandwidth</code>, <code>kubernetes.io/egress-bandwidth</code></td><td>리눅스 <span class="t" data-k="tc">tc</span>로 대역폭 제한</td></tr>
+        <tr><td class="k">tuning</td><td>설정 파일(또는 Pod별 sysctl)</td><td>Pod 인터페이스의 sysctl·MTU·MAC 조정</td></tr>
+        <tr><td class="k">firewall</td><td>설정 파일</td><td>Pod 트래픽을 허용하는 방화벽 규칙 추가(호스트 방화벽이 엄격할 때)</td></tr>
+      </tbody>
+    </table></div>
+    <div class="code"><div class="bar"><span>체인 설정 예 (9장 실습 2에서 실제로 사용)</span><button class="copy" type="button">복사</button></div><pre>{
+  "cniVersion": "1.0.0",
+  "name": "manual",
+  "plugins": [
+    { "type": "bridge", "bridge": "cni0", "isGateway": true, "ipMasq": true, "hairpinMode": true,
+      "ipam": { "type": "host-local",
+                "ranges": [[ { "subnet": "10.244.1.0/24" } ]],
+                "routes": [ { "dst": "0.0.0.0/0" } ] } },
+    { "type": "portmap",   "capabilities": { "portMappings": true } },
+    { "type": "bandwidth", "capabilities": { "bandwidth": true } }
+  ]
+}</pre></div>
+    <div class="prose">
+      <h3>체이닝의 실전형</h3>
+      <ul>
+        <li><strong>CNI 구현체 내부.</strong> Flannel은 자기 플러그인 뒤에 portmap을, Calico는 calico 플러그인 뒤에 bandwidth·portmap을 체인으로 붙입니다. 각 노드의 설정 파일을 열어 보면 바로 보입니다(실습 3·4).</li>
+        <li><strong>다른 CNI 위에 얹기.</strong> 5편에서 본 Cilium 체이닝(EKS VPC CNI가 IP, Cilium이 정책·관측)이 같은 원리입니다. 뒤 플러그인이 prevResult로 앞 플러그인의 인터페이스를 넘겨받아 기능만 붙입니다.</li>
+        <li><strong><span class="t" data-k="Multus">Multus</span>.</strong> 체이닝이 아니라 “메타 CNI”입니다. 기본 CNI를 호출해 eth0을 만들고, Pod 어노테이션에 적힌 추가 네트워크마다 다른 CNI를 불러 net1, net2…를 붙입니다. OpenShift는 Multus가 항상 맨 앞에 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>노드 사이 전달: 오버레이가 있을 때와 없을 때</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    같은 건물(노드) 안의 방끼리는 복도(브리지나 노드 라우팅)로 바로 갑니다. 다른 건물로 갈 때는 두 가지입니다. 도로 지도에 “10.244.2.x 동은 저 건물”이라고 적어 두고 그냥 보내거나(라우팅), 편지를 건물 주소가 적힌 큰 봉투에 넣어 보냅니다(<span class="t" data-k="오버레이">오버레이</span>). 맨 위 패킷 추적기가 이 차이를 단계별로 보여 줍니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>방식</th><th>노드 A의 경로 예</th><th>바깥에서 보이는 패킷</th><th>요구 조건</th></tr></thead>
+      <tbody>
+        <tr><td class="k">손으로 넣은 정적 경로</td><td><code>10.244.2.0/24 via 192.168.64.13 dev eth0</code></td><td>Pod IP 그대로</td><td>노드끼리 같은 L2이거나, 중간 라우터에도 경로가 있어야 함. 노드 추가 때마다 모든 노드 수정</td></tr>
+        <tr><td class="k">Flannel host-gw</td><td>위와 같은 경로를 flanneld가 자동으로 넣음</td><td>Pod IP 그대로</td><td>모든 노드가 같은 L2</td></tr>
+        <tr><td class="k">Calico BGP</td><td><code>10.244.2.0/26 via 192.168.64.13 dev eth0 proto bird</code></td><td>Pod IP 그대로</td><td>BGP로 경로 교환. 다른 L2라면 라우터와 BGP 또는 CrossSubnet 캡슐화</td></tr>
+        <tr><td class="k">Flannel VXLAN</td><td><code>10.244.2.0/24 via 10.244.2.0 dev flannel.1 onlink</code></td><td>노드 IP → 노드 IP, UDP 8472 안에 Pod 패킷</td><td>노드끼리 IP로만 통하면 됨</td></tr>
+        <tr><td class="k">Calico VXLAN</td><td><code>10.244.2.0/26 via 10.244.2.0 dev vxlan.calico onlink</code></td><td>노드 IP → 노드 IP, UDP 4789 안에 Pod 패킷</td><td>노드끼리 IP로만 통하면 됨</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>VXLAN 터널 장치가 상대를 찾는 법</h3>
+      <p>Flannel의 <code>flannel.1</code>은 <span class="t" data-k="VTEP">VTEP</span>(터널 끝점)입니다. 경로가 “다음 홉 10.244.2.0을 flannel.1로”라고 말하면, 커널은 ① 이웃 표(<span class="t" data-k="ARP">ARP</span>)에서 10.244.2.0의 MAC 주소(상대 노드 VTEP의 MAC)를 찾고, ② 포워딩 표(<span class="t" data-k="FDB">FDB</span>)에서 그 MAC이 어느 노드 IP 뒤에 있는지 찾아, ③ 그 노드 IP로 UDP 패킷을 만들어 보냅니다. flanneld는 이 세 가지(경로, 이웃, FDB)를 노드가 생길 때마다 미리 채워 넣는 일을 합니다. 9장 실습 3에서 세 표를 직접 봅니다.</p>
+      <h3>같은 노드 안에서도 다르다</h3>
+      <p>브리지 방식에서 같은 노드의 Pod끼리는 브리지가 L2 스위칭으로 바로 전달합니다. 라우팅 방식(Calico)에서는 같은 노드라도 노드 라우팅 테이블을 거쳐 L3로 전달됩니다. 이 차이 때문에 브리지 방식에서는 <code>br_netfilter</code>가 로드돼야 같은 노드 Pod 사이 트래픽도 iptables(NetworkPolicy, Service DNAT의 되돌림)를 거칩니다. 3편 노드 준비 스크립트가 이 모듈을 켠 이유입니다(10장 다섯 번째 사례).</p>
+    </div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>벤더 노드의 CNI 배선</h2>
+    <div class="prose"><p>매니지드라도 노드 안의 구조는 이 편의 원리 그대로입니다. 어떤 설정 파일이 맨 앞에 있고, 노드 쪽 veth가 어디에 꽂혀 있는지를 보면 5편의 비교가 눈으로 확인됩니다. 아래는 각 환경 노드에서 예상되는 모습입니다. 파일 이름은 버전에 따라 다를 수 있으니 9장 실습 5로 직접 확인하세요.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>환경</th><th>CNI 설정 디렉터리의 대표 파일(예상)</th><th>노드 쪽 veth 처리</th><th>Pod 안 기본 경로</th></tr></thead>
+      <tbody>
+        <tr><td class="k">kubeadm + Calico</td><td><code>10-calico.conflist</code> (calico → bandwidth → portmap)</td><td>cali* veth, /32 경로</td><td>169.254.1.1(proxy ARP)</td></tr>
+        <tr><td class="k">kubeadm + Flannel</td><td><code>10-flannel.conflist</code> (flannel → portmap)</td><td>cni0 브리지</td><td>브리지 IP</td></tr>
+        <tr><td class="k">RKE2 Canal</td><td><code>10-canal.conflist</code></td><td>cali* veth(Calico 방식 배선 + Flannel 전달)</td><td>169.254.1.1</td></tr>
+        <tr><td class="k">OpenShift</td><td>Multus 설정이 맨 앞(<code>/etc/kubernetes/cni/net.d/</code> 아래), 기본 네트워크는 OVN-K</td><td>OVS 브리지 br-int 포트</td><td>노드 스위치의 게이트웨이</td></tr>
+        <tr><td class="k">EKS</td><td><code>10-aws.conflist</code> (aws-cni → egress → portmap 등)</td><td>eni* veth, /32 경로</td><td>169.254.1.1</td></tr>
+        <tr><td class="k">AKS (Cilium 데이터플레인)</td><td>Cilium 설정 파일(<code>05-cilium.conflist</code> 계열)</td><td>lxc* veth + eBPF</td><td>노드 쪽 Cilium 게이트웨이</td></tr>
+        <tr><td class="k">GKE (Dataplane V2)</td><td>Cilium 기반 설정(GKE 관리)</td><td>gke* 또는 lxc* veth + eBPF</td><td>노드 쪽 게이트웨이</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: 노드에 들어갈 수 없어도 노드를 볼 수 있다</b>
+    매니지드 노드에 SSH가 막혀 있어도 <code>kubectl debug node/&lt;노드&gt; --profile=sysadmin</code>로 노드 파일 시스템(<code>/host</code>)과 네트워크 공간에 들어갈 수 있습니다. 다만 이것은 특권 Pod를 만드는 일이라 감사 로그에 남고, RBAC으로 통제해야 할 강력한 권한입니다(22편). 고객 클러스터에서는 사용 절차를 런북에 적어 두세요.</div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>실습: CNI 없이 시작해 손으로 만들고, Flannel과 Calico로 바꾸기</h2>
+    <div class="prose">
+      <p>3편에서 만든 <strong>pre-cni 스냅샷</strong>을 실습마다 출발점으로 씁니다. 실습 2·3·4는 서로 다른 CNI를 설치하므로, 각 실습 전에 pre-cni로 되돌려 깨끗한 상태에서 시작합니다. 모두 끝나면 baseline으로 돌아갑니다.</p>
+    </div>
+    <div class="code"><div class="bar"><span>호스트: pre-cni로 되돌리기 (각 실습 전에 반복)</span><button class="copy" type="button">복사</button></div><pre>restore(){ multipass stop cp1 w1 w2; for n in cp1 w1 w2; do multipass restore --destructive "$n.$1"; done; multipass start cp1 w1 w2; }
+restore pre-cni
+kubectl config use-context lab-native</pre></div>
+
+    <div class="prose"><h3>실습 0. CNI가 없는 클러스터</h3></div>
+    <div class="code"><div class="bar"><span>무엇이 막히고 무엇은 되나</span><button class="copy" type="button">복사</button></div><pre>kubectl get nodes                                         <span class="c"># 전부 NotReady</span>
+kubectl describe node w1 | grep -A2 -E '^\s+Ready'        <span class="c"># NetworkPluginNotReady / cni plugin not initialized</span>
+kubectl get node w1 -o jsonpath='{.spec.taints}'; echo     <span class="c"># node.kubernetes.io/not-ready</span>
+kubectl get nodes -o custom-columns=NAME:.metadata.name,PODCIDR:.spec.podCIDR   <span class="c"># 노드별 /24는 이미 배정됨</span>
+kubectl -n kube-system get pods -o wide                   <span class="c"># 정적 Pod·kube-proxy(hostNetwork)는 Running, coredns는 Pending</span>
+multipass exec w1 -- ls -l /etc/cni/net.d /opt/cni/bin    <span class="c"># 설정 없음, 플러그인 실행 파일은 있을 수 있음</span>
+
+<span class="c"># 스케줄러를 건너뛰고 일반 Pod를 강제로 w1에 배치</span>
+kubectl run nocni --image=nginxinc/nginx-unprivileged:stable-alpine \
+  --overrides='{"spec":{"nodeName":"w1","tolerations":[{"operator":"Exists"}]}}'
+sleep 10; kubectl describe pod nocni | sed -n '/Events/,$p'  <span class="c"># 샌드박스 네트워크 설정 실패</span>
+
+<span class="c"># hostNetwork Pod는 CNI 없이도 뜬다 (원칙의 예외)</span>
+kubectl run hostnet --image=busybox:1.36 \
+  --overrides='{"spec":{"nodeName":"w1","hostNetwork":true,"tolerations":[{"operator":"Exists"}]}}' -- sleep 3600
+kubectl get pod -o wide                                    <span class="c"># hostnet의 IP = 노드 IP</span>
+kubectl delete pod nocni hostnet</pre></div>
+
+    <div class="prose"><h3>실습 1. 플러그인을 손으로 호출하기 (w1, Kubernetes 없이)</h3>
+      <p>런타임이 하는 일을 사람이 직접 합니다. netns를 하나 만들고 bridge 플러그인을 환경 변수와 표준 입력으로 실행합니다.</p></div>
+    <div class="code"><div class="bar"><span>w1에서 (sudo -i)</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 레퍼런스 플러그인이 없으면 최신 릴리스 설치</span>
+ls /opt/cni/bin/bridge 2&gt;/dev/null || {
+  V=$(curl -s https://api.github.com/repos/containernetworking/plugins/releases/latest | jq -r .tag_name)
+  ARCH=$(dpkg --print-architecture); mkdir -p /opt/cni/bin
+  curl -fsSL "https://github.com/containernetworking/plugins/releases/download/$V/cni-plugins-linux-$ARCH-$V.tgz" | tar xz -C /opt/cni/bin; }
+ls /opt/cni/bin
+
+ip netns add demo
+cat &gt;/tmp/demo.conf &lt;&lt;'EOF'
+{ "cniVersion": "1.0.0", "name": "demo", "type": "bridge", "bridge": "demo0",
+  "isGateway": true, "ipMasq": false,
+  "ipam": { "type": "host-local", "ranges": [[{ "subnet": "10.99.0.0/24" }]],
+            "routes": [{ "dst": "0.0.0.0/0" }] } }
+EOF
+export CNI_CONTAINERID=demo1 CNI_NETNS=/var/run/netns/demo CNI_IFNAME=eth0 CNI_PATH=/opt/cni/bin
+
+CNI_COMMAND=VERSION /opt/cni/bin/bridge &lt; /tmp/demo.conf | jq    <span class="c"># 지원 스펙 버전</span>
+CNI_COMMAND=ADD /opt/cni/bin/bridge &lt; /tmp/demo.conf | jq         <span class="c"># 결과 JSON: interfaces, ips, routes</span>
+
+ip netns exec demo ip addr show eth0                                <span class="c"># 10.99.0.2</span>
+ip netns exec demo ip route                                         <span class="c"># default via 10.99.0.1</span>
+ip -br link show master demo0                                       <span class="c"># 노드 쪽 veth가 브리지에 꽂힘</span>
+ls /var/lib/cni/networks/demo/                                      <span class="c"># host-local의 IP 기록 파일</span>
+ping -c2 10.99.0.2                                                  <span class="c"># 노드 → Pod (원칙 3)</span>
+
+CNI_COMMAND=DEL /opt/cni/bin/bridge &lt; /tmp/demo.conf; echo "exit=$?"
+CNI_COMMAND=DEL /opt/cni/bin/bridge &lt; /tmp/demo.conf; echo "exit=$?"   <span class="c"># 두 번째도 0: 멱등</span>
+ls /var/lib/cni/networks/demo/                                      <span class="c"># IP 파일 반납됨</span>
+ip netns del demo; ip link del demo0</pre></div>
+
+    <div class="prose"><h3>실습 2. 손으로 만든 클러스터 CNI (bridge + host-local + 정적 경로)</h3>
+      <p>Flannel이나 Calico가 자동으로 해 주는 일을 직접 합니다. 노드마다 자기 <code>podCIDR</code>로 설정 파일을 쓰고, 다른 노드의 Pod 대역으로 가는 경로를 손으로 넣습니다. 그러고 나서 원칙 2를 시험합니다.</p></div>
+    <div class="code"><div class="bar"><span>호스트: 설정 파일 템플릿 manual.conflist.tmpl</span><button class="copy" type="button">복사</button></div><pre>{
+  "cniVersion": "1.0.0",
+  "name": "manual",
+  "plugins": [
+    { "type": "bridge", "bridge": "cni0", "isGateway": true, "ipMasq": __MASQ__, "hairpinMode": true,
+      "ipam": { "type": "host-local", "ranges": [[{ "subnet": "__CIDR__" }]], "routes": [{ "dst": "0.0.0.0/0" }] } },
+    { "type": "portmap",   "capabilities": { "portMappings": true } },
+    { "type": "bandwidth", "capabilities": { "bandwidth": true } }
+  ]
+}</pre></div>
+    <div class="code"><div class="bar"><span>호스트: 배포와 경로 설정</span><button class="copy" type="button">복사</button></div><pre>deploy_cni(){   <span class="c"># $1 = true|false (ipMasq)</span>
+  for n in cp1 w1 w2; do
+    CIDR=$(kubectl get node $n -o jsonpath='{.spec.podCIDR}')
+    sed -e "s#__CIDR__#$CIDR#" -e "s#__MASQ__#$1#" manual.conflist.tmpl &gt; /tmp/$n.conflist
+    multipass transfer /tmp/$n.conflist $n:/tmp/10-manual.conflist
+    multipass exec $n -- sudo install -m644 /tmp/10-manual.conflist /etc/cni/net.d/10-manual.conflist
+  done; }
+deploy_cni true
+kubectl get nodes                                   <span class="c"># 설정 파일이 생기자 Ready</span>
+
+<span class="c"># 다른 노드의 Pod 대역으로 가는 경로를 모든 노드에 (원칙 2의 '도달성')</span>
+for n in cp1 w1 w2; do for m in cp1 w1 w2; do [ $n = $m ] &amp;&amp; continue
+  CIDR=$(kubectl get node $m -o jsonpath='{.spec.podCIDR}')
+  IP=$(kubectl get node $m -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+  multipass exec $n -- sudo ip route replace $CIDR via $IP
+done; done
+multipass exec w1 -- ip route | grep 10.244
+
+<span class="c"># 시험용 Pod: 출발지 IP를 돌려주는 서버(w2)와 클라이언트(w1)</span>
+kubectl run srv --image=registry.k8s.io/e2e-test-images/agnhost:2.52 --overrides='{"spec":{"nodeName":"w2"}}' -- netexec --http-port=8080
+kubectl run cli --image=curlimages/curl:8.10.1 --overrides='{"spec":{"nodeName":"w1"}}' -- sleep 3600
+kubectl wait pod/srv pod/cli --for=condition=Ready --timeout=120s
+kubectl get pod -o wide
+SRV=$(kubectl get pod srv -o jsonpath='{.status.podIP}')
+kubectl exec cli -- curl -s $SRV:8080/clientip; echo     <span class="c"># 결과가 w1의 노드 IP라면?</span></pre></div>
+    <div class="note trap"><b>관찰: ipMasq: true는 원칙 2를 깬다</b>
+    bridge 플러그인의 <code>ipMasq</code>는 “자기 노드 대역이 아닌 목적지”로 가는 모든 트래픽을 노드 IP로 바꿉니다. 다른 노드의 Pod도 “자기 대역이 아닌 목적지”이므로, srv는 출발지를 cli의 Pod IP가 아니라 w1의 노드 IP로 봅니다. 아래처럼 바깥(클러스터 대역 밖)으로 가는 트래픽만 직접 SNAT하도록 바꾸면 원칙이 지켜집니다.</div>
+    <div class="code"><div class="bar"><span>호스트: ipMasq를 끄고 클러스터 밖으로 나갈 때만 SNAT</span><button class="copy" type="button">복사</button></div><pre>deploy_cni false
+for n in cp1 w1 w2; do
+  multipass exec $n -- sudo iptables -t nat -C POSTROUTING -s 10.244.0.0/16 ! -d 10.244.0.0/16 -j MASQUERADE 2&gt;/dev/null || \
+  multipass exec $n -- sudo iptables -t nat -A POSTROUTING -s 10.244.0.0/16 ! -d 10.244.0.0/16 -j MASQUERADE
+done
+kubectl delete pod srv cli                 <span class="c"># 설정은 새 샌드박스부터 적용되므로 다시 생성</span>
+<span class="c"># (위의 kubectl run 두 줄과 wait를 다시 실행)</span>
+kubectl exec cli -- curl -s $(kubectl get pod srv -o jsonpath='{.status.podIP}'):8080/clientip; echo   <span class="c"># 이제 cli의 Pod IP</span>
+kubectl exec cli -- curl -s -o /dev/null -w '%{http_code}\n' https://registry.k8s.io   <span class="c"># 바깥은 여전히 됨</span>
+
+<span class="c"># 관찰: 브리지, veth, IP 기록, 체인 플러그인의 흔적</span>
+multipass exec w1 -- sudo bash -c 'ip -br addr show cni0; bridge link; ls /var/lib/cni/networks/manual/; iptables -t nat -S | grep -i cni | head'
+kubectl -n kube-system get pods -o wide | grep coredns   <span class="c"># CoreDNS도 이제 Running</span></pre></div>
+    <div class="note"><b>정리해 보면</b>
+    지금 손으로 한 일이 CNI 구현체가 자동화하는 일의 전부입니다: ① 노드별 설정 파일 배포, ② 노드 사이 경로(또는 터널) 유지, ③ 클러스터 밖으로 나가는 트래픽만 SNAT, ④ 노드가 추가·삭제될 때 이 모든 것을 갱신. 노드를 하나 더 붙인다고 상상해 보면 왜 DaemonSet과 컨트롤러가 필요한지 체감됩니다.</div>
+
+    <div class="prose"><h3>실습 3. Flannel: VXLAN에서 host-gw로</h3></div>
+    <div class="code"><div class="bar"><span>pre-cni로 되돌린 뒤</span><button class="copy" type="button">복사</button></div><pre>restore pre-cni
+<span class="c"># Flannel 기본 Pod 대역(10.244.0.0/16)이 기준선과 같으므로 그대로 적용</span>
+kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+kubectl -n kube-flannel rollout status ds/kube-flannel-ds
+kubectl get nodes
+
+multipass exec w1 -- sudo bash -c '
+  cat /run/flannel/subnet.env                    # 이 노드의 대역과 MTU(1450)
+  cat /etc/cni/net.d/10-flannel.conflist          # flannel → portmap 체인, bridge 위임
+  ip -d link show flannel.1 | head -3             # vxlan id 1, dstport 8472
+  ip route | grep 10.244                          # via 10.244.x.0 dev flannel.1 onlink
+  ip neigh show dev flannel.1                     # 상대 VTEP의 MAC
+  bridge fdb show dev flannel.1                   # 그 MAC이 있는 노드 IP'
+
+<span class="c"># 실습 2와 같은 srv(w2)·cli(w1)를 만들고, w1에서 캡슐화를 관찰</span>
+<span class="c"># 터미널 1: multipass exec w1 -- sudo tcpdump -ni eth0 udp port 8472 -c 4</span>
+<span class="c"># 터미널 2: kubectl exec cli -- curl -s &lt;srv Pod IP&gt;:8080/clientip</span>
+
+<span class="c"># host-gw 백엔드로 전환: net-conf.json 의 "Backend": {"Type": "host-gw"}</span>
+kubectl -n kube-flannel edit cm kube-flannel-cfg
+kubectl -n kube-flannel rollout restart ds/kube-flannel-ds
+multipass exec w1 -- ip route | grep 10.244      <span class="c"># 이제 via &lt;노드 IP&gt; dev eth0 : 실습 2의 정적 경로와 같은 모양</span></pre></div>
+
+    <div class="prose"><h3>실습 4. Calico: 브리지 없는 라우팅 배선</h3></div>
+    <div class="code"><div class="bar"><span>pre-cni로 되돌린 뒤 3편 2-7과 같은 방법으로 Calico 설치</span><button class="copy" type="button">복사</button></div><pre>restore pre-cni
+helm repo add projectcalico https://docs.tigera.io/calico/charts 2&gt;/dev/null
+kubectl create namespace tigera-operator
+helm install calico projectcalico/tigera-operator --version v3.32.2 -n tigera-operator -f calico-values.yaml   # 3편 2-7에서 만든 값 파일
+kubectl wait --for=condition=Available tigerastatus/calico --timeout=300s
+
+multipass exec w1 -- sudo bash -c '
+  cat /etc/cni/net.d/10-calico.conflist | jq ".plugins[].type"   # calico, bandwidth, portmap
+  ip -br link | grep cali                                         # 브리지 없음, Pod마다 cali veth
+  ip route | grep -E "cali|bird|vxlan"                            # Pod별 /32 + 다른 노드 블록 경로
+  for f in /proc/sys/net/ipv4/conf/cali*/proxy_arp; do echo $f $(cat $f); done | head -3'
+
+<span class="c"># Pod 안에서 본 게이트웨이: 169.254.1.1 과 ee:ee:ee:ee:ee:ee</span>
+kubectl run cli --image=curlimages/curl:8.10.1 --overrides='{"spec":{"nodeName":"w1"}}' -- sleep 3600
+kubectl wait pod/cli --for=condition=Ready
+kubectl exec cli -- ip route
+kubectl exec cli -- cat /proc/net/arp
+
+<span class="c"># 모두 끝나면 기준선으로</span>
+restore baseline</pre></div>
+
+    <div class="prose"><h3>실습 5. 벤더 노드의 CNI 설정 엿보기 (선택)</h3></div>
+    <div class="code"><div class="bar"><span>각 컨텍스트에서 노드 하나</span><button class="copy" type="button">복사</button></div><pre>N=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+kubectl debug node/$N -it --profile=sysadmin --image=busybox:1.36 -- \
+  sh -c 'ls -l /host/etc/cni/net.d/; for f in /host/etc/cni/net.d/*conf*; do echo "== $f"; head -c 700 $f; echo; done; ip -br link | head -20'
+<span class="c"># OpenShift: oc debug node/$N -- chroot /host ls /etc/kubernetes/cni/net.d/</span>
+kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete   <span class="c"># 디버그 Pod 정리</span></pre></div>
+    <div class="prose">
+      <h3>과제</h3>
+      <ol>
+        <li>실습 2·3(VXLAN)·3(host-gw)·4에서 w1의 <code>ip route | grep 10.244</code> 출력을 나란히 놓고, 맨 위 패킷 추적기의 해당 모드와 일치하는지 확인하세요.</li>
+        <li>실습 2에서 노드를 하나 더 추가해야 한다고 가정하고, 사람이 해야 할 일을 순서대로 적어 보세요. 그중 Flannel·Calico가 자동화하는 항목에 표시합니다.</li>
+        <li>1장 판정 연습의 아홉 항목 중 하나를 골라 실습 클러스터에서 재현해 보세요(예: ipMasq로 원칙 2 위반, hostNetwork Pod의 IP).</li>
+        <li>실습 5 결과로 8장 표의 “예상” 칸을 실제 값으로 고치세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>CNI를 바꿨는데 일부 노드만 옛 네트워크로 IP를 받는다</summary><div class="body">
+      <p><strong>원인.</strong> Flannel에서 Calico로 바꾸면서 일부 노드의 <code>/etc/cni/net.d/</code>에 옛 파일이 남았고, 그 노드에서는 이름순으로 앞선 파일이 선택됐습니다. 남은 cni0 브리지와 경로 때문에 증상이 노드마다 달랐습니다.</p>
+      <p><strong>대응.</strong> 모든 노드에서 옛 설정 파일·브리지·경로·iptables 규칙을 지우고 노드를 순차 재부팅했습니다.</p>
+      <p><strong>교훈.</strong> 운영 중 CNI 교체는 사실상 재구축입니다. 해야 한다면 노드를 하나씩 비우고(drain) 교체하며, <strong>설정 디렉터리 정리</strong>를 절차에 넣으세요.</p>
+    </div></details>
+    <details class="case"><summary>“no IP addresses available in range set”</summary><div class="body">
+      <p><strong>상황.</strong> 오래 운영한 노드에서만 새 Pod가 ContainerCreating에 멈췄습니다. 노드의 Pod 수는 30개뿐이었습니다.</p>
+      <p><strong>원인.</strong> 노드가 여러 번 강제 재부팅되며 DEL이 불리지 못한 샌드박스의 IP 기록 파일이 <code>/var/lib/cni/networks/</code>에 쌓여 /24가 가득 찼습니다.</p>
+      <p><strong>대응.</strong> 노드를 비운 뒤 현재 Pod IP 목록과 대조해 고아 파일을 지웠습니다. 런타임·CNI를 GC를 지원하는 버전으로 올렸습니다.</p>
+      <p><strong>교훈.</strong> IPAM은 상태를 가집니다. <strong>Pod 수가 아니라 기록된 IP 수</strong>를 봐야 하고, 강제 재부팅이 잦은 노드는 정리 대상입니다.</p>
+    </div></details>
+    <details class="case"><summary>다른 노드의 Pod가 보내는 요청이 모두 노드 IP로 찍힌다</summary><div class="body">
+      <p><strong>원인.</strong> 직접 만든 CNI 설정(또는 오래된 사내 구성)에서 bridge의 <code>ipMasq: true</code>를 그대로 써, 노드 간 Pod 트래픽이 SNAT되고 있었습니다. 앱의 IP 기반 접근 제어와 감사 로그가 무의미해졌습니다.</p>
+      <p><strong>교훈.</strong> 실습 2에서 본 것처럼 SNAT 범위는 <strong>“클러스터 대역 밖으로 나갈 때만”</strong>이어야 합니다. 원칙 2 위반은 기능은 동작하게 두고 보안·관측만 조용히 망가뜨립니다.</p>
+    </div></details>
+    <details class="case"><summary>노드 재설치 후 hostPort Pod만 실패한다</summary><div class="body">
+      <p><strong>원인.</strong> 노드 이미지를 새로 만들면서 <code>/opt/cni/bin/portmap</code>이 빠졌습니다. 체인의 portmap을 쓰는 hostPort Pod만 “failed to find plugin portmap in path”로 실패했고, 나머지 Pod는 정상이었습니다.</p>
+      <p><strong>교훈.</strong> 체인의 플러그인 실행 파일도 노드 이미지의 구성 요소입니다. 노드 이미지 검증 항목에 <strong>설정 파일이 참조하는 모든 플러그인 실행 파일의 존재</strong>를 넣으세요.</p>
+    </div></details>
+    <details class="case"><summary>같은 노드의 Pod끼리만 Service 호출이 안 된다</summary><div class="body">
+      <p><strong>원인.</strong> 브리지 방식 CNI 노드에서 <code>br_netfilter</code> 모듈이 로드되지 않아, 같은 브리지 안에서 오가는 패킷이 iptables를 거치지 않았습니다. Service DNAT의 응답 되돌림이 어긋나 같은 노드 Pod 사이 Service 호출만 실패했고, NetworkPolicy도 같은 노드 안에서는 적용되지 않았습니다.</p>
+      <p><strong>교훈.</strong> 3편 노드 준비 스크립트의 커널 모듈·sysctl은 장식이 아닙니다. 노드 이미지가 바뀔 때마다 <code>lsmod | grep br_netfilter</code>와 <code>sysctl net.bridge.bridge-nf-call-iptables</code>를 확인하세요.</p>
+    </div></details>
+    <details class="case"><summary>네트워크 카드가 둘인 노드에서 Pod 응답이 사라진다</summary><div class="body">
+      <p><strong>원인.</strong> 관리망과 서비스망 두 인터페이스를 가진 노드에서, 들어온 인터페이스와 나가는 인터페이스가 달라지는 비대칭 경로가 생겼고, 엄격한 역방향 경로 검사(<code>rp_filter=1</code>)가 응답 패킷을 버렸습니다.</p>
+      <p><strong>교훈.</strong> 다중 NIC 노드는 CNI의 노드 IP 자동 감지 설정(예: Calico의 IP 자동 감지 방식, Flannel의 <code>--iface</code>)과 <code>rp_filter</code>를 함께 설계해야 합니다. 온프렘 고객에서 자주 만나는 함정입니다.</p>
+    </div></details>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: veth, IPAM, VTEP)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S13 -->
+  <section class="chap" id="s13">
+    <div class="chap-num">13</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>네트워크 모델은 고유 IP, Pod 간 NAT 없음, 노드 에이전트 ↔ Pod 도달, 자기 IP = 남이 보는 IP의 네 원칙이며, 클러스터 밖 SNAT·Service DNAT·캡슐화·정책은 위반이 아닙니다.</li>
+        <li>Pod의 IP는 pause 컨테이너가 붙잡은 netns에 있고, veth의 노드 쪽 끝을 브리지·라우팅·eBPF 중 어떻게 처리하느냐가 CNI의 첫 차이입니다.</li>
+        <li>CNI는 실행 파일 계약입니다. 동사는 환경 변수로, 설정은 표준 입력으로, 결과는 표준 출력으로 오가며, 체인은 prevResult로 이어지고, 런타임은 설정 디렉터리의 이름순 첫 파일을 씁니다.</li>
+        <li>IPAM은 상태를 가지며(host-local 파일), DEL 누락은 IP 누수로 이어집니다. CNI 1.1의 GC·STATUS가 이 운영 문제를 겨냥합니다.</li>
+        <li>노드 사이 전달은 정적 경로·host-gw·BGP(캡슐화 없음)와 VXLAN(캡슐화) 중 하나이며, 경로 표·이웃 표·FDB를 보면 어느 방식인지 바로 알 수 있습니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 5편 CNI 구현체 심층 비교와 벤더 기본값 (제작 완료)</h3>
+      <p style="margin:.3em 0 0">이 편에서 손으로 만든 원리가 Calico·Cilium·OVN-Kubernetes·EKS VPC CNI·Azure CNI·GKE VPC-native에서 어떻게 구현되는지, 각 벤더가 왜 그 기본값을 골랐는지, Pod IP 고갈과 MTU 같은 운영 문제를 어떻게 푸는지 다룹니다. 이어지는 6편은 이 연결성 위에서 Service가 동작하는 방식을 다룹니다.</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Cluster Networking, The Kubernetes network model, Network Plugins — kubernetes.io 문서</li>
+        <li>CNI 스펙 1.1(SPEC.md)과 libcni 릴리스 노트(v1.2.0: GC·STATUS, v1.3.0) — https://github.com/containernetworking/cni</li>
+        <li>CNI 레퍼런스 플러그인(bridge, host-local, portmap, bandwidth, tuning) — https://www.cni.dev/plugins/ , https://github.com/containernetworking/plugins</li>
+        <li>containerd CRI 플러그인 설정(CNI bin_dirs·conf_dir) — containerd 문서</li>
+        <li>Flannel 백엔드(VXLAN, host-gw)와 설치 매니페스트 — https://github.com/flannel-io/flannel</li>
+        <li>Calico 네트워킹 개념(경로, proxy ARP, IPAM) — https://docs.tigera.io/calico/latest/</li>
+        <li>kubectl debug node 와 노드 디버깅 — kubernetes.io 문서</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 4편. 작성 기준일 2026-10-23, Kubernetes v1.37·CNI 스펙 1.1 기준.
+      패킷 추적기의 주소·인터페이스 이름은 설명용 예시이며 실제 환경에서는 노드와 Pod마다 다릅니다.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "CNI":["Container Network Interface","Pod가 생길 때 네트워크를 붙여 주는 플러그인 실행 규칙. 런타임이 실행 파일을 ADD·DEL 등으로 부른다."],
+ "CRI":["Container Runtime Interface","kubelet이 containerd·CRI-O 같은 런타임에게 Pod·컨테이너 생성을 요청하는 표준 API."],
+ "netns":["network namespace","프로세스마다 따로 갖는 네트워크 공간. 자기만의 인터페이스·IP·라우팅 테이블을 가진 작은 방."],
+ "veth":["virtual ethernet pair","양 끝이 이어진 가상 랜선 한 쌍. 한쪽은 Pod 방 안(eth0), 다른 쪽은 노드에 남는다."],
+ "pause":["pause container (sandbox)","아무 일도 하지 않고 Pod의 netns를 붙잡고 있는 컨테이너. 앱 컨테이너가 재시작해도 IP가 유지되는 이유."],
+ "샌드박스":["Pod sandbox","Pod의 공유 환경(netns 등)과 그것을 붙잡는 pause 컨테이너. CNI는 샌드박스마다 한 번 불린다."],
+ "브리지":["Linux bridge","노드 안의 가상 스위치. 여러 veth를 꽂아 L2로 연결한다. 예: cni0."],
+ "cni0":["cni0 bridge","bridge 플러그인과 Flannel이 노드에 만드는 기본 브리지 이름."],
+ "IPAM":["IP Address Management","겹치지 않게 IP를 나눠 주고 기록하는 기능. CNI에서는 별도 플러그인으로 위임되기도 한다."],
+ "host-local":["host-local IPAM plugin","노드에 주어진 대역 안에서 IP를 골라 파일로 기록하는 가장 흔한 IPAM 플러그인."],
+ "podCIDR":["node.spec.podCIDR","kube-controller-manager가 노드마다 나눠 준 Pod 대역(기본 /24)."],
+ "NAT":["Network Address Translation","패킷의 주소를 바꿔 끼우는 것. 네트워크 모델은 Pod끼리의 NAT를 금지한다."],
+ "SNAT":["Source NAT","출발지 주소를 바꾸는 것. 클러스터 밖으로 나갈 때만 허용된다."],
+ "masquerade":["Masquerade","나가는 인터페이스 주소로 출발지를 자동으로 바꾸는 SNAT."],
+ "ipMasq":["ipMasq (bridge plugin option)","bridge 플러그인이 자기 대역 밖으로 가는 트래픽을 노드 IP로 바꾸게 하는 옵션. 다른 노드 Pod까지 바꿔 원칙 2를 깰 수 있다."],
+ "오버레이":["Overlay network","실제 네트워크 위에 겹친 가상 네트워크. Pod 패킷을 노드 주소 봉투로 감싸 보낸다."],
+ "캡슐화":["Encapsulation","패킷을 다른 패킷 안에 넣어 보내는 것. 주소를 바꾸는 NAT와 다르다."],
+ "VXLAN":["Virtual eXtensible LAN","L2 프레임을 UDP로 감싸는 캡슐화. Flannel은 UDP 8472, Calico는 4789를 쓴다. 헤더 50바이트."],
+ "VTEP":["VXLAN Tunnel End Point","VXLAN 봉투를 싸고 푸는 터널 끝점 장치. Flannel의 flannel.1, Calico의 vxlan.calico."],
+ "FDB":["Forwarding Database","MAC 주소가 어디(어느 포트·어느 원격 IP)에 있는지 기록한 표. VXLAN에서는 상대 VTEP의 노드 IP를 찾는 데 쓴다."],
+ "ARP":["Address Resolution Protocol","IP 주소에 해당하는 MAC 주소를 묻고 답하는 규약. 결과는 이웃 표(ip neigh)에 저장된다."],
+ "proxy ARP":["Proxy ARP","다른 장비를 대신해 ARP에 대답하는 것. Calico는 Pod의 가상 게이트웨이 169.254.1.1을 노드가 대신 대답하게 한다."],
+ "BGP":["Border Gateway Protocol","라우터끼리 ‘이 대역은 내 쪽에 있다’고 경로를 교환하는 규약. Calico가 노드 간 Pod 경로 교환에 쓴다."],
+ "onlink":["onlink route flag","다음 홉이 같은 서브넷에 없어도 그 장치로 바로 보낸다고 커널에 알려 주는 경로 옵션. 터널 경로에서 쓴다."],
+ "L2":["Layer 2","같은 스위치 구간에서 MAC 주소로 전달하는 계층."],
+ "L3":["Layer 3","IP 주소와 라우팅 테이블로 전달하는 계층."],
+ "MTU":["Maximum Transmission Unit","한 번에 보낼 수 있는 패킷 최대 크기. VXLAN을 쓰면 50바이트 줄어 1450이 된다."],
+ "hostNetwork":["hostNetwork Pod","자기 netns 없이 노드의 네트워크 공간을 그대로 쓰는 Pod. 노드 IP를 공유하며 CNI를 거치지 않는다."],
+ "hostPort":["hostPort","노드의 포트를 Pod 포트로 연결하는 Pod 스펙 필드. portmap 플러그인이 구현한다."],
+ "portmap":["portmap plugin","hostPort를 노드의 DNAT 규칙으로 구현하는 메타 플러그인."],
+ "bandwidth":["bandwidth plugin","Pod 어노테이션의 대역폭 제한을 tc로 구현하는 메타 플러그인."],
+ "tc":["traffic control","리눅스의 트래픽 형성·제한 도구. 큐에 속도 제한을 건다."],
+ "tuning":["tuning plugin","Pod 인터페이스의 sysctl·MTU·MAC 등을 조정하는 메타 플러그인."],
+ "conflist":["Network configuration list","CNI 설정 파일 형식. 이름과 순서대로 호출할 플러그인 배열을 담는다."],
+ "prevResult":["previous result","체인에서 앞 플러그인이 만든 결과. 다음 플러그인이 이어받아 기능을 덧붙인다."],
+ "capabilities":["CNI capabilities / runtimeConfig","Pod마다 다른 값(hostPort, 대역폭)을 실행 시 받겠다는 플러그인의 선언. 값은 runtimeConfig로 들어온다."],
+ "멱등":["idempotent","같은 일을 여러 번 해도 결과가 같은 성질. CNI DEL은 이미 정리된 상태에서 다시 불려도 성공해야 한다."],
+ "GC":["Garbage Collection (CNI 1.1)","런타임이 살아 있는 연결 목록을 주면 플러그인이 그 밖의 흔적(새어 나간 IP 등)을 정리하는 동사."],
+ "STATUS":["STATUS verb (CNI 1.1)","플러그인이 지금 ADD를 받을 준비가 됐는지 보고하는 동사."],
+ "Multus":["Multus CNI","Pod에 여러 네트워크를 붙이기 위해 여러 CNI를 차례로 부르는 메타 CNI. OpenShift 기본 구성."],
+ "iptables":["iptables","리눅스 방화벽·NAT 규칙 도구. CNI의 SNAT, portmap의 DNAT, Service 규칙에 쓰인다."],
+ "nsenter":["nsenter","특정 프로세스의 네임스페이스(netns 등)에 들어가 명령을 실행하는 도구."],
+ "crictl":["crictl","CRI 런타임을 직접 조회·조작하는 CLI. 샌드박스·컨테이너 확인에 쓴다."],
+ "br_netfilter":["br_netfilter kernel module","브리지를 지나는 패킷도 iptables를 거치게 하는 커널 모듈. 없으면 같은 브리지 안의 Pod 트래픽이 규칙을 건너뛴다."],
+ "rp_filter":["reverse path filter","들어온 패킷의 응답이 같은 인터페이스로 나갈지 검사해 아니면 버리는 커널 설정. 다중 NIC에서 함정."],
+ "dual-stack":["IPv4/IPv6 dual-stack","Pod가 IPv4와 IPv6 주소를 함께 받는 구성. 1.23 GA."],
+ "scope link":["scope link route","이 장치에 직접 붙어 있는 대상으로 가는 경로. Calico의 Pod별 /32 경로가 이 형태."],
+ "VNI":["VXLAN Network Identifier","VXLAN 봉투에 적는 네트워크 번호. 같은 VNI끼리만 같은 가상 네트워크다."],
+ "kubelet":["kubelet","노드마다 돌며 Pod를 실제로 띄우고 상태를 보고하는 에이전트."]
+};
+const AUTO=["br_netfilter","rp_filter","dual-stack","host-local","prevResult","capabilities","hostNetwork","hostPort","portmap","bandwidth","conflist","podCIDR","masquerade","nsenter","crictl","iptables","Multus","onlink","ipMasq","VTEP","VXLAN","IPAM","netns","veth","pause","cni0","SNAT","CRI","FDB","ARP","BGP","MTU","NAT","GC","STATUS","VNI","L2","L3","오버레이","캡슐화","샌드박스","멱등","브리지"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc,.sorter"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s12")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- packet tracer ---------- */
+const MODES=[["manual","수동 bridge + 정적 경로"],["fvx","Flannel VXLAN"],["fhg","Flannel host-gw"],["cbgp","Calico BGP (캡슐화 없음)"],["cvx","Calico VXLAN"]];
+const PATHS=[["cross","다른 노드 Pod로 (a → b)"],["same","같은 노드 Pod로 (a → c)"]];
+let mode="fvx",path="cross",step=0;
+const isBr=m=>["manual","fvx","fhg"].includes(m);
+function labels(m){const br=isBr(m),cal=!br;return{
+  podA:["Pod a","10.244.1.5"],podC:["Pod c","10.244.1.6"],podB:["Pod b","10.244.2.7"],
+  vethA:[cal?"cali1a2b3c":"veth1a2b","노드 쪽 veth"],vethC:[cal?"cali4d5e6f":"veth4d5e","노드 쪽 veth"],vethB:[cal?"cali9f8e7d":"veth9f8e","노드 쪽 veth"],
+  brA:br?["cni0","브리지 10.244.1.1"]:["브리지 없음","라우팅으로 처리"],brB:br?["cni0","브리지 10.244.2.1"]:["브리지 없음","라우팅으로 처리"],
+  rtA:["라우팅 테이블","w1"],rtB:["라우팅 테이블","w2"],
+  tunA:m==="fvx"?["flannel.1","VTEP · UDP 8472"]:m==="cvx"?["vxlan.calico","VTEP · UDP 4789"]:["터널 없음",""],
+  tunB:m==="fvx"?["flannel.1","VTEP · UDP 8472"]:m==="cvx"?["vxlan.calico","VTEP · UDP 4789"]:["터널 없음",""],
+  ethA:["eth0","192.168.64.12 (w1)"],ethB:["eth0","192.168.64.13 (w2)"]};}
+const IN_X="src 10.244.1.5 → dst 10.244.2.7",IN_S="src 10.244.1.5 → dst 10.244.1.6";
+function outer(m){return m==="fvx"?"src 192.168.64.12 → dst 192.168.64.13 · UDP 8472 · VNI 1":"src 192.168.64.12 → dst 192.168.64.13 · UDP 4789 · VNI 4096";}
+function steps(m,p){
+  const br=isBr(m),enc=m==="fvx"||m==="cvx",S=[];
+  const gw=br?"default via 10.244.1.1 dev eth0 (브리지 IP가 게이트웨이)":"default via 169.254.1.1 dev eth0 (실제로 없는 주소, 노드가 proxy ARP로 대답)";
+  S.push({hl:["podA"],t:"Pod a에서 출발",d:`앱이 ${p==="cross"?"10.244.2.7":"10.244.1.6"}로 패킷을 보냅니다. Pod 안 라우팅: ${gw}.`,c:br?"kubectl exec a -- ip route":"kubectl exec a -- ip route\nkubectl exec a -- cat /proc/net/arp   # 169.254.1.1 → ee:ee:ee:ee:ee:ee",h:{i:p==="cross"?IN_X:IN_S}});
+  S.push({hl:["podA","vethA"],t:"veth로 노드에 나옴",d:`Pod의 eth0과 짝인 노드 쪽 ${br?"veth":"cali 인터페이스"}로 패킷이 나옵니다.`,c:"kubectl exec a -- ip -o link show eth0   # eth0@ifN\nip -o link | grep '^N:'",h:{i:p==="cross"?IN_X:IN_S}});
+  if(p==="same"){
+    if(br){S.push({hl:["vethA","brA","vethC"],t:"브리지가 L2로 바로 전달",d:"같은 대역(10.244.1.0/24)이므로 cni0가 MAC 표를 보고 Pod c의 veth로 스위칭합니다. 노드 라우팅을 거치지 않습니다. br_netfilter가 켜져 있어야 이 경로에서도 iptables(정책·Service 되돌림)가 적용됩니다.",c:"bridge fdb show br cni0 | head\nsysctl net.bridge.bridge-nf-call-iptables",h:{i:IN_S}});}
+    else{S.push({hl:["vethA","rtA","vethC"],t:"같은 노드라도 라우팅",d:"브리지가 없으므로 노드 라우팅 테이블이 결정합니다: 10.244.1.6 dev cali4d5e6f scope link (Pod별 /32 경로). L3로 전달됩니다.",c:"ip route get 10.244.1.6\nip route | grep cali",h:{i:IN_S}});}
+    S.push({hl:["vethC","podC"],t:"Pod c 도착",d:"출발지는 10.244.1.5 그대로입니다. 응답은 같은 길을 거꾸로 돌아갑니다.",c:"kubectl exec c -- netstat -tn 2>/dev/null | head",h:{i:IN_S}});
+    return S;}
+  if(br)S.push({hl:["vethA","brA"],t:"브리지가 받아 라우팅으로 넘김",d:"목적지 MAC이 게이트웨이(cni0 자신)이므로 브리지는 패킷을 노드의 L3 라우팅으로 올립니다.",c:"ip addr show cni0\nbridge link | grep cni0",h:{i:IN_X}});
+  const rt={manual:"10.244.2.0/24 via 192.168.64.13 dev eth0 — 사람이 넣은 정적 경로",fhg:"10.244.2.0/24 via 192.168.64.13 dev eth0 — flanneld가 넣은 경로",fvx:"10.244.2.0/24 via 10.244.2.0 dev flannel.1 onlink — 터널 장치로 보내라는 경로",cbgp:"10.244.2.0/26 via 192.168.64.13 dev eth0 proto bird — BGP로 받은 경로",cvx:"10.244.2.0/26 via 10.244.2.0 dev vxlan.calico onlink — 터널 장치로 보내라는 경로"}[m];
+  S.push({hl:["rtA"],t:"노드 w1의 라우팅 결정",d:`노드 라우팅 테이블에서 일치하는 경로: ${rt}.`,c:"ip route get 10.244.2.7\nip route | grep 10.244",h:{i:IN_X}});
+  if(enc)S.push({hl:["rtA","tunA","ethA"],t:"VXLAN으로 감싸기",d:`${m==="fvx"?"flannel.1":"vxlan.calico"}(VTEP)가 이웃 표에서 다음 홉 10.244.2.0의 MAC을, FDB에서 그 MAC이 있는 노드 IP(192.168.64.13)를 찾아 바깥 헤더를 붙입니다. Pod 패킷은 그대로 안에 들어갑니다(원칙 2 유지).`,c:`ip neigh show dev ${m==="fvx"?"flannel.1":"vxlan.calico"}\nbridge fdb show dev ${m==="fvx"?"flannel.1":"vxlan.calico"}\nip -d link show ${m==="fvx"?"flannel.1":"vxlan.calico"} | head -3`,h:{o:outer(m),i:IN_X}});
+  S.push({hl:["ethA","wire","ethB"],t:"물리망 통과",d:enc?"중간 장비는 노드 IP 사이의 UDP 패킷만 봅니다. Pod 대역을 몰라도 됩니다. 대신 MTU가 50바이트 줄어듭니다.":"바깥 헤더가 없으므로 중간 장비가 Pod IP를 그대로 봅니다. 노드끼리 같은 L2이거나, 중간 라우터가 Pod 대역 경로를 알아야 합니다.",c:enc?`sudo tcpdump -ni eth0 udp port ${m==="fvx"?8472:4789} -c 4`:"sudo tcpdump -ni eth0 host 10.244.2.7 -c 4",h:enc?{o:outer(m),i:IN_X}:{i:IN_X}});
+  if(enc)S.push({hl:["ethB","tunB"],t:"w2에서 봉투 벗기기",d:"w2 eth0이 UDP 패킷을 받고 커널 VXLAN이 바깥 헤더를 벗겨 터널 장치로 넘깁니다.",c:"ip -s link show "+(m==="fvx"?"flannel.1":"vxlan.calico"),h:{i:IN_X}});
+  else S.push({hl:["ethB"],t:"w2 eth0 도착",d:"w2가 Pod IP가 적힌 패킷을 그대로 받습니다. ip_forward가 켜져 있어야 노드가 넘겨 줍니다.",c:"sysctl net.ipv4.ip_forward",h:{i:IN_X}});
+  S.push({hl:["rtB"],t:"노드 w2의 라우팅 결정",d:br?"10.244.2.0/24 dev cni0 proto kernel scope link — 자기 브리지로.":"10.244.2.7 dev cali9f8e7d scope link — Pod별 /32 경로로 바로 그 veth에.",c:"ip route get 10.244.2.7",h:{i:IN_X}});
+  if(br)S.push({hl:["brB","vethB"],t:"브리지가 Pod b의 veth로",d:"cni0가 MAC 표를 보고 Pod b의 veth로 스위칭합니다.",c:"bridge fdb show br cni0 | head",h:{i:IN_X}});
+  S.push({hl:["vethB","podB"],t:"Pod b 도착",d:"Pod b가 본 출발지는 10.244.1.5 그대로입니다(원칙 2·4). 응답은 같은 경로를 거꾸로 지납니다.",c:"kubectl exec b -- ss -tn | head",h:{i:IN_X}});
+  return S;
+}
+function renderDia(){
+  const L=labels(mode),cur=steps(mode,path)[step]||{hl:[]},hl=new Set(cur.hl);
+  const E=id=>{const [b,s]=L[id],none=(id.startsWith("br")&&!isBr(mode))||(id.startsWith("tun")&&!(mode==="fvx"||mode==="cvx"));return `<div class="el ${none?"none":""} ${hl.has(id)?"hl":""}"><b>${b}</b>${s}</div>`;};
+  $("#tDia").innerHTML=`<div class="nbox"><h5><span>노드 w1</span><span>10.244.1.0/24</span></h5><div class="prow"><div>${E("podA")}</div><div>${E("podC")}</div></div><div class="prow"><div>${E("vethA")}</div><div>${E("vethC")}</div></div>${E("brA")}${E("rtA")}${E("tunA")}${E("ethA")}</div>
+  <div class="wirecol"><div class="wire ${hl.has("wire")?"hl":""}"><span>물리망</span></div></div>
+  <div class="nbox"><h5><span>노드 w2</span><span>10.244.2.0/24</span></h5><div class="prow"><div>${E("podB")}</div></div><div class="prow"><div>${E("vethB")}</div></div>${E("brB")}${E("rtB")}${E("tunB")}${E("ethB")}</div>`;
+}
+function renderTrace(){
+  const S=steps(mode,path);step=Math.min(step,S.length-1);
+  [["tMode",MODES,"m"],["tPath",PATHS,"p"]].forEach(([id,list,k])=>{const box=$("#"+id);box.innerHTML="";list.forEach(([v,l])=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String((k==="m"?mode:path)===v)},l);b.addEventListener("click",()=>{if(k==="m")mode=v;else path=v;step=0;renderTrace();});box.appendChild(b);});});
+  renderDia();const s=S[step];
+  $("#tPos").textContent=`${S.length}단계 중 ${step+1}단계`;
+  $("#tDet").innerHTML=`<h4>${step+1}. ${s.t}</h4><p style="margin:.4em 0">${s.d}</p><div class="hdr">${s.h.o?`<span class="o">바깥: ${s.h.o}</span>`:""}<span class="i">${s.h.o?"안쪽: ":"패킷: "}${s.h.i}</span></div><div class="code" style="margin:.8em 0 0"><div class="bar"><span>이 시점 확인 명령(노드 또는 kubectl)</span></div><pre>${H(s.c)}</pre></div>`;
+}
+$("#tNext").addEventListener("click",()=>{const n=steps(mode,path).length;if(step<n-1){step++;renderTrace();}});
+$("#tPrev").addEventListener("click",()=>{if(step>0){step--;renderTrace();}});
+renderTrace();
+
+/* ---------- principle sorter ---------- */
+const SORT=[
+ ["노드 A의 Pod가 노드 B의 Pod를 호출하면, B의 Pod는 출발지를 노드 A의 IP로 본다",true,"원칙 2 위반입니다. 노드 간 Pod 트래픽에 SNAT가 걸린 것으로, 실습 2의 ipMasq: true가 정확히 이 상태를 만듭니다."],
+ ["서로 다른 노드의 두 Pod가 같은 IP 10.244.1.5를 갖는다",true,"원칙 1 위반입니다. 노드별 IPAM 대역이 겹쳤거나 IP 기록이 꼬였을 때 생깁니다."],
+ ["kubelet이 같은 노드 Pod의 readiness 프로브를 Pod IP로 보낼 수 없다",true,"원칙 3 위반입니다. 노드 라우팅 테이블에 Pod로 가는 경로가 없을 때 생기며, 모든 Pod가 Ready가 되지 못합니다."],
+ ["Pod가 인터넷으로 나갈 때 노드 IP로 SNAT된다",false,"위반이 아닙니다. 원칙은 클러스터 내부(Pod ↔ Pod, 노드 ↔ 그 노드 Pod)만 다룹니다."],
+ ["Pod 간 트래픽이 VXLAN으로 감싸져 전달된다",false,"위반이 아닙니다. 캡슐화는 주소를 바꾸지 않고 봉투에 넣을 뿐이라 받는 Pod는 원래 출발지 IP를 봅니다."],
+ ["ClusterIP로 접속하면 목적지가 Pod IP로 바뀐다",false,"위반이 아닙니다. Service는 별도의 모델이며 DNAT가 정상 동작입니다(6편)."],
+ ["Pod는 자기 IP를 10.244.1.5로 알지만, 다른 Pod는 그 Pod를 172.17.0.2로 본다",true,"원칙 4 위반입니다. Docker 기본 브리지처럼 바깥에 다른 주소로 보이는 구조입니다."],
+ ["hostNetwork Pod가 노드 IP를 그대로 쓴다",false,"위반이 아닙니다. 노드 네트워크 공간을 쓰겠다고 명시한 의도된 예외입니다."],
+ ["NetworkPolicy가 특정 Pod 사이의 통신을 막는다",false,"위반이 아닙니다. 원칙은 기본 연결성이고, 정책은 그 위의 의도적 제한입니다(9편)."]
+];
+const sorter=$("#sorter"),sScore=$("#sorterScore");let sd=0,sr=0;
+SORT.forEach(([t,ans,why])=>{const row=el("div",{class:"sort-item"});
+  row.innerHTML=`<span>${t}</span><span class="btns"><button class="btn" type="button" data-v="1">위반</button><button class="btn" type="button" data-v="0">위반 아님</button></span><span class="why"><b>${ans?"위반":"위반 아님"}.</b> ${why}</span>`;
+  row.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{if(row.classList.contains("done"))return;const ok=(b.dataset.v==="1")===ans;row.classList.add("done",ok?"right":"wrong");b.setAttribute("aria-pressed","true");sd++;if(ok)sr++;sScore.textContent=`${SORT.length}개 중 ${sd}개 판정, ${sr}개 정답`;}));
+  sorter.appendChild(row);});
+
+/* ---------- CNI simulator ---------- */
+const ENV=(cmd)=>`CNI_COMMAND=${cmd}
+CNI_CONTAINERID=7f3c9a1e…            # 샌드박스 ID
+CNI_NETNS=/var/run/netns/cni-1b2c…   # 런타임이 만든 netns
+CNI_IFNAME=eth0
+CNI_PATH=/opt/cni/bin
+CNI_ARGS=IgnoreUnknown=1;K8S_POD_NAMESPACE=default;K8S_POD_NAME=web-5d9c;K8S_POD_INFRA_CONTAINER_ID=7f3c9a1e…;K8S_POD_UID=…`;
+const BR_CONF=`{ "cniVersion": "1.0.0", "name": "manual", "type": "bridge",
+  "bridge": "cni0", "isGateway": true, "ipMasq": false, "hairpinMode": true,
+  "ipam": { "type": "host-local", "ranges": [[{ "subnet": "10.244.1.0/24" }]],
+            "routes": [{ "dst": "0.0.0.0/0" }] } }`;
+const RESULT=`{
+  "cniVersion": "1.0.0",
+  "interfaces": [
+    { "name": "cni0",      "mac": "a2:…:01" },
+    { "name": "veth1a2b",  "mac": "b6:…:9c" },
+    { "name": "eth0",      "mac": "3e:…:47", "sandbox": "/var/run/netns/cni-1b2c…" } ],
+  "ips": [ { "interface": 2, "address": "10.244.1.5/24", "gateway": "10.244.1.1" } ],
+  "routes": [ { "dst": "0.0.0.0/0" } ],
+  "dns": {}
+}`;
+const VERBS={
+ ADD:[
+  ["설정 고르기","런타임이 설정 디렉터리에서 이름순 첫 파일(10-manual.conflist)을 읽습니다. plugins 배열 순서대로 호출합니다.",`# /etc/cni/net.d/10-manual.conflist
+{ "cniVersion": "1.0.0", "name": "manual",
+  "plugins": [ { "type": "bridge", … },
+               { "type": "portmap",   "capabilities": { "portMappings": true } },
+               { "type": "bandwidth", "capabilities": { "bandwidth": true } } ] }`],
+  ["bridge 실행","/opt/cni/bin/bridge 를 실행합니다. 동사와 대상은 환경 변수로, 이 플러그인의 설정(목록의 첫 항목 + cniVersion·name)은 표준 입력으로 넘깁니다.",ENV("ADD")+"\n\n# 표준 입력\n"+BR_CONF],
+  ["host-local에 위임","bridge는 IP를 직접 고르지 않고 ipam.type의 host-local을 같은 환경 변수와 설정으로 실행합니다. host-local은 대역에서 빈 IP를 골라 파일로 기록합니다.",`# host-local 결과(표준 출력)
+{ "cniVersion": "1.0.0",
+  "ips": [ { "address": "10.244.1.5/24", "gateway": "10.244.1.1" } ],
+  "routes": [ { "dst": "0.0.0.0/0" } ] }
+
+# 기록 파일
+/var/lib/cni/networks/manual/10.244.1.5   (내용: 7f3c9a1e…\\neth0)
+/var/lib/cni/networks/manual/last_reserved_ip.0`],
+  ["bridge 결과","bridge는 veth 쌍을 만들어 한쪽을 netns 안 eth0으로 옮기고, IP와 기본 경로를 넣고, 노드 쪽 끝을 cni0에 꽂은 뒤 결과를 출력합니다.",RESULT],
+  ["portmap 실행","다음 플러그인에게 앞 결과를 prevResult로, Pod의 hostPort를 runtimeConfig로 넘깁니다. hostPort가 없으면 할 일 없이 결과를 그대로 넘깁니다.",ENV("ADD")+`
+
+# 표준 입력
+{ "cniVersion": "1.0.0", "name": "manual", "type": "portmap",
+  "capabilities": { "portMappings": true },
+  "runtimeConfig": { "portMappings": [ { "hostPort": 8080, "containerPort": 80, "protocol": "tcp" } ] },
+  "prevResult": { …bridge 결과… } }`],
+  ["bandwidth 실행","Pod 어노테이션의 대역폭 제한이 runtimeConfig로 들어옵니다. tc로 제한을 걸고 결과를 넘깁니다.",`# 표준 입력(발췌)
+{ "type": "bandwidth", "capabilities": { "bandwidth": true },
+  "runtimeConfig": { "bandwidth": { "ingressRate": 10000000, "ingressBurst": …,
+                                     "egressRate": 10000000,  "egressBurst": … } },
+  "prevResult": { … } }`],
+  ["결과 캐시와 보고","런타임은 최종 결과를 캐시해 두고(DEL·CHECK 때 다시 씀), IP를 kubelet에 보고합니다. kubelet이 status.podIPs를 채웁니다.",`/var/lib/cni/results/manual-7f3c9a1e…-eth0     # 캐시된 결과
+
+kubectl get pod web-5d9c -o jsonpath='{.status.podIPs}'
+[{"ip":"10.244.1.5"}]`]],
+ DEL:[
+  ["역순 호출","DEL은 체인의 역순(bandwidth → portmap → bridge)으로 부르며, 캐시된 결과를 prevResult로 붙입니다.",ENV("DEL")],
+  ["bandwidth·portmap 정리","tc 설정과 hostPort DNAT 규칙을 지웁니다.","# 각 플러그인 종료 코드 0"],
+  ["bridge·host-local 정리","veth를 지우고 host-local에 위임해 IP 기록 파일을 삭제합니다. cni0 브리지는 다른 Pod가 쓰므로 남깁니다.","rm /var/lib/cni/networks/manual/10.244.1.5"],
+  ["다시 불려도 성공(멱등)","이미 정리된 상태에서 DEL이 또 와도 오류 없이 0으로 끝나야 합니다. 런타임은 실패한 DEL을 재시도하기 때문입니다. 9장 실습 1에서 두 번 연속 DEL로 확인했습니다.","exit=0\nexit=0"]],
+ CHECK:[
+  ["점검 호출","설정 목록에 disableCheck가 없으면 런타임이 캐시 결과를 prevResult로 붙여 체인 순서대로 CHECK를 부릅니다.",ENV("CHECK")],
+  ["불일치 보고","플러그인은 인터페이스·IP·경로가 결과와 같은지 확인하고, 다르면 오류를 돌려줍니다. 런타임은 이를 근거로 샌드박스를 다시 만들 수 있습니다.",`{ "cniVersion": "1.0.0", "code": 999,
+  "msg": "route 0.0.0.0/0 not found in container" }`]],
+ GC:[
+  ["살아 있는 목록 전달","런타임이 현재 유효한 연결(샌드박스 ID + 인터페이스) 목록을 넘깁니다.",`CNI_COMMAND=GC
+# 표준 입력(발췌)
+{ "cniVersion": "1.1.0", "name": "manual",
+  "cni.dev/valid-attachments": [
+    { "containerID": "7f3c9a1e…", "ifname": "eth0" },
+    { "containerID": "2b8d0c44…", "ifname": "eth0" } ] }`],
+  ["새어 나간 흔적 정리","IPAM 플러그인은 목록에 없는 샌드박스의 IP 기록을 지웁니다. 10장 두 번째 사례(IP 누수)를 근본적으로 줄이는 장치입니다. GC를 지원하지 않는 플러그인에도 libcni는 캐시를 기준으로 DEL을 합성해 정리를 시도합니다.","rm /var/lib/cni/networks/manual/10.244.1.17   # 고아 기록"]],
+ STATUS:[
+  ["준비 상태 문의","런타임이 STATUS를 부르면, 플러그인은 ADD를 처리할 수 있으면 0으로, 아니면 스펙이 정한 오류 코드로 답합니다. 설정 파일이 있다는 것만으로 Ready를 판단하던 방식을 보완합니다.",`CNI_COMMAND=STATUS
+# 준비 안 됨 예
+{ "cniVersion": "1.1.0", "code": 50,
+  "msg": "plugin not available: datastore unreachable" }`]],
+ VERSION:[
+  ["지원 버전 확인","플러그인이 지원하는 스펙 버전 목록을 돌려줍니다. 런타임과 설정 파일의 cniVersion이 이 안에 있어야 합니다.",`CNI_COMMAND=VERSION /opt/cni/bin/bridge < conf
+{ "cniVersion": "1.1.0",
+  "supportedVersions": [ "0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.4.0", "1.0.0", "1.1.0" ] }`]]
+};
+let verb="ADD",cs=0;
+function renderCS(){
+  const vb=$("#csVerb");vb.innerHTML="";Object.keys(VERBS).forEach(v=>{const b=el("button",{class:"btn",type:"button","aria-pressed":String(v===verb)},v);b.addEventListener("click",()=>{verb=v;cs=0;renderCS();});vb.appendChild(b);});
+  const S=VERBS[verb],sb=$("#csSteps");sb.innerHTML="";
+  S.forEach((s,i)=>{const b=el("button",{type:"button","aria-pressed":String(i===cs)},`${i+1}. ${s[0]}`);b.addEventListener("click",()=>{cs=i;renderCS();});sb.appendChild(b);});
+  $("#csTitle").textContent=`${verb} · ${cs+1}. ${S[cs][0]}`;$("#csDesc").textContent=S[cs][1];$("#csCode").innerHTML=H(S[cs][2]);
+}
+renderCS();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["Pod 안의 앱 컨테이너가 재시작해도 IP가 그대로인 이유는?",["kubelet이 IP를 기억해서","IP가 pause 컨테이너가 붙잡은 샌드박스 netns에 있어서","CoreDNS 캐시 때문에","host-local이 항상 같은 IP를 줘서"],1,"CNI는 샌드박스마다 한 번 불리고, 앱 컨테이너는 그 netns에 합류할 뿐입니다."],
+ ["다음 중 네트워크 모델 원칙 위반은?",["Pod가 인터넷으로 나갈 때 SNAT","Pod 간 VXLAN 캡슐화","다른 노드 Pod가 출발지를 노드 IP로 보는 것","ClusterIP DNAT"],2,"Pod ↔ Pod 구간의 NAT는 원칙 2 위반입니다."],
+ ["CNI 플러그인에게 ‘무엇을 할지’는 어떻게 전달되나?",["gRPC 요청","CNI_COMMAND 환경 변수","설정 파일의 command 필드","kubelet 플래그"],1,"동사는 환경 변수, 설정은 표준 입력, 결과는 표준 출력입니다."],
+ ["설정 디렉터리에 05-cilium.conflist와 10-calico.conflist가 함께 있으면 런타임(기본 설정)은?",["둘 다 쓴다","10-calico를 쓴다","05-cilium을 쓴다","오류로 멈춘다"],2,"이름순 첫 파일이 선택됩니다. CNI 교체 후 옛 파일이 남는 사고의 원인입니다."],
+ ["체인에서 portmap이 bridge가 만든 인터페이스·IP 정보를 받는 방법은?",["CNI_ARGS","prevResult","별도 API 호출","노드 파일 공유"],1,"앞 플러그인의 결과가 prevResult로 다음 플러그인 표준 입력에 들어갑니다."],
+ ["DEL에 요구되는 성질은?",["항상 한 번만 불린다","이미 정리된 상태에서 다시 불려도 성공해야 한다(멱등)","ADD보다 먼저 불린다","결과를 반환해야 한다"],1,"런타임은 실패한 DEL을 재시도하므로 반복 호출에 안전해야 합니다."],
+ ["Flannel VXLAN에서 w1의 경로 ‘10.244.2.0/24 via 10.244.2.0 dev flannel.1 onlink’ 다음에 커널이 상대 노드 IP를 찾는 곳은?",["CoreDNS","FDB(포워딩 표)","etcd","kube-proxy 규칙"],1,"이웃 표에서 VTEP MAC을, FDB에서 그 MAC의 노드 IP를 찾아 UDP로 감쌉니다."],
+ ["Calico Pod 안 기본 게이트웨이 169.254.1.1은?",["노드 eth0 주소","실제로 없는 주소이며 노드의 cali 인터페이스가 proxy ARP로 대답한다","CoreDNS 주소","브리지 IP"],1,"Calico는 브리지 없이 라우팅으로 처리하고, 게이트웨이 응답을 노드가 대신합니다."],
+ ["오래된 노드에서 Pod가 30개뿐인데 ‘no IP addresses available in range set’이 납니다. 가장 유력한 원인은?",["Pod CIDR이 /16이라서","DEL 누락으로 남은 host-local IP 기록 파일","MTU","kube-proxy 모드"],1,"IPAM 기록이 새어 나간 상태입니다. CNI 1.1의 GC가 이 문제를 겨냥합니다."],
+ ["브리지 방식 CNI 노드에서 같은 노드 Pod끼리만 Service 호출이 실패합니다. 먼저 확인할 것은?",["etcd","br_netfilter 모듈과 bridge-nf-call-iptables","BGP 세션","PSA 레벨"],1,"브리지 안의 트래픽이 iptables를 거치지 않으면 Service DNAT 되돌림과 정책이 어긋납니다."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>

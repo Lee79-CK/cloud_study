@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>K8s 심화 14편: 온프렘 분산 스토리지: Rook-Ceph · Longhorn · OpenEBS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@600;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121a2e; --surface:#1a2440; --surface-2:#223052; --line:#2f3d63;
+  --text:#e9e7e0; --muted:#a5adc4; --strong:#ffffff;
+  --you:#f4b740; --vendor:#36c2b4; --shared:#b493ff; --warn:#ff7b6e; --info:#6aa8ff; --ok:#7ad08a;
+  --you-bg:rgba(244,183,64,.14); --vendor-bg:rgba(54,194,180,.14); --shared-bg:rgba(180,147,255,.14);
+  --warn-bg:rgba(255,123,110,.12); --info-bg:rgba(106,168,255,.12); --ok-bg:rgba(122,208,138,.12);
+  --code-bg:#0e1526;
+  --serif:"Noto Serif KR","Nanum Myeongjo","AppleMyungjo",serif;
+  --sans:"IBM Plex Sans KR","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"JetBrains Mono","D2Coding","Consolas",ui-monospace,monospace;
+  color-scheme:dark;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root[data-theme="light"]{
+  --bg:#f5f6fa; --surface:#ffffff; --surface-2:#eef0f7; --line:#d6dbe8;
+  --text:#1b2236; --muted:#5a6480; --strong:#0b1020;
+  --you:#a86f00; --vendor:#0d7f74; --shared:#6b46d6; --warn:#c23d2c; --info:#2a64c4; --ok:#2f8a43;
+  --you-bg:rgba(168,111,0,.10); --vendor-bg:rgba(13,127,116,.10); --shared-bg:rgba(107,70,214,.10);
+  --warn-bg:rgba(194,61,44,.08); --info-bg:rgba(42,100,196,.08); --ok-bg:rgba(47,138,67,.09);
+  --code-bg:#f0f2f8;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:calc(env(safe-area-inset-top,0px) + 72px);scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:17px;line-height:1.78;word-break:keep-all;overflow-wrap:anywhere}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .38em;border-radius:5px}
+pre{margin:0}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;display:flex;align-items:center;gap:16px;padding:10px 22px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--bg)}
+.topbar .series{font-weight:700;font-size:.92rem}
+.topbar .ep{color:var(--muted);font-size:.88rem}
+.topbar .spacer{flex:1}
+.btn{white-space:nowrap;font:inherit;font-size:.88rem;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--info)}
+.btn[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info)}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 22px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 64px);align-self:start;max-height:calc(100vh - 80px);overflow:auto;padding:26px 0 40px;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:t}
+nav.toc li{counter-increment:t}
+nav.toc a{display:flex;gap:10px;padding:6px 10px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(t);font-family:var(--mono);font-size:.78rem;color:var(--line);min-width:1.4em;padding-top:.1em}
+nav.toc a:hover{color:var(--text);background:var(--surface)}
+nav.toc a.active{color:var(--text);background:var(--surface)}
+nav.toc a.active::before{color:var(--vendor)}
+.toc-mobile{display:none}
+main{min-width:0;padding:26px 0 120px}
+.prose{max-width:46rem}
+@media (max-width:1000px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  nav.toc{display:none}
+  .toc-mobile{display:block;margin:14px 0 0}
+  .toc-mobile summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+  .toc-mobile ol{margin:8px 0 0;padding-left:1.4em;font-size:.92rem}
+  body{font-size:16px}
+  .topbar{padding:10px 14px;gap:10px}
+  .topbar .ep{display:none}
+  .topbar .series{font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .topbar .spacer{display:none}
+}
+
+/* headings */
+h1,h2{font-family:var(--serif);color:var(--strong);letter-spacing:-.01em}
+h1{font-size:clamp(2rem,4.4vw,3.2rem);line-height:1.22;margin:.3em 0 .35em;font-weight:900}
+h2{font-size:clamp(1.55rem,2.6vw,2.05rem);line-height:1.3;margin:0 0 .6em;font-weight:900}
+h3{font-size:1.2rem;margin:2em 0 .5em;color:var(--strong)}
+h4{font-size:1.02rem;margin:1.5em 0 .4em;color:var(--strong)}
+section.chap{padding-top:64px;margin-top:40px;border-top:1px solid var(--line)}
+.chap-num{font-family:var(--serif);font-weight:900;font-size:1rem;color:var(--vendor);margin-bottom:.2em}
+.lead{font-size:1.12rem;color:var(--muted);max-width:44rem}
+p{margin:.85em 0}
+ul,ol{padding-left:1.35em}
+li{margin:.3em 0}
+strong{color:var(--strong)}
+
+/* hero */
+.hero{padding:34px 0 10px}
+.hero .kicker{color:var(--muted);font-size:.95rem}
+.hero .meta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+
+/* responsibility explorer */
+.explorer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.explorer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.explorer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.vtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.vtab{font:inherit;font-size:.86rem;padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--muted);cursor:pointer}
+.vtab[aria-selected="true"]{color:var(--strong);border-color:var(--text);background:var(--surface-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.84rem;color:var(--muted);margin:0 0 12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.stack-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.stack-grid{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column-reverse;gap:4px}
+.layer{display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:8px 12px;border-radius:7px;border:1px solid transparent;cursor:pointer;color:var(--text);background:var(--bg);transition:background .2s,border-color .2s}
+.layer .who{margin-left:auto;font-size:.76rem;font-weight:700;white-space:nowrap}
+.layer.you{background:var(--you-bg);border-color:color-mix(in srgb,var(--you) 40%,transparent)}
+.layer.you .who{color:var(--you)}
+.layer.vendor{background:var(--vendor-bg);border-color:color-mix(in srgb,var(--vendor) 40%,transparent)}
+.layer.vendor .who{color:var(--vendor)}
+.layer.shared{background:var(--shared-bg);border-color:color-mix(in srgb,var(--shared) 40%,transparent)}
+.layer.shared .who{color:var(--shared)}
+.layer[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.detail{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.93rem;align-self:start;position:sticky;top:90px}
+.detail h4{margin:0 0 6px}
+.detail .tag{font-size:.78rem;font-weight:700}
+.tally{display:flex;gap:10px;margin-top:12px;font-size:.84rem}
+.tally div{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.tally b{display:block;font-size:1.3rem;font-family:var(--serif)}
+
+/* callouts */
+.note{border-left:4px solid var(--info);background:var(--info-bg);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.2em 0;font-size:.96rem}
+.note.senior{border-color:var(--shared);background:var(--shared-bg)}
+.note.trap{border-color:var(--warn);background:var(--warn-bg)}
+.note.field{border-color:var(--you);background:var(--you-bg)}
+.note.ok{border-color:var(--ok);background:var(--ok-bg)}
+.note > b:first-child{display:block;margin-bottom:2px;color:var(--strong)}
+
+/* tables */
+.tbl{overflow-x:auto;margin:1.2em 0;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem;line-height:1.55}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+th{background:var(--surface);color:var(--strong);font-weight:700;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.k{font-weight:700;color:var(--strong);white-space:nowrap}
+.y{color:var(--ok);font-weight:700}.n{color:var(--warn);font-weight:700}.m{color:var(--you);font-weight:700}
+
+/* code */
+.code{position:relative;margin:1em 0;border:1px solid var(--line);border-radius:12px;background:var(--code-bg);overflow:hidden}
+.code .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.code pre{overflow-x:auto;padding:14px 16px;font-family:var(--mono);font-size:.82rem;line-height:1.6;color:var(--text)}
+.code .c{color:var(--muted)}
+.copy{font:inherit;font-size:.76rem;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.copy:hover{color:var(--text)}
+
+/* sockets */
+.sockets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0 10px}
+@media (max-width:760px){.sockets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.core{grid-column:2 / span 2;grid-row:2;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:14px;text-align:center;font-size:.86rem;color:var(--muted)}
+.core b{display:block;font-family:var(--serif);font-size:1.05rem;color:var(--strong)}
+@media (max-width:760px){.core{grid-column:1 / -1;grid-row:auto}}
+.sock{font:inherit;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.sock small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.sock b{font-size:.92rem}
+.sock[aria-pressed="true"]{border-color:var(--vendor);background:var(--vendor-bg)}
+.sock-detail{min-height:60px}
+
+/* sorter */
+.sorter{display:grid;gap:8px;margin:14px 0}
+.sort-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.sort-item .btns{display:flex;gap:6px}
+.sort-item .why{grid-column:1 / -1;font-size:.86rem;color:var(--muted);display:none}
+.sort-item.done .why{display:block}
+.sort-item.right{border-color:var(--ok)}
+.sort-item.wrong{border-color:var(--warn)}
+.score{font-size:.9rem;color:var(--muted)}
+
+/* skew calculator */
+.calc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin:1.2em 0}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.calc label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px}
+.calc select{width:100%;font:inherit;font-size:.92rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.calc-out{margin-top:14px;display:grid;gap:6px;font-size:.9rem}
+.calc-out div{padding:7px 12px;border-radius:8px}
+.calc-out .pass{background:var(--ok-bg)}
+.calc-out .fail{background:var(--warn-bg)}
+
+/* timeline */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 10px;margin:1.2em 0;overflow-x:auto}
+.tl-inner{min-width:680px}
+.tl-axis{display:grid;grid-template-columns:150px 1fr;font-size:.74rem;color:var(--muted)}
+.tl-axis .ticks{position:relative;height:20px}
+.tl-axis .ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.tl-axis .ticks span:last-child{transform:translateX(-100%)}
+.tl-row{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:38px;border-top:1px dashed var(--line)}
+.tl-row .lab{font-size:.84rem;font-weight:700;padding-right:8px;line-height:1.3}
+.tl-row .lab small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+.tl-track{position:relative;height:38px}
+.seg{position:absolute;top:9px;height:20px;border-radius:5px;font-size:.7rem;line-height:20px;padding:0 6px;white-space:nowrap;overflow:hidden;color:#0b1020;font-weight:700}
+.seg.std{background:var(--vendor)}
+.seg.ext{background:var(--shared)}
+.seg.ext2{background:color-mix(in srgb,var(--shared) 55%,var(--surface))}
+.seg.est{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+:root[data-theme="light"] .seg{color:#fff}
+.seg.ext2,:root[data-theme="light"] .seg.ext2{color:var(--text)}
+.now{position:absolute;top:0;bottom:0;width:2px;background:var(--warn)}
+
+/* feature filter */
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.fcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.fcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem;line-height:1.6}
+.fcard h5{margin:0 0 4px;font-size:.95rem;color:var(--strong)}
+.fcard .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.st{font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.st.Stable{background:var(--ok-bg);color:var(--ok)}
+.st.Beta{background:var(--info-bg);color:var(--info)}
+.st.Alpha{background:var(--you-bg);color:var(--you)}
+.st.Change{background:var(--warn-bg);color:var(--warn)}
+.st.area{background:var(--surface-2);color:var(--muted)}
+
+/* three axes */
+.axes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:1.2em 0}
+@media (max-width:860px){.axes{grid-template-columns:1fr}}
+.axis{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:.9rem;line-height:1.65}
+.axis h4{margin:0 0 8px;font-family:var(--serif);font-size:1.15rem}
+.axis.net{border-top:4px solid var(--info)}
+.axis.sto{border-top:4px solid var(--you)}
+.axis.rbac{border-top:4px solid var(--shared)}
+.axis ul{margin:.4em 0;padding-left:1.1em}
+.axis .eps{font-size:.8rem;color:var(--muted);margin-top:8px}
+
+/* accordion */
+details.case{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details.case summary{cursor:pointer;padding:13px 0;font-weight:700;list-style:none;display:flex;gap:10px;align-items:baseline}
+details.case summary::-webkit-details-marker{display:none}
+details.case summary::before{content:"+";font-family:var(--mono);color:var(--you);width:1em}
+details.case[open] summary::before{content:"−"}
+details.case .body{padding:0 0 14px;font-size:.94rem}
+
+/* quiz */
+.quiz{display:grid;gap:14px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.q p.qq{margin:0 0 10px;font-weight:700;color:var(--strong)}
+.q .opts{display:grid;gap:6px}
+.q button.opt{font:inherit;font-size:.92rem;text-align:left;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.q button.opt.right{border-color:var(--ok);background:var(--ok-bg)}
+.q button.opt.wrong{border-color:var(--warn);background:var(--warn-bg)}
+.q .exp{display:none;margin-top:10px;font-size:.9rem;color:var(--muted)}
+.q.answered .exp{display:block}
+
+/* glossary */
+.gloss-search{width:100%;max-width:420px;font:inherit;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);margin:8px 0 14px}
+dl.gloss{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:0;margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+dl.gloss dt,dl.gloss dd{padding:10px 14px;border-bottom:1px solid var(--line);margin:0;font-size:.9rem}
+dl.gloss dt{font-weight:700;color:var(--strong);background:var(--surface)}
+@media (max-width:640px){dl.gloss{grid-template-columns:1fr}dl.gloss dt{border-bottom:0;padding-bottom:2px}}
+
+/* series map */
+.series-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:1em 0}
+.lvl{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.85rem;line-height:1.55}
+.lvl h5{margin:0 0 6px;font-size:.9rem;color:var(--strong)}
+.lvl ol{margin:0;padding-left:1.6em}
+.lvl li.cur{color:var(--vendor);font-weight:700}
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:1em 0;counter-reset:s}
+@media (max-width:760px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.steps4 div{counter-increment:s;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:.86rem;line-height:1.5}
+.steps4 div::before{content:counter(s);display:block;font-family:var(--serif);font-weight:900;font-size:1.4rem;color:var(--vendor)}
+.steps4 b{display:block;color:var(--strong)}
+
+.refs{font-size:.86rem;color:var(--muted)}
+.refs li{margin:.35em 0}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-size:.86rem;color:var(--muted)}
+.next{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:30px}
+.next h3{margin:0 0 6px;font-family:var(--serif)}
+
+/* ---- 2편 추가: 요청 경로 추적기 ---- */
+.tracer{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.tracer h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.tracer .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.pipe{display:flex;flex-direction:column;gap:3px;counter-reset:st}
+.stg{counter-increment:st;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;font-size:.9rem;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.stg::before{content:counter(st);font-family:var(--mono);font-size:.74rem;width:1.6em;color:var(--muted)}
+.stg.on{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 45%,transparent)}
+.stg.skip{opacity:.42;border-style:dashed}
+.stg[aria-pressed="true"]{outline:2px solid var(--text);outline-offset:1px}
+.stg .code-tag{margin-left:auto;font-family:var(--mono);font-size:.72rem;color:var(--warn)}
+.tr-nav{display:flex;gap:8px;margin-top:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.tr-detail h4{margin:0 0 4px}
+.tr-detail .row{margin:.7em 0 0;font-size:.9rem}
+.tr-detail .row b{display:block;font-size:.8rem;color:var(--muted);font-weight:700}
+.tr-detail .fail{color:var(--warn);font-family:var(--mono);font-size:.84rem}
+.flow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin:1em 0}
+.flow div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:.82rem;line-height:1.45}
+.flow div b{display:block;font-size:.88rem;color:var(--strong)}
+/* etcd estimator */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.est-grid .cell{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.est-grid .cell label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:4px}
+.est-grid .cell .pair{display:flex;gap:6px}
+.est-grid input{width:100%;font:inherit;font-size:.88rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.gauge{position:relative;height:30px;background:var(--bg);border:1px solid var(--line);border-radius:8px;margin:18px 0 26px;overflow:visible}
+.gauge .fill{position:absolute;left:0;top:0;bottom:0;border-radius:7px;background:var(--vendor);transition:width .3s}
+.gauge .mk{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--warn)}
+.gauge .mk span{position:absolute;top:100%;transform:translateX(-50%);font-size:.7rem;color:var(--muted);white-space:nowrap;margin-top:4px}
+.est-out{font-size:.92rem}
+
+/* ---- 3편 추가: 랩 지도·체크리스트·비용 ---- */
+.labmap{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.labmap h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.labmap .sub{color:var(--muted);font-size:.93rem;margin:0 0 16px}
+.envs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+@media (max-width:760px){.envs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.env{font:inherit;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;color:var(--text)}
+.env b{display:block;font-size:.95rem}
+.env small{display:block;color:var(--muted);font-size:.78rem;line-height:1.4;margin-top:2px}
+.env .where{display:inline-block;margin-top:6px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px}
+.env .where.local{background:var(--you-bg);color:var(--you)}
+.env .where.cloud{background:var(--vendor-bg);color:var(--vendor)}
+.env[aria-pressed="true"]{border-color:var(--text);background:var(--surface-2)}
+.envd{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:.92rem}
+.envd h4{margin:0 0 8px}
+.envd dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:0}
+.envd dt{color:var(--muted);font-size:.84rem}
+.envd dd{margin:0}
+@media (max-width:640px){.envd dl{grid-template-columns:1fr}.envd dt{margin-top:6px}}
+.step{display:flex;align-items:center;gap:12px;margin:2.2em 0 .5em}
+.step h3{margin:0}
+.step label{margin-left:auto;font-size:.82rem;color:var(--muted);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.step input{width:18px;height:18px;accent-color:var(--vendor)}
+.prog{position:sticky;top:calc(env(safe-area-inset-top,0px) + 58px);z-index:5;background:var(--bg);padding:8px 0;margin:12px 0}
+.prog .bar{height:8px;background:var(--surface);border:1px solid var(--line);border-radius:99px;overflow:hidden}
+.prog .bar i{display:block;height:100%;width:0;background:var(--vendor);transition:width .3s}
+.prog span{font-size:.82rem;color:var(--muted)}
+.cost-grid{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:6px 10px;align-items:center;font-size:.88rem}
+.cost-grid .h{font-size:.78rem;color:var(--muted)}
+.cost-grid input[type=number]{width:100%;font:inherit;font-size:.86rem;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.cost-grid label{display:flex;gap:8px;align-items:center}
+.cost-total{margin-top:14px;font-size:1rem}
+.cost-total b{font-family:var(--serif);font-size:1.4rem;color:var(--strong)}
+
+/* ---- 5편 추가 ---- */
+.t{border-bottom:1px dotted var(--info);cursor:help;outline:none}
+.t:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:3px}
+#tip{position:absolute;z-index:60;max-width:340px;background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:.84rem;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.35);display:none;pointer-events:none}
+#tip b{display:block;color:var(--strong);font-size:.88rem;margin-bottom:2px}
+#tip i{display:block;font-style:normal;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.note.easy{border-color:var(--ok);background:var(--ok-bg)}
+.calcbox{margin:28px 0 8px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px}
+.calcbox h3{margin:0 0 4px;font-family:var(--serif);font-size:1.35rem}
+.calcbox .sub{color:var(--muted);font-size:.93rem;margin:0 0 14px}
+.f-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px;align-items:end}
+#mtu .f-grid{grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+.f-grid label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:4px}
+.f-grid select,.f-grid input{width:100%;font:inherit;font-size:.9rem;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin:10px 0}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi b{display:block;font-family:var(--serif);font-size:1.5rem;color:var(--strong);line-height:1.2}
+.kpi span{font-size:.8rem;color:var(--muted)}
+.usebar{height:16px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin:8px 0}
+.usebar i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.calc-msg{font-size:.9rem;margin-top:6px}
+.mtu{margin:1.2em 0;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+.mtu-row{display:flex;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font-size:.74rem;font-weight:700}
+.mtu-row div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;padding:0 4px;color:#0b1020}
+.mtu-row .pl{background:var(--vendor)}
+.mtu-row .h1{background:var(--you)}
+.mtu-row .h2{background:var(--shared)}
+.mtu-row .h3{background:var(--warn)}
+:root[data-theme="light"] .mtu-row div{color:#fff}
+.mtu-legend{font-size:.84rem;color:var(--muted)}
+
+/* ---- 6편 추가 ---- */
+.opt-row{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;align-items:center}
+.opt-row .lbl{font-size:.8rem;color:var(--muted);min-width:96px}
+.path{display:grid;gap:6px;margin:10px 0}
+.hop{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.9rem}
+.hop .n{font-family:var(--mono);font-size:.78rem;color:var(--vendor);padding-top:2px}
+.hop.warn{border-color:color-mix(in srgb,var(--warn) 50%,transparent)}
+.dump{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+.dump .bar{display:flex;justify-content:space-between;padding:6px 12px;font-size:.78rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.dump pre{overflow-x:auto;padding:12px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.55;max-height:360px}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.facts div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.facts b{display:block;font-size:.95rem}
+.topo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.topo{grid-template-columns:1fr}}
+.zone{border:1px dashed var(--line);border-radius:12px;padding:10px}
+.zone h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.node{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;font-size:.84rem}
+.node.entry{border-color:var(--info)}
+.node .nm{font-weight:700;display:flex;gap:6px;align-items:center}
+.pods{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pod{font-family:var(--mono);font-size:.74rem;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.pod.ok{background:var(--vendor-bg);border-color:var(--vendor);color:var(--strong)}
+.pod.cli{background:var(--info-bg);border-color:var(--info);color:var(--strong)}
+.badge{font-size:.7rem;padding:1px 7px;border-radius:99px;background:var(--info-bg);color:var(--info)}
+
+/* ---- 7편 추가 ---- */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0}
+.chain .nd{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:.82rem;line-height:1.35}
+.chain .nd b{display:block;font-size:.86rem;color:var(--strong)}
+.chain .nd.lb{border-color:var(--you)}
+.chain .nd.pod{border-color:var(--vendor)}
+.chain .nd.snat{border-color:var(--warn)}
+.chain .ar{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.opt-row .btn{margin:2px 0}
+.grp{font-size:.74rem;color:var(--muted);margin:6px 0 2px;width:100%}
+
+/* ---- 8편 추가 ---- */
+.nsgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:760px){.nsgrid{grid-template-columns:1fr}}
+.ns{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.ns h5{margin:0 0 6px;font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.res{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.res b{display:block;color:var(--strong);font-size:.84rem}
+.res.ok{border-color:var(--ok)}
+.res.bad{border-color:var(--warn)}
+.res.dim{opacity:.5;border-style:dashed}
+.cond{display:grid;gap:6px;margin-top:10px}
+.cond div{padding:7px 12px;border-radius:8px;font-size:.88rem}
+.cond .t1{background:var(--ok-bg)}
+.cond .t0{background:var(--warn-bg)}
+.split{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0;font-size:.78rem;font-weight:700}
+.split div{display:flex;align-items:center;justify-content:center;color:#0b1020;white-space:nowrap;overflow:hidden;transition:width .3s}
+.split .v1{background:var(--vendor)}
+.split .v2{background:var(--you)}
+:root[data-theme="light"] .split div{color:#fff}
+.rng{width:100%;accent-color:var(--you)}
+
+/* ---- 9편 추가 ---- */
+.trace{display:grid;gap:6px;margin:12px 0}
+.tier{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.tier .nm{font-weight:700;color:var(--strong);font-size:.84rem}
+.tier.hit-acc{border-color:var(--ok);background:var(--ok-bg)}
+.tier.hit-deny{border-color:var(--warn);background:var(--warn-bg)}
+.tier.skip{opacity:.5}
+.verdict{font-family:var(--serif);font-size:1.3rem;font-weight:900;margin:6px 0}
+.verdict.ok{color:var(--ok)}.verdict.no{color:var(--warn)}
+.chk{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0 10px;font-size:.88rem}
+.chk label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.chk input{accent-color:var(--vendor)}
+@media (max-width:640px){.tier{grid-template-columns:1fr}}
+.opt-row>span{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.opt-row .btn{white-space:normal;text-align:left;max-width:100%}
+
+/* ---- 10편 추가 ---- */
+.alert{border:1px solid var(--warn);background:var(--warn-bg);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:.92rem}
+.alert b{color:var(--warn)}
+.clock{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:.88rem}
+.clock .bar2{flex:1;height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.clock .bar2 i{display:block;height:100%;background:var(--vendor);transition:width .3s}
+.clock .bar2 i.over{background:var(--warn)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.acts .btn[disabled]{opacity:.45}
+.glog{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--mono);font-size:.78rem;line-height:1.6;max-height:300px;overflow:auto;margin:8px 0}
+.glog div{margin:0 0 6px}
+.glog .u{color:var(--you)}
+.glog .k{color:var(--ok)}
+.qlist{display:grid;gap:4px;margin:10px 0}
+.qlist div{display:grid;grid-template-columns:28px 1fr 90px;gap:8px;font-family:var(--mono);font-size:.8rem;padding:5px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}
+.qlist .ok{border-color:var(--ok)}
+.qlist .nx{color:var(--muted)}
+.rank{display:grid;gap:6px;margin-top:10px}
+.rank div{display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.88rem}
+.rank div:first-child{border-color:var(--vendor)}
+
+/* ---- 11편 추가 ---- */
+.zones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:640px){.zones{grid-template-columns:1fr}}
+.zn{border:1px dashed var(--line);border-radius:12px;padding:10px;font-size:.84rem}
+.zn h5{margin:0 0 6px;font-size:.84rem;color:var(--muted)}
+.zn.hl{border-color:var(--vendor)}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 9px;margin:5px 0;font-size:.8rem}
+.box b{display:block;color:var(--strong);font-size:.84rem}
+.box.pod{border-color:var(--vendor)}
+.box.disk{border-color:var(--you)}
+.box.bad{border-color:var(--warn)}
+.box.dim{opacity:.5;border-style:dashed}
+.lc{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+@media (max-width:640px){.lc{grid-template-columns:1fr}}
+.lc div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+.lc b{display:block;font-size:1.05rem;color:var(--strong);margin:2px 0}
+.lc small{color:var(--muted);display:block;line-height:1.5}
+
+/* ---- 12편 추가 ---- */
+.lanes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:12px 0}
+@media (max-width:760px){.lanes{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lane{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:.78rem;line-height:1.35;color:var(--muted);transition:all .2s}
+.lane b{display:block;color:var(--text);font-size:.82rem}
+.lane.src{border-color:var(--you);background:var(--you-bg)}
+.lane.dst{border-color:var(--vendor);background:var(--vendor-bg)}
+.tl{position:relative;margin:14px 0;padding-left:18px;border-left:3px solid var(--line)}
+.tl div{position:relative;margin:0 0 10px;font-size:.88rem}
+.tl div::before{content:"";position:absolute;left:-26px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--line)}
+.tl div.ok::before{background:var(--ok)}
+.tl div.bad::before{background:var(--warn)}
+.tl div.key::before{background:var(--you)}
+.tl b{font-family:var(--mono);font-size:.8rem;color:var(--strong);margin-right:6px}
+.stepper{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:.85rem;color:var(--muted)}
+
+/* ---- 13편 추가 ---- */
+.vend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+@media (max-width:900px){.vend{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.vend{grid-template-columns:1fr}}
+.vend>div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.86rem}
+.vend h5{margin:0 0 4px;font-size:.8rem;color:var(--muted)}
+.vend b{display:block;color:var(--strong);font-size:.98rem;margin:2px 0 4px}
+.vend small{display:block;color:var(--muted);line-height:1.5}
+.warns{margin:8px 0;display:grid;gap:6px}
+.warns div{background:var(--warn-bg);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:8px;padding:6px 10px;font-size:.85rem}
+</style>
+</head>
+<body>
+<div id="tip" role="tooltip"></div>
+<header class="topbar">
+  <span class="series">Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC</span>
+  <span class="ep">14편 / 25편</span>
+  <span class="spacer"></span>
+  <button class="btn" id="themeBtn" type="button" aria-label="테마 전환">라이트 테마</button>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <ol>
+    <li><a href="#fail">장애 동작 비교기</a></li>
+    <li><a href="#s0">읽는 법과 목표</a></li>
+    <li><a href="#s1">왜 분산 스토리지인가, 무엇을 고르나</a></li>
+    <li><a href="#s2">Ceph 아키텍처와 Rook 운영</a></li>
+    <li><a href="#s3">OpenShift Data Foundation과의 관계</a></li>
+    <li><a href="#s4">Longhorn: 레플리카·스냅샷 모델</a></li>
+    <li><a href="#s5">OpenEBS: LocalPV와 Mayastor</a></li>
+    <li><a href="#s6">노드 장애·디스크 교체·리밸런싱</a></li>
+    <li><a href="#s7">네트워크 대역폭과 재구축 시간</a></li>
+    <li><a href="#s8">운영 점검표와 모니터링</a></li>
+    <li><a href="#s9">실습</a></li>
+    <li><a href="#s10">현장 사례</a></li>
+    <li><a href="#s11">점검 퀴즈</a></li>
+    <li><a href="#s12">용어·약어 사전</a></li>
+    <li><a href="#s13">다음 편과 참고 자료</a></li>
+  </ol>
+</nav>
+
+<main id="top">
+  <div class="hero">
+    <div class="kicker">Level 2 스토리지, 14편</div>
+    <h1>온프렘 분산 스토리지: Rook-Ceph · Longhorn · OpenEBS</h1>
+    <p class="lead">클라우드에서는 디스크가 망가져도 벤더가 고칩니다. 온프렘에서는 <strong>우리가 클라우드의 스토리지 팀</strong>입니다. 노드가 죽으면 데이터 복제본을 어디에 다시 만들지, 디스크를 갈 때 무엇을 먼저 할지, 재구축 동안 네트워크가 버틸지를 직접 결정해야 합니다. 이 편은 온프렘·RKE2·OpenShift 고객에서 가장 많이 만나는 세 가지, Ceph(Rook·ODF), Longhorn, OpenEBS를 구조부터 장애 동작까지 비교하고, RKE2에서 노드를 강제로 꺼 Longhorn이 레플리카를 복구하는 과정을 직접 봅니다.</p>
+    <div class="meta">
+      <span class="chip">기준: Rook v1.20 · Ceph Squid 19.2 / Tentacle 20.2 · Longhorn v1.13 · OpenEBS 4.x</span>
+      <span class="chip">작성 기준일: 2026-10-23</span>
+      <span class="chip">예상 학습: 이론 150분 + 실습 180분</span>
+      <span class="chip">점선 밑줄 용어는 누르거나 올리면 쉬운 설명이 나옵니다</span>
+    </div>
+    <details class="toc-mobile"><summary>목차 열기</summary>
+      <ol>
+        <li><a href="#s0">읽는 법과 목표</a></li><li><a href="#s1">무엇을 고르나</a></li><li><a href="#s2">Ceph·Rook</a></li><li><a href="#s3">ODF</a></li><li><a href="#s4">Longhorn</a></li><li><a href="#s5">OpenEBS</a></li><li><a href="#s6">장애·교체·리밸런싱</a></li><li><a href="#s7">대역폭·재구축</a></li><li><a href="#s8">운영 점검</a></li><li><a href="#s9">실습</a></li><li><a href="#s10">현장 사례</a></li><li><a href="#s11">퀴즈</a></li><li><a href="#s12">용어 사전</a></li><li><a href="#s13">다음 편</a></li>
+      </ol>
+    </details>
+  </div>
+
+  <div class="calcbox" id="fail">
+    <h3>노드가 죽으면 무슨 일이 언제 일어나나</h3>
+    <p class="sub">스토리지와 장애 상황을 고르면 시간 순서대로 일어나는 일과 그동안 데이터 접근 상태가 나옵니다. 대기 시간 같은 값은 각 프로젝트의 기본값이며 바꿀 수 있습니다. 9장 실습 1이 Longhorn의 “노드 영구 손실” 줄을 직접 재현합니다.</p>
+    <div class="opt-row"><span class="lbl">스토리지</span><span id="fSys"></span></div>
+    <div class="opt-row"><span class="lbl">상황</span><span id="fEv"></span></div>
+    <div class="f-grid">
+      <div><label for="fWait">재구축 시작까지 대기(분)</label><input type="number" id="fWait" value="10" min="0"></div>
+      <div><label for="fData">잃은 노드의 데이터(GiB)</label><input type="number" id="fData" value="500" min="1"></div>
+      <div><label for="fBw">재구축 속도(MiB/s)</label><input type="number" id="fBw" value="200" min="1"></div>
+    </div>
+    <div class="tl" id="fTl"></div>
+    <div class="calc-msg" id="fMsg"></div>
+  </div>
+
+  <!-- S0 -->
+  <section class="chap" id="s0">
+    <div class="chap-num">0</div>
+    <h2>읽는 법과 목표</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    분산 스토리지는 중요한 서류를 여러 지점 금고에 복사해 두는 은행입니다. 한 지점이 문을 닫아도 다른 지점에서 서류를 꺼낼 수 있고, 문 닫은 지점이 오래 열리지 않으면 남은 지점들이 서류를 다시 복사해 복사본 수를 맞춥니다. 문제는 복사하는 동안 지점 사이 도로(네트워크)가 막히고, 그 사이 또 한 지점이 문을 닫으면 위험해진다는 점입니다. Ceph는 큰 은행 본점 체계, Longhorn은 서류마다 담당 직원을 붙이는 소규모 체계, OpenEBS LocalPV는 “복사 없이 지점 금고 하나에만” 두는 방식입니다.</div>
+    <div class="prose">
+      <h3>이 편을 마치면 할 수 있는 것</h3>
+      <ul>
+        <li>Ceph의 MON·MGR·OSD·MDS·RGW와 CRUSH·풀·PG를 설명하고, Rook으로 배포·운영(디스크 교체, 유지보수 플래그)할 수 있습니다.</li>
+        <li>ODF가 Rook·Ceph·NooBaa를 어떻게 묶은 제품인지 설명하고 지원 경계를 구분할 수 있습니다.</li>
+        <li>Longhorn의 엔진·레플리카·스냅샷·백업 구조와 V1·V2 데이터 엔진의 차이를 설명할 수 있습니다.</li>
+        <li>OpenEBS의 LocalPV(Hostpath·LVM·ZFS)와 Mayastor를 용도에 맞게 고를 수 있습니다.</li>
+        <li>노드 장애·디스크 교체·리밸런싱 때 세 시스템의 동작과 네트워크 요구를 예측하고, 재구축 시간을 계산할 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- S1 -->
+  <section class="chap" id="s1">
+    <div class="chap-num">1</div>
+    <h2>왜 분산 스토리지인가, 무엇을 고르나</h2>
+    <div class="prose"><p>온프렘에서 PVC를 쓰는 방법은 크게 넷입니다: 기존 SAN·NAS의 CSI 드라이버(NetApp Trident, Dell·HPE·Pure 드라이버, vSphere CSI), 노드 로컬 디스크(LocalPV·TopoLVM), 노드 디스크를 묶은 분산 스토리지(Ceph·Longhorn·Mayastor), 그리고 외부 Ceph 클러스터 연결. 이 편은 세 번째를 다룹니다. 기존 스토리지 장비가 있다면 그 CSI 드라이버가 가장 단순한 답일 수 있다는 점을 먼저 확인하세요.</p></div>
+    <div class="tbl"><table>
+      <thead><tr><th>항목</th><th>Rook-Ceph</th><th>Longhorn</th><th>OpenEBS LocalPV</th><th>OpenEBS Mayastor</th></tr></thead>
+      <tbody>
+        <tr><td class="k">제공</td><td>블록(RBD)·파일(CephFS)·객체(RGW)</td><td>블록(+RWX는 NFS 공유 관리자)</td><td>노드 로컬 블록·파일</td><td>복제 블록(NVMe-oF)</td></tr>
+        <tr><td class="k">복제</td><td>풀 단위(3복제·이레이저 코딩), 장애 도메인 지정</td><td>볼륨 단위 레플리카(기본 3)</td><td>없음</td><td>볼륨 단위 레플리카</td></tr>
+        <tr><td class="k">최소 규모</td><td>노드 3대, 노드당 디스크 여러 개 권장</td><td>노드 3대</td><td>1대</td><td>노드 3대</td></tr>
+        <tr><td class="k">자원 부담</td><td>높음(OSD당 메모리 수 GiB, MON·MGR·MDS)</td><td>중간(V1), V2는 전용 CPU 코어</td><td>매우 낮음</td><td>전용 CPU 코어, 대용량 페이지</td></tr>
+        <tr><td class="k">지연</td><td>네트워크 왕복 + 복제(대개 1ms 이상)</td><td>네트워크 + 엔진(V1은 상대적으로 높음, V2 개선)</td><td>로컬 디스크 그대로</td><td>낮음(NVMe-oF·SPDK)</td></tr>
+        <tr><td class="k">운영 난이도</td><td>높음(Ceph 전문 지식)</td><td>낮음~중간(UI 제공)</td><td>낮음</td><td>중간</td></tr>
+        <tr><td class="k">대표 환경</td><td>OpenShift(ODF), 대규모 온프렘, 객체 스토리지까지 필요한 곳</td><td>Rancher·RKE2·엣지·중소 규모</td><td>앱이 스스로 복제하는 DB·캐시</td><td>고성능 블록이 필요한 온프렘</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S2 -->
+  <section class="chap" id="s2">
+    <div class="chap-num">2</div>
+    <h2>Ceph 아키텍처와 Rook 운영</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>구성 요소</th><th>역할</th><th>쉬운 말로</th><th>운영 포인트</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><span class="t" data-k="MON">MON</span></td><td>클러스터 지도(어떤 OSD가 살아 있나, CRUSH 규칙)를 관리, 과반수 합의</td><td>본점 이사회</td><td>홀수(3·5). 과반이 죽으면 클러스터 전체 정지</td></tr>
+        <tr><td class="k">MGR</td><td>지표·대시보드·오케스트레이션 모듈</td><td>본점 관리실</td><td>활성·대기 2개</td></tr>
+        <tr><td class="k"><span class="t" data-k="OSD">OSD</span></td><td>디스크 하나를 맡아 데이터 저장·복제·복구(BlueStore)</td><td>지점 금고</td><td>디스크당 하나, OSD당 메모리 목표 수 GiB</td></tr>
+        <tr><td class="k">MDS</td><td>CephFS의 메타데이터</td><td>파일 목록 담당</td><td>13편의 CephFS 병목 지점</td></tr>
+        <tr><td class="k">RGW</td><td>S3 호환 객체 게이트웨이</td><td>객체 창구</td><td>15편 백업 대상으로도 사용</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>데이터는 어떻게 흩어지나: 풀·PG·CRUSH</h3>
+      <ul>
+        <li><strong>풀(pool).</strong> 복제 정책 단위입니다. 복제 풀은 <code>size 3</code>(사본 3개), <code>min_size 2</code>(최소 2개가 살아 있어야 쓰기 허용)가 표준입니다. 이레이저 코딩 풀은 k+m 조각으로 나눠 공간 효율이 좋지만 CPU·지연 비용이 큽니다.</li>
+        <li><strong><span class="t" data-k="PG">PG</span>(배치 그룹).</strong> 객체를 바로 OSD에 매핑하지 않고, 수백 개의 PG로 묶은 뒤 PG를 OSD에 배치합니다. 복구·리밸런싱도 PG 단위로 일어납니다. PG 수는 오토스케일러가 조정합니다.</li>
+        <li><strong><span class="t" data-k="CRUSH">CRUSH</span>.</strong> 중앙 목록 없이 계산으로 위치를 정하는 규칙입니다. 장애 도메인을 host·rack·zone으로 정하면 사본이 서로 다른 호스트(또는 랙)에 놓입니다. 기본은 host입니다.</li>
+        <li><strong>용량 경계.</strong> OSD 사용률이 nearfull(기본 85%)이면 경고, backfillfull(90%)이면 재배치 중단, full(95%)이면 <strong>쓰기 전면 중단</strong>입니다. 3복제라면 원시 용량의 1/3에서 이 여유까지 빼야 실사용 용량입니다.</li>
+      </ul>
+      <h3>Rook이 하는 일</h3>
+      <p>Rook은 Ceph를 Kubernetes 위에서 돌리는 오퍼레이터입니다. CephCluster CR 하나로 MON·MGR·OSD를 배치하고, CephBlockPool·CephFilesystem·CephObjectStore CR로 풀과 서비스를 만들며, Ceph CSI 드라이버로 StorageClass를 제공합니다. v1.20부터 CSI 드라이버는 별도의 ceph-csi-operator와 차트로 관리되어, 업그레이드 순서(Rook 오퍼레이터 → CSI 드라이버 → 클러스터)를 지켜야 합니다. 지원 Ceph 버전은 Squid(19.2)와 Tentacle(20.2)입니다.</p>
+    </div>
+    <div class="code"><div class="bar"><span>Rook CR의 뼈대</span><button class="copy" type="button">복사</button></div><pre>apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata: {name: rook-ceph, namespace: rook-ceph}
+spec:
+  cephVersion: {image: quay.io/ceph/ceph:v19.2.3}    <span class="c"># 지원 버전·패치 확인</span>
+  dataDirHostPath: /var/lib/rook
+  mon: {count: 3, allowMultiplePerNode: false}
+  mgr: {count: 2}
+  network:
+    provider: host                                   <span class="c"># 또는 Multus로 public·cluster 네트워크 분리</span>
+  storage:
+    useAllNodes: false
+    nodes:
+    - name: storage-1
+      devices: [{name: "nvme1n1"}, {name: "nvme2n1"}]
+---
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata: {name: replicapool, namespace: rook-ceph}
+spec:
+  failureDomain: host
+  replicated: {size: 3, requireSafeReplicaSize: true}</pre></div>
+    <div class="code"><div class="bar"><span>툴박스에서 자주 쓰는 명령</span><button class="copy" type="button">복사</button></div><pre>T="kubectl -n rook-ceph exec deploy/rook-ceph-tools --"
+$T ceph status                 <span class="c"># HEALTH_OK·WARN·ERR, 복구 진행</span>
+$T ceph osd tree               <span class="c"># 호스트별 OSD와 up/down·in/out</span>
+$T ceph osd df                 <span class="c"># OSD별 사용률(nearfull 확인)</span>
+$T ceph df                     <span class="c"># 풀별 실사용 용량</span>
+$T ceph health detail          <span class="c"># 경고의 구체 원인</span>
+$T ceph osd set noout          <span class="c"># 계획된 유지보수 전 (끝나면 unset)</span></pre></div>
+  </section>
+
+  <!-- S3 -->
+  <section class="chap" id="s3">
+    <div class="chap-num">3</div>
+    <h2>OpenShift Data Foundation과의 관계</h2>
+    <div class="prose">
+      <p><span class="t" data-k="ODF">ODF</span>는 Rook·Ceph·Ceph CSI에 객체 게이트웨이 NooBaa(Multicloud Object Gateway)를 더해 Red Hat이 지원하는 제품입니다. 같은 Ceph라도 운영 방식이 다릅니다.</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>관점</th><th>업스트림 Rook-Ceph</th><th>ODF</th></tr></thead>
+      <tbody>
+        <tr><td class="k">설치·업그레이드</td><td>Helm·매니페스트, 버전을 직접 고름</td><td>OperatorHub 구독, OpenShift 버전과 호환표로 묶임</td></tr>
+        <tr><td class="k">배포 모드</td><td>내부(클러스터 안), 외부 Ceph 연결</td><td>Internal(클러스터 노드 디스크), Internal-Attached(로컬 디스크 자동 탐색), External(기존 Ceph)</td></tr>
+        <tr><td class="k">객체 스토리지</td><td>RGW</td><td>RGW + NooBaa(여러 백엔드를 묶는 게이트웨이)</td></tr>
+        <tr><td class="k">설정 자유도</td><td>Ceph 옵션을 직접 조정</td><td>지원 범위 안에서만. 지원 밖 튜닝은 지원 계약에 영향</td></tr>
+        <tr><td class="k">요구 자원</td><td>구성에 따라</td><td>스토리지 노드당 상당한 CPU·메모리 요구(문서의 최소 사양 확인). 보통 전용 인프라 노드에 배치</td></tr>
+        <tr><td class="k">대안</td><td>—</td><td>단일 노드·엣지에는 LVM Storage(TopoLVM), 기존 SAN에는 벤더 CSI</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note senior"><b>시니어 포인트: “Ceph를 아는가”가 지원 계약보다 먼저다</b>
+    ODF는 설치와 업그레이드를 쉽게 해 주지만, 장애가 났을 때 <code>ceph health detail</code>을 읽고 PG 상태를 해석하는 것은 여전히 운영자 몫입니다. MSP가 ODF 고객을 맡는다면 툴박스 접근 절차와 Ceph 기본 진단(이 편 2장 명령)을 런북에 넣어 두세요. 업스트림 Rook의 문서와 동작이 대부분 그대로 적용됩니다.</div>
+  </section>
+
+  <!-- S4 -->
+  <section class="chap" id="s4">
+    <div class="chap-num">4</div>
+    <h2>Longhorn: 레플리카·스냅샷 모델</h2>
+    <div class="note easy"><b>쉬운 말로</b>
+    Longhorn은 볼륨마다 전담 관리자(엔진)를 붙이고, 그 관리자가 여러 노드에 있는 복사본(레플리카)에 동시에 씁니다. 관리자는 볼륨을 쓰는 Pod와 같은 노드에서 일하고, 복사본 하나가 고장 나면 다른 노드에 새 복사본을 만듭니다.</div>
+    <div class="tbl"><table>
+      <thead><tr><th>개념</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td class="k"><span class="t" data-k="엔진">엔진</span>(engine)</td><td>볼륨을 쓰는 노드에서 동작하는 컨트롤러. 쓰기를 모든 레플리카에 동기로 보냄. V1은 노드에 iSCSI 장치로 노출</td></tr>
+        <tr><td class="k"><span class="t" data-k="레플리카">레플리카</span>(replica)</td><td>다른 노드 디스크에 있는 볼륨 사본(기본 3). 같은 노드에 두지 않는 안티 어피니티가 기본(설정으로 존 단위도 가능)</td></tr>
+        <tr><td class="k">instance-manager</td><td>노드마다 엔진·레플리카 프로세스를 담는 Pod</td></tr>
+        <tr><td class="k">스냅샷</td><td>볼륨 안의 시점 기록(차이 디스크의 사슬). 클러스터 안에 저장되므로 백업이 아님</td></tr>
+        <tr><td class="k">백업·백업 대상</td><td>스냅샷을 S3·NFS 같은 외부 대상으로 복사. 정기 작업(recurring job)으로 자동화(15편)</td></tr>
+        <tr><td class="k">데이터 지역성</td><td>엔진과 같은 노드에 레플리카 하나를 두도록 노력(best-effort) 또는 강제(strict-local)</td></tr>
+        <tr><td class="k">RWX</td><td>볼륨마다 share-manager Pod가 NFSv4로 내보냄. 그 Pod가 단일 장애점이자 성능 병목</td></tr>
+        <tr><td class="k">용량 과다 할당</td><td>얇은 할당이라 실제 사용량보다 많이 약속할 수 있음. 과다 할당 비율·최소 여유 비율 설정이 안전장치</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose">
+      <h3>V1과 V2 데이터 엔진</h3>
+      <ul>
+        <li><strong>V1</strong>은 오랫동안 써 온 엔진입니다. 파일 시스템 위의 희소 파일에 데이터를 두고 iSCSI로 노드에 붙입니다. 1.11부터 여러 레플리카에서 동시에 받아 오는 병렬 재구축으로 복구 시간이 줄었습니다.</li>
+        <li><strong>V2</strong>는 SPDK 기반으로 블록 디스크(NVMe 권장)를 직접 다루는 엔진입니다. 1.11에서 기술 미리보기, <strong>1.12에서 GA</strong>, 1.13에서 무중단 업그레이드와 인터럽트 모드가 들어왔습니다. 대신 instance-manager에 전용 CPU 코어(1.13 기본 2개)와 대용량 페이지, 새 커널(5.19 이상, 6.7 이상 권장)이 필요하고, 일부 기능(예: 암호화, V2 백킹 이미지)은 V1과 다릅니다.</li>
+        <li><strong>한 클러스터에는 하나의 엔진만</strong> 켜는 것이 권장입니다. 둘을 켜면 노드마다 instance-manager가 둘이 되어 예약 자원이 겹칩니다.</li>
+      </ul>
+      <h3>Longhorn 설정 중 장애 동작을 바꾸는 것</h3>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>설정</th><th>기본값 경향</th><th>의미</th></tr></thead>
+      <tbody>
+        <tr><td class="k">replica-replenishment-wait-interval</td><td>600초</td><td>노드가 사라진 뒤 새 레플리카를 만들기까지 기다리는 시간. 노드가 곧 돌아오면 재사용해 재구축을 피함</td></tr>
+        <tr><td class="k">node-down-pod-deletion-policy</td><td>do-nothing</td><td>노드가 죽었을 때 그 노드의 StatefulSet·Deployment Pod를 강제 삭제할지. 12편의 교착을 Longhorn 볼륨에 한해 자동으로 푸는 옵션</td></tr>
+        <tr><td class="k">replica-soft-anti-affinity / zone-soft-anti-affinity</td><td>꺼짐(엄격)</td><td>켜면 노드·존이 모자랄 때 같은 노드·존에 레플리카를 허용 → 가용성 착시</td></tr>
+        <tr><td class="k">storage-over-provisioning-percentage · storage-minimal-available-percentage</td><td>과다 할당 허용, 최소 여유 비율</td><td>디스크가 실제로 가득 차 볼륨이 망가지는 것을 막는 경계</td></tr>
+        <tr><td class="k">replica-auto-balance</td><td>disabled</td><td>노드 추가 후 레플리카를 고르게 다시 배치할지</td></tr>
+        <tr><td class="k">storage-network</td><td>없음</td><td>Multus로 레플리카 트래픽을 별도 네트워크로 분리(7장)</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S5 -->
+  <section class="chap" id="s5">
+    <div class="chap-num">5</div>
+    <h2>OpenEBS: LocalPV와 Mayastor</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>엔진</th><th>구조</th><th>복제</th><th>잘 맞는 곳</th><th>주의</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Local PV Hostpath</td><td>노드 디렉터리를 PV로</td><td>없음</td><td>개발·테스트, 앱이 복제하는 캐시</td><td>쿼터·스냅샷 없음, 노드에 묶임</td></tr>
+        <tr><td class="k">Local PV LVM</td><td>노드 볼륨 그룹에서 논리 볼륨 생성</td><td>없음</td><td>용량 관리·스냅샷이 필요한 로컬 DB</td><td>노드 장애 시 데이터 접근 불가</td></tr>
+        <tr><td class="k">Local PV ZFS</td><td>노드 ZFS 풀에서 데이터셋·zvol</td><td>없음(ZFS 미러는 노드 안)</td><td>압축·스냅샷·클론이 필요한 로컬 워크로드</td><td>ZFS 운영 지식</td></tr>
+        <tr><td class="k"><span class="t" data-k="Mayastor">Replicated PV Mayastor</span></td><td>SPDK 기반 io-engine, NVMe-oF로 노출, 볼륨마다 nexus가 레플리카를 묶음</td><td>볼륨 단위 동기 복제</td><td>고성능 복제 블록</td><td>노드당 전용 CPU 코어·대용량 페이지, NVMe-oF 커널 모듈</td></tr>
+      </tbody>
+    </table></div>
+    <div class="prose"><p>OpenEBS 4.x는 예전 Jiva·cStor 엔진을 정리하고 위 네 가지로 단순해졌습니다. LocalPV 계열은 11편의 노드 고정 규칙을 그대로 따릅니다. “복제 없음”이 단점이 아니라 설계 선택인 경우(Kafka·Cassandra·Elasticsearch처럼 앱이 복제하는 경우)에는 오히려 가장 빠르고 단순한 답입니다.</p></div>
+  </section>
+
+  <!-- S6 -->
+  <section class="chap" id="s6">
+    <div class="chap-num">6</div>
+    <h2>노드 장애·디스크 교체·리밸런싱</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>상황</th><th>Ceph(Rook)</th><th>Longhorn</th><th>OpenEBS LocalPV</th></tr></thead>
+      <tbody>
+        <tr><td class="k">노드 일시 장애(재부팅 수 분)</td><td>그 노드 OSD가 down. 남은 사본으로 I/O 계속(min_size 충족 시). down→out 대기(기본 10분) 전에 돌아오면 변경분만 복구</td><td>그 노드 레플리카가 오류. 남은 레플리카로 계속. 대기 시간 안에 돌아오면 레플리카를 재사용해 변경분만 동기화</td><td>그 노드 볼륨 접근 불가, 돌아올 때까지 Pod 대기</td></tr>
+        <tr><td class="k">노드 영구 손실</td><td>out 처리 후 PG가 다른 OSD로 백필. 장애 도메인 안에 남은 공간이 있어야 함</td><td>대기 후 다른 노드에 새 레플리카를 만들어 전체 복사. 엔진이 그 노드에 있었다면 Pod가 다른 노드로 옮겨 붙어야 함(12편 분리 문제)</td><td>데이터 손실. 앱 복제나 백업으로 복구</td></tr>
+        <tr><td class="k">디스크 교체</td><td>OSD 제거(out → 데이터 이동 완료 → purge) → 새 디스크 깨끗이 지운 뒤 OSD 생성</td><td>디스크 스케줄링 비활성·축출 → 레플리카가 다른 디스크로 이동 → 디스크 제거·추가</td><td>노드 안 볼륨 그룹·풀 작업, 데이터 이전 필요</td></tr>
+        <tr><td class="k">노드 추가 후</td><td>CRUSH가 자동으로 PG 일부를 새 OSD로 옮김(리밸런싱)</td><td>기본은 그대로, auto-balance 설정 시 재배치</td><td>새 볼륨만 새 노드에</td></tr>
+        <tr><td class="k">계획된 유지보수</td><td><code>noout</code> 설정 → 작업 → 해제. 한 번에 한 장애 도메인만</td><td>노드 드레인(엔진 이동), 레플리카는 대기 시간 안에 복귀</td><td>Pod가 다른 곳으로 못 감 → 서비스 중단 계획</td></tr>
+        <tr><td class="k">두 번째 장애</td><td>3복제에서 두 장애 도메인이 동시에 죽으면 min_size 미달로 해당 PG 쓰기 중단</td><td>모든 레플리카를 잃은 볼륨은 사용 불가(백업에서 복원)</td><td>—</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note trap"><b>함정: 재구축 창이 곧 위험 창이다</b>
+    복제본 하나를 잃은 순간부터 재구축이 끝날 때까지 그 데이터는 사본이 하나 적은 상태입니다. 이 시간이 길수록 두 번째 장애로 데이터를 잃을 확률이 커집니다. 재구축 시간은 <strong>잃은 데이터 양 ÷ 재구축 대역폭</strong>이고, 대역폭은 네트워크와 디스크, 그리고 서비스 트래픽을 위해 걸어 둔 재구축 속도 제한이 정합니다. 7장 계산기로 고객의 위험 창을 숫자로 보여 주세요.</div>
+  </section>
+
+  <!-- S7 -->
+  <section class="chap" id="s7">
+    <div class="chap-num">7</div>
+    <h2>네트워크 대역폭과 재구축 시간</h2>
+    <div class="prose">
+      <p>복제 스토리지는 모든 쓰기를 네트워크로 여러 번 보냅니다. 3복제면 앱이 1을 쓸 때 네트워크로 약 2(또는 엔진 위치에 따라 3)가 흐릅니다. 여기에 재구축·리밸런싱 트래픽이 겹치면 서비스 트래픽과 같은 NIC를 다툽니다. Ceph는 public·cluster 네트워크를, Longhorn은 storage network를 따로 두는 기능이 있는 이유입니다. 1GbE에서는 쓰기 처리량이 100MiB/s 안팎에서 막히고 재구축이 몇 시간씩 걸리므로, 분산 스토리지에는 <strong>10GbE 이상</strong>을 전제로 하세요.</p>
+    </div>
+    <div class="calc" id="bw">
+      <div class="f-grid">
+        <div><label for="bW">노드당 평균 쓰기(MiB/s)</label><input type="number" id="bW" value="150" min="0"></div>
+        <div><label for="bR">복제 수</label><input type="number" id="bR" value="3" min="1" max="5"></div>
+        <div><label for="bN">노드 NIC(Gbps)</label><input type="number" id="bN" value="10" min="1"></div>
+        <div><label for="bD">노드당 데이터(TiB)</label><input type="number" id="bD" value="4" min="0.1" step="0.1"></div>
+        <div><label for="bL">재구축에 허용할 NIC 비율(%)</label><input type="number" id="bL" value="40" min="1" max="100"></div>
+        <div><label for="bS">노드 수</label><input type="number" id="bS" value="6" min="3"></div>
+      </div>
+      <div class="kpis" id="bOut"></div>
+      <div class="calc-msg" id="bMsg"></div>
+    </div>
+  </section>
+
+  <!-- S8 -->
+  <section class="chap" id="s8">
+    <div class="chap-num">8</div>
+    <h2>운영 점검표와 모니터링</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>점검 항목</th><th>Ceph</th><th>Longhorn</th><th>OpenEBS</th></tr></thead>
+      <tbody>
+        <tr><td class="k">상태 한 줄</td><td><code>ceph status</code>(HEALTH_*)</td><td>Volume robustness(healthy·degraded·faulted)</td><td>PV·노드 상태, Mayastor 볼륨 상태</td></tr>
+        <tr><td class="k">용량</td><td>OSD 사용률 nearfull 경보(80% 전에)</td><td>디스크 실사용·예약·과다 할당</td><td>VG·ZFS 풀 여유</td></tr>
+        <tr><td class="k">장애 도메인</td><td>CRUSH 규칙이 host 이상인지</td><td>레플리카가 서로 다른 노드·존인지(soft 설정 꺼짐)</td><td>—</td></tr>
+        <tr><td class="k">복구 진행</td><td>degraded·misplaced 객체 수, 복구 속도</td><td>재구축 중 레플리카 수·진행률</td><td>Mayastor 재구축</td></tr>
+        <tr><td class="k">지표 수집</td><td>MGR prometheus 모듈</td><td>longhorn-manager 지표</td><td>엔진별 exporter</td></tr>
+        <tr><td class="k">업그레이드</td><td>Rook → CSI 드라이버 → Ceph 순, 한 번에 한 단계</td><td>지원 업그레이드 경로 준수, V2 무중단 업그레이드 여부(1.13)</td><td>차트 버전</td></tr>
+        <tr><td class="k">유지보수 절차</td><td>noout·한 도메인씩·PDB</td><td>드레인 정책·대기 시간</td><td>앱 레벨 장애 조치</td></tr>
+        <tr><td class="k">백업</td><td>RBD 스냅샷 + 외부 백업(15편)</td><td>백업 대상(S3·NFS) 정기 작업</td><td>LVM·ZFS 스냅샷 + 외부 백업</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- S9 -->
+  <section class="chap" id="s9">
+    <div class="chap-num">9</div>
+    <h2>실습</h2>
+    <div class="prose">
+      <p>3편의 lab-rke2는 노드 한 대(<code>rke2</code>)라서 복제 스토리지를 시험할 수 없습니다. 실습 0에서 에이전트 노드 두 대를 붙여 세 노드로 만든 뒤, 실습 1에서 Longhorn을 설치하고 노드를 강제로 꺼 레플리카 복구를 관찰합니다. 실습 2(선택)는 lab-native에 시험용 Rook-Ceph를, 실습 3(선택)은 OpenEBS LocalPV로 “복제 없음”의 차이를 봅니다. 메모리가 부족하면 실습 2·3은 건너뛰어도 됩니다.</p>
+      <h3>실습 0. lab-rke2에 에이전트 노드 두 대 추가</h3>
+    </div>
+    <div class="code"><div class="bar"><span>호스트에서</span><button class="copy" type="button">복사</button></div><pre>SRV=$(multipass info rke2 --format json | jq -r '.info.rke2.ipv4[0]')
+TOKEN=$(multipass exec rke2 -- sudo cat /var/lib/rancher/rke2/server/node-token)
+for a in rke2-a1 rke2-a2; do
+  multipass launch 24.04 --name $a --cpus 2 --memory 4G --disk 40G
+  multipass exec $a -- sudo bash -c "
+    mkdir -p /etc/rancher/rke2 &amp;&amp; printf 'server: https://$SRV:9345\ntoken: $TOKEN\n' &gt; /etc/rancher/rke2/config.yaml
+    curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE=agent INSTALL_RKE2_VERSION=v1.37.0+rke2r1 sh -
+    systemctl enable --now rke2-agent"
+done
+kubectl config use-context lab-rke2
+kubectl get nodes -o wide                                   <span class="c"># rke2, rke2-a1, rke2-a2 Ready</span>
+kubectl label node rke2-a1 rke2-a2 lab-role=worker          <span class="c"># 실험 Pod는 에이전트에만(서버를 끄면 API가 사라지므로)</span></pre></div>
+
+    <div class="prose"><h3>실습 1. Longhorn 설치와 노드 강제 종료</h3></div>
+    <div class="code"><div class="bar"><span>(1) 사전 요구 점검·설치</span><button class="copy" type="button">복사</button></div><pre><span class="c"># longhornctl: 노드 사전 요구(open-iscsi, NFS 클라이언트 등) 점검·설치. 버전은 Longhorn 릴리스에 맞춤</span>
+LHV=v1.13.0                                                   <span class="c"># 최신 패치 확인 후 고정</span>
+curl -fsSLo longhornctl https://github.com/longhorn/cli/releases/download/$LHV/longhornctl-linux-amd64 &amp;&amp; chmod +x longhornctl
+./longhornctl --kube-config ~/.kube/config install preflight
+./longhornctl --kube-config ~/.kube/config check preflight
+
+helm repo add longhorn https://charts.longhorn.io &amp;&amp; helm repo update
+helm install longhorn longhorn/longhorn -n longhorn-system --create-namespace --version ${LHV#v}
+kubectl -n longhorn-system rollout status ds/longhorn-manager
+kubectl -n longhorn-system get pods
+kubectl get sc
+
+<span class="c"># 실습용으로 대기 시간을 줄이고, 노드가 죽으면 Pod를 강제 삭제하도록</span>
+kubectl -n longhorn-system patch settings.longhorn.io replica-replenishment-wait-interval --type merge -p '{"value":"60"}'
+kubectl -n longhorn-system patch settings.longhorn.io node-down-pod-deletion-policy --type merge -p '{"value":"delete-both-statefulset-and-deployment-pod"}'</pre></div>
+    <div class="code"><div class="bar"><span>(2) 레플리카 2개짜리 StorageClass와 시험 워크로드</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 노드 3대에서 레플리카 3개면 한 대를 잃었을 때 새로 둘 곳이 없다 → 재구축 관찰을 위해 2개</span>
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata: {name: longhorn-2r}
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters: {numberOfReplicas: "2", staleReplicaTimeout: "30", dataLocality: "best-effort"}
+EOF
+kubectl create ns stor-lab
+kubectl -n stor-lab apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db}
+spec:
+  serviceName: db
+  replicas: 1
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata: {labels: {app: db}}
+    spec:
+      nodeSelector: {lab-role: worker}
+      containers: [{name: c, image: busybox:1.36, command: ["sh","-c","while true; do date &gt;&gt; /data/log; sync; sleep 2; done"], volumeMounts: [{name: data, mountPath: /data}]}]
+  volumeClaimTemplates:
+  - metadata: {name: data}
+    spec: {storageClassName: longhorn-2r, accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 5Gi}}}
+EOF
+kubectl -n stor-lab wait pod/db-0 --for=condition=Ready --timeout=300s
+
+cat &gt; lhv.sh &lt;&lt;'EOF'
+#!/usr/bin/env bash
+date +%T
+kubectl -n longhorn-system get volumes.longhorn.io -o custom-columns=VOL:.metadata.name,STATE:.status.state,ROBUST:.status.robustness,ENGINE_NODE:.status.currentNodeID
+kubectl -n longhorn-system get replicas.longhorn.io -o custom-columns=REPLICA:.metadata.name,NODE:.spec.nodeID,STATE:.status.currentState
+kubectl -n stor-lab get pod -o wide --no-headers
+EOF
+chmod +x lhv.sh &amp;&amp; ./lhv.sh</pre></div>
+    <div class="code"><div class="bar"><span>(3) 시나리오 A: 레플리카만 있는 노드를 강제로 끄기</span><button class="copy" type="button">복사</button></div><pre><span class="c"># 엔진 노드(Pod 노드)가 아닌, 레플리카가 있는 에이전트 노드를 고른다 (레플리카가 서버 rke2에만 있다면 시나리오 B로)</span>
+VICTIM=rke2-a2                                              <span class="c"># lhv.sh 출력에서 골라 수정</span>
+date +%T; multipass exec $VICTIM -- sudo sh -c 'echo 1 &gt; /proc/sys/kernel/sysrq; echo o &gt; /proc/sysrq-trigger'   <span class="c"># 즉시 전원 차단</span>
+watch -n 10 ./lhv.sh
+<span class="c"># 기대: ROBUST=degraded → 60초 후 다른 노드에 새 레플리카 rebuilding → healthy</span>
+kubectl -n stor-lab exec db-0 -- tail -2 /data/log           <span class="c"># 쓰기는 계속됨</span>
+multipass start $VICTIM                                       <span class="c"># 돌아온 노드의 옛 레플리카는 정리됨</span></pre></div>
+    <div class="code"><div class="bar"><span>(4) 시나리오 B: Pod(엔진)가 있는 노드를 강제로 끄기</span><button class="copy" type="button">복사</button></div><pre>NODE=$(kubectl -n stor-lab get pod db-0 -o jsonpath='{.spec.nodeName}'); echo $NODE
+date +%T; multipass exec $NODE -- sudo sh -c 'echo 1 &gt; /proc/sys/kernel/sysrq; echo o &gt; /proc/sysrq-trigger'
+kubectl get node $NODE -w                                     <span class="c"># NotReady까지</span>
+kubectl -n stor-lab get pod -o wide -w                        <span class="c"># Longhorn 정책이 Pod를 강제 삭제 → 다른 에이전트에 재생성</span>
+kubectl -n stor-lab exec db-0 -- tail -3 /data/log            <span class="c"># 장애 직전까지의 기록이 남아 있는지</span>
+multipass start $NODE
+<span class="c"># 기록할 것: 노드 정지 → NotReady → Pod 삭제 → 새 Pod Running → 볼륨 healthy 각 시각</span>
+<span class="c"># node-down-pod-deletion-policy 를 do-nothing으로 되돌리고 같은 실험을 하면 12편의 StatefulSet 교착이 재현됨</span></pre></div>
+    <div class="note"><b>관찰 과제</b>
+    시나리오 A와 B의 시각을 맨 위 비교기의 Longhorn “노드 영구 손실”·“노드 일시 장애” 결과와 비교하세요. 레플리카 수를 3으로 바꾸고 시나리오 A를 반복하면 새 레플리카를 둘 노드가 없어 degraded가 노드 복귀까지 유지된다는 것도 확인할 수 있습니다. 이 결과가 “복제 수 + 1 이상의 노드”를 권하는 이유입니다.</div>
+
+    <div class="prose"><h3>실습 2. 선택: lab-native에 시험용 Rook-Ceph</h3></div>
+    <div class="code"><div class="bar"><span>루프 장치로 만든 시험 클러스터 (운영에 쓰지 말 것)</span><button class="copy" type="button">복사</button></div><pre>kubectl config use-context lab-native
+ROOK=v1.20.0                                                  <span class="c"># 최신 패치 확인</span>
+git clone --depth 1 --branch $ROOK https://github.com/rook/rook.git &amp;&amp; cd rook/deploy/examples
+for n in cp1 w1 w2; do multipass exec $n -- sudo bash -c 'truncate -s 20G /var/lib/rook-osd.img &amp;&amp; losetup /dev/loop20 /var/lib/rook-osd.img'; done
+
+kubectl create -f crds.yaml -f common.yaml -f csi-operator.yaml -f operator.yaml
+kubectl -n rook-ceph patch cm rook-ceph-operator-config --type merge -p '{"data":{"ROOK_CEPH_ALLOW_LOOP_DEVICES":"true"}}'
+kubectl -n rook-ceph rollout status deploy/rook-ceph-operator
+<span class="c"># v1.20부터 CSI 드라이버는 ceph-csi-operator로 관리: 예제 디렉터리의 CSI 드라이버 설정 안내를 따라 함께 적용</span>
+kubectl create -f cluster-test.yaml -f toolbox.yaml
+kubectl -n rook-ceph get pods -w                              <span class="c"># mon, mgr, osd-* 가 Running</span>
+T="kubectl -n rook-ceph exec deploy/rook-ceph-tools --"
+$T ceph status; $T ceph osd tree; $T ceph osd df
+
+kubectl create -f csi/rbd/storageclass-test.yaml
+<span class="c"># 11편 writer Pod를 storageClassName: rook-ceph-block 으로 띄운 뒤</span>
+
+<span class="c"># OSD 하나를 내리고 상태 변화 관찰</span>
+kubectl -n rook-ceph scale deploy rook-ceph-osd-1 --replicas=0
+$T ceph status                                                <span class="c"># degraded PG, 1 osds down</span>
+$T ceph osd out 1                                             <span class="c"># 10분 대기 대신 즉시 out → 백필 시작</span>
+watch -n 5 "kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph status | sed -n '/data:/,\$p'"
+kubectl -n rook-ceph scale deploy rook-ceph-osd-1 --replicas=1; $T ceph osd in 1
+
+<span class="c"># 유지보수 플래그</span>
+$T ceph osd set noout; $T ceph health detail; $T ceph osd unset noout</pre></div>
+
+    <div class="prose"><h3>실습 3. 선택: OpenEBS LocalPV로 “복제 없음” 체감</h3></div>
+    <div class="code"><div class="bar"><span>lab-rke2에서</span><button class="copy" type="button">복사</button></div><pre>helm repo add openebs https://openebs.github.io/openebs &amp;&amp; helm repo update
+helm install openebs openebs/openebs -n openebs --create-namespace \
+  --set engines.replicated.mayastor.enabled=false             <span class="c"># LocalPV만 (값 이름은 차트 버전 확인)</span>
+kubectl get sc | grep openebs
+<span class="c"># 실습 1의 StatefulSet을 storageClassName: openebs-hostpath 로 바꿔 배포 → Pod 노드를 강제로 끄면</span>
+<span class="c"># Pod는 다른 노드로 가지 못하고 Pending(volume node affinity conflict): 노드가 돌아올 때까지 서비스 중단</span></pre></div>
+    <div class="prose">
+      <h3>과제</h3>
+      <ol>
+        <li>실습 1의 시각 기록으로 “노드 영구 손실 시 데이터가 사본 하나로 버틴 시간(위험 창)”을 계산하고, 7장 계산기 결과와 비교하세요.</li>
+        <li>담당 온프렘 고객의 노드 수·NIC·노드당 데이터로 7장 계산기를 돌려 재구축 시간을 구하고, 그 시간이 고객이 받아들일 수 있는 위험인지 적으세요.</li>
+        <li>Ceph(또는 ODF)를 쓰는 고객이라면 유지보수 런북에 noout·한 도메인씩·health 확인 단계가 있는지 점검하세요.</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- S10 -->
+  <section class="chap" id="s10">
+    <div class="chap-num">10</div>
+    <h2>현장 사례</h2>
+    <details class="case"><summary>Ceph가 갑자기 모든 쓰기를 멈췄다</summary><div class="body">
+      <p><strong>원인.</strong> OSD 하나가 full 비율(95%)에 닿았습니다. 전체 사용률은 70%였지만 OSD 크기가 섞여 있고 PG 분포가 고르지 않아 일부 OSD만 먼저 가득 찼습니다.</p>
+      <p><strong>대응.</strong> 임시로 full 비율을 조금 올려 숨통을 틔우고, 불필요한 데이터를 지운 뒤 OSD를 추가하고 밸런서를 켰습니다.</p>
+      <p><strong>교훈.</strong> 경보는 전체 사용률이 아니라 <strong>가장 꽉 찬 OSD</strong> 기준으로, nearfull보다 앞서(예: 75%) 걸어 두세요.</p>
+    </div></details>
+    <details class="case"><summary>노드 패치 때마다 클러스터가 몇 시간씩 느려진다</summary><div class="body">
+      <p><strong>원인.</strong> 노드를 재부팅할 때 noout 없이 진행해, 10분을 넘긴 노드의 OSD가 out 처리되고 대규모 백필이 일어났다가 노드가 돌아오면 다시 반대로 옮겨졌습니다.</p>
+      <p><strong>교훈.</strong> 계획된 유지보수는 <strong>noout → 한 장애 도메인씩 → HEALTH_OK 확인 → 다음</strong> 순서로. Rook을 쓰면 OSD PDB가 동시 드레인을 막아 줍니다.</p>
+    </div></details>
+    <details class="case"><summary>두 노드를 동시에 재부팅했더니 클러스터가 멈췄다</summary><div class="body">
+      <p><strong>원인.</strong> MON이 세 노드에 하나씩 있었는데 둘이 동시에 내려가 과반수가 깨졌습니다. 스토리지 전체가 응답하지 않았습니다.</p>
+      <p><strong>교훈.</strong> MON·Longhorn 레플리카처럼 과반·복제에 기대는 구성은 <strong>동시에 하나씩만</strong> 내립니다. OS 패치 자동화의 동시성 설정을 확인하세요.</p>
+    </div></details>
+    <details class="case"><summary>Longhorn 볼륨이 노드 하나 장애로 사라졌다</summary><div class="body">
+      <p><strong>원인.</strong> 노드가 모자라자 누군가 replica-soft-anti-affinity를 켰고, 새 볼륨의 레플리카 세 개가 한 노드의 두 디스크에 몰려 있었습니다. 그 노드가 죽자 볼륨의 모든 사본이 사라졌습니다.</p>
+      <p><strong>교훈.</strong> 레플리카 배치는 <strong>정기 점검 항목</strong>입니다. soft 설정은 끄고, 노드가 모자라면 복제 수를 줄이는 대신 노드를 늘리세요.</p>
+    </div></details>
+    <details class="case"><summary>1GbE에서 Longhorn 재구축이 서비스를 마비시켰다</summary><div class="body">
+      <p><strong>원인.</strong> 노드 교체 후 수 TiB 재구축이 서비스 트래픽과 같은 1GbE를 가득 채워, 다른 볼륨의 쓰기 지연이 수백 ms로 뛰었습니다.</p>
+      <p><strong>대응.</strong> 재구축 동시성을 낮추고, 10GbE 스토리지 네트워크를 Multus로 분리했습니다.</p>
+      <p><strong>교훈.</strong> 재구축 트래픽은 <strong>장애 때 가장 크게</strong> 생깁니다. 평상시 대역폭이 아니라 7장 계산기의 재구축 시나리오로 네트워크를 설계하세요.</p>
+    </div></details>
+    <details class="case"><summary>디스크를 갈았는데 새 OSD가 생기지 않는다</summary><div class="body">
+      <p><strong>원인.</strong> 교체 디스크에 이전 시스템의 파티션과 LVM 흔적이 남아 있었습니다. Rook은 데이터 보호를 위해 비어 있지 않은 디스크를 쓰지 않습니다.</p>
+      <p><strong>교훈.</strong> 디스크 교체 런북에 <strong>파티션·LVM·장치 매퍼 흔적 제거</strong> 단계를 넣고, 지울 장치를 두 번 확인하는 절차를 두세요.</p>
+    </div></details>
+    <details class="case"><summary>LocalPV 위 단일 DB가 노드와 함께 사라졌다</summary><div class="body">
+      <p><strong>원인.</strong> 성능 때문에 OpenEBS Hostpath에 단일 인스턴스 데이터베이스를 두었는데, 노드 디스크가 고장 났습니다. 복제도 백업도 없었습니다.</p>
+      <p><strong>교훈.</strong> LocalPV는 <strong>앱이 복제하는 워크로드</strong> 전용입니다. 단일 인스턴스라면 복제 스토리지나 15편의 백업이 전제입니다.</p>
+    </div></details>
+  </section>
+
+  <!-- S11 -->
+  <section class="chap" id="s11">
+    <div class="chap-num">11</div>
+    <h2>점검 퀴즈</h2>
+    <div class="quiz" id="quiz"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <!-- S12 -->
+  <section class="chap" id="s12">
+    <div class="chap-num">12</div>
+    <h2>용어·약어 사전</h2>
+    <div class="prose"><p>본문의 점선 밑줄 용어와 같은 설명입니다. 정식 명칭, 쉬운 설명 순으로 적었습니다.</p></div>
+    <input class="gloss-search" id="glossSearch" type="search" placeholder="용어 검색 (예: OSD, CRUSH, 레플리카)" aria-label="용어 검색">
+    <dl class="gloss" id="gloss"></dl>
+  </section>
+
+  <!-- S13 -->
+  <section class="chap" id="s13">
+    <div class="chap-num">13</div>
+    <h2>정리, 다음 편, 참고 자료</h2>
+    <div class="prose">
+      <h3>이 편의 핵심 다섯 줄</h3>
+      <ol>
+        <li>Ceph는 MON(과반 합의)·OSD(디스크)·MGR·MDS·RGW와 풀·PG·CRUSH로 블록·파일·객체를 모두 제공하며, Rook이 이를 Kubernetes 위에서 운영하고 ODF가 이를 제품화합니다.</li>
+        <li>Longhorn은 볼륨마다 엔진과 레플리카를 두는 단순한 구조이며, V2 데이터 엔진이 1.12에서 GA, 1.13에서 무중단 업그레이드를 얻었습니다. 장애 동작은 대기 시간·Pod 삭제 정책·안티 어피니티 설정이 좌우합니다.</li>
+        <li>OpenEBS는 LocalPV(Hostpath·LVM·ZFS)와 Mayastor로 단순해졌고, LocalPV는 앱이 복제하는 워크로드에만 씁니다.</li>
+        <li>노드 장애 때 분산 스토리지는 대기 후 재구축하며, 재구축 시간(데이터 ÷ 대역폭)이 곧 두 번째 장애에 노출되는 위험 창입니다. 복제 수 + 1 이상의 노드와 10GbE 이상, 분리된 스토리지 네트워크가 기본입니다.</li>
+        <li>유지보수는 noout·한 도메인씩·상태 확인, 용량 경보는 가장 꽉 찬 OSD 기준, 디스크 교체는 흔적 제거까지 런북에 적어야 합니다.</li>
+      </ol>
+    </div>
+    <div class="next">
+      <h3>다음 편 · 15편 스냅샷·백업·DR</h3>
+      <p style="margin:.3em 0 0">VolumeSnapshot과 VolumeSnapshotClass, 스냅샷 토폴로지, 크래시 일관성과 애플리케이션 일관성을 정리하고, Velero와 벤더 플러그인(CSI 스냅샷 vs Kopia 파일 백업), 벤더 백업 서비스(AWS Backup for EKS, Azure Backup for AKS, Backup for GKE, OpenShift OADP)를 비교합니다. 크로스 리전·크로스 클러스터 복구와 RPO·RTO 설계, 복구 리허설을 다루고, Velero로 네임스페이스 전체를 EKS에서 kubeadm으로 복원합니다(StorageClass 매핑 포함).</p>
+    </div>
+    <div class="prose">
+      <h3>참고 자료</h3>
+      <ul class="refs">
+        <li>Ceph 문서(아키텍처, CRUSH, 풀·PG, OSD 운영, 용량 비율) — docs.ceph.com</li>
+        <li>Rook 문서(v1.20 업그레이드·CSI 운영자 변경, CephCluster·CephBlockPool, 노드 손실 시 펜싱) — rook.io/docs</li>
+        <li>OpenShift Data Foundation 계획·배포 가이드 — Red Hat 문서</li>
+        <li>Longhorn 문서(아키텍처, 설정 레퍼런스, 모범 사례, V2 데이터 엔진), v1.11·v1.12·v1.13 릴리스 노트 — longhorn.io</li>
+        <li>OpenEBS 4.x 문서(Local PV Hostpath·LVM·ZFS, Replicated PV Mayastor) — openebs.io</li>
+        <li>TopoLVM·OpenShift LVM Storage — 각 프로젝트·Red Hat 문서</li>
+      </ul>
+    </div>
+    <footer>
+      Kubernetes 심화: 벤더 비교로 읽는 네트워크·스토리지·RBAC, 14편. 작성 기준일 2026-10-23.
+      분산 스토리지의 기본값·지원 버전은 릴리스마다 바뀝니다. 설치 전 해당 버전의 문서와 업그레이드 경로를 확인하세요. 실습 2의 루프 장치 구성은 시험 전용입니다.
+    </footer>
+  </section>
+</main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const el=(t,a={},h="")=>{const e=document.createElement(t);for(const k in a){if(k==="class")e.className=a[k];else e.setAttribute(k,a[k]);}if(h)e.innerHTML=h;return e;};
+const H=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* theme */
+const root=document.documentElement,themeBtn=$("#themeBtn");
+function applyTheme(t){root.setAttribute("data-theme",t);themeBtn.textContent=t==="dark"?"라이트 테마":"다크 테마";}
+let saved=null;try{saved=localStorage.getItem("k8s-deep-theme");}catch(e){}
+applyTheme(saved==="light"?"light":"dark");
+themeBtn.addEventListener("click",()=>{const t=root.getAttribute("data-theme")==="dark"?"light":"dark";applyTheme(t);try{localStorage.setItem("k8s-deep-theme",t);}catch(e){}});
+
+/* ---------- terms ---------- */
+const TERMS={
+ "Ceph":["Ceph","블록·파일·객체를 모두 제공하는 오픈소스 분산 스토리지."],
+ "Rook":["Rook","Ceph를 Kubernetes 위에서 배포·운영하는 오퍼레이터(CNCF 졸업)."],
+ "ODF":["OpenShift Data Foundation","Rook·Ceph·NooBaa를 묶어 Red Hat이 지원하는 OpenShift 스토리지 제품."],
+ "NooBaa":["NooBaa / Multicloud Object Gateway","여러 백엔드를 하나의 S3 엔드포인트로 묶는 객체 게이트웨이. ODF에 포함."],
+ "MON":["Ceph Monitor","클러스터 지도를 관리하고 과반수로 합의하는 데몬. 홀수로 둔다."],
+ "MGR":["Ceph Manager","지표·대시보드·관리 모듈을 맡는 데몬."],
+ "OSD":["Object Storage Daemon","디스크 하나를 맡아 데이터를 저장·복제·복구하는 데몬."],
+ "MDS":["Metadata Server","CephFS의 파일·디렉터리 정보를 관리하는 데몬."],
+ "RGW":["RADOS Gateway","Ceph의 S3·Swift 호환 객체 게이트웨이."],
+ "RBD":["RADOS Block Device","Ceph의 블록 장치. Kubernetes RWO 볼륨으로 주로 쓴다."],
+ "BlueStore":["BlueStore","OSD가 디스크에 직접 데이터를 쓰는 Ceph 기본 저장 엔진."],
+ "풀":["Ceph pool","복제 수나 이레이저 코딩 같은 보호 정책 단위의 저장 공간."],
+ "PG":["Placement Group","객체를 묶어 OSD에 배치하는 중간 단위. 복구·리밸런싱도 PG 단위."],
+ "CRUSH":["Controlled Replication Under Scalable Hashing","중앙 목록 없이 계산으로 데이터 위치와 장애 도메인 분산을 정하는 Ceph 규칙."],
+ "장애 도메인":["Failure domain","함께 고장 날 수 있는 단위(호스트·랙·존). 사본을 서로 다른 도메인에 둔다."],
+ "min_size":["Ceph pool min_size","쓰기를 허용하는 최소 살아 있는 사본 수. 3복제에서 보통 2."],
+ "이레이저 코딩":["Erasure coding","데이터를 k조각+패리티 m조각으로 나눠 공간 효율을 높이는 보호 방식. CPU·지연 비용."],
+ "nearfull":["Ceph nearfull / full ratio","OSD 사용률 경고(85%)·재배치 중단(90%)·쓰기 중단(95%) 경계."],
+ "백필":["Backfill","사본이 없어진 PG를 다른 OSD에 다시 채우는 Ceph 복구 작업."],
+ "리밸런싱":["Rebalancing","노드·디스크 추가 후 데이터를 고르게 다시 배치하는 것."],
+ "noout":["ceph osd set noout","OSD가 오래 꺼져도 out 처리하지 않게 하는 유지보수 플래그."],
+ "down/out":["OSD down / out","down은 응답 없음, out은 데이터 배치에서 제외(그때부터 백필)."],
+ "툴박스":["Rook toolbox","ceph 명령을 실행하는 디버그 Pod(rook-ceph-tools)."],
+ "Longhorn":["Longhorn","Rancher가 만든 Kubernetes 분산 블록 스토리지(CNCF)."],
+ "엔진":["Longhorn engine","볼륨을 쓰는 노드에서 동작하며 모든 레플리카에 동기로 쓰는 컨트롤러."],
+ "레플리카":["Replica","다른 노드에 둔 볼륨 사본."],
+ "instance-manager":["Longhorn instance-manager","노드마다 엔진·레플리카 프로세스를 담는 Pod."],
+ "V2 데이터 엔진":["Longhorn V2 Data Engine","SPDK로 블록 디스크를 직접 다루는 고성능 엔진. 1.12 GA, 1.13 무중단 업그레이드."],
+ "SPDK":["Storage Performance Development Kit","사용자 공간에서 NVMe를 직접 다루는 고성능 스토리지 개발 도구."],
+ "iSCSI":["Internet SCSI","네트워크로 블록 장치를 붙이는 규약. Longhorn V1의 노드 쪽 노출 방식."],
+ "NVMe-oF":["NVMe over Fabrics","NVMe 명령을 네트워크(TCP 등)로 보내는 규약. Mayastor·Longhorn V2·Ceph NVMe-oF 게이트웨이가 사용."],
+ "share-manager":["Longhorn share-manager","RWX 볼륨을 NFS로 내보내는 볼륨별 Pod."],
+ "데이터 지역성":["Data locality","엔진과 같은 노드에 레플리카 하나를 두려는 설정."],
+ "안티 어피니티":["Anti-affinity","같은 노드·존에 사본을 두지 않게 하는 배치 규칙."],
+ "과다 할당":["Over-provisioning","실제 디스크보다 많은 용량을 볼륨에 약속하는 것(얇은 할당)."],
+ "백업 대상":["Backup target","Longhorn 스냅샷을 복사해 둘 외부 S3·NFS."],
+ "OpenEBS":["OpenEBS","LocalPV와 복제 엔진 Mayastor를 제공하는 CNCF 스토리지 프로젝트."],
+ "LocalPV":["OpenEBS Local PV","노드 디스크를 복제 없이 PV로 쓰는 엔진(Hostpath·LVM·ZFS)."],
+ "LVM":["Logical Volume Manager","리눅스의 논리 볼륨 관리. 디스크를 묶고 잘라 쓴다."],
+ "ZFS":["ZFS","압축·스냅샷·클론을 지원하는 파일 시스템 겸 볼륨 관리자."],
+ "Mayastor":["OpenEBS Replicated PV Mayastor","SPDK·NVMe-oF 기반 고성능 복제 블록 엔진."],
+ "nexus":["Mayastor nexus","볼륨의 레플리카들을 묶어 하나의 장치로 내보내는 Mayastor 구성 요소."],
+ "대용량 페이지":["Hugepages","큰 메모리 페이지. SPDK 기반 엔진이 요구한다."],
+ "Multus":["Multus CNI","Pod에 추가 네트워크를 붙이는 메타 CNI. 스토리지 트래픽 분리에 사용."],
+ "재구축":["Rebuild / recovery","잃은 사본을 다른 곳에 다시 만드는 작업. 대역폭과 시간을 많이 쓴다."],
+ "위험 창":["Exposure window","사본이 부족한 채로 버티는 시간. 두 번째 장애가 오면 데이터 손실."],
+ "과반수":["Quorum","여러 대 중 절반 초과가 살아 있어야 결정을 내리는 규칙."],
+ "PDB":["PodDisruptionBudget","자발적 중단(드레인) 때 동시에 내려갈 수 있는 Pod 수를 제한하는 객체."],
+ "longhornctl":["Longhorn CLI","노드 사전 요구 점검·설치 등을 하는 Longhorn 명령줄 도구."],
+ "TopoLVM":["TopoLVM","노드 LVM으로 로컬 PV를 동적 생성하는 CSI. OpenShift LVM Storage의 기반."],
+ "ublk":["Userspace block device","사용자 공간 프로그램이 블록 장치를 제공하는 리눅스 기능. Longhorn V2 프런트엔드 옵션."]
+};
+const AUTO=["instance-manager","share-manager","longhornctl","BlueStore","NooBaa","Longhorn","OpenEBS","LocalPV","Mayastor","TopoLVM","Multus","min_size","nearfull","noout","NVMe-oF","iSCSI","SPDK","CRUSH","Ceph","Rook","ODF","MON","MGR","OSD","MDS","RGW","RBD","PG","LVM","ZFS","PDB","ublk","nexus","장애 도메인","이레이저 코딩","백필","리밸런싱","툴박스","엔진","레플리카","V2 데이터 엔진","데이터 지역성","안티 어피니티","과다 할당","백업 대상","대용량 페이지","재구축","위험 창","과반수"];
+const isAscii=s=>/^[\x00-\x7f]+$/.test(s),esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+function autoWrap(sec){
+  const seen=new Set([...sec.querySelectorAll(".t")].map(t=>t.dataset.k||t.textContent));
+  const w=document.createTreeWalker(sec,NodeFilter.SHOW_TEXT,{acceptNode(n){const p=n.parentElement;if(!p)return NodeFilter.FILTER_REJECT;if(p.closest("pre,code,.t,a,h2,h3,h4,button,summary,.chap-num,input,label,select,.quiz,.gloss,.calc"))return NodeFilter.FILTER_REJECT;return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;}});
+  const nodes=[];while(w.nextNode())nodes.push(w.currentNode);
+  nodes.forEach(node=>{let txt=node.nodeValue,frag=null,ch=false;
+    for(const k of AUTO){if(seen.has(k))continue;
+      const re=isAscii(k)?new RegExp("(^|[^A-Za-z0-9_-])("+esc(k)+")(?![A-Za-z0-9_])"):new RegExp("()("+esc(k)+")");
+      const m=re.exec(txt);if(!m)continue;const idx=m.index+m[1].length;seen.add(k);ch=true;
+      frag=frag||document.createDocumentFragment();frag.appendChild(document.createTextNode(txt.slice(0,idx)));
+      const sp=el("span",{class:"t","data-k":k});sp.textContent=m[2];frag.appendChild(sp);txt=txt.slice(idx+m[2].length);}
+    if(ch){frag.appendChild(document.createTextNode(txt));node.parentNode.replaceChild(frag,node);}});
+}
+document.querySelectorAll("section.chap").forEach(s=>{if(s.id!=="s12")autoWrap(s);});
+const tip=$("#tip");let tipFor=null;
+function showTip(t){const k=t.dataset.k||t.textContent,d=TERMS[k];if(!d)return;tip.innerHTML=`<b>${k}</b><i>${d[0]}</i>${d[1]}`;tip.style.display="block";
+  const r=t.getBoundingClientRect(),w=Math.min(340,window.innerWidth-24);tip.style.maxWidth=w+"px";let left=r.left+window.scrollX;if(left+w>window.scrollX+window.innerWidth-12)left=window.scrollX+window.innerWidth-12-w;
+  tip.style.left=Math.max(12,left)+"px";tip.style.top=(r.bottom+window.scrollY+8)+"px";tipFor=t;}
+function hideTip(){tip.style.display="none";tipFor=null;}
+document.querySelectorAll(".t").forEach(t=>{t.setAttribute("tabindex","0");t.setAttribute("role","button");
+  const k=t.dataset.k||t.textContent;if(TERMS[k])t.setAttribute("aria-label",`${k}: ${TERMS[k][0]}. ${TERMS[k][1]}`);
+  t.addEventListener("mouseenter",()=>showTip(t));t.addEventListener("mouseleave",hideTip);t.addEventListener("focus",()=>showTip(t));t.addEventListener("blur",hideTip);
+  t.addEventListener("click",e=>{e.stopPropagation();tipFor===t?hideTip():showTip(t);});});
+document.addEventListener("click",hideTip);window.addEventListener("scroll",()=>{if(tipFor)showTip(tipFor);},{passive:true});document.addEventListener("keydown",e=>{if(e.key==="Escape")hideTip();});
+
+/* ---------- failure comparer ---------- */
+const SYS=[["ceph","Ceph RBD 3복제"],["lh","Longhorn 3레플리카(노드 4대+)"],["lhmin","Longhorn 3레플리카(노드 3대)"],["mayastor","Mayastor 3레플리카"],["local","OpenEBS LocalPV"]];
+const EVS=[["temp","노드 5분 재부팅(예고 없음)"],["perm","노드 영구 손실"],["disk","디스크 1개 교체(계획)"],["maint","계획된 유지보수 재부팅(15분)"]];
+const F={sys:"ceph",ev:"perm"};
+function fm(m){if(!isFinite(m))return"—";const h=Math.floor(m/60),mm=Math.round(m%60);return h?`${h}시간 ${mm}분`:`${mm}분`;}
+function renderFail(){
+  [["fSys",SYS,"sys"],["fEv",EVS,"ev"]].forEach(([id,list,k])=>{const b=$("#"+id);b.innerHTML="";list.forEach(([v,l])=>{const x=el("button",{class:"btn",type:"button","aria-pressed":String(F[k]===v)},l);x.addEventListener("click",()=>{F[k]=v;renderFail();});b.appendChild(x);});});
+  const W=+$("#fWait").value||0,D=+$("#fData").value||1,B=+$("#fBw").value||1,R=D*1024/B/60;
+  const s=F.sys,e=F.ev,T=[];let risk=0,outage=false,loss=false,note="";
+  const add=(t,txt,c="")=>T.push([t,txt,c]);
+  if(s==="local"){
+    if(e==="temp"){add(0,"노드 정지 → 그 노드 볼륨 접근 불가, Pod는 다른 노드로 못 감(노드 고정)","bad");add(5,"노드 복귀 → Pod 재시작, 정상","ok");outage=true;note="복제가 없으므로 노드가 없는 동안 서비스가 멈춥니다.";}
+    else if(e==="perm"){add(0,"노드 영구 손실 → 그 노드의 데이터 소멸","bad");add(0,"복구는 앱 복제(다른 인스턴스)나 백업 복원(15편)에 의존","key");loss=true;outage=true;}
+    else if(e==="disk"){add(0,"디스크 교체 전 데이터를 다른 디스크·노드로 직접 옮겨야 함(LVM pvmove, 앱 수준 이전)","key");add(R,"이전 완료 후 교체","ok");outage=true;note="LocalPV는 도구가 대신 옮겨 주지 않습니다.";}
+    else{add(0,"노드 재부팅 → 그 노드 볼륨을 쓰는 Pod 중단","bad");add(15,"노드 복귀 → 재시작","ok");outage=true;note="앱 수준 장애 조치(다른 레플리카로 리더 이전)를 먼저 하세요.";}
+  } else if(s==="ceph"){
+    if(e==="temp"){add(0,"OSD down → PG degraded, 남은 사본 2개로 I/O 계속(min_size 2)","bad");if(5<W){add(5,"노드 복귀(down→out 전) → 변경분만 복구","key");add(7,"HEALTH_OK","ok");risk=5+2;}else{add(W,"out 처리 → 백필 시작","key");add(5,"노드 복귀 → 다시 원위치로 재배치","key");add(W+R,"복구 완료","ok");risk=W+R;}}
+    else if(e==="perm"){add(0,"OSD down → degraded, I/O 계속","bad");add(W,"down→out 대기 끝 → 남은 OSD로 백필 시작","key");add(W+R,"모든 PG 사본 3개 복원 → HEALTH_OK","ok");risk=W+R;note="백필은 여러 OSD가 동시에 하므로 실제로는 계산보다 빠를 수 있지만, 서비스 지연이 늘어납니다.";}
+    else if(e==="disk"){const r=R/4;add(0,"OSD를 out 처리(계획) → 데이터를 다른 OSD로 이동, 사본 수는 유지","key");add(r,"이동 완료 → OSD purge, 디스크 교체","key");add(r+10,"새 디스크로 OSD 생성 → 리밸런싱으로 데이터 일부가 돌아옴","key");add(2*r+10,"균형 회복","ok");note="계획된 교체는 먼저 데이터를 옮기므로 사본이 줄지 않습니다(이 노드 데이터의 1/4을 디스크 하나로 가정).";}
+    else{add(0,"noout 설정 → 노드 재부팅, 해당 OSD down이지만 out 안 됨","key");add(15,"노드 복귀 → 변경분만 복구","key");add(17,"HEALTH_OK → noout 해제","ok");risk=17;note="noout 없이 15분을 넘기면 불필요한 백필이 일어났다가 되돌아옵니다(10장 사례).";}
+  } else {
+    const lhName=s==="mayastor"?"Mayastor":"Longhorn";
+    if(e==="temp"){add(0,"레플리카 오류 → 볼륨 degraded, 남은 레플리카로 계속","bad");if(5<W){add(5,"노드 복귀(대기 시간 안) → 레플리카 재사용, 변경분 동기화","key");add(7,"healthy","ok");risk=7;}else{add(W,"대기 끝 → 다른 노드에 새 레플리카 재구축","key");add(W+R,"healthy","ok");risk=W+R;}note="엔진이 그 노드에 있었다면 Pod가 다른 노드로 옮겨 붙는 시간(12편)이 더해집니다.";}
+    else if(e==="perm"){add(0,"레플리카 오류 → degraded","bad");
+      if(s==="lhmin"){add(W,"대기 끝 → 새 레플리카를 둘 노드가 없음(안티 어피니티) → degraded 유지","bad");add(Infinity,"노드 추가·복구 전까지 사본 2개","bad");risk=Infinity;note="노드 3대에 레플리카 3개면 한 대를 잃었을 때 재구축할 곳이 없습니다. 복제 수 + 1 이상의 노드를 두세요.";}
+      else{add(W,`대기 끝 → 다른 노드에 새 레플리카 전체 복사(${lhName})`,"key");add(W+R,"healthy","ok");risk=W+R;note=s==="lh"?"1.11부터 V1도 여러 레플리카에서 병렬로 받아 재구축합니다.":"";}}
+    else if(e==="disk"){add(0,"디스크 스케줄링 비활성·레플리카 축출 요청 → 다른 디스크·노드에 새 레플리카 생성","key");add(R/4,"새 레플리카 완성 후 옛 레플리카 제거 → 디스크 교체","ok");note="축출 방식은 사본 수를 줄이지 않고 옮깁니다.";}
+    else{add(0,"노드 드레인 → 엔진이 있던 볼륨은 Pod와 함께 다른 노드로 재부착","key");add(1,"그 노드의 레플리카는 오류(degraded)","bad");if(15<W){add(15,"노드 복귀(대기 시간 안) → 레플리카 재사용, 변경분 동기화","key");add(17,"healthy","ok");risk=16;}else if(s==="lhmin"){add(W,"대기 시간 초과지만 새 레플리카를 둘 노드가 없음 → degraded 유지","bad");add(15,"노드 복귀 → 기존 레플리카 재사용 또는 재구축","key");add(15+Math.min(R,10),"healthy","ok");risk=15+Math.min(R,10);note="노드 3대에서는 유지보수 중 사본을 대신 만들 곳이 없습니다.";}else{add(W,"대기 시간 초과 → 새 레플리카 재구축 시작","key");add(W+R,"healthy","ok");risk=W+R;note="유지보수 시간이 대기 시간보다 길면 불필요한 재구축이 일어납니다. 유지보수 전에 대기 시간을 늘려 두세요.";}}
+  }
+  T.sort((a,b)=>a[0]-b[0]);
+  $("#fTl").innerHTML=T.map(t=>`<div class="${t[2]}"><b>${isFinite(t[0])?"+"+fm(t[0]):"계속"}</b>${t[1]}</div>`).join("");
+  let msg="";
+  if(loss)msg=`<b style="color:var(--warn)">데이터 손실</b> — 복제가 없는 구성입니다. `;
+  if(outage)msg+=`<b>서비스 중단 발생</b>. `;
+  if(risk>0)msg+=`사본이 부족한 위험 창: <b>${isFinite(risk)?fm(risk):"노드가 돌아올 때까지"}</b>. `;
+  if(!outage&&!loss)msg+="데이터 접근은 계속됩니다. ";
+  $("#fMsg").innerHTML=msg+(note?`<br>${note}`:"")+`<br><small>재구축 시간 = 데이터 ${D} GiB ÷ ${B} MiB/s ≈ ${fm(R)}</small>`;
+}
+["fWait","fData","fBw"].forEach(id=>$("#"+id).addEventListener("input",renderFail));renderFail();
+
+/* ---------- bandwidth calc ---------- */
+function calcBw(){
+  const W=+$("#bW").value||0,R=Math.max(1,+$("#bR").value||1),N=+$("#bN").value||1,D=+$("#bD").value||0,L=(+$("#bL").value||1)/100,S=Math.max(2,+$("#bS").value||3);
+  const cap=N*119.2,rep=W*(R-1),util=rep/cap*100,rb=cap*L;
+  const par=D*1024*1024/(rb*(S-1))/3600,single=D*1024*1024/rb/3600;
+  const f=h=>h<1?`${Math.round(h*60)}분`:`${h.toFixed(1)}시간`;
+  $("#bOut").innerHTML=`<div class="kpi"><b>${Math.round(rep)}</b><span>평상시 복제 트래픽(MiB/s, 노드당)</span></div><div class="kpi"><b>${util.toFixed(0)}%</b><span>NIC 사용률(복제만)</span></div><div class="kpi"><b>${f(par)}</b><span>노드 손실 후 재구축(여러 노드가 나눠 받을 때)</span></div><div class="kpi"><b>${f(single)}</b><span>새 노드 한 대로 모두 받을 때</span></div>`;
+  let m=`NIC ${N}Gbps ≈ ${Math.round(cap)} MiB/s. `;
+  if(util>50)m+="평상시 복제만으로 NIC의 절반 이상을 씁니다. 재구축이 겹치면 서비스 지연이 크게 늘어납니다. 스토리지 네트워크 분리나 NIC 증설을 검토하세요. ";
+  if(N<10)m+="10GbE 미만에서는 재구축 시간이 길어 위험 창이 커집니다. ";
+  if(single>24)m+="새 노드 한 대로 하루 이상 걸리는 재구축은 그동안 두 번째 장애에 노출됩니다. 노드당 데이터를 줄이거나(노드 추가) 대역폭을 늘리세요.";
+  $("#bMsg").textContent=m;
+}
+["bW","bR","bN","bD","bL","bS"].forEach(id=>$("#"+id).addEventListener("input",calcBw));calcBw();
+
+/* ---------- quiz ---------- */
+const QUIZ=[
+ ["Ceph MON을 3개 둔 클러스터에서 MON 2개가 동시에 내려가면?",["정상 동작","과반수를 잃어 클러스터 전체가 멈춤","읽기만 가능","OSD가 대신 결정"],1,"MON은 과반 합의가 필요합니다. 동시에 하나씩만 내리세요."],
+ ["3복제 풀의 min_size가 2일 때 사본이 1개만 남은 PG는?",["정상 쓰기","쓰기 중단","자동 삭제","읽기 전용 영구 전환"],1,"min_size 미달이면 그 PG의 I/O가 멈춥니다."],
+ ["계획된 노드 유지보수 전에 Ceph에서 할 일은?",["ceph osd out","ceph osd set noout","MON 삭제","PG 수 줄이기"],1,"오래 꺼져도 out 처리되지 않게 해 불필요한 백필을 막습니다."],
+ ["OSD 사용률이 95%(full)에 닿으면?",["경고만","해당 OSD 관련 쓰기 중단","자동 확장","백업 시작"],1,"전체 사용률이 아니라 가장 꽉 찬 OSD를 감시해야 합니다."],
+ ["Longhorn 노드 3대, 레플리카 3개 볼륨에서 노드 하나를 영구히 잃으면?",["즉시 재구축","새 레플리카를 둘 노드가 없어 degraded 유지","볼륨 삭제","레플리카 4개로 증가"],1,"안티 어피니티 때문에 같은 노드에 둘 수 없습니다. 복제 수 + 1 이상의 노드가 필요합니다."],
+ ["Longhorn replica-replenishment-wait-interval의 목적은?",["백업 주기","노드가 곧 돌아오면 기존 레플리카를 재사용해 불필요한 재구축을 피함","스냅샷 보존","엔진 재시작"],1,"유지보수 시간이 이보다 길면 재구축이 일어납니다."],
+ ["replica-soft-anti-affinity를 켜면 생길 수 있는 위험은?",["성능 저하","레플리카가 한 노드에 몰려 노드 장애 시 볼륨 소실","백업 실패","RWX 불가"],1,"가용성 착시를 만듭니다."],
+ ["Longhorn V2 데이터 엔진에 대해 옳은 것은?",["iSCSI 기반","SPDK 기반으로 1.12 GA, 전용 CPU 코어와 대용량 페이지 필요","Ceph 필요","RWX 전용"],1,"1.13에서 무중단 업그레이드가 추가됐습니다."],
+ ["OpenEBS LocalPV에 두기 적절한 워크로드는?",["단일 인스턴스 업무 DB","앱이 스스로 복제하는 Kafka·Cassandra","백업 저장소","공유 업로드 폴더"],1,"노드를 잃으면 데이터가 사라지므로 앱 수준 복제가 전제입니다."],
+ ["노드당 4TiB, 재구축에 NIC 10Gbps의 40%를 쓸 때 새 노드 한 대로 다 받는 데 걸리는 시간은 대략?",["10분","약 2.5시간","약 2일","약 1주"],1,"10Gbps ≈ 1,192 MiB/s의 40% ≈ 477 MiB/s, 4TiB ÷ 477MiB/s ≈ 2.4시간."]
+];
+const quiz=$("#quiz"),qScore=$("#quizScore");let qd=0,qr=0;
+QUIZ.forEach(([q,opts,ans,exp],i)=>{const box=el("div",{class:"q"});box.innerHTML=`<p class="qq">${i+1}. ${q}</p>`;const o=el("div",{class:"opts"});
+ opts.forEach((t,j)=>{const b=el("button",{class:"opt",type:"button"});b.textContent=t;b.addEventListener("click",()=>{if(box.classList.contains("answered"))return;box.classList.add("answered");b.classList.add(j===ans?"right":"wrong");o.children[ans].classList.add("right");qd++;if(j===ans)qr++;qScore.textContent=`${QUIZ.length}문제 중 ${qd}문제 풀이, ${qr}문제 정답`;});o.appendChild(b);});
+ box.appendChild(o);box.appendChild(el("div",{class:"exp"},exp));quiz.appendChild(box);});
+
+/* glossary */
+const gloss=$("#gloss"),keys=Object.keys(TERMS).sort((a,b)=>a.localeCompare(b,"ko"));
+function rg(q=""){gloss.innerHTML="";const s=q.trim().toLowerCase();
+  keys.filter(k=>!s||(k+TERMS[k][0]+TERMS[k][1]).toLowerCase().includes(s)).forEach(k=>{gloss.appendChild(el("dt",{},`${k}<br><span style="font-weight:400;color:var(--muted);font-size:.8rem">${TERMS[k][0]}</span>`));gloss.appendChild(el("dd",{},TERMS[k][1]));});
+  if(!gloss.children.length)gloss.innerHTML="<dt>결과 없음</dt><dd>다른 단어로 검색하거나 검색창을 비우세요.</dd>";}
+rg();$("#glossSearch").addEventListener("input",e=>rg(e.target.value));
+
+/* copy */
+document.querySelectorAll(".code").forEach(box=>{const btn=box.querySelector(".copy"),pre=box.querySelector("pre");if(!btn||!pre)return;btn.addEventListener("click",async()=>{const txt=pre.innerText;try{await navigator.clipboard.writeText(txt);}catch(e){const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(_){}ta.remove();}btn.textContent="복사됨";setTimeout(()=>btn.textContent="복사",1400);});});
+
+/* toc */
+const links=[...document.querySelectorAll("nav.toc a")];
+const targets=links.map(a=>document.querySelector(a.getAttribute("href"))).filter(Boolean);
+if("IntersectionObserver" in window){const io=new IntersectionObserver(ents=>{ents.forEach(en=>{if(en.isIntersecting)links.forEach(a=>a.classList.toggle("active",a.getAttribute("href")==="#"+en.target.id));});},{rootMargin:"-30% 0px -60% 0px"});targets.forEach(t=>io.observe(t));}
+})();
+</script>
+</body>
+</html>
